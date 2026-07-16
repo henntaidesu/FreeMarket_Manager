@@ -20,7 +20,6 @@ const routes = [
       { path: 'notifications', name: 'Notifications', component: () => import('@/views/Notifications/index.vue'), meta: { title: '煤炉通知', icon: 'Bell' } },
       { path: 'mercari-accounts', name: 'MercariAccounts', component: () => import('@/views/MercariAccounts/index.vue'), meta: { title: '煤炉账号', icon: 'User' } },
       { path: 'memos', name: 'Memos', component: () => import('@/views/Memos/index.vue'), meta: { title: '备忘录', icon: 'ChatDotRound' } },
-      { path: 'gotion', name: 'Gotion', component: () => import('@/views/Gotion/index.vue'), meta: { title: '表格管理', icon: 'Notebook' } },
       // 系统管理（一级，二级菜单由 Layout 侧边栏右侧弹出，URL 嵌套到 /system/*）
       { path: 'system', name: 'System', component: () => import('@/views/system/System/index.vue'), meta: { title: '系统总览', icon: 'Setting' } },
       { path: 'system/transactions', name: 'Transactions', component: () => import('@/views/system/Transactions/index.vue'), meta: { title: '库存记录', icon: 'List' } },
@@ -33,6 +32,7 @@ const routes = [
       { path: 'system/talk-scripts', name: 'TalkScripts', component: () => import('@/views/system/TalkScripts/index.vue'), meta: { title: '话术表', icon: 'ChatLineRound' } },
       { path: 'system/system-logs', name: 'SystemLogs', component: () => import('@/views/system/SystemLogs/index.vue'), meta: { title: '系统日志', icon: 'Document' } },
       { path: 'system/database', name: 'DatabaseManagement', component: () => import('@/views/system/DatabaseManagement/index.vue'), meta: { title: '数据库管理', icon: 'Coin' } },
+      { path: 'system/config', name: 'SystemConfig', component: () => import('@/views/system/SystemConfig/index.vue'), meta: { title: '系统配置', icon: 'Tools' } },
       // 隐藏页：管理番号暗号编码模式切换。仅 URL /#/x9 可达，侧边栏无入口。
       { path: 'x9', name: 'CipherMode', component: () => import('@/views/CipherMode/index.vue'), meta: { title: '暗号模式', hidden: true } },
       // 隐藏页：系统数据流图文档。仅 URL /#/DFD 可达，侧边栏无入口。

@@ -865,6 +865,32 @@ export default defineComponent({
       combined_items: null
     })
 
+    /** AI 生成出品标题 / 出品说明（DeepSeek，日语；以商品名为主题） */
+    const aiGenerating = ref(false)
+    async function aiGenerateListing() {
+      const name = String(form.value.name || '').trim()
+      if (!name) {
+        ElMessage.warning(t('inventory.aiGenerateNeedName'))
+        return
+      }
+      aiGenerating.value = true
+      try {
+        const res = await inventoryApi.aiGenerateListing({
+          id: form.value.id || null,
+          name,
+          category_id: form.value.category_id || null,
+          price: Number(form.value.price) || null
+        })
+        if (res?.title) form.value.listing_title = String(res.title).slice(0, 40)
+        if (res?.body != null) form.value.listing_body = String(res.body).slice(0, 900)
+        ElMessage.success(t('inventory.aiGenerateSuccess'))
+      } catch (e) {
+        // 后端错误详情已由 http 拦截器统一弹出，此处不再重复提示
+      } finally {
+        aiGenerating.value = false
+      }
+    }
+
     /** 编辑组合商品时右侧「组成明细」 */
     const combinedEditDetailLoading = ref(false)
     const combinedEditDetailRows = ref([])
@@ -4295,6 +4321,8 @@ export default defineComponent({
       onListingSaleTypeChange,
       mercariAccountOptionLabel,
       persistListingField,
+      aiGenerating,
+      aiGenerateListing,
       submitListingFromEditForm,
       combinedProductDialogVisible,
       combinedProductSubmitting,

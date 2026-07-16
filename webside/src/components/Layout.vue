@@ -239,7 +239,6 @@ const menuItems = [
   { path: '/notifications', titleKey: 'layout.menu.notifications', icon: 'Bell' },
   { path: '/mercari-accounts', titleKey: 'layout.menu.mercariAccounts', icon: 'User' },
   { path: '/memos', titleKey: 'layout.menu.memos', icon: 'ChatDotRound' },
-  { path: '/gotion', titleKey: 'layout.menu.gotion', icon: 'Notebook' },
   {
     path: '/system',
     titleKey: 'layout.menu.system',
@@ -255,7 +254,8 @@ const menuItems = [
       { path: '/system/product-type-category-mappings', titleKey: 'layout.menu.productTypeMappings', icon: 'Connection' },
       { path: '/system/talk-scripts', titleKey: 'layout.menu.talkScripts', icon: 'ChatLineRound' },
       { path: '/system/system-logs', titleKey: 'layout.menu.systemLogs', icon: 'Document' },
-      { path: '/system/database', titleKey: 'layout.menu.database', icon: 'Coin' }
+      { path: '/system/database', titleKey: 'layout.menu.database', icon: 'Coin' },
+      { path: '/system/config', titleKey: 'layout.menu.systemConfig', icon: 'Tools' }
     ]
   }
 ]

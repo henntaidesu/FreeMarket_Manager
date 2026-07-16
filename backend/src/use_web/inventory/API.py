@@ -19,6 +19,7 @@ from .image_search import image_search, image_search_status
 from .units.inventory_public_handler import get_image_thumb
 from .units.ocr_handler import ocr_region
 from .units.scan_handler import scan_barcode
+from .units.ai_listing_handler import generate_listing_ai
 
 router = APIRouter()
 # 公开路由：缩略图等无需登录即可访问（图片本身已通过静态文件公开）
@@ -47,6 +48,9 @@ router.add_api_route("/{pid}", get_inventory, methods=["GET"])
 router.add_api_route("", create_inventory, methods=["POST"])
 router.add_api_route("/{pid}", update_inventory, methods=["PUT"])
 router.add_api_route("/{pid}", delete_inventory, methods=["DELETE"])
+
+# AI 生成出品标题 / 出品说明（DeepSeek，日语；以商品名为主题）
+router.add_api_route("/ai-generate-listing", generate_listing_ai, methods=["POST"])
 
 # OCR 识别（库存页面"OCR 识别商品名"）
 router.add_api_route("/ocr-region", ocr_region, methods=["POST"])

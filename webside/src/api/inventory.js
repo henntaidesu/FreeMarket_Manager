@@ -42,5 +42,7 @@ export const inventoryApi = {
   update: (id, data) => http.put(`/use_web/inventory/${id}`, data),
   remove: (id) => http.delete(`/use_web/inventory/${id}`),
   stockIn: (id, data) => http.post(`/use_web/inventory/${id}/stock-in`, data),
-  stockOut: (id, data) => http.post(`/use_web/inventory/${id}/stock-out`, data)
+  stockOut: (id, data) => http.post(`/use_web/inventory/${id}/stock-out`, data),
+  // AI 生成出品标题 / 出品说明（DeepSeek，日语；以商品名为主题）
+  aiGenerateListing: (data) => http.post('/use_web/inventory/ai-generate-listing', data, { timeout: 60000 })
 }

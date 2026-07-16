@@ -653,6 +653,19 @@
           <el-divider content-position="left" class="product-listing-divider">
             {{ t('inventory.listingSectionTitle') }}
           </el-divider>
+          <!-- AI 生成出品标题 / 出品说明（DeepSeek，日语；以商品名为主题） -->
+          <div class="listing-ai-row">
+            <el-button
+              type="primary"
+              plain
+              size="small"
+              :loading="aiGenerating"
+              @click="aiGenerateListing"
+            >
+              <el-icon v-if="!aiGenerating"><MagicStick /></el-icon>
+              {{ t('inventory.aiGenerate') }}
+            </el-button>
+          </div>
           <el-row :gutter="16">
             <el-col :span="24">
               <el-form-item :label="t('inventory.listingTitle')">
