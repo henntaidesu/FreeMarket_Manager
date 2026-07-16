@@ -113,3 +113,8 @@ def save_db_config(backend: str, mysql: Optional[Dict[str, Any]] = None) -> None
         raise ValueError(f"未知数据库后端: {backend}")
     set_setting("db_backend", backend)
     save_mysql_params(mysql)
+
+
+def set_active_mysql_database(name: str) -> None:
+    """仅切换当前生效的 MySQL 库名（热切换时调用，服务器等其余参数不变）。"""
+    set_setting("mysql_database", str(name).strip())

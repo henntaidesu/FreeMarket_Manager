@@ -10,5 +10,10 @@ export const databaseApi = {
   // 切换后端：仅保存选择 + 自动重启（不迁移数据）
   switch: (payload) => http.post('/use_web/system/database/switch', payload),
   // 迁移数据：把当前库数据复制到目标库（不改变当前后端，可能较久，放宽超时）
-  migrate: (payload) => http.post('/use_web/system/database/migrate', payload, { timeout: 300000 })
+  migrate: (payload) => http.post('/use_web/system/database/migrate', payload, { timeout: 300000 }),
+
+  // MySQL 数据库热切换：同服务器切库（改库名），无需重启；要求当前无后台同步任务在进行
+  hotSwitch: (database) => http.post('/use_web/system/database/hot-switch', { database }, { timeout: 120000 }),
+  // 备份数据库：把当前库整库覆盖到目标 MySQL（服务器/库任意），当前使用的库不变
+  backup: (mysql) => http.post('/use_web/system/database/backup', { mysql }, { timeout: 300000 })
 }

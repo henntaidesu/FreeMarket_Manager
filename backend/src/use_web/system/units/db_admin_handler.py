@@ -19,6 +19,7 @@ from ....db_manage import db_settings
 from ....db_manage import migrate as migrator
 from ....db_manage.db_manager import get_db_manager
 from ....system_service import resolve_restart_bat, schedule_restart_via_bat
+from ....use_mercari.sync import sync_lock
 
 
 class MysqlParams(BaseModel):
@@ -190,3 +191,141 @@ async def migrate_database(body: SwitchIn) -> SwitchOut:
     msg = (f"已将数据迁移到 {body.backend}（共 {len(result['tables'])} 张表），"
            f"当前仍使用 {current}。如需启用请点击「切换数据库」")
     return SwitchOut(ok=True, message=msg, tables=result["tables"], restarting=False)
+
+
+# ---------------------------------------------------------------------------
+# MySQL 数据库热切换（同服务器切库，如测试库 ⇄ 正式库，无需重启后端）
+# ---------------------------------------------------------------------------
+
+class HotSwitchIn(BaseModel):
+    database: str                 # 目标库名
+
+
+class HotSwitchOut(BaseModel):
+    ok: bool
+    database: str
+    message: str
+
+
+async def hot_switch_mysql_database(body: HotSwitchIn) -> HotSwitchOut:
+    """在同一 MySQL 服务器上热切换当前使用的数据库（仅改库名，不重启后端）。
+
+    切换前提：当前没有正在进行的后台同步任务——获取全局同步锁；获取失败即拒绝，
+    并在切换期间持锁以阻止新同步开始。成功后原子替换 DatabaseManager 的方言并在
+    目标库补齐表结构，任一步失败则回滚到原库。
+    """
+    if db_settings.get_active_backend() != "mysql":
+        raise HTTPException(status_code=400, detail="热切换仅在 MySQL 模式下可用")
+
+    target = (body.database or "").strip()
+    if not target:
+        raise HTTPException(status_code=400, detail="目标数据库名不能为空")
+
+    cfg = db_settings.get_mysql_config()
+    current = cfg.get("database") or ""
+    if target == current:
+        raise HTTPException(status_code=400, detail=f"当前已在使用数据库 `{target}`")
+
+    # 确认没有正在进行的后台同步任务；获取同步锁以阻止切换期间新同步开始
+    token = sync_lock.try_begin("db_switch", "正在切换数据库")
+    if token is None:
+        cur = sync_lock.status()
+        label = cur.get("label_zh") or "有同步任务"
+        raise HTTPException(
+            status_code=409,
+            detail=f"{label}正在进行，请等待其完成后再切换数据库",
+        )
+    try:
+        from ....db_manage.dialects.mysql import MysqlDialect
+        new_dialect = MysqlDialect({
+            "host": cfg["host"], "port": cfg["port"], "user": cfg["user"],
+            "password": cfg["password"], "database": target,
+            "pool_size": cfg["pool_size"],
+        })
+        try:
+            new_dialect.setup()  # 确保目标库存在（无权限建库时若库已存在也可继续）
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail=f"目标数据库不可用：{e}")
+
+        mgr = get_db_manager()
+        old_dialect = mgr.db.dialect
+        # 原子替换方言：此后所有 execute_* / 模型查询都走目标库
+        mgr.db.dialect = new_dialect
+        db_settings.set_active_mysql_database(target)  # 持久化，重启后仍指向该库
+
+        # 在目标库补齐表结构（幂等）；失败则回滚到原库
+        try:
+            ok = mgr.initialize_database()
+        except Exception as e:  # noqa: BLE001
+            mgr.db.dialect = old_dialect
+            db_settings.set_active_mysql_database(current)
+            raise HTTPException(status_code=500, detail=f"切换后初始化目标库失败，已回滚：{e}")
+        if not ok:
+            mgr.db.dialect = old_dialect
+            db_settings.set_active_mysql_database(current)
+            raise HTTPException(status_code=500, detail="切换后初始化目标库失败，已回滚")
+    finally:
+        sync_lock.end(token)
+
+    return HotSwitchOut(
+        ok=True, database=target,
+        message=f"已热切换到数据库 `{target}`（无需重启）",
+    )
+
+
+# ---------------------------------------------------------------------------
+# 数据库备份：把当前库全部数据「整库覆盖」到目标 MySQL（服务器/库任意），不改变当前后端
+# ---------------------------------------------------------------------------
+
+class BackupIn(BaseModel):
+    mysql: MysqlParams            # 备份目标：任意 MySQL 服务器 + 目标库名
+
+
+async def backup_database(body: BackupIn) -> SwitchOut:
+    """把当前数据库的全部数据备份到目标 MySQL（先清空目标同名表再整库覆盖），当前使用的数据库不变。"""
+    p = body.mysql
+    target_db = (p.database or "").strip() if p else ""
+    if not p or not target_db:
+        raise HTTPException(status_code=400, detail="请填写备份目标库名")
+
+    # 校验目标连接（密码留空则沿用已保存的 MySQL 密码）
+    test_mysql_connection(p)
+
+    # 目标不能是「当前正在使用的库」自身（同 host/port/库名），否则边读边覆盖会损坏数据
+    if db_settings.get_active_backend() == "mysql":
+        cur = db_settings.get_mysql_config()
+        if (str(p.host).strip() == str(cur["host"]).strip()
+                and int(p.port) == int(cur["port"])
+                and target_db == str(cur["database"]).strip()):
+            raise HTTPException(status_code=400, detail="备份目标不能是当前正在使用的库")
+
+    # 备份期间获取同步锁，避免源库数据在拷贝过程中变动
+    token = sync_lock.try_begin("db_backup", "正在备份数据库")
+    if token is None:
+        st = sync_lock.status()
+        label = st.get("label_zh") or "有同步任务"
+        raise HTTPException(status_code=409, detail=f"{label}正在进行，请稍后再备份")
+    try:
+        from ....db_manage.dialects.mysql import MysqlDialect
+        target_dialect = MysqlDialect({
+            "host": p.host, "port": int(p.port), "user": p.user,
+            "password": _resolve_password(p), "database": target_db,
+        })
+        mgr = get_db_manager()
+        try:
+            result = migrator.migrate(mgr.db, target_dialect, mgr.models)
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(status_code=500, detail=f"备份失败：{e}")
+    finally:
+        sync_lock.end(token)
+
+    if not result["ok"]:
+        bad = ", ".join(s["table"] for s in result["mismatch"])
+        raise HTTPException(status_code=500, detail=f"备份后行数不一致：{bad}")
+
+    return SwitchOut(
+        ok=True,
+        message=f"已备份到 {p.host}:{int(p.port)}/{target_db}（共 {len(result['tables'])} 张表）",
+        tables=result["tables"],
+        restarting=False,
+    )

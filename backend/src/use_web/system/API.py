@@ -41,10 +41,13 @@ from .units.db_admin_handler import (
     DbConfigOut,
     TestResult,
     SwitchOut,
+    HotSwitchOut,
     get_database_config,
     test_mysql_connection,
     switch_database,
     migrate_database,
+    hot_switch_mysql_database,
+    backup_database,
 )
 
 # 二级子模块 router
@@ -86,6 +89,10 @@ router.add_api_route("/database/config", get_database_config, methods=["GET"], r
 router.add_api_route("/database/test-connection", test_mysql_connection, methods=["POST"], response_model=TestResult)
 router.add_api_route("/database/switch", switch_database, methods=["POST"], response_model=SwitchOut)
 router.add_api_route("/database/migrate", migrate_database, methods=["POST"], response_model=SwitchOut)
+# MySQL 数据库热切换（同服务器切库：测试库 ⇄ 正式库，无需重启）
+router.add_api_route("/database/hot-switch", hot_switch_mysql_database, methods=["POST"], response_model=HotSwitchOut)
+# 数据库备份（当前库整库覆盖到目标 MySQL，可能较久，放宽超时）
+router.add_api_route("/database/backup", backup_database, methods=["POST"], response_model=SwitchOut)
 
 # SSL MITM 代理控制
 router.add_api_route("/ssl-mitm/status", get_status, methods=["GET"])
