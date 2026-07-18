@@ -172,13 +172,14 @@ export default defineComponent({
       return t('inventory.takeImageN', { n: idx + 1, primary: idx === 0 ? t('inventory.primaryImageInParen') : '' })
     })
     let productImgStream = null
-    /** 系统页「出品默认值」，打开编辑弹窗时填充出品字段（与出品自动化字段一致） */
+    /** 系统页「出品默认值」，打开编辑弹窗时预填空白出品字段（手动出品用）。
+     *  发货地/配送/快递费负担/发货天数 + 出品图片(watermark)；自动补挂不读这些默认。 */
     const listingDefaultsFromServer = ref({
       shipping_from_area_id: null,
       shipping_method: null,
       shipping_payer: null,
       shipping_days: null,
-      mercari_account_id: null
+      watermark: 1
     })
 
     // ============ 出品表单（已融合进编辑弹窗） ============
@@ -291,8 +292,9 @@ export default defineComponent({
     }
 
     /**
-     * 仅为「缺省」的出品字段回落系统出品默认值。
+     * 仅为「缺省」的出品字段回落系统出品默认值（手动出品预填）。
      * 商品已保存的出品设置（openDialog 已从行写入）优先，不被覆盖。
+     * 注意：商品状态 / 售卖类型不读系统默认（用商品自身值或硬编码）。
      */
     function applyListingDefaultsToForm() {
       const cfg = listingDefaultsFromServer.value || {}
@@ -311,10 +313,6 @@ export default defineComponent({
         normalizeShippingFromSeed(form.value.shipping_from) ||
         normalizeShippingFromSeed(cfg.shipping_from_area_id) ||
         ''
-      const cfgMid = cfg.mercari_account_id != null ? Number(cfg.mercari_account_id) : null
-      if (form.value.mercari_account_id == null && Number.isFinite(cfgMid) && cfgMid > 0) {
-        form.value.mercari_account_id = cfgMid
-      }
       syncShippingFromPathFromForm()
     }
 
@@ -329,19 +327,17 @@ export default defineComponent({
       sale_type: 'sale_type',
       auction_duration: 'auction_duration'
     }
-    // 出品字段（表单名）→ 系统出品默认值键（put_listing_defaults）；无对应者不写默认
+    // 出品字段（表单名）→ 系统出品默认值键（put_listing_defaults）；无对应者不写默认。
+    // 商品状态 / 售卖类型 / 出品账号 / 出品方式不再作为系统默认（已从配置页移除），故不在此映射。
     const LISTING_FIELD_DEFAULT_KEY = {
-      listing_status: 'condition',
-      mercari_account_id: 'mercari_account_id',
       shipping_payer: 'shipping_payer',
       shipping_method: 'shipping_method',
       shipping_from: 'shipping_from_area_id',
-      shipping_days: 'shipping_days',
-      sale_type: 'sale_type'
+      shipping_days: 'shipping_days'
     }
     // listingDefaultsFromServer 本地仅跟踪这些键
     const LISTING_DEFAULT_LOCAL_KEYS = new Set([
-      'shipping_from_area_id', 'shipping_method', 'shipping_payer', 'shipping_days', 'mercari_account_id'
+      'shipping_from_area_id', 'shipping_method', 'shipping_payer', 'shipping_days'
     ])
 
     function listingFieldDbValue(field) {
@@ -863,6 +859,44 @@ export default defineComponent({
       /** 仅展示：组合商品标记（提交前会从 payload 剔除） */
       is_combined: 0,
       combined_items: null
+    })
+
+    /**
+     * 自动出品门控：缺出品必填字段则不能开启「自动出品」（不再用系统默认兜底，
+     * 补挂只用商品自身保存值）。返回缺失字段的中文标签列表，供开关 tooltip 展示。
+     */
+    const autoListingMissingFields = computed(() => {
+      const f = form.value || {}
+      const images = (Array.isArray(f.images) ? f.images : [])
+        .map((u) => String(u || '').trim())
+        .filter(Boolean)
+      const title = String(f.listing_title || f.name || '').trim()
+      const price = Math.round(Number(f.price ?? 0))
+      const checks = [
+        [images.length > 0, t('inventory.productImages')],
+        [!!title, t('inventory.listingTitle')],
+        [f.product_type_id != null, t('inventory.productType')],
+        [!!f.listing_status, t('dialogs.singleListing.productStatus')],
+        [!!f.shipping_payer, t('dialogs.singleListing.shippingPayer')],
+        [!!f.shipping_method, t('dialogs.singleListing.shippingMethod')],
+        [!!String(f.shipping_from || '').trim(), t('dialogs.singleListing.shippingFrom')],
+        [!!f.shipping_days, t('dialogs.singleListing.shippingDays')],
+        [!!f.sale_type, t('dialogs.singleListing.saleType')],
+        [Number.isFinite(price) && price > 0, t('inventory.unitPrice')]
+      ]
+      return checks.filter(([ok]) => !ok).map(([, label]) => label)
+    })
+    const canEnableAutoListing = computed(() => autoListingMissingFields.value.length === 0)
+    const autoListingDisabledReason = computed(() =>
+      canEnableAutoListing.value
+        ? ''
+        : t('inventory.autoListingMissingFields', { fields: autoListingMissingFields.value.join('、') })
+    )
+    // 已开启自动出品但字段变为不完整时，强制关闭，避免补挂用到空值
+    watch(canEnableAutoListing, (ok) => {
+      if (!ok && Number(form.value?.auto_listing_enabled || 0) === 1) {
+        form.value.auto_listing_enabled = 0
+      }
     })
 
     /** AI 生成出品标题 / 出品说明（DeepSeek，日语；以商品名为主题） */
@@ -2548,7 +2582,7 @@ export default defineComponent({
             mercari_item_id: '',
             on_sale_quantity: 0,
             auto_listing_enabled: 0,
-            auto_listing_watermark: 1,
+            auto_listing_watermark: Number(listingDefaultsFromServer.value.watermark) === 0 ? 0 : 1,
             description: null,
             listing_title: '',
             listing_body: '',
@@ -3197,7 +3231,7 @@ export default defineComponent({
     )
 
     /** 编辑弹窗内「出品」：用当前表单字段派发出品自动化（单条库存）
-     *  watermark=true 水印出品，false 原图出品（由两个按钮分别触发） */
+     *  watermark=true 水印出品，false 原图出品（由「出品方式」下拉决定） */
     async function submitListingFromEditForm(watermark = false) {
       const id = Number(form.value?.id)
       if (!Number.isFinite(id) || id <= 0) return
@@ -4184,7 +4218,7 @@ export default defineComponent({
           shipping_method: d?.shipping_method ?? null,
           shipping_payer: d?.shipping_payer ?? null,
           shipping_days: d?.shipping_days ?? null,
-          mercari_account_id: d?.mercari_account_id ?? null
+          watermark: Number(d?.watermark) === 0 ? 0 : 1
         }
       } catch {
         /* 拦截器已提示；保持当前占位 */
@@ -4307,6 +4341,8 @@ export default defineComponent({
       productImgStream,
       listingDefaultsFromServer,
       listingSubmitting,
+      canEnableAutoListing,
+      autoListingDisabledReason,
       mercariAccountOptions,
       mercariAccountsLoading,
       shippingFromCascaderPath,

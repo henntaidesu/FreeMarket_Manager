@@ -6,8 +6,8 @@
   · 该账号开启了「自动上架」同步项（mercari_accounts.auto_fetch_relist=1）
   · 该商品单品开关开启（inventory.auto_listing_enabled=1）
   · 仍有剩余可售库存（quantity - on_sale_quantity - pending_outbound_qty > 0）
-则在售出该商品的同一煤炉账号下，用商品当前保存的出品设置 + 系统出品默认值，
-复用既有出品自动化 `post_to_market` 把它重新上架。
+则在售出该商品的同一煤炉账号下，用商品当前保存的出品设置（不再读系统出品默认值，
+缺省仅回落硬编码安全兜底），复用既有出品自动化 `post_to_market` 把它重新上架。
 
 出品说明末行写入管理番号暗号（``encode_mgmt_id``），下次在售同步即可把新挂牌
 ``item_id`` 重新绑回 ``inventory.id``，与手动「出品」保持一致。
@@ -306,34 +306,27 @@ async def _relist_single_inventory(
     description = _build_relist_description(body_raw, inventory_id)
     price = int(getattr(inv, "price", 0) or 0)
 
-    # 出品设置：优先商品自身保存值，缺省回落系统出品默认值
-    from ..use_web.system.units.app_config_handler import _read_listing_defaults
-
-    ld = _read_listing_defaults()
-
-    def _pick(item_val, cfg_val, fallback):
+    # 出品设置：只用商品自身保存值，缺省回落硬编码安全兜底（不再读系统出品默认值）。
+    # 前端已保证：商品缺出品必填字段时无法开启自动出品，故兜底几乎不会触发，仅防空值出品报错。
+    def _pick(item_val, fallback):
         s = str(item_val if item_val is not None else "").strip()
-        if s:
-            return s
-        s2 = str(cfg_val if cfg_val is not None else "").strip()
-        return s2 or fallback
+        return s or fallback
 
-    status = _pick(getattr(inv, "listing_status", None), ld.get("condition"), "new_unused")
-    sale_type = _pick(getattr(inv, "sale_type", None), ld.get("sale_type"), "instant_buy")
-    shipping_payer = _pick(getattr(inv, "shipping_payer", None), ld.get("shipping_payer"), "seller")
-    shipping_method = _pick(getattr(inv, "shipping_method", None), ld.get("shipping_method"), "undecided")
-    shipping_days = _pick(getattr(inv, "shipping_days", None), ld.get("shipping_days"), "2_3_days")
-    shipping_from_area_id = _pick(
-        getattr(inv, "shipping_from_area_id", None), ld.get("shipping_from_area_id"), ""
-    )
+    status = _pick(getattr(inv, "listing_status", None), "new_unused")
+    sale_type = _pick(getattr(inv, "sale_type", None), "instant_buy")
+    shipping_payer = _pick(getattr(inv, "shipping_payer", None), "seller")
+    shipping_method = _pick(getattr(inv, "shipping_method", None), "undecided")
+    shipping_days = _pick(getattr(inv, "shipping_days", None), "2_3_days")
+    shipping_from_area_id = str(getattr(inv, "shipping_from_area_id", None) or "").strip()
     auction_duration = str(getattr(inv, "auction_duration", None) or "normal").strip() or "normal"
     # 自动出品的出品方式：1=水印出品（默认），0=原图出品
     watermark = int(getattr(inv, "auto_listing_watermark", 1) or 0) == 1
+    # 发货地无合法兜底值：为空则不补挂（与前端门控一致——发货地为空时无法开启自动出品）
     if not shipping_from_area_id:
         log.warning(
-            "[auto_relist] 商品 %s：系统出品默认未配置发货地，出品可能失败（仍尝试）",
-            inventory_id,
+            "[auto_relist] 商品 %s：未保存发货地，跳过补挂", inventory_id
         )
+        return
 
     # 复用既有出品自动化（独立无头出品 profile、全局出品锁、类目 position、MITM 代理全在其中）
     from ..web_drive.core.paths import mercari_account_key

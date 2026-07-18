@@ -37,7 +37,7 @@
             :show-all-levels="false"
             filterable
             clearable
-            :placeholder="t('system.shippingFromPlaceholder')"
+            placeholder=""
             style="width: 100%; max-width: 520px"
             popper-class="product-type-cascader-popper"
             @change="onShippingFromChange"
@@ -47,52 +47,28 @@
           <el-select
             v-model="listingDefForm.shipping_method"
             clearable
-            :placeholder="t('system.shippingMethodPlaceholder')"
+            placeholder=""
             style="width: 100%; max-width: 360px"
+            @change="saveListingDefaults"
           >
             <el-option v-for="s in shippingMethodOptions" :key="s.value" :label="s.label" :value="s.value" />
           </el-select>
         </el-form-item>
         <el-form-item :label="t('system.defaultShippingPayer')">
-          <el-select v-model="listingDefForm.shipping_payer" clearable style="width: 100%; max-width: 360px">
+          <el-select v-model="listingDefForm.shipping_payer" clearable placeholder="" style="width: 100%; max-width: 360px" @change="saveListingDefaults">
             <el-option v-for="s in shippingPayerOptions" :key="s.value" :label="s.label" :value="s.value" />
           </el-select>
         </el-form-item>
         <el-form-item :label="t('system.defaultShippingDays')">
-          <el-select v-model="listingDefForm.shipping_days" clearable style="width: 100%; max-width: 280px">
+          <el-select v-model="listingDefForm.shipping_days" clearable placeholder="" style="width: 100%; max-width: 280px" @change="saveListingDefaults">
             <el-option v-for="s in shippingDaysOptions" :key="s.value" :label="s.label" :value="s.value" />
           </el-select>
         </el-form-item>
-        <el-form-item :label="t('system.defaultCondition')">
-          <el-select v-model="listingDefForm.condition" clearable :placeholder="t('system.autoListingDefaultPlaceholder')" style="width: 100%; max-width: 280px">
-            <el-option v-for="s in conditionOptions" :key="s.value" :label="s.label" :value="s.value" />
+        <el-form-item :label="t('system.defaultListingImage')">
+          <el-select v-model="listingDefForm.watermark" placeholder="" style="width: 100%; max-width: 280px" @change="saveListingDefaults">
+            <el-option :label="t('system.listingImageWatermark')" :value="1" />
+            <el-option :label="t('system.listingImageNoWatermark')" :value="0" />
           </el-select>
-        </el-form-item>
-        <el-form-item :label="t('system.defaultSaleType')">
-          <el-select v-model="listingDefForm.sale_type" clearable :placeholder="t('system.autoListingDefaultPlaceholder')" style="width: 100%; max-width: 280px">
-            <el-option v-for="s in saleTypeOptions" :key="s.value" :label="s.label" :value="s.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="t('system.defaultListingAccount')">
-          <el-select
-            v-model="listingDefForm.mercari_account_id"
-            clearable
-            filterable
-            :placeholder="t('system.listingAccountPlaceholder')"
-            style="width: 100%; max-width: 420px"
-            :loading="mercariAccountsLoading"
-          >
-            <el-option
-              v-for="a in mercariAccountOptions"
-              :key="a.id"
-              :label="mercariAccountOptionLabel(a)"
-              :value="a.id"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" :loading="listingDefSaving" @click="saveListingDefaults">{{ t('system.saveListingDefaults') }}</el-button>
-          <el-button :loading="listingDefLoading" @click="loadListingDefaults">{{ t('system.reload') }}</el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -240,7 +216,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
 import { ElMessage } from '@/utils/notify'
-import { configApi, mercariAccountApi } from '@/api/index.js'
+import { configApi } from '@/api/index.js'
 import { databaseApi } from '@/api/database'
 import {
   MERCARI_AREAS,
@@ -291,7 +267,7 @@ async function save() {
   }
 }
 
-// ===== 出品默认值 =====
+// ===== 出品默认值（手动出品表单预填 + 默认出品方式；不影响自动补挂） =====
 const SHIPPING_FROM_AREA_PREFIX = 'AREA:'
 const SHIPPING_FROM_REGION_PREFIX = 'REGION:'
 
@@ -331,18 +307,6 @@ const shippingDaysOptions = computed(() => [
   { label: t('system.shippingDays23'), value: '2_3_days' },
   { label: t('system.shippingDays47'), value: '4_7_days' }
 ])
-// 自动出品兜底默认：商品状态 / 售卖类型
-const conditionOptions = computed(() => [
-  { label: t('system.conditionNewUnused'), value: 'new_unused' },
-  { label: t('system.conditionAlmostUnused'), value: 'almost_unused' },
-  { label: t('system.conditionGood'), value: 'good' },
-  { label: t('system.conditionFair'), value: 'fair' },
-  { label: t('system.conditionUsed'), value: 'used' }
-])
-const saleTypeOptions = computed(() => [
-  { label: t('system.saleTypeInstantBuy'), value: 'instant_buy' },
-  { label: t('system.saleTypeAuction'), value: 'auction' }
-])
 
 function buildShippingFromPath(areaId) {
   if (!areaId) return []
@@ -351,47 +315,24 @@ function buildShippingFromPath(areaId) {
   return [`${SHIPPING_FROM_REGION_PREFIX}${regionId}`, `${SHIPPING_FROM_AREA_PREFIX}${areaId}`]
 }
 
-function mercariAccountOptionLabel(a) {
-  const name = (a?.account_name || '').trim() || `ID ${a?.id}`
-  const sid = String(a?.seller_id || '').trim()
-  const tail = sid ? ` · ${t('system.seller')} ${sid}` : ''
-  const inactive = a?.status === 'disabled' ? `（${t('system.inactive')}）` : ''
-  return `${name}${tail}${inactive}`
-}
-
 const listingDefForm = reactive({
   shipping_from_path: [],
   shipping_method: null,
   shipping_payer: null,
   shipping_days: null,
-  mercari_account_id: null,
-  // 自动出品兜底默认（库存不存这两个字段）
-  condition: null,
-  sale_type: null
+  // 默认出品图片：1=有水印 / 0=无水印
+  watermark: 1
 })
 
 const listingDefLoading = ref(false)
 const listingDefSaving = ref(false)
-const mercariAccountOptions = ref([])
-const mercariAccountsLoading = ref(false)
 
 function onShippingFromChange(path) {
   const picked = Array.isArray(path) ? path[path.length - 1] : null
   if (!picked || !String(picked).startsWith(SHIPPING_FROM_AREA_PREFIX)) {
     listingDefForm.shipping_from_path = []
   }
-}
-
-async function fetchMercariAccounts() {
-  mercariAccountsLoading.value = true
-  try {
-    const res = await mercariAccountApi.list({ page: 1, page_size: 500 })
-    mercariAccountOptions.value = Array.isArray(res?.items) ? res.items : []
-  } catch {
-    mercariAccountOptions.value = []
-  } finally {
-    mercariAccountsLoading.value = false
-  }
+  saveListingDefaults()
 }
 
 function pathToAreaId(path) {
@@ -404,19 +345,13 @@ function pathToAreaId(path) {
 async function loadListingDefaults() {
   listingDefLoading.value = true
   try {
-    await fetchMercariAccounts()
     const d = await configApi.getListingDefaults()
     const area = normalizeShippingFromSeed(d?.shipping_from_area_id)
     listingDefForm.shipping_from_path = buildShippingFromPath(area)
     listingDefForm.shipping_method = d?.shipping_method ?? null
     listingDefForm.shipping_payer = d?.shipping_payer ?? null
     listingDefForm.shipping_days = d?.shipping_days ?? null
-    listingDefForm.condition = d?.condition ?? null
-    listingDefForm.sale_type = d?.sale_type ?? null
-    listingDefForm.mercari_account_id =
-      d?.mercari_account_id != null && Number.isFinite(Number(d.mercari_account_id)) && Number(d.mercari_account_id) > 0
-        ? Number(d.mercari_account_id)
-        : null
+    listingDefForm.watermark = Number(d?.watermark) === 0 ? 0 : 1
   } catch {
     /* 拦截器已提示 */
   } finally {
@@ -433,12 +368,9 @@ async function saveListingDefaults() {
       shipping_method: listingDefForm.shipping_method,
       shipping_payer: listingDefForm.shipping_payer,
       shipping_days: listingDefForm.shipping_days,
-      condition: listingDefForm.condition,
-      sale_type: listingDefForm.sale_type,
-      mercari_account_id: listingDefForm.mercari_account_id
+      watermark: listingDefForm.watermark
     })
     ElMessage.success(t('system.listingDefaultsSaved'))
-    await loadListingDefaults()
   } catch {
     /* 拦截器 */
   } finally {

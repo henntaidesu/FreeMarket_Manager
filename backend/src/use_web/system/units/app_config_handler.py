@@ -7,34 +7,29 @@ from fastapi import HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from ....db_manage.models.system.config_entry import ConfigEntryModel
-from ....db_manage.models.mercari_accounts.mercari_account import MercariAccountModel
 
+# 系统出品默认值：手动出品表单预填用（发货地/配送/快递费负担/发货天数）
+# + 默认出品图片（1=有水印，0=无水印）。自动出品（补挂）不读这些默认，只用商品自身保存值。
 _K_SHIP_FROM = "listing_defaults_shipping_from_area_id"
 _K_SHIP_METHOD = "listing_defaults_shipping_method"
 _K_SHIP_PAYER = "listing_defaults_shipping_payer"
 _K_SHIP_DAYS = "listing_defaults_shipping_days"
-_K_MERCARI = "listing_defaults_mercari_account_id"
-_K_CONDITION = "listing_defaults_condition"
-_K_SALE_TYPE = "listing_defaults_sale_type"
+_K_WATERMARK = "listing_defaults_watermark"
 
 _ALLOWED_METHODS = frozenset({"undecided", "rakuraku", "yuuyu", "tanome", "regular_mail"})
 _ALLOWED_PAYERS = frozenset({"seller", "buyer"})
 _ALLOWED_DAYS = frozenset({"1_2_days", "2_3_days", "4_7_days"})
-_ALLOWED_CONDITIONS = frozenset({"new_unused", "almost_unused", "good", "fair", "used"})
-_ALLOWED_SALE_TYPES = frozenset({"instant_buy", "auction"})
 
 
 class ListingDefaultsOut(BaseModel):
-    """与库存页出品表单字段对齐（发货地为煤炉 area id 字符串）。"""
+    """手动出品表单默认值（发货地为煤炉 area id 字符串）+ 默认出品图片。"""
 
     shipping_from_area_id: Optional[str] = None
     shipping_method: Optional[str] = None
     shipping_payer: Optional[str] = None
     shipping_days: Optional[str] = None
-    mercari_account_id: Optional[int] = None
-    # 自动出品兜底用（库存不存这两个字段）：商品状态 / 售卖类型
-    condition: Optional[str] = None
-    sale_type: Optional[str] = None
+    # 默认出品图片：1=有水印，0=无水印
+    watermark: int = 1
 
 
 class ListingDefaultsUpdate(BaseModel):
@@ -42,9 +37,7 @@ class ListingDefaultsUpdate(BaseModel):
     shipping_method: Optional[str] = None
     shipping_payer: Optional[str] = None
     shipping_days: Optional[str] = None
-    mercari_account_id: Optional[int] = None
-    condition: Optional[str] = None
-    sale_type: Optional[str] = None
+    watermark: Optional[int] = None
 
     @field_validator("shipping_from_area_id", mode="before")
     @classmethod
@@ -55,7 +48,7 @@ class ListingDefaultsUpdate(BaseModel):
         return s if s else None
 
     @field_validator(
-        "shipping_method", "shipping_payer", "shipping_days", "condition", "sale_type",
+        "shipping_method", "shipping_payer", "shipping_days",
         mode="before",
     )
     @classmethod
@@ -67,29 +60,19 @@ class ListingDefaultsUpdate(BaseModel):
 
 
 def _read_listing_defaults() -> Dict[str, Any]:
-    raw_area = ConfigEntryModel.get_value(_K_SHIP_FROM)
-    raw_method = ConfigEntryModel.get_value(_K_SHIP_METHOD)
-    raw_payer = ConfigEntryModel.get_value(_K_SHIP_PAYER)
-    raw_days = ConfigEntryModel.get_value(_K_SHIP_DAYS)
-    raw_mercari = ConfigEntryModel.get_value(_K_MERCARI)
-    raw_condition = ConfigEntryModel.get_value(_K_CONDITION)
-    raw_sale_type = ConfigEntryModel.get_value(_K_SALE_TYPE)
-    mid: Optional[int] = None
-    if raw_mercari:
+    raw_watermark = ConfigEntryModel.get_value(_K_WATERMARK)
+    watermark = 1
+    if raw_watermark is not None:
         try:
-            mid = int(str(raw_mercari).strip())
-            if mid <= 0:
-                mid = None
+            watermark = 0 if int(str(raw_watermark).strip()) == 0 else 1
         except ValueError:
-            mid = None
+            watermark = 1
     return {
-        "shipping_from_area_id": raw_area,
-        "shipping_method": raw_method,
-        "shipping_payer": raw_payer,
-        "shipping_days": raw_days,
-        "mercari_account_id": mid,
-        "condition": raw_condition,
-        "sale_type": raw_sale_type,
+        "shipping_from_area_id": ConfigEntryModel.get_value(_K_SHIP_FROM),
+        "shipping_method": ConfigEntryModel.get_value(_K_SHIP_METHOD),
+        "shipping_payer": ConfigEntryModel.get_value(_K_SHIP_PAYER),
+        "shipping_days": ConfigEntryModel.get_value(_K_SHIP_DAYS),
+        "watermark": watermark,
     }
 
 
@@ -142,24 +125,10 @@ def put_listing_defaults(body: ListingDefaultsUpdate):
         if v is not None and v not in _ALLOWED_DAYS:
             raise HTTPException(status_code=400, detail=f"无效的 shipping_days: {v}")
 
-    if "condition" in data:
-        v = data["condition"]
-        if v is not None and v not in _ALLOWED_CONDITIONS:
-            raise HTTPException(status_code=400, detail=f"无效的 condition: {v}")
-
-    if "sale_type" in data:
-        v = data["sale_type"]
-        if v is not None and v not in _ALLOWED_SALE_TYPES:
-            raise HTTPException(status_code=400, detail=f"无效的 sale_type: {v}")
-
-    if "mercari_account_id" in data:
-        mid = data["mercari_account_id"]
-        if mid is not None:
-            if mid <= 0:
-                raise HTTPException(status_code=400, detail="mercari_account_id 须为正整数")
-            found = MercariAccountModel.find_all("[id] = ?", (mid,), limit=1)
-            if not found:
-                raise HTTPException(status_code=400, detail=f"煤炉账号不存在: id={mid}")
+    if "watermark" in data:
+        v = data["watermark"]
+        if v is not None and int(v) not in (0, 1):
+            raise HTTPException(status_code=400, detail=f"无效的 watermark: {v}")
 
     if "shipping_from_area_id" in data:
         ConfigEntryModel.set_value(_K_SHIP_FROM, data["shipping_from_area_id"])
@@ -169,12 +138,10 @@ def put_listing_defaults(body: ListingDefaultsUpdate):
         ConfigEntryModel.set_value(_K_SHIP_PAYER, data["shipping_payer"])
     if "shipping_days" in data:
         ConfigEntryModel.set_value(_K_SHIP_DAYS, data["shipping_days"])
-    if "condition" in data:
-        ConfigEntryModel.set_value(_K_CONDITION, data["condition"])
-    if "sale_type" in data:
-        ConfigEntryModel.set_value(_K_SALE_TYPE, data["sale_type"])
-    if "mercari_account_id" in data:
-        mid = data["mercari_account_id"]
-        ConfigEntryModel.set_value(_K_MERCARI, str(mid) if mid is not None else None)
+    if "watermark" in data:
+        v = data["watermark"]
+        ConfigEntryModel.set_value(
+            _K_WATERMARK, None if v is None else str(0 if int(v) == 0 else 1)
+        )
 
     return ListingDefaultsOut(**_read_listing_defaults())

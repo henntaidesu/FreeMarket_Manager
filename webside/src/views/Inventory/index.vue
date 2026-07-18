@@ -778,18 +778,31 @@
               </el-form-item>
             </el-col>
             <el-col :xs="24" :sm="12">
-              <el-form-item :label="t('inventory.autoListing')">
-                <el-switch v-model="form.auto_listing_enabled" :active-value="1" :inactive-value="0" />
+              <el-form-item :label="t('inventory.listingMethod')">
+                <el-select v-model="form.auto_listing_watermark" style="width: 100%">
+                  <el-option :label="t('inventory.watermarkListing')" :value="1" />
+                  <el-option :label="t('inventory.originalListing')" :value="0" />
+                </el-select>
               </el-form-item>
             </el-col>
           </el-row>
-          <el-row v-if="form.auto_listing_enabled === 1" :gutter="16">
-            <el-col :span="24">
-              <el-form-item :label="t('inventory.autoListingMethod')">
-                <el-radio-group v-model="form.auto_listing_watermark">
-                  <el-radio :value="1">{{ t('inventory.watermarkListing') }}</el-radio>
-                  <el-radio :value="0">{{ t('inventory.originalListing') }}</el-radio>
-                </el-radio-group>
+          <el-row :gutter="16">
+            <el-col :xs="24" :sm="12">
+              <el-form-item :label="t('inventory.autoListing')">
+                <el-tooltip
+                  :disabled="canEnableAutoListing"
+                  :content="autoListingDisabledReason"
+                  placement="top"
+                >
+                  <span>
+                    <el-switch
+                      v-model="form.auto_listing_enabled"
+                      :active-value="1"
+                      :inactive-value="0"
+                      :disabled="!canEnableAutoListing"
+                    />
+                  </span>
+                </el-tooltip>
               </el-form-item>
             </el-col>
           </el-row>
@@ -1122,40 +1135,14 @@
                   popper-class="listing-confirm-popper"
                   :confirm-button-text="t('common.confirm')"
                   :cancel-button-text="t('common.cancel')"
-                  @confirm="submitListingFromEditForm(false)"
-                >
-                  <template #reference>
-                    <el-button
-                      type="warning"
-                      plain
-                      :loading="listingSubmitting"
-                      :disabled="inventorySaveBlockedByImageUpload || listableQuantity(form) <= 0 || syncLockStore.locked || currentEditRowIsAlert"
-                    >{{ t('inventory.listOriginal') }}</el-button>
-                  </template>
-                </el-popconfirm>
-              </span>
-            </el-tooltip>
-            <el-tooltip
-              v-if="form.id"
-              :disabled="!syncLockStore.locked && !currentEditRowIsAlert"
-              :content="syncLockStore.locked ? syncLockStore.label : currentEditRowAlertReason"
-              placement="top"
-            >
-              <span>
-                <el-popconfirm
-                  title=""
-                  hide-icon
-                  popper-class="listing-confirm-popper"
-                  :confirm-button-text="t('common.confirm')"
-                  :cancel-button-text="t('common.cancel')"
-                  @confirm="submitListingFromEditForm(true)"
+                  @confirm="submitListingFromEditForm(Number(form.auto_listing_watermark) === 1)"
                 >
                   <template #reference>
                     <el-button
                       type="warning"
                       :loading="listingSubmitting"
                       :disabled="inventorySaveBlockedByImageUpload || listableQuantity(form) <= 0 || syncLockStore.locked || currentEditRowIsAlert"
-                    >{{ t('inventory.listWatermark') }}</el-button>
+                    >{{ t('inventory.listSubmit') }}</el-button>
                   </template>
                 </el-popconfirm>
               </span>
