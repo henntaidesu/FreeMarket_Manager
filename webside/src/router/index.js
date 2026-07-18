@@ -31,7 +31,6 @@ const routes = [
       { path: 'system/product-type-category-mappings', name: 'ProductTypeCategoryMappings', component: () => import('@/views/system/ProductTypeCategoryMappings/index.vue'), meta: { title: '商品类型映射', icon: 'Connection' } },
       { path: 'system/talk-scripts', name: 'TalkScripts', component: () => import('@/views/system/TalkScripts/index.vue'), meta: { title: '话术表', icon: 'ChatLineRound' } },
       { path: 'system/system-logs', name: 'SystemLogs', component: () => import('@/views/system/SystemLogs/index.vue'), meta: { title: '系统日志', icon: 'Document' } },
-      { path: 'system/database', name: 'DatabaseManagement', component: () => import('@/views/system/DatabaseManagement/index.vue'), meta: { title: '数据库管理', icon: 'Coin' } },
       { path: 'system/config', name: 'SystemConfig', component: () => import('@/views/system/SystemConfig/index.vue'), meta: { title: '系统配置', icon: 'Tools' } },
       // 隐藏页：管理番号暗号编码模式切换。仅 URL /#/x9 可达，侧边栏无入口。
       { path: 'x9', name: 'CipherMode', component: () => import('@/views/CipherMode/index.vue'), meta: { title: '暗号模式', hidden: true } },

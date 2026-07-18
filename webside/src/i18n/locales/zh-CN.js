@@ -107,7 +107,6 @@ export default {
       categories: "游戏分类",
       productTypeMappings: "商品类型映射",
       systemLogs: "系统日志",
-      database: "数据库管理",
     },
     logout: "退出",
     logoutConfirm: "确认退出当前账号？",

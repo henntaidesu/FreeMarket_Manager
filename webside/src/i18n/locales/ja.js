@@ -107,7 +107,6 @@ export default {
       categories: "ゲームカテゴリ",
       productTypeMappings: "商品種別マッピング",
       systemLogs: "システムログ",
-      database: "データベース",
     },
     logout: "ログアウト",
     logoutConfirm: "現在のアカウントからログアウトしますか？",

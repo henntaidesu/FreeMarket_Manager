@@ -16,9 +16,11 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from ...listing.units.post_to_macket import (
-    DEFAULT_ELEMENT_TIMEOUT_MS,
     DEFAULT_PAGE_LOAD_TIMEOUT_MS,
 )
+
+# 修改（revise）表单元素较慢加载，单独使用 30 秒超时，避免 auctionPrice 等输入框等待超时
+REVISE_ELEMENT_TIMEOUT_MS = 30_000
 from ...delete.units.delete_order import (
     build_sell_edit_url,
     mercari_item_path_segment,
@@ -73,20 +75,20 @@ async def _fill_value(page: Any, selector: str, value: str, *, element_timeout_m
 
 
 async def _fill_price_value(page: Any, value: str, *, element_timeout_ms: int) -> None:
-    """填价格：优先定价商品 input[name=price]，不存在则回退拍卖开始价 input[name=auctionPrice]。"""
-    price_loc = page.locator(PRICE_INPUT_SELECTOR).first
-    if await price_loc.count() > 0:
-        await price_loc.wait_for(state="visible", timeout=element_timeout_ms)
-        await price_loc.scroll_into_view_if_needed()
-        await price_loc.fill("")
-        await price_loc.fill(value)
-        return
+    """填价格：优先定价商品 input[name=price]，不存在则回退拍卖开始价 input[name=auctionPrice]。
 
-    auction_loc = page.locator(AUCTION_PRICE_INPUT_SELECTOR).first
-    await auction_loc.wait_for(state="visible", timeout=element_timeout_ms)
-    await auction_loc.scroll_into_view_if_needed()
-    await auction_loc.fill("")
-    await auction_loc.fill(value)
+    编辑页为 React SPA，networkidle 可能在价格输入框渲染完成前就返回。必须先等待「两者之一」
+    可见后再判定用哪个——否则定价商品在 input[name=price] 尚未渲染的瞬间 count()==0，会误等
+    永不出现的 auctionPrice 直到超时（改价场景 _fill_price_value 是首个表单交互，此竞态尤为明显）。
+    """
+    combined = page.locator(f"{PRICE_INPUT_SELECTOR}, {AUCTION_PRICE_INPUT_SELECTOR}")
+    await combined.first.wait_for(state="visible", timeout=element_timeout_ms)
+
+    price_loc = page.locator(PRICE_INPUT_SELECTOR).first
+    target = price_loc if await price_loc.count() > 0 else page.locator(AUCTION_PRICE_INPUT_SELECTOR).first
+    await target.scroll_into_view_if_needed()
+    await target.fill("")
+    await target.fill(value)
 
 
 async def _select_option_value(
@@ -191,7 +193,7 @@ async def revise_mercari_item(
     shipping_from_area_id: Optional[str] = None,
     proxy_server: Optional[str] = None,  # noqa: ARG001 — MITM 由 mitm_automation_browser 统一配置
     page_load_timeout_ms: int = DEFAULT_PAGE_LOAD_TIMEOUT_MS,
-    element_timeout_ms: int = DEFAULT_ELEMENT_TIMEOUT_MS,
+    element_timeout_ms: int = REVISE_ELEMENT_TIMEOUT_MS,
     progress_job_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
@@ -325,6 +327,21 @@ async def revise_mercari_item(
         await submit_btn.wait_for(state="visible", timeout=element_timeout_ms)
         await submit_btn.scroll_into_view_if_needed()
         await submit_btn.click(timeout=element_timeout_ms)
+
+        # 校验提交成功：成功后煤炉会离开编辑页（/sell/edit/...）跳转到商品页/出品一覧。
+        # 若超时内仍停留在编辑页，说明被煤炉校验拦截（价格超范围 / 配送方法未选 / 说明超长等），
+        # 视为失败并抛异常——避免把「煤炉未改成功」的新值静默写回本地库。
+        # 用 element_timeout_ms（30s）而非 page_load_timeout_ms（12s）：网络较慢时成功跳转可能 >12s，
+        # 放宽以免把「其实已改、只是跳转慢」误判为失败。
+        try:
+            await page.wait_for_function(
+                "() => !(location.pathname || '').includes('/sell/edit/')",
+                timeout=element_timeout_ms,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                "提交「変更する」后仍停留在编辑页，修改可能被煤炉校验拦截（未写回本地）"
+            ) from exc
         result["revise_confirmed"] = True
 
         try:
@@ -333,7 +350,7 @@ async def revise_mercari_item(
             )
         except Exception:
             pass
-        await page.wait_for_timeout(2000)
+        await page.wait_for_timeout(1000)
 
     result["browser_closed"] = True
 

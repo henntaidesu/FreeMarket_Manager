@@ -254,7 +254,6 @@ const menuItems = [
       { path: '/system/product-type-category-mappings', titleKey: 'layout.menu.productTypeMappings', icon: 'Connection' },
       { path: '/system/talk-scripts', titleKey: 'layout.menu.talkScripts', icon: 'ChatLineRound' },
       { path: '/system/system-logs', titleKey: 'layout.menu.systemLogs', icon: 'Document' },
-      { path: '/system/database', titleKey: 'layout.menu.database', icon: 'Coin' },
       { path: '/system/config', titleKey: 'layout.menu.systemConfig', icon: 'Tools' }
     ]
   }
