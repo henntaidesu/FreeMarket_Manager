@@ -7,6 +7,9 @@ from fastapi import UploadFile, File, HTTPException
 from PIL import Image
 import zxingcpp
 
+# 防解压炸弹：显式设定像素上限，越限 Pillow 抛 DecompressionBombError
+Image.MAX_IMAGE_PIXELS = 64_000_000
+
 # 只识别一维产品条形码，过滤掉 QR 码等
 _FORMATS = zxingcpp.BarcodeFormats([
     zxingcpp.EAN13,

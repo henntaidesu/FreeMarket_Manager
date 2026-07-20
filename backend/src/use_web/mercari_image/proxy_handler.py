@@ -8,7 +8,9 @@
 """
 import asyncio
 import hashlib
+import ipaddress
 import os
+import socket
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -60,6 +62,51 @@ def _host_allowed(host: str) -> bool:
     return any(h.endswith(suf) for suf in _ALLOWED_HOST_SUFFIXES)
 
 
+def _host_is_public(host: str) -> bool:
+    """解析 host，若任一解析地址为私有/回环/链路本地/保留地址则拒绝（防 SSRF 打内网/元数据）。
+
+    仅当确实解析到内网地址才拒绝；解析失败时放行，交由后续 urlopen 自然报错。
+    """
+    h = (host or "").strip().split(":", 1)[0]
+    if not h:
+        return False
+    try:
+        infos = socket.getaddrinfo(h, None)
+    except Exception:  # noqa: BLE001 —— 解析失败不在此处判定，交由 urlopen 处理
+        return True
+    for info in infos:
+        sockaddr = info[4]
+        if not sockaddr:
+            continue
+        try:
+            ip = ipaddress.ip_address(sockaddr[0])
+        except ValueError:
+            return False
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_unspecified
+            or ip.is_multicast
+        ):
+            return False
+    return True
+
+
+class _RestrictedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """跟随 3xx 前对每一跳目标重新校验白名单域名 + 公网地址；不通过则不跟随（阻断 SSRF 重定向）。"""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D401
+        try:
+            host = urllib.parse.urlsplit(newurl).hostname or ""
+        except Exception:  # noqa: BLE001
+            return None
+        if not _host_allowed(host) or not _host_is_public(host):
+            return None  # 阻断跳转到非白名单 / 内网地址
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def _ext_from_url_or_type(url: str, content_type: Optional[str]) -> str:
     ct = (content_type or "").split(";", 1)[0].strip().lower()
     if ct in _EXT_BY_CONTENT_TYPE:
@@ -91,6 +138,12 @@ def _find_cached(url_hash: str) -> Optional[Tuple[str, str]]:
 
 
 def _download(url: str) -> Tuple[bytes, Optional[str]]:
+    # 初始 host 已在 proxy_mercari_image 校验白名单；此处再补一层「解析到公网地址」检查，
+    # 并使用带 _RestrictedRedirectHandler 的 opener —— 每一跳 3xx 重定向都会重新校验，
+    # 杜绝「初始 host 合法但被重定向到内网/元数据端点」的 SSRF。
+    host = urllib.parse.urlsplit(url).hostname or ""
+    if not _host_allowed(host) or not _host_is_public(host):
+        raise HTTPException(status_code=403, detail="不允许的域名")
     req = urllib.request.Request(
         url,
         headers={
@@ -102,7 +155,8 @@ def _download(url: str) -> Tuple[bytes, Optional[str]]:
             "Referer": "https://jp.mercari.com/",
         },
     )
-    with urllib.request.urlopen(req, timeout=_FETCH_TIMEOUT) as resp:
+    opener = urllib.request.build_opener(_RestrictedRedirectHandler())
+    with opener.open(req, timeout=_FETCH_TIMEOUT) as resp:
         ct = resp.headers.get("Content-Type")
         data = resp.read(_MAX_BYTES + 1)
         if len(data) > _MAX_BYTES:

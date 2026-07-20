@@ -201,10 +201,11 @@ class BaseModel(ABC):
             sql += f" WHERE {where}"
         if order_by:
             sql += f" ORDER BY {order_by}"
-        if limit:
-            sql += f" LIMIT {limit}"
+        if limit is not None and limit != "":
+            # 安全：limit/offset 直接拼进 SQL，强制转 int 防止注入（order_by/where 仍要求调用方传常量）
+            sql += f" LIMIT {int(limit)}"
             if offset:
-                sql += f" OFFSET {offset}"
+                sql += f" OFFSET {int(offset)}"
         try:
             instance = cls()
             result = instance.db.execute_query(sql, params)

@@ -432,5 +432,6 @@ export default {
     imageCount: "{n} 张图",
     invalidImage: "请选择图片文件",
     waitImageUpload: "图片仍在上传，请稍候",
+    previewFailed: "无法预览该图片链接",
   },
 }

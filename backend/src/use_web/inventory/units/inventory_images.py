@@ -15,6 +15,10 @@ from ...image_storage import (
     get_image_root,
     save_upload_image,
 )
+from ..._path_safety import resolve_within_imges
+
+# 防解压炸弹：显式设定像素上限，越限 Pillow 抛 DecompressionBombError
+Image.MAX_IMAGE_PIXELS = 64_000_000
 
 from .inventory_helpers import (
     MAX_INVENTORY_IMAGES,
@@ -65,6 +69,13 @@ def _convert_image_payload(image_value: Optional[str], prefix: str) -> Optional[
             return save_base64_image(val, prefix=prefix)
         except Exception:
             raise HTTPException(status_code=400, detail="图片格式无效或保存失败")
+    # 非 base64 时只接受根目录内的 /imges/ 路径，拦截客户端注入越界路径字符串
+    if not val.startswith("/imges/"):
+        return None
+    try:
+        resolve_within_imges(val, get_image_root())
+    except ValueError:
+        return None
     return val
 
 
@@ -156,8 +167,9 @@ def _load_image_for_match(image_value: Optional[str]) -> Optional[Image.Image]:
             b64 = val.split(",", 1)[1] if "," in val else val
             return Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB")
         if val.startswith("/imges/"):
-            abs_path = os.path.join(get_image_root(), val.split("/imges/", 1)[1].strip("/"))
-            if os.path.exists(abs_path):
+            # 包含性校验，拦截 ..、盘符、UNC 等越界读取（存在性预言/SMB 强制）
+            abs_path = resolve_within_imges(val, get_image_root())
+            if os.path.isfile(abs_path):
                 return Image.open(abs_path).convert("RGB")
     except Exception:
         return None

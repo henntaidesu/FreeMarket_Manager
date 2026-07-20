@@ -8,6 +8,10 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 from PIL import Image
 
+# 防解压炸弹：显式设定像素上限，越限 Pillow 抛 DecompressionBombError
+Image.MAX_IMAGE_PIXELS = 64_000_000
+
+_MAX_DECODED_BYTES = 25 * 1024 * 1024
 
 _reader = None
 
@@ -37,6 +41,8 @@ def ocr_region(req: OcrRequest):
         if "," in img_data:
             img_data = img_data.split(",", 1)[1]
         img_bytes = base64.b64decode(img_data)
+        if len(img_bytes) > _MAX_DECODED_BYTES:
+            raise ValueError("图片过大")
         img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
     except Exception:
         raise HTTPException(status_code=400, detail="图片解析失败，请重试")

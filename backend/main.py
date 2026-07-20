@@ -31,12 +31,32 @@ from src.web_static import mount_spa, register_health
 WEB_DRIVE_FORCE_HEADED_DEBUG = False
   # 强制启用 headed 模式以兼容部分环境（如 Windows 打包后）无法正常使用无头模式的情况  
 
-app = FastAPI(title="mercari V2 订单管理", version="2.0.0")
+# /docs、/openapi.json 默认关闭（避免向 LAN 未认证暴露完整路由/参数）；
+# 需要时设 MERCARI_ENABLE_DOCS=1 开启。
+_ENABLE_DOCS = (_os.environ.get("MERCARI_ENABLE_DOCS") or "").strip().lower() in ("1", "true", "yes")
+app = FastAPI(
+    title="mercari V2 订单管理",
+    version="2.0.0",
+    docs_url="/docs" if _ENABLE_DOCS else None,
+    redoc_url="/redoc" if _ENABLE_DOCS else None,
+    openapi_url="/openapi.json" if _ENABLE_DOCS else None,
+)
+
+# CORS：认证走 Authorization Bearer（非 Cookie），故默认允许任意来源但**关闭凭证**，
+# 消除 "通配 origin + allow_credentials" 的危险组合，同时不影响外网/LAN 访问。
+# 如需锁定来源：设 CORS_ORIGINS="https://host:9600,https://ip:9600"（逗号分隔），此时启用凭证。
+_cors_env = (_os.environ.get("CORS_ORIGINS") or "").strip()
+if _cors_env:
+    _cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()]
+    _cors_allow_credentials = True
+else:
+    _cors_origins = ["*"]
+    _cors_allow_credentials = False
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=_cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )

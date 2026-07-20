@@ -49,6 +49,18 @@ class UserModel(BaseModel):
                 'not_null': True,
                 'default': 1,
             },
+            # 管理员标记：仅管理员可访问用户管理、系统/数据库切换/备份、重启等危险端点
+            'is_admin': {
+                'type': 'INTEGER',
+                'not_null': True,
+                'default': 0,
+            },
+            # 令牌版本：改密/禁用/踢下线时自增，使旧 JWT 立即失效（配合 require_auth 校验）
+            'token_version': {
+                'type': 'INTEGER',
+                'not_null': True,
+                'default': 0,
+            },
             'last_login_at': {
                 'type': 'DATETIME',
                 'not_null': False,

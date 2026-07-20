@@ -76,6 +76,12 @@ def list_mercari_accounts(
 ):
     if status:
         _validate_status(status)
+    # 分页上限：防调用方传超大 page_size 一次性拉全表（内存/带宽 DoS）
+    try:
+        page_size = max(1, min(int(page_size or 20), 200))
+        page = max(1, int(page or 1))
+    except (TypeError, ValueError):
+        page_size, page = 20, 1
     return MercariAccountModel.find_detail_list(
         keyword=keyword,
         status=status,

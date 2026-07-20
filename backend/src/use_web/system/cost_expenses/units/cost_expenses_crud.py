@@ -5,6 +5,7 @@ from typing import Optional
 
 from fastapi import HTTPException
 
+from .....db_manage.database import DatabaseManager
 from .....db_manage.models.system.cost_expense import CostExpenseModel
 from .....db_manage.models.orders.order import OrderModel
 
@@ -12,16 +13,21 @@ from .cost_expenses_models import CostExpenseCreate, CostExpenseUpdate
 from .cost_expenses_helpers import (
     ALLOWED_TYPES,
     _apply_order_net_income_cost,
+    _deduct_packaging_stock,
     _default_london_ts,
     _ensure_order_exists,
     _find_packaging_item_latest,
     _resolve_order_owner_value_weights,
+    _restore_order_net_income_cost,
+    _restore_packaging_stock,
     _split_int_by_weights,
     _sync_expense_type_from_source,
     _validate_packaging_stock,
     _validate_positive_int,
     _validate_required_text,
 )
+
+db = DatabaseManager()
 
 
 def list_cost_expenses(
@@ -174,6 +180,14 @@ def update_cost_expense(cid: int, data: CostExpenseUpdate):
     row = CostExpenseModel.find_by_id(id=cid)
     if not row:
         raise HTTPException(status_code=404, detail="记录不存在")
+
+    # 旧行在新增时已扣减的库存 / 净收益效果（用于逆转）
+    old_item_name = (row.item_name or "").strip()
+    old_quantity = int(row.quantity or 0)
+    old_unit_price = int(row.unit_price or 0)
+    old_total = old_quantity * old_unit_price
+    order_no = row.order_no
+
     next_item_name = _validate_required_text(
         data.item_name if data.item_name is not None else row.item_name,
         "物品名称",
@@ -182,23 +196,34 @@ def update_cost_expense(cid: int, data: CostExpenseUpdate):
         data.quantity if data.quantity is not None else row.quantity,
         "数量",
     )
-    _validate_packaging_stock(next_item_name, next_quantity)
+    next_unit_price = _validate_positive_int(
+        data.unit_price if data.unit_price is not None else row.unit_price,
+        "单价",
+    )
     next_synced_type = _sync_expense_type_from_source(next_item_name)
+    next_total = next_quantity * next_unit_price
 
-    row.type = next_synced_type
-    if data.item_name is not None:
-        row.item_name = _validate_required_text(data.item_name, "物品名称")
-    if data.quantity is not None:
-        row.quantity = _validate_positive_int(data.quantity, "数量")
-    if data.unit_price is not None:
-        row.unit_price = _validate_positive_int(data.unit_price, "单价")
-    if data.owner is not None:
-        row.owner = data.owner.strip() or None
-    if data.record_time is not None:
-        row.record_time = int(data.record_time)
+    with db.transaction():
+        # 先逆转旧行的库存 / 净收益效果，再按新值重新校验并应用；
+        # 校验基于已归还的库存，故同物品增量编辑不会因旧行自身占用而误判库存不足。
+        _restore_packaging_stock(old_item_name, old_quantity)
+        _restore_order_net_income_cost(order_no, old_total)
 
-    if not row.save():
-        raise HTTPException(status_code=500, detail="更新失败")
+        _validate_packaging_stock(next_item_name, next_quantity)
+        _deduct_packaging_stock(next_item_name, next_quantity)
+        _apply_order_net_income_cost(order_no, next_total)
+
+        row.type = next_synced_type
+        row.item_name = next_item_name
+        row.quantity = next_quantity
+        row.unit_price = next_unit_price
+        if data.owner is not None:
+            row.owner = data.owner.strip() or None
+        if data.record_time is not None:
+            row.record_time = int(data.record_time)
+
+        if not row.save():
+            raise HTTPException(status_code=500, detail="更新失败")
     return row.to_dict()
 
 
@@ -206,6 +231,16 @@ def delete_cost_expense(cid: int):
     row = CostExpenseModel.find_by_id(id=cid)
     if not row:
         raise HTTPException(status_code=404, detail="记录不存在")
-    if not row.delete():
-        raise HTTPException(status_code=500, detail="删除失败")
+
+    item_name = (row.item_name or "").strip()
+    qty = int(row.quantity or 0)
+    expense_total = qty * int(row.unit_price or 0)
+    order_no = row.order_no
+
+    with db.transaction():
+        if not row.delete():
+            raise HTTPException(status_code=500, detail="删除失败")
+        # 逆转新增时的两处副作用：归还包材库存、恢复订单净收益
+        _restore_packaging_stock(item_name, qty)
+        _restore_order_net_income_cost(order_no, expense_total)
     return {"message": "删除成功"}

@@ -9,6 +9,9 @@ from PIL import Image, ImageOps
 from ...image_storage import get_image_root
 from ..._path_safety import resolve_within_imges
 
+# 防解压炸弹：显式设定像素上限，越限 Pillow 抛 DecompressionBombError
+Image.MAX_IMAGE_PIXELS = 64_000_000
+
 
 def get_image_thumb(path: str, size: int = 300):
     """

@@ -57,10 +57,11 @@ def create_manual_outbound_lines(data: ManualOutboundLinesBatchCreateBody):
     )
     next_sort = int(max_sort_rows[0][0] or -1) + 1
 
-    created_ids: List[int] = []
     touched_inv_ids: List[int] = []
     created_items = []
-    try:
+    # 整批包在单一事务内：任一行失败则原子回滚（明细、库存扣减、出库流水、组合级联全部撤销），
+    # 避免出现「已扣库存/已写流水但明细未落库」的中间态。
+    with db.transaction():
         for idx, (inv_id, qty, mgmt) in enumerate(normalized):
             inv_rows = db.execute_query(
                 "SELECT [quantity], [warehouse_id], [name] FROM [inventory] WHERE [id] = ? LIMIT 1",
@@ -88,7 +89,6 @@ def create_manual_outbound_lines(data: ManualOutboundLinesBatchCreateBody):
             )
             if not line.save():
                 raise HTTPException(status_code=500, detail="保存手动出库明细失败")
-            created_ids.append(int(line.id))
 
             # 原子扣减：条件 UPDATE 保证并发下不超卖（库存不足时本语句不命中行）
             updated = db.execute_update(
@@ -122,15 +122,6 @@ def create_manual_outbound_lines(data: ManualOutboundLinesBatchCreateBody):
             )
             touched_inv_ids.append(inv_id)
             created_items.append({"line_id": int(line.id), "inventory_id": inv_id, "quantity": qty})
-    except Exception:
-        for lid in created_ids:
-            try:
-                obj = OrderOutboundLineModel.find_by_id(id=lid)
-                if obj:
-                    obj.delete()
-            except Exception:
-                pass
-        raise
 
     refresh_inventory_pending_outbound_qty(touched_inv_ids)
     return {"success": True, "order_no": ono, "items": created_items}

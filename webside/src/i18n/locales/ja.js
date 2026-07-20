@@ -432,5 +432,6 @@ export default {
     imageCount: "{n}枚",
     invalidImage: "画像ファイルを選択してください",
     waitImageUpload: "画像をアップロード中です。お待ちください",
+    previewFailed: "この画像リンクはプレビューできません",
   },
 }

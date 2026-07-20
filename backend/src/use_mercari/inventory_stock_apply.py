@@ -154,21 +154,33 @@ def apply_inventory_change_for_item(
         except (TypeError, ValueError):
             continue
         want = max(0, int(qty or 0))
-        rows = db.execute_query(
-            "SELECT [quantity], [warehouse_id] FROM [inventory] WHERE [id] = ? LIMIT 1",
-            (inv,),
-        )
-        if not rows:
-            continue
-        current = int(rows[0][0] or 0)
-        warehouse_id = rows[0][1]
-        new_qty = max(0, current - want) if want > 0 else current
-        real_deduct = current - new_qty
-        if real_deduct > 0:
-            db.execute_update(
-                "UPDATE [inventory] SET [quantity] = ? WHERE [id] = ?",
-                (new_qty, inv),
+        # 乐观锁 CAS 重试：读→算→带 quantity 原值做条件更新，防并发丢更新/负库存（保留钳 0 语义）
+        real_deduct = 0
+        warehouse_id = None
+        for _cas in range(6):
+            rows = db.execute_query(
+                "SELECT [quantity], [warehouse_id] FROM [inventory] WHERE [id] = ? LIMIT 1",
+                (inv,),
             )
+            if not rows:
+                break
+            current = int(rows[0][0] or 0)
+            warehouse_id = rows[0][1]
+            new_qty = max(0, current - want) if want > 0 else current
+            deduct = current - new_qty
+            if deduct <= 0:
+                break
+            affected = db.execute_update(
+                "UPDATE [inventory] SET [quantity] = ? WHERE [id] = ? AND COALESCE([quantity], 0) = ?",
+                (new_qty, inv, current),
+            )
+            if affected:
+                real_deduct = deduct
+                break
+            # CAS 失败：期间有并发修改，重读重试
+        else:
+            log.warning("[inventory_stock_apply] 扣减 CAS 重试耗尽 inv=%s want=%s", inv, want)
+        if real_deduct > 0:
             if warehouse_id is not None:
                 try:
                     db.execute_insert(

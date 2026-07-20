@@ -192,6 +192,12 @@ def _collect_bundle_title_ids(
     # 暗号 → inventory.id 是出品时编码的强绑定，比 mercari_item_id 反查更可靠。
     # 逐条在售各自解出自己的库存 ID —— 同名多条即得到多个不同「管理番号」；
     # 一并带出该在售记录的 item_id 作为「原始在售商品 ID」。
+    #
+    # ⚠️ 真实性边界（authenticity boundary）：暗号本身只是混淆、无密钥、可伪造
+    # （见 mgmt_id_cipher.py 安全声明）。此处之所以可信，靠的**不是暗号自身**，而是
+    # 两道独立约束：(1) desc 来自 _query_on_sale_rows_for_bundle(seller_id=…) 已按**卖出账号**
+    # 隔离过滤的在售记录——绝不跨账号；(2) 解出的 inventory.id 再经 _inventory_id_exists 存在性
+    # 校验。二者共同构成真实性边界；切勿删掉账号隔离或存在性检查而「仅信任解码结果」。
     for cur_item_id, desc, _status, _is_delete, _created, _row_id in matches:
         for mid, _qty in parse_trailing_cipher_mgmt_tokens(desc):
             if mid not in seen and _inventory_id_exists(mid):

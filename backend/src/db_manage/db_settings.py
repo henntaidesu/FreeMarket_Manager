@@ -148,6 +148,17 @@ def get_or_create_jwt_secret() -> str:
     return generated
 
 
+def _validate_db_name(name: str) -> str:
+    """MySQL 库名白名单校验（仅字母/数字/下划线，≤64）：库名会进 CREATE DATABASE DDL，
+    不可参数化，必须在入口拦截反引号逃逸注入。"""
+    import re
+
+    n = (name or "").strip()
+    if not re.match(r"^[A-Za-z0-9_]{1,64}$", n):
+        raise ValueError(f"非法数据库名: {name!r}（仅允许字母/数字/下划线，长度 1~64）")
+    return n
+
+
 def save_mysql_params(mysql: Optional[Dict[str, Any]]) -> None:
     """只保存 MySQL 连接参数，不改变当前生效后端（迁移数据时调用）。"""
     if not mysql:
@@ -157,7 +168,7 @@ def save_mysql_params(mysql: Optional[Dict[str, Any]]) -> None:
     set_setting("mysql_user", str(mysql.get("user", "")).strip())
     if mysql.get("password") is not None:
         set_setting("mysql_password", str(mysql.get("password")))
-    set_setting("mysql_database", str(mysql.get("database", "")).strip())
+    set_setting("mysql_database", _validate_db_name(str(mysql.get("database", ""))))
     if mysql.get("pool_size"):
         set_setting("mysql_pool_size", str(mysql.get("pool_size")))
 
@@ -172,4 +183,4 @@ def save_db_config(backend: str, mysql: Optional[Dict[str, Any]] = None) -> None
 
 def set_active_mysql_database(name: str) -> None:
     """仅切换当前生效的 MySQL 库名（热切换时调用，服务器等其余参数不变）。"""
-    set_setting("mysql_database", str(name).strip())
+    set_setting("mysql_database", _validate_db_name(name))

@@ -10,6 +10,15 @@ import BundlePurchaseDialog from '@/components/BundlePurchaseDialog.vue'
 import ItemCommentDialog from '@/components/ItemCommentDialog.vue'
 import DesiredPriceDialog from '@/components/DesiredPriceDialog.vue'
 
+function isSafeHttpUrl(u) {
+  try {
+    const p = new URL(u, window.location.origin)
+    return p.protocol === 'http:' || p.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
 export default defineComponent({
   components: {
     BundlePurchaseDialog,
@@ -428,6 +437,10 @@ export default defineComponent({
         url = `https://jp.mercari.com/item/${row.item_id}`
       }
       if (!url) {
+        ElMessage.warning(t('notifications.noTargetUrl'))
+        return
+      }
+      if (!isSafeHttpUrl(url)) {
         ElMessage.warning(t('notifications.noTargetUrl'))
         return
       }

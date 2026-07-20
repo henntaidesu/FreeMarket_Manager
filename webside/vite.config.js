@@ -67,8 +67,8 @@ export default defineConfig(({ mode }) => {
       port: DEV_PORT,
       strictPort: true,
       https: useHttps,
-      // 开发机任意 Host / Origin 均可访问（存在 DNS 重绑定等风险，勿对公网暴露无防护的 dev 端口）
-      allowedHosts: true,
+      // 仅允许本机及显式配置的 MERCARI_DEV_PUBLIC_HOST，避免 DNS 重绑定风险
+      allowedHosts: ['localhost', '127.0.0.1', ...(publicHost ? [publicHost] : [])],
       cors: true,
       hmr,
       ...(serverOrigin ? { origin: serverOrigin } : {}),

@@ -12,6 +12,9 @@ import numpy as np
 from fastapi import File, HTTPException, Query, UploadFile
 from PIL import Image
 
+# 防解压炸弹：显式设定像素上限，越限 Pillow 抛 DecompressionBombError
+Image.MAX_IMAGE_PIXELS = 64_000_000
+
 from ..units.inventory_helpers import _query_inventory_with_joins
 from . import index_store, indexer
 from .embedder import embed_image

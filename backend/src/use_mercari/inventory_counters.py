@@ -202,22 +202,31 @@ def cascade_combined_child_deduction(
     touched: List[int] = []
     for child_id, per_set in _combined_children(combo_inv_id):
         need = per_set * reduced
-        crows = db.execute_query(
-            "SELECT [quantity], [warehouse_id] FROM [inventory] WHERE [id] = ? LIMIT 1",
-            (child_id,),
-        )
-        if not crows:
-            continue
-        current = int(crows[0][0] or 0)
-        warehouse_id = crows[0][1]
-        new_qty = max(0, current - need)
-        real_deduct = current - new_qty
+        # 乐观锁 CAS 重试：防组合子商品并发扣减丢更新/负库存（保留钳 0 语义）
+        real_deduct = 0
+        warehouse_id = None
+        for _cas in range(6):
+            crows = db.execute_query(
+                "SELECT [quantity], [warehouse_id] FROM [inventory] WHERE [id] = ? LIMIT 1",
+                (child_id,),
+            )
+            if not crows:
+                break
+            current = int(crows[0][0] or 0)
+            warehouse_id = crows[0][1]
+            new_qty = max(0, current - need)
+            deduct = current - new_qty
+            if deduct <= 0:
+                break
+            affected = db.execute_update(
+                "UPDATE [inventory] SET [quantity] = ? WHERE [id] = ? AND COALESCE([quantity], 0) = ?",
+                (new_qty, child_id, current),
+            )
+            if affected:
+                real_deduct = deduct
+                break
         if real_deduct <= 0:
             continue
-        db.execute_update(
-            "UPDATE [inventory] SET [quantity] = ? WHERE [id] = ?",
-            (new_qty, child_id),
-        )
         if warehouse_id is not None:
             try:
                 db.execute_insert(

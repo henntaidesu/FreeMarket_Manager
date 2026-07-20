@@ -13,9 +13,13 @@
 - 二级：cost_records / cost_expenses / warehouses / categories
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from ...auth import require_admin
 from .units.system_handler import RestartOut, restart_system
+
+# 仅管理员可调用的危险端点依赖（重启、数据库切换/迁移/备份、MITM 控制、清日志）
+_ADMIN = [Depends(require_admin)]
 from .units.users_handler import list_users, create_user, change_password
 from .units.app_config_handler import (
     ListingDefaultsOut,
@@ -67,8 +71,8 @@ from .settlement.API import router as settlement_router
 router = APIRouter()
 
 # ===== 一级端点：系统主页 =====
-# 系统重启
-router.add_api_route("/restart", restart_system, methods=["POST"], response_model=RestartOut)
+# 系统重启（仅管理员）
+router.add_api_route("/restart", restart_system, methods=["POST"], response_model=RestartOut, dependencies=_ADMIN)
 
 # 用户管理（System 页面"用户管理"区）
 router.add_api_route("/users", list_users, methods=["GET"])
@@ -89,24 +93,24 @@ router.add_api_route("/deepseek-config", put_deepseek_config, methods=["PUT"], r
 
 # 系统日志（自动上架 / 自动获取 / 操作日志）
 router.add_api_route("/system-logs", list_system_logs, methods=["GET"])
-router.add_api_route("/system-logs/clear", clear_system_logs, methods=["POST"])
+router.add_api_route("/system-logs/clear", clear_system_logs, methods=["POST"], dependencies=_ADMIN)
 # 操作日志上报（前端提示统一写入，记录登录用户）
 router.add_api_route("/operation-logs", create_operation_log, methods=["POST"])
 
-# 数据库管理（SQLite / MySQL 切换 + 数据迁移）
+# 数据库管理（SQLite / MySQL 切换 + 数据迁移）——除只读 config 外均限管理员
 router.add_api_route("/database/config", get_database_config, methods=["GET"], response_model=DbConfigOut)
-router.add_api_route("/database/test-connection", test_mysql_connection, methods=["POST"], response_model=TestResult)
-router.add_api_route("/database/switch", switch_database, methods=["POST"], response_model=SwitchOut)
-router.add_api_route("/database/migrate", migrate_database, methods=["POST"], response_model=SwitchOut)
+router.add_api_route("/database/test-connection", test_mysql_connection, methods=["POST"], response_model=TestResult, dependencies=_ADMIN)
+router.add_api_route("/database/switch", switch_database, methods=["POST"], response_model=SwitchOut, dependencies=_ADMIN)
+router.add_api_route("/database/migrate", migrate_database, methods=["POST"], response_model=SwitchOut, dependencies=_ADMIN)
 # MySQL 数据库热切换（同服务器切库：测试库 ⇄ 正式库，无需重启）
-router.add_api_route("/database/hot-switch", hot_switch_mysql_database, methods=["POST"], response_model=HotSwitchOut)
+router.add_api_route("/database/hot-switch", hot_switch_mysql_database, methods=["POST"], response_model=HotSwitchOut, dependencies=_ADMIN)
 # 数据库备份（当前库整库覆盖到目标 MySQL，可能较久，放宽超时）
-router.add_api_route("/database/backup", backup_database, methods=["POST"], response_model=SwitchOut)
+router.add_api_route("/database/backup", backup_database, methods=["POST"], response_model=SwitchOut, dependencies=_ADMIN)
 
-# SSL MITM 代理控制
+# SSL MITM 代理控制（start/stop 限管理员）
 router.add_api_route("/ssl-mitm/status", get_status, methods=["GET"])
-router.add_api_route("/ssl-mitm/start", post_start, methods=["POST"])
-router.add_api_route("/ssl-mitm/stop", post_stop, methods=["POST"])
+router.add_api_route("/ssl-mitm/start", post_start, methods=["POST"], dependencies=_ADMIN)
+router.add_api_route("/ssl-mitm/stop", post_stop, methods=["POST"], dependencies=_ADMIN)
 router.add_api_route("/ssl-mitm/ca-cert", download_ca_cert, methods=["GET"])
 router.add_api_route("/ssl-mitm/last-capture", get_last_capture, methods=["GET"])
 

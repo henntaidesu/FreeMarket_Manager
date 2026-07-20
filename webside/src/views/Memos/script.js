@@ -4,6 +4,15 @@ import { Search, EditPen, Check, Plus, Picture } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { memosApi } from '@/api/index.js'
 
+function isSafeHttpUrl(u) {
+  try {
+    const p = new URL(u, window.location.origin)
+    return p.protocol === 'http:' || p.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
 export default defineComponent({
   components: { Search, EditPen, Check, Plus, Picture },
   setup() {
@@ -161,7 +170,12 @@ export default defineComponent({
 
     function onPreviewImage(uploadFile) {
       const src = uploadFile?.url || uploadFile?.serverPath
-      if (src) window.open(src, '_blank')
+      if (!src) return
+      if (!isSafeHttpUrl(src)) {
+        ElMessage.warning(t('memos.previewFailed'))
+        return
+      }
+      window.open(src, '_blank')
     }
 
     async function submitCompose() {

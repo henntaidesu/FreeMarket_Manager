@@ -173,6 +173,13 @@ class MysqlDialect(Dialect):
         return _TranslatingConnection(self._pool.acquire(), self._pool)
 
     def setup(self) -> None:
+        # 安全：库名会被反引号插入 CREATE DATABASE DDL（标识符不可参数化），
+        # 强制白名单校验，防止反引号逃逸注入任意 DDL。
+        import re as _re
+        if not _re.match(r"^[A-Za-z0-9_]{1,64}$", self.database or ""):
+            raise RuntimeError(
+                f"非法数据库名: {self.database!r}（仅允许字母/数字/下划线，长度 1~64）"
+            )
         # 确保目标库存在。优先尝试创建；若账号无建库权限（受限权限 + DBA 预建库的
         # 常见生产模式），只要库已存在即继续使用，否则给出清晰的错误指引。
         conn = pymysql.connect(

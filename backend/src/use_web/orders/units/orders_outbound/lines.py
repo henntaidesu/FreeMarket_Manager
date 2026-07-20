@@ -118,10 +118,15 @@ def bind_outbound_line_inventory(line_id: int, data: OutboundLineBindInventoryBo
                     (old_qty, inv_id),
                 )
 
+            # 原子条件扣减：仅当库存足量才扣，防跨连接 TOCTOU 导致的负库存/丢更新
             cur.execute(
-                "UPDATE [inventory] SET [quantity] = COALESCE([quantity], 0) - ? WHERE [id] = ?",
-                (new_qty, inv_id),
+                "UPDATE [inventory] SET [quantity] = COALESCE([quantity], 0) - ? "
+                "WHERE [id] = ? AND COALESCE([quantity], 0) >= ?",
+                (new_qty, inv_id, new_qty),
             )
+            if cur.rowcount == 0:
+                db.dialect.rollback(conn)
+                raise HTTPException(status_code=400, detail="目标库存不足（并发变更），请重试")
 
             if int(line.is_stocked_out or 0) == 1 and new_inv_warehouse_id is not None:
                 cur.execute(
@@ -261,10 +266,14 @@ def convert_outbound_line_owner(
             cur = conn.cursor()
             if not holds_stock:
                 # 未出库：把 qty 从原库存搬到新库存，新库存 quantity = qty
+                # 原子条件扣减防并发导致负库存
                 cur.execute(
-                    "UPDATE [inventory] SET [quantity] = COALESCE([quantity], 0) - ? WHERE [id] = ?",
-                    (qty, src_id),
+                    "UPDATE [inventory] SET [quantity] = COALESCE([quantity], 0) - ? "
+                    "WHERE [id] = ? AND COALESCE([quantity], 0) >= ?",
+                    (qty, src_id, qty),
                 )
+                if cur.rowcount == 0:
+                    raise HTTPException(status_code=400, detail="原库存不足（并发变更），请重试")
                 new_qty_value = qty
             else:
                 # 已出库或已预扣：账面上这 qty 已被占用，原库存先回吐再用新库存扣减

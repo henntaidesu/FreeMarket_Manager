@@ -13,12 +13,20 @@
 
 局限：Mercari 若**裁剪**（非等比缩放）或强力调色则可能失效；组合出品仅嵌首个 id。
 嵌入失败一律回退原图，绝不中断出品。可调参数：``_Q`` / ``_CELL_DIV`` / ``_R``。
+
+⚠️ 安全声明：这是**混淆（obfuscation），不是加密（cryptography）**。CRC8 只做**纠错**，
+不是消息认证码——无密钥、无机密性、无真实性保证，任何人都能伪造水印。CRC8 仅 8 bit，
+暴力对齐搜索时随机噪声约有 1/256 概率误过校验（false positive）。因此**下游绝不能仅凭
+解码结果就信任某个 id**：解出的 inventory.id 必须独立校验其属于预期账号 / 组合范围
+（存在性检查 + 账号隔离）后，方可用于库存/出库记账。见 ``decode_mgmt_code_from_file`` 的
+``validate`` 参数（可传入存在性/范围校验以抑制 CRC8 误报）。
+⚠️ 编码线格式不可更改（否则已上架图片无法解码）。
 """
 from __future__ import annotations
 
 import logging
 import tempfile
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 log = logging.getLogger(__name__)
 
@@ -192,8 +200,16 @@ def _try_payload(cell_bits: List[int]) -> Optional[int]:
     return iid if 0 < iid <= _MAX_ID else None
 
 
-def decode_mgmt_code_from_file(path: str) -> Optional[int]:
-    """从图片读回 inventory.id；读不到返回 None。对等比缩放/JPEG 重压缩鲁棒。"""
+def decode_mgmt_code_from_file(
+    path: str, validate: Optional[Callable[[int], bool]] = None
+) -> Optional[int]:
+    """从图片读回 inventory.id；读不到返回 None。对等比缩放/JPEG 重压缩鲁棒。
+
+    ``validate``：可选的 id 校验回调。暴力对齐搜索中每命中一个 CRC 通过的候选，
+    仅当 ``validate(iid)`` 为真才接受，否则继续搜索。用于抑制 CRC8（仅 8 bit，约 1/256）
+    的误报——调用方可传入「存在性/账号范围」检查。默认 None = 仅沿用 ``_try_payload``
+    内的合理性边界（``0 < iid <= _MAX_ID``）。**非破坏性：只会拒绝垃圾，绝不改变正确解码。**
+    """
     try:
         import numpy as np
         from PIL import Image, ImageOps
@@ -216,7 +232,9 @@ def decode_mgmt_code_from_file(path: str) -> Optional[int]:
                     if bits is None:
                         continue
                     iid = _try_payload(bits)
-                    if iid is not None:
+                    # _try_payload 已保证 0 < iid <= _MAX_ID；validate 再叠加存在性/账号范围
+                    # 校验，过滤 CRC8 误报——不通过则继续搜索（等比缩放误对齐时仍可能命中正解）。
+                    if iid is not None and (validate is None or validate(iid)):
                         return iid
         return None
     except Exception as exc:  # noqa: BLE001

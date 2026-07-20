@@ -105,8 +105,49 @@ def _apply_order_net_income_cost(order_no: Optional[str], expense_total: int):
         raise HTTPException(status_code=500, detail="更新订单净收益失败")
 
 
+def _restore_order_net_income_cost(order_no: Optional[str], expense_total: int) -> None:
+    """归还订单净收益：``_apply_order_net_income_cost`` 的逆操作（删除/编辑支出时调用）。
+    关联订单已不存在时静默跳过，避免删除历史支出因订单缺失而失败。"""
+    normalized = _normalize_order_no(order_no)
+    if not normalized or int(expense_total or 0) <= 0:
+        return
+    rows = OrderModel.find_all(where="[order_no] = ?", params=(normalized,), limit=1)
+    if not rows:
+        return
+    order = rows[0]
+    current = int(order.net_income or 0)
+    order.net_income = current + int(expense_total)
+    if not order.save():
+        raise HTTPException(status_code=500, detail="更新订单净收益失败")
+
+
+def _deduct_packaging_stock(item_name: str, quantity: int) -> None:
+    """扣减库存包材：与新增支出时的扣减一致（编辑应用新值时调用）。"""
+    qty = int(quantity or 0)
+    if qty <= 0:
+        return
+    source = _find_packaging_item_latest(item_name)
+    if not source:
+        raise HTTPException(status_code=400, detail="库存包材中不存在该物品名称")
+    source.quantity = int(source.quantity or 0) - qty
+    if not source.save():
+        raise HTTPException(status_code=500, detail="自动扣减库存包材失败")
+
+
+def _restore_packaging_stock(item_name: str, quantity: int) -> None:
+    """归还库存包材：新增支出时扣减库存的逆操作（删除/编辑时调用）。找不到源行时静默跳过。"""
+    qty = int(quantity or 0)
+    if qty <= 0:
+        return
+    source = _find_packaging_item_latest(item_name)
+    if not source:
+        return
+    source.quantity = int(source.quantity or 0) + qty
+    source.save()
+
+
 def total_packaging_expense_yen_for_order(order_no: Optional[str]) -> int:
-    """本订单已保存的「包装材料」支出合计（日元整数）。"""
+    """本订单已保存的成本支出（包装材料 + 快递费等全部类型）合计（日元整数）。"""
     ono = _normalize_order_no(order_no)
     if not ono:
         return 0
@@ -114,9 +155,9 @@ def total_packaging_expense_yen_for_order(order_no: Optional[str]) -> int:
         """
         SELECT COALESCE(SUM(COALESCE([quantity], 0) * COALESCE([unit_price], 0)), 0)
         FROM [cost_expenses]
-        WHERE [order_no] = ? AND [type] = ?
+        WHERE [order_no] = ?
         """,
-        (ono, "包装材料"),
+        (ono,),
     )
     if not rows:
         return 0

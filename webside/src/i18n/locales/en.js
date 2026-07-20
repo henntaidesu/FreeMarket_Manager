@@ -432,5 +432,6 @@ export default {
     imageCount: "{n} image(s)",
     invalidImage: "Please select an image file",
     waitImageUpload: "Images are still uploading, please wait",
+    previewFailed: "Cannot preview this image link",
   },
 }
