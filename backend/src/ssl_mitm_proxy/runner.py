@@ -149,6 +149,9 @@ def start_mitm_proxy() -> Dict[str, Any]:
     cmd = [
         *mitm_argv,
         "-q",
+        # 仅绑定环回：MITM 代理只服务本机自动化浏览器，绝不能对 LAN 开放（否则成开放正向代理）
+        "--listen-host",
+        "127.0.0.1",
         "--listen-port",
         str(port),
         "--set",

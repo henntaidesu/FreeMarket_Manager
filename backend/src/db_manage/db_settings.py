@@ -93,6 +93,61 @@ def get_mysql_config() -> Dict[str, Any]:
     }
 
 
+# 识别为「测试库」的 MySQL 库名：这些库可安全执行数据写/改操作（见 CLAUDE.md 生产安全约定）。
+# 生产库（默认 mercari）绝不放行。可用环境变量 TEST_DATABASE_NAMES 追加（逗号分隔）。
+_DEFAULT_TEST_DB_NAMES = {"freemarket_test"}
+
+
+def _test_db_names() -> set:
+    names = {n.lower() for n in _DEFAULT_TEST_DB_NAMES}
+    extra = (os.environ.get("TEST_DATABASE_NAMES") or "").strip()
+    if extra:
+        names |= {n.strip().lower() for n in extra.split(",") if n.strip()}
+    return names
+
+
+def is_test_database() -> bool:
+    """当前生效数据库是否为「测试库」（可安全进行数据写/改操作）。
+
+    - SQLite 后端：本地开发库，视为测试库。
+    - MySQL 后端：仅当库名在测试库白名单（默认含 ``freemarket_test``）时为真；
+      生产库（如 ``mercari``）一律返回 False。
+    """
+    if get_active_backend() != "mysql":
+        return True
+    name = (get_mysql_config().get("database") or "").strip().lower()
+    return name in _test_db_names()
+
+
+def assert_data_mutation_allowed(action: str = "该操作") -> None:
+    """危险数据操作前的护栏：当前连接非测试库时直接抛错，防止误改生产数据。"""
+    if not is_test_database():
+        raise RuntimeError(
+            f"{action} 被拒绝：当前连接的是生产数据库，禁止数据写/改操作"
+            "（仅测试库如 freemarket_test 上允许）。"
+        )
+
+
+def get_or_create_jwt_secret() -> str:
+    """返回 JWT 签名密钥。
+
+    优先级：环境变量 ``JWT_SECRET``（非空且非旧默认值）> ``system.db`` 持久化值 >
+    自动生成的强随机密钥（生成后写回 ``system.db``）。彻底消除源码内的可预测默认密钥
+    ``CHANGE_ME_IN_PRODUCTION``；首次生成新密钥会使旧的登录令牌失效（需重新登录一次）。
+    """
+    import secrets
+
+    env = (os.environ.get("JWT_SECRET") or "").strip()
+    if env and env != "CHANGE_ME_IN_PRODUCTION":
+        return env
+    stored = get_setting("jwt_secret")
+    if stored:
+        return stored
+    generated = secrets.token_urlsafe(48)
+    set_setting("jwt_secret", generated)
+    return generated
+
+
 def save_mysql_params(mysql: Optional[Dict[str, Any]]) -> None:
     """只保存 MySQL 连接参数，不改变当前生效后端（迁移数据时调用）。"""
     if not mysql:

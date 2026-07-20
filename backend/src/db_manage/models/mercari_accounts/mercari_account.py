@@ -352,7 +352,12 @@ class MercariAccountModel(BaseModel):
             d.pop('login_password', None)
             d['platform'] = (d.get('platform') or 'mercari')
             raw = d.pop('value', None)
-            d['value'] = cls._parse_value_json(raw)
+            # 不向客户端返回请求头/令牌明文（Authorization、DPoP、Cookie 等），仅返回
+            # 是否已配置的布尔标记（与 _item_api_dict 同款处理，防止令牌泄露被冒充卖家）
+            _hv = cls._parse_value_json(raw) or {}
+            d['value_set'] = bool(_hv)
+            d['authorization_set'] = bool(str(_hv.get('authorization') or '').strip())
+            d['dpop_set'] = bool(str(_hv.get('dpop_list') or _hv.get('dpop') or '').strip())
             d['is_open'] = 1 if d.get('is_open') else 0
             d['auto_fetch_order_list'] = 1 if d.get('auto_fetch_order_list') else 0
             d['auto_fetch_on_sale'] = 1 if d.get('auto_fetch_on_sale') else 0

@@ -6,7 +6,11 @@ import jwt
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-JWT_SECRET = os.getenv("JWT_SECRET", "CHANGE_ME_IN_PRODUCTION")
+from src.db_manage.db_settings import get_or_create_jwt_secret
+
+# 签名密钥：env JWT_SECRET > system.db 持久化 > 自动生成强随机（见 get_or_create_jwt_secret）。
+# 不再回退到可预测的源码常量。
+JWT_SECRET = get_or_create_jwt_secret()
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "168"))  # 默认 1 周（7*24 小时）的长效登录凭证
 

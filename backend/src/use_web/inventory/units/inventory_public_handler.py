@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from PIL import Image, ImageOps
 
 from ...image_storage import get_image_root
+from ..._path_safety import resolve_within_imges
 
 
 def get_image_thumb(path: str, size: int = 300):
@@ -16,13 +17,15 @@ def get_image_thumb(path: str, size: int = 300):
     - size: 最长边像素（默认 300，列表小图用 200 即可）
     """
     clean = (path or "").strip()
-    if not clean.startswith("/imges/") or ".." in clean:
+    # realpath 包含性校验：拦截 ..、Windows 盘符、UNC 等一切越界写法
+    try:
+        orig_abs = resolve_within_imges(clean, get_image_root())
+    except ValueError:
         raise HTTPException(status_code=400, detail="无效路径")
     size = max(50, min(size, 1200))
 
     filename = clean.split("/imges/", 1)[1].strip("/")
-    orig_abs = os.path.join(get_image_root(), filename)
-    if not os.path.exists(orig_abs):
+    if not os.path.isfile(orig_abs):
         raise HTTPException(status_code=404, detail="图片不存在")
 
     # 缩略图缓存目录
@@ -50,7 +53,8 @@ def get_image_thumb(path: str, size: int = 300):
                 )
             img.save(thumb_abs, "JPEG", quality=75, optimize=True)
         except Exception:
-            # PIL 无法处理时直接返回原图
-            return FileResponse(orig_abs)
+            # PIL 无法解码：说明目标不是有效图片，拒绝返回（不再回退到原始文件字节，
+            # 否则会把非图片文件当作原图泄露 —— 路径穿越读取任意文件的关键环节）
+            raise HTTPException(status_code=415, detail="文件不是有效图片")
 
     return FileResponse(thumb_abs, media_type="image/jpeg")

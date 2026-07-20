@@ -153,7 +153,13 @@ def _item_api_dict(item: MercariAccountModel) -> dict:
     d = item.to_dict()
     d.pop('login_password', None)
     raw = d.pop('value', None)
-    d['value'] = MercariAccountModel._parse_value_json(raw if isinstance(raw, str) else None)
+    # 不再向客户端返回请求头/令牌明文（Authorization、DPoP、Cookie 等敏感凭证）——
+    # 任意已认证用户读取即可在本应用外冒充卖家。仅返回「是否已配置」的布尔标记；
+    # 前端编辑表单并不消费这些字段，请求头由 MITM/浏览器自动化在后端侧写入。
+    _hv = MercariAccountModel._parse_value_json(raw if isinstance(raw, str) else None) or {}
+    d['value_set'] = bool(_hv)
+    d['authorization_set'] = bool(str(_hv.get('authorization') or '').strip())
+    d['dpop_set'] = bool(str(_hv.get('dpop_list') or _hv.get('dpop') or '').strip())
     d['is_open'] = 1 if d.get('is_open') else 0
     d['auto_fetch_order_list'] = 1 if d.get('auto_fetch_order_list') else 0
     d['auto_fetch_on_sale'] = 1 if d.get('auto_fetch_on_sale') else 0
