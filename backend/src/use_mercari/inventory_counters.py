@@ -94,11 +94,16 @@ def _combined_reserved_agg_subquery() -> str:
 
 
 def _listable_sql_expr() -> str:
-    """可上架 = max(0, 库存 - 在售 - 待出 - 组合预留) 的 SQL 表达式（基于同表列）。"""
+    """可上架 = max(0, 库存 - 在售 - 待出 - 组合预留 - 出品预扣减) 的 SQL 表达式（基于同表列）。
+
+    ``pending_listing_qty``（出品预扣减）：已提交到任务队列但尚未被在售同步计入 on_sale 的件数，
+    见 task_queue/reservations.py。点「出品」后可上架立刻减少，防止重复提交超量出品。
+    """
     inner = (
         "COALESCE([quantity], 0) "
         "- COALESCE([on_sale_quantity], 0) "
         "- COALESCE([pending_outbound_qty], 0) "
+        "- COALESCE([pending_listing_qty], 0) "
         f"- {_combined_reserved_sql_expr(materialize_source=True)}"
     )
     return DatabaseManager().dialect.greatest("0", inner)
@@ -329,6 +334,13 @@ def _adjust_on_sale(db: DatabaseManager, inv_id: int, on_sale_delta: int) -> boo
             from .auto_relist import consume_unsynced_relists
 
             consume_unsynced_relists(int(inv_id), int(on_sale_delta))
+        except Exception:
+            pass
+        # 同理核销任务队列的「出品预扣减」：新挂牌已入账，占用可以放行了
+        try:
+            from ..task_queue import reservations
+
+            reservations.consume(int(inv_id), int(on_sale_delta))
         except Exception:
             pass
     return bool(changed)

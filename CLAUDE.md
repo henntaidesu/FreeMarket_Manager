@@ -174,6 +174,39 @@ Key tables in `backend/src/db_manage/models/`:
 6. Browser automation (`web_drive/`): Playwright for listing operations
 7. SSL MITM proxy: Captures HTTP traffic for debugging/inspection
 
+### Task Queue (`src/task_queue/`)
+
+All **heavy Mercari automations** run as background tasks instead of blocking the HTTP request.
+The frontend submits and returns immediately; progress is watched on `/#/tasks`.
+
+Queued operations (9 types, see `registry.py`): inventory listing; orders update-list /
+update-status / single-row refresh; on-sale sync / full-update / revise; todos bulk-review /
+bulk-confirm-ship. **Batch revise is not a separate type** — the frontend submits N `on_sale.revise`
+tasks, so closing the page no longer aborts halfway.
+
+- **Single global worker, strictly serial** (`worker.py`) — matches the existing global
+  `sync_lock` / `listing_lock` semantics. Tasks still descend into `run_mercari_serial_async`,
+  so per-account browser reuse/auto-close is unchanged.
+- Handlers (`handlers/`) are thin: they unpack the payload, bridge progress, and call the
+  **existing** business functions. Automation logic was not moved.
+- Endpoints that used to hold `sync_lock` now expose a lock-free `*_core()`; the HTTP entry keeps
+  409-on-conflict while handlers use `sync_lock.begin_waiting()` to **queue** instead of failing.
+- `progress.py` copies the existing in-memory `*_progress` stores into `task_queue.progress_label`,
+  so deep automation code needed no changes.
+- **Duplicate submission is blocked server-side** by two unique indexes: `client_token`
+  (one click = one task, immune to double-click/retry) and `active_dedup_key` (nulled on terminal
+  state, so one "update list" at a time).
+- **Listing reservations** (`reservations.py`): enqueueing a listing immediately increments
+  `inventory.pending_listing_qty`, so 可上架 drops at click time and over-listing is impossible.
+  The reservation is held until on-sale sync binds the new item (`_adjust_on_sale` → `consume`),
+  released only when a listing is *confirmed* not submitted, with a TTL sweep
+  (`TASK_LISTING_RESERVATION_TTL_SEC`, default 6h) as backstop. An unexpected crash **keeps** the
+  reservation — under-listing is recoverable, duplicate listing is not.
+- Ordering: since the worker is FIFO, a sync task submitted after listings naturally waits for them.
+  `mercari_auto_fetch_loop` additionally defers while listing tasks are queued (max 30 min).
+- On restart, `running` tasks are marked failed and their reservations released — browser
+  automation is never auto-retried (it may already have clicked 出品する).
+
 ## Environment Variables
 
 **Backend**:
@@ -187,6 +220,7 @@ Key tables in `backend/src/db_manage/models/`:
 - `INTERACTIVE_BROWSER_AUTO_START`: Set to `0` to disable headed browser auto-start at boot (default: 0)
 - `WEB_DRIVE_AUTOMATION_HEADLESS`: When enabled, all automation browsers (data fetch / startup pre-warm / MITM listing/delete/revise / mercari MITM capture) launch truly headless (silent, never shown in the foreground). Does NOT affect the manual "Open Browser" button on `/mercari-accounts` (always headed). **Default: 1 (headless).** Set to `0` to launch them headed+minimized for debugging.
 - `WEB_DRIVE_MITM_MINIMIZED`: Set to `0` to keep MITM automation windows in the foreground; otherwise they are minimized to the taskbar. Default: 1. Has no effect when automation is headless (the default).
+- `TASK_LISTING_RESERVATION_TTL_SEC`: How long a listing's 可上架 reservation may stay unclaimed before the task queue force-releases it and logs a warning (default 21600 = 6h). See "Task Queue" above.
 
 **Frontend** (`webside/.env.development`):
 - `MERCARI_DEV_HTTP`: Use HTTP instead of HTTPS (default: 0)

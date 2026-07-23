@@ -43,16 +43,9 @@
           />
         </el-col>
         <el-col :xs="24" :md="8" class="search-actions">
-          <el-tooltip :disabled="!syncLockStore.locked" :content="syncLockStore.label" placement="top">
-            <span>
-              <el-button type="success" :icon="RefreshRight" :loading="(syncLoading && syncMode === 'newData') || syncLockStore.locked" :disabled="syncLoading || syncLockStore.locked" @click="runSync('newData')">{{ t('orders.updateList') }}</el-button>
-            </span>
-          </el-tooltip>
-          <el-tooltip :disabled="!syncLockStore.locked" :content="syncLockStore.label" placement="top">
-            <span>
-              <el-button type="primary" :icon="Refresh" :loading="(syncLoading && syncMode === 'statusRefresh') || syncLockStore.locked" :disabled="syncLoading || syncLockStore.locked" @click="runSync('statusRefresh')">{{ t('orders.updateStatus') }}</el-button>
-            </span>
-          </el-tooltip>
+          <!-- 提交到任务队列即返回，不再受全局同步锁阻挡（排队执行由后端 worker 保证） -->
+          <el-button type="success" :icon="RefreshRight" :loading="syncLoading && syncMode === 'newData'" :disabled="syncLoading" @click="runSync('newData')">{{ t('orders.updateList') }}</el-button>
+          <el-button type="primary" :icon="Refresh" :loading="syncLoading && syncMode === 'statusRefresh'" :disabled="syncLoading" @click="runSync('statusRefresh')">{{ t('orders.updateStatus') }}</el-button>
         </el-col>
       </el-row>
     </el-card>
@@ -1093,25 +1086,8 @@
     </el-dialog>
 
 
-    <teleport to="body">
-      <div
-        v-show="syncOverlayVisible"
-        class="orders-sync-overlay orders-sync-overlay--dark"
-        :class="{ 'orders-sync-overlay--failed': syncOverlayFailed }"
-        role="status"
-        aria-live="polite"
-      >
-        <div class="orders-sync-overlay__box">
-          <el-icon class="is-loading orders-sync-overlay__icon" :size="40"><Loading /></el-icon>
-          <div class="orders-sync-overlay__title">{{ syncOverlayTitle }}</div>
-          <div class="orders-sync-overlay__step">{{ syncProgressLabel || t('orders.pleaseWait') }}</div>
-        </div>
-      </div>
-    </teleport>
   </div>
 </template>
 
 <script src="./script.js"></script>
 <style scoped src="./style.css"></style>
-<!-- 「更新列表 / 更新状态」全屏等待（teleport 到 body，须无 scoped；黑色主题） -->
-<style src="./style.global.css"></style>

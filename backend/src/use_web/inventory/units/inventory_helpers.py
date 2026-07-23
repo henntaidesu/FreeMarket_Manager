@@ -22,6 +22,7 @@ INVENTORY_COLUMNS = [
     "mercari_item_id",
     "on_sale_quantity",
     "pending_outbound_qty",
+    "pending_listing_qty",
     "listable_quantity",
     "auto_listing_enabled",
     "auto_listing_watermark",
@@ -141,16 +142,18 @@ def _query_inventory_with_joins(where_sql: str = "", params: tuple = ()) -> list
     items = [_enrich_inventory_api_dict(_row_to_inventory_detail(r)) for r in rows]
     # 在售数量 on_sale_quantity 已改为事件驱动权威计数（见 use_mercari.inventory_counters），
     # 列表直接返回库存行存储值，不再用 on_sale_items 全量重算覆盖。
-    # 「可上架」= max(0, 库存 - 在售 - 待出 - 组合预留)：展示时按权威四栏重算，保证口径一致。
+    # 「可上架」= max(0, 库存 - 在售 - 待出 - 组合预留 - 出品预扣减)：展示时按权威栏位重算，保证口径一致。
     # listable_quantity 已由所有写入路径（inventory_counters.recompute_listable_quantity）维护，
     # 读取链路只重算用于展示，不再逐行 UPDATE 落库（避免一次读触发 N 次写）。
+    # pending_listing_qty：已入队待出品的件数，见 task_queue/reservations.py——点「出品」后此处立刻反映。
     for d in items:
         q = int(d.get("quantity") or 0)
         os_q = int(d.get("on_sale_quantity") or 0)
         pend = int(d.get("pending_outbound_qty") or 0)
+        listing_pend = int(d.get("pending_listing_qty") or 0)
         comb = int(d.get("combined_quantity") or 0)
         d["combined_quantity"] = comb
-        d["listable_quantity"] = max(0, q - os_q - pend - comb)
+        d["listable_quantity"] = max(0, q - os_q - pend - listing_pend - comb)
     return items
 
 

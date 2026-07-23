@@ -93,6 +93,7 @@ export default {
       orders: "订单管理",
       onSaleItems: "在售商品",
       todos: "待办事项",
+      tasks: "任务队列",
       notifications: "煤炉通知",
       mercariAccounts: "煤炉账号",
       talkScripts: "话术表",

@@ -81,6 +81,12 @@ async def _on_startup(force_headed_debug: bool = False) -> None:
 
     asyncio.create_task(mercari_auto_fetch_loop())
 
+    # ④.2 任务队列全局单 worker（出品/同步/改价等重型操作在此串行执行）。
+    # 内部会先把上次进程遗留的 running 任务标记为失败并释放其出品预扣减。
+    from .task_queue import start_worker
+
+    start_worker()
+
     # ④.5 内存回收后台循环（周期性 gc + Windows 工作集裁剪；MEMORY_RECYCLE_AUTO=0 可关闭）
     if _env_enabled("MEMORY_RECYCLE_AUTO"):
         from .memory_recycle import memory_recycle_loop
@@ -108,7 +114,9 @@ async def _on_shutdown() -> None:
     from .web_drive.core.account_serial_queue import shutdown_queue
     from .ssl_mitm_proxy.runner import stop_mitm_proxy
     from .mercari_proxy import stop_proxy
+    from .task_queue import stop_worker
 
+    await stop_worker()
     await shutdown_queue()
     shutdown_serial_executors(wait=False)
     await get_web_drive_manager().shutdown()

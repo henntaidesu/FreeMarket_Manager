@@ -3,7 +3,8 @@ import { ElMessageBox } from 'element-plus'
 import { ElMessage } from '@/utils/notify'
 import { Download, Refresh, Loading, WarningFilled, Check } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
-import { onSaleItemApi, mercariAccountApi, webDriveApi, inventoryApi } from '@/api/index.js'
+import { onSaleItemApi, mercariAccountApi, webDriveApi, inventoryApi, TASK_TYPES } from '@/api/index.js'
+import { submitTask, submitTasks } from '@/utils/taskSubmit.js'
 import { parseMgmtIdsFromDescription, isCipherMgmtLine } from '@/utils/mgmtIdCipher.js'
 import { mercariImageUrlList } from '@/utils/mercariImage.js'
 import { useMercariAccountStore } from '@/stores/mercariAccount.js'
@@ -643,46 +644,28 @@ export default defineComponent({
         return
       }
 
+      // 一次排 N 条 on_sale.revise 任务（每件一条），由后端 worker 逐条执行。
+      // 相比过去在前端 for 循环里逐个发 HTTP：关掉页面也能跑完，且每件的成败在任务页逐条可见。
       batchSaving.value = true
-      syncOverlayTitle.value = t('onSaleItems.batchRevisingTitle')
-      syncOverlayFailed.value = false
-      syncProgressLabel.value = ''
-      syncOverlayVisible.value = true
-
-      let ok = 0
-      let fail = skipped
-      for (let i = 0; i < tasks.length; i++) {
-        const task = tasks[i]
-        syncProgressLabel.value = t('onSaleItems.batchRevisingProgress', {
-          current: i + 1,
-          total: tasks.length,
-          iid: task.iid,
-        })
-        try {
-          await webDriveApi.reviseMercariItem({
+      try {
+        await submitTasks(
+          TASK_TYPES.ON_SALE_REVISE,
+          tasks.map((task) => ({
             account_key: task.accountKey,
             item_id: task.iid,
             ...fields,
             use_mitm_proxy: true,
-          })
-          ok += 1
-        } catch (e) {
-          fail += 1
-          console.log('[批量修改] 失败', task.iid, e?.response?.data?.detail || e?.message)
-        }
+          })),
+          { t },
+        )
+      } finally {
+        batchSaving.value = false
       }
-
-      syncOverlayVisible.value = false
-      syncOverlayTitle.value = t('onSaleItems.syncingFromMercari')
-      syncProgressLabel.value = ''
-      batchSaving.value = false
       batchPriceDialogVisible.value = false
       exitBatchMode()
-
-      const msg = t('onSaleItems.batchReviseDone', { ok, fail })
-      if (fail > 0) ElMessage.warning(msg)
-      else ElMessage.success(msg)
-      await load()
+      if (skipped > 0) {
+        ElMessage.warning(t('onSaleItems.batchReviseDone', { ok: tasks.length, fail: skipped }))
+      }
     }
 
     /**
@@ -786,67 +769,24 @@ export default defineComponent({
         return
       }
 
-      const progressJobId =
-        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-          ? crypto.randomUUID()
-          : `job_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
-
-      let pollTimer = null
-      let lastConsoleStep = ''
-      async function poll() {
-        try {
-          const pr = await onSaleItemApi.getSyncProgress(progressJobId)
-          const zh = pr?.data?.label_zh
-          if (zh) {
-            syncProgressLabel.value = zh
-            if (zh !== lastConsoleStep) {
-              lastConsoleStep = zh
-              console.log('[修改商品]', zh)
-            }
-          }
-        } catch {
-          /* 轮询失败忽略 */
-        }
-      }
-
-      syncOverlayTitle.value = t('onSaleItems.revisingMercariItem')
-      syncOverlayFailed.value = false
-      syncProgressLabel.value = t('onSaleItems.connectingServer')
-      syncOverlayVisible.value = true
+      // 提交到任务队列即返回；同一 item_id 已有修改在排队时后端会 409 拦截
       reviseSaving.value = true
-      await poll()
-      pollTimer = setInterval(poll, 400)
-
-      let hadError = false
       try {
-        await webDriveApi.reviseMercariItem({
-          account_key: resolved.accountKey,
-          item_id: iid,
-          ...changed,
-          use_mitm_proxy: true,
-          progress_job_id: progressJobId,
-        })
-        ElMessage.success(t('onSaleItems.reviseSuccess'))
-        reviseDialogVisible.value = false
-        detailViewVisible.value = false
-        await load()
-      } catch (e) {
-        hadError = true
-        syncOverlayTitle.value = t('onSaleItems.reviseFailed')
-        syncOverlayFailed.value = true
-        const msg = e?.response?.data?.detail || e?.message || t('onSaleItems.reviseFailed')
-        syncProgressLabel.value = String(msg)
+        const task = await submitTask(
+          TASK_TYPES.ON_SALE_REVISE,
+          {
+            account_key: resolved.accountKey,
+            item_id: iid,
+            ...changed,
+            use_mitm_proxy: true,
+          },
+          { t },
+        )
+        if (task) {
+          reviseDialogVisible.value = false
+          detailViewVisible.value = false
+        }
       } finally {
-        if (pollTimer != null) {
-          clearInterval(pollTimer)
-        }
-        if (hadError) {
-          await new Promise((r) => setTimeout(r, 1200))
-        }
-        syncOverlayVisible.value = false
-        syncOverlayTitle.value = t('onSaleItems.syncingFromMercari')
-        syncOverlayFailed.value = false
-        syncProgressLabel.value = ''
         reviseSaving.value = false
       }
     }
@@ -1265,75 +1205,11 @@ export default defineComponent({
         return
       }
 
-      const progressJobId =
-        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-          ? crypto.randomUUID()
-          : `job_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
-
-      let lastConsoleStep = ''
-      async function pollSyncProgress() {
-        try {
-          const pr = await onSaleItemApi.getSyncProgress(progressJobId)
-          const d = pr?.data
-          const zh = d?.label_zh
-          if (zh) {
-            syncProgressLabel.value = zh
-            if (zh !== lastConsoleStep) {
-              lastConsoleStep = zh
-              console.log('[在售同步]', zh)
-            }
-          }
-        } catch {
-          /* 轮询失败忽略 */
-        }
-      }
-
-      syncOverlayTitle.value = t('onSaleItems.syncingFromMercari')
-      syncOverlayFailed.value = false
-      syncProgressLabel.value = t('onSaleItems.connectingServer')
-      syncOverlayVisible.value = true
+      // 提交到任务队列即返回；执行进度在 /#/tasks 查看，不再阻塞本页
       syncLoading.value = true
-      await pollSyncProgress()
-      syncProgressTimer = setInterval(pollSyncProgress, 1000)
-
-      let syncHadError = false
       try {
-        // 已开启账号逐个串行同步；每个账号在同一浏览器会话内对新增商品自动拉取详情并回写库存，
-        // 故前端不再单独发起批量详情请求。
-        const res = await onSaleItemApi.sync(
-          { progress_job_id: progressJobId },
-          { timeout: 0 }
-        )
-        const d = res.data || {}
-        ElMessage.success(
-          t('onSaleItems.syncSuccessFull', {
-            accountCount: d.account_count ?? 0,
-            failCount: d.fail_count ?? 0,
-            apiCount: d.api_item_count ?? 0,
-            inserted: d.inserted ?? 0,
-            updated: d.updated ?? 0,
-            marked: d.marked_deleted ?? 0,
-          })
-        )
-        await load()
-      } catch (exc) {
-        syncHadError = true
-        syncOverlayTitle.value = t('onSaleItems.syncFailed')
-        syncOverlayFailed.value = true
-        const msg = exc?.response?.data?.detail || exc?.message || t('onSaleItems.unknownError')
-        syncProgressLabel.value = String(msg)
+        await submitTask(TASK_TYPES.ON_SALE_SYNC, {}, { t })
       } finally {
-        if (syncProgressTimer != null) {
-          clearInterval(syncProgressTimer)
-          syncProgressTimer = null
-        }
-        if (syncHadError) {
-          await new Promise((r) => setTimeout(r, 1200))
-        }
-        syncOverlayVisible.value = false
-        syncOverlayTitle.value = t('onSaleItems.syncingFromMercari')
-        syncOverlayFailed.value = false
-        syncProgressLabel.value = ''
         syncLoading.value = false
       }
     }
@@ -1351,71 +1227,11 @@ export default defineComponent({
         return
       }
 
-      const progressJobId =
-        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-          ? crypto.randomUUID()
-          : `job_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
-
-      let lastConsoleStep = ''
-      async function pollSyncProgress() {
-        try {
-          const pr = await onSaleItemApi.getSyncProgress(progressJobId)
-          const zh = pr?.data?.label_zh
-          if (zh) {
-            syncProgressLabel.value = zh
-            if (zh !== lastConsoleStep) {
-              lastConsoleStep = zh
-              console.log('[全量更新]', zh)
-            }
-          }
-        } catch {
-          /* 轮询失败忽略 */
-        }
-      }
-
-      syncOverlayTitle.value = t('onSaleItems.fullUpdatingTitle')
-      syncOverlayFailed.value = false
-      syncProgressLabel.value = t('onSaleItems.connectingServer')
-      syncOverlayVisible.value = true
+      // 提交到任务队列即返回；执行进度在 /#/tasks 查看
       fullUpdateLoading.value = true
-      await pollSyncProgress()
-      syncProgressTimer = setInterval(pollSyncProgress, 1000)
-
-      let hadError = false
       try {
-        const res = await onSaleItemApi.fullUpdate(
-          { progress_job_id: progressJobId },
-          { timeout: 0 }
-        )
-        const d = res.data || {}
-        ElMessage.success(
-          t('onSaleItems.fullUpdateSuccess', {
-            accountCount: d.account_count ?? 0,
-            failCount: d.fail_count ?? 0,
-            target: d.target_count ?? 0,
-            updated: d.updated ?? 0,
-            failed: d.failed ?? 0,
-          })
-        )
-        await load()
-      } catch (exc) {
-        hadError = true
-        syncOverlayTitle.value = t('onSaleItems.fullUpdateFailed')
-        syncOverlayFailed.value = true
-        const msg = exc?.response?.data?.detail || exc?.message || t('onSaleItems.unknownError')
-        syncProgressLabel.value = String(msg)
+        await submitTask(TASK_TYPES.ON_SALE_FULL_UPDATE, {}, { t })
       } finally {
-        if (syncProgressTimer != null) {
-          clearInterval(syncProgressTimer)
-          syncProgressTimer = null
-        }
-        if (hadError) {
-          await new Promise((r) => setTimeout(r, 1200))
-        }
-        syncOverlayVisible.value = false
-        syncOverlayTitle.value = t('onSaleItems.syncingFromMercari')
-        syncOverlayFailed.value = false
-        syncProgressLabel.value = ''
         fullUpdateLoading.value = false
       }
     }

@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>德佟 P2 网页蓝牙 Spike 测试</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; padding: 16px; line-height: 1.5; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: #888; font-size: 13px; margin-bottom: 16px; }
+  fieldset { border: 1px solid #8884; border-radius: 8px; margin: 0 0 14px; padding: 12px 14px; }
+  legend { font-weight: 600; padding: 0 6px; }
+  button { font-size: 14px; padding: 8px 14px; margin: 4px 6px 4px 0; border-radius: 6px; border: 1px solid #8886; background: #4f8cff; color: #fff; cursor: pointer; }
+  button.sec { background: transparent; color: inherit; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  label { font-size: 13px; display: inline-block; margin: 4px 8px 4px 0; }
+  input, select { font-size: 13px; padding: 5px 7px; border-radius: 5px; border: 1px solid #8886; background: transparent; color: inherit; }
+  input[type=number] { width: 70px; }
+  input.uuid { width: 320px; max-width: 100%; }
+  #log { white-space: pre-wrap; word-break: break-all; font-family: ui-monospace, Consolas, monospace; font-size: 12px; background: #8881; border-radius: 8px; padding: 10px; height: 300px; overflow: auto; }
+  .row { margin: 6px 0; }
+  canvas { border: 1px solid #8886; image-rendering: pixelated; }
+  .ok { color: #2e9e4f; } .err { color: #e5484d; } .warn { color: #d98a00; }
+  code { background: #8882; padding: 1px 4px; border-radius: 3px; }
+</style>
+</head>
+<body>
+  <h1>德佟 P2 网页蓝牙 Spike 测试</h1>
+  <div class="sub">
+    目标：确认 P2 的 <b>可写特征 UUID</b> 与 <b>指令集</b>（CPCL / ESC-POS / TSPL）。
+    必须用 <b>HTTPS</b> 打开（如 <code>https://localhost:9600/bt-spike.html</code>）。
+    PC/Android 用 Chrome/Edge；iPhone/iPad 用 <b>Bluefy</b> 浏览器。
+  </div>
+
+  <fieldset>
+    <legend>① 连接 &amp; 发现服务</legend>
+    <div class="row">
+      <button id="btnConnect">连接打印机</button>
+      <button id="btnDisconnect" class="sec" disabled>断开</button>
+      <span id="devName" class="sub"></span>
+    </div>
+    <div class="row">
+      <label>手动追加 Service UUID（若下方列不出可写特征，用 nRF Connect / LightBlue 查到后填这里再连）：</label><br>
+      <input id="extraService" class="uuid" placeholder="例如 0000ff00-0000-1000-8000-00805f9b34fb 或 ff00" />
+    </div>
+    <div class="row">
+      <label>选择“写”特征：</label>
+      <select id="charSelect"><option value="">（先连接）</option></select>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>② 发送测试（逐个试，看哪个能正确打印）</legend>
+    <div class="row">
+      <label>标签宽 mm <input id="wmm" type="number" value="30" step="1" min="10"></label>
+      <label>高 mm <input id="hmm" type="number" value="30" step="1" min="10"></label>
+      <label>打印头宽 mm <input id="headmm" type="number" value="48" step="1"></label>
+      <label>DPI <input id="dpi" type="number" value="203" step="1"></label>
+      <label>分片字节 <input id="chunk" type="number" value="180" step="20"></label>
+      <button id="btnRender" class="sec">生成测试图</button>
+    </div>
+    <div class="row"><canvas id="cv" width="240" height="240"></canvas></div>
+    <div class="row">
+      <button id="btnEscText" disabled>测试A：ESC-POS 文本</button>
+      <button id="btnEscRaster" disabled>测试B：ESC-POS 位图</button>
+      <button id="btnTspl" disabled>测试C：TSPL 位图</button>
+      <button id="btnCpcl" disabled>测试D：CPCL 位图</button>
+    </div>
+    <div class="sub">A 能打出 “HELLO P2” 文字 → 属 ESC-POS 系；B/C/D 哪个打出完整测试图案 → 就是它的指令集。</div>
+  </fieldset>
+
+  <fieldset>
+    <legend>③ 日志</legend>
+    <button id="btnClear" class="sec">清空</button>
+    <div id="log"></div>
+  </fieldset>
+
+<script>
+// ---------- 常见打印服务 UUID（Web Bluetooth 只能访问 optionalServices 里列出的服务） ----------
+const KNOWN_SERVICES = [
+  0xFF00, 0xFFE0, 0xFFF0, 0xFEE7, 0xFB00, 0x18F0, 0xAF30,
+  '0000ff00-0000-1000-8000-00805f9b34fb',
+  '0000ffe0-0000-1000-8000-00805f9b34fb',
+  '0000fff0-0000-1000-8000-00805f9b34fb',
+  '000018f0-0000-1000-8000-00805f9b34fb',
+  '49535343-fe7d-4ae5-8fa9-9fafd205e455', // ISSC 透传
+  '6e400001-b5a3-f393-e0a9-e50e24dcca9e', // Nordic UART
+  'e7810a71-73ae-499d-8c15-faa9aef0c3f2',
+];
+
+let device = null, server = null, writeChar = null;
+let selCharUuid = null, selSvcUuid = null;
+const chars = new Map();   // uuid -> characteristic
+const charSvc = new Map(); // uuid -> service uuid（重连后重新获取用）
+
+const $ = id => document.getElementById(id);
+const enc = new TextEncoder();
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function log(msg, cls) {
+  const el = $('log');
+  const line = document.createElement('div');
+  if (cls) line.className = cls;
+  line.textContent = msg;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+$('btnClear').onclick = () => $('log').innerHTML = '';
+
+// ---------- 连接 + 服务发现 ----------
+$('btnConnect').onclick = async () => {
+  if (!navigator.bluetooth) {
+    log('本浏览器不支持 Web Bluetooth。iOS 请用 Bluefy 打开；其它端请用 Chrome/Edge，并确保是 HTTPS。', 'err');
+    return;
+  }
+  try {
+    const optionalServices = KNOWN_SERVICES.slice();
+    const extra = $('extraService').value.trim().toLowerCase();
+    if (extra) optionalServices.push(/^0x|^[0-9a-f]{1,8}$/.test(extra) && extra.length <= 8 ? parseInt(extra, 16) : extra);
+
+    log('弹出设备选择框…');
+    device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices });
+    $('devName').textContent = '已选: ' + (device.name || '(无名)') + '  id=' + device.id;
+    log('连接 GATT…');
+    device.addEventListener('gattserverdisconnected', () => log('⚠ 设备已断开', 'warn'));
+    server = await device.gatt.connect();
+
+    chars.clear();
+    $('charSelect').innerHTML = '';
+    const services = await server.getPrimaryServices();
+    log(`发现 ${services.length} 个服务：`, 'ok');
+    let writableCount = 0;
+    for (const s of services) {
+      log('  Service ' + s.uuid);
+      let cs = [];
+      try { cs = await s.getCharacteristics(); } catch (e) { log('    (读取特征失败: ' + e.message + ')', 'warn'); }
+      for (const c of cs) {
+        const p = c.properties;
+        const flags = [p.write && 'write', p.writeWithoutResponse && 'writeNR', p.notify && 'notify', p.read && 'read'].filter(Boolean).join(',');
+        log('    Char ' + c.uuid + '  [' + flags + ']');
+        if (p.write || p.writeWithoutResponse) {
+          chars.set(c.uuid, c);
+          charSvc.set(c.uuid, s.uuid);
+          const opt = document.createElement('option');
+          opt.value = c.uuid;
+          opt.textContent = c.uuid + '  [' + flags + ']';
+          $('charSelect').appendChild(opt);
+          writableCount++;
+        }
+      }
+    }
+    if (writableCount === 0) {
+      log('没发现可写特征。P2 的服务可能不在默认列表里 —— 用 nRF Connect/LightBlue 查到它的 Service UUID，填到上面“手动追加”再连。', 'err');
+    } else {
+      selCharUuid = $('charSelect').value;
+      selSvcUuid = charSvc.get(selCharUuid);
+      writeChar = chars.get(selCharUuid);
+      log(`共 ${writableCount} 个可写特征，已默认选中第一个。可在下拉里切换。`, 'ok');
+      setSendEnabled(true);
+    }
+    $('btnDisconnect').disabled = false;
+  } catch (e) {
+    log('连接失败: ' + e.message, 'err');
+  }
+};
+$('charSelect').onchange = () => {
+  selCharUuid = $('charSelect').value;
+  selSvcUuid = charSvc.get(selCharUuid);
+  writeChar = chars.get(selCharUuid);
+  log('选中特征: ' + selCharUuid);
+};
+$('btnDisconnect').onclick = () => {
+  if (device && device.gatt.connected) device.gatt.disconnect();
+  writeChar = null; setSendEnabled(false); $('btnDisconnect').disabled = true;
+  log('已断开');
+};
+function setSendEnabled(on) {
+  ['btnEscText','btnEscRaster','btnTspl','btnCpcl'].forEach(id => $(id).disabled = !on);
+}
+
+// ---------- 连接自愈：断了就重连并重新获取特征 ----------
+async function ensureConnected() {
+  if (device && device.gatt.connected && writeChar) return;
+  if (!device) throw new Error('尚未选择设备');
+  log('连接已断开，正在重连…', 'warn');
+  server = await device.gatt.connect();
+  const svc = await server.getPrimaryService(selSvcUuid);
+  writeChar = await svc.getCharacteristic(selCharUuid);
+  await sleep(200); // 给打印机一点缓冲
+  log('重连成功，已重新获取特征 ✔', 'ok');
+}
+
+// ---------- 分片写入 ----------
+async function send(bytes, tag) {
+  if (!selCharUuid) { log('未选择可写特征', 'err'); return; }
+  const chunk = parseInt($('chunk').value) || 180;
+  try { await ensureConnected(); }
+  catch (e) { log(`[${tag}] 重连失败: ` + e.message, 'err'); return; }
+  log(`[${tag}] 开始发送 ${bytes.length} 字节，分片 ${chunk}…`);
+  try {
+    for (let i = 0; i < bytes.length; i += chunk) {
+      const slice = bytes.slice(i, i + chunk);
+      try { await writeChar.writeValueWithoutResponse(slice); }
+      catch (e) { await writeChar.writeValue(slice); }
+      await sleep(20);
+    }
+    log(`[${tag}] 发送完成 ✔`, 'ok');
+  } catch (e) {
+    log(`[${tag}] 发送出错: ` + e.message, 'err');
+  }
+}
+
+// ---------- 生成测试图（黑框 + 对角线 + 文字），大小 = 标签点数 ----------
+function labelDots() {
+  const dpmm = (parseInt($('dpi').value) || 203) / 25.4;
+  return {
+    w: Math.round((parseInt($('wmm').value) || 30) * dpmm),
+    h: Math.round((parseInt($('hmm').value) || 30) * dpmm),
+  };
+}
+function renderTest() {
+  const { w, h } = labelDots();
+  const cv = $('cv'); cv.width = w; cv.height = h;
+  const g = cv.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, w, h);
+  g.strokeStyle = '#000'; g.lineWidth = Math.max(2, Math.round(w / 60));
+  g.strokeRect(4, 4, w - 8, h - 8);
+  g.beginPath(); g.moveTo(4, 4); g.lineTo(w - 4, h - 4); g.moveTo(w - 4, 4); g.lineTo(4, h - 4); g.stroke();
+  g.fillStyle = '#000'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.font = 'bold ' + Math.round(h / 8) + 'px sans-serif';
+  g.fillText('HELLO P2', w / 2, h / 2 - h / 12);
+  g.font = Math.round(h / 12) + 'px sans-serif';
+  g.fillText(w + 'x' + h + ' dots', w / 2, h / 2 + h / 8);
+  log(`生成测试图 ${w}x${h} dots`);
+}
+$('btnRender').onclick = renderTest;
+
+// ---------- 光栅化：canvas → 每行按字节打包，black=1（MSB 在前） ----------
+function raster1bit() { return raster1bitOf($('cv')); }
+// 居中到打印头：左侧补白，使 30mm 图居中对齐（P2 纸居中走纸）
+function rasterCentered() {
+  const cv = $('cv');
+  const dpmm = (parseInt($('dpi').value) || 203) / 25.4;
+  const headDots = Math.round((parseInt($('headmm').value) || 48) * dpmm);
+  const w = Math.max(headDots, cv.width), h = cv.height;
+  const off = document.createElement('canvas');
+  off.width = w; off.height = h;
+  const g = off.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, w, h);
+  const leftPad = Math.max(0, Math.round((w - cv.width) / 2));
+  g.drawImage(cv, leftPad, 0);
+  log(`居中打印：头宽 ${w} dots，图宽 ${cv.width} dots，左补 ${leftPad} dots`);
+  return raster1bitOf(off);
+}
+function raster1bitOf(cv) {
+  const { width: w, height: h } = cv;
+  const data = cv.getContext('2d').getImageData(0, 0, w, h).data;
+  const bpr = Math.ceil(w / 8);
+  const black = new Uint8Array(bpr * h); // bit=1 表示黑
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+      const isBlack = data[i + 3] > 128 && lum < 128;
+      if (isBlack) black[y * bpr + (x >> 3)] |= (0x80 >> (x & 7));
+    }
+  }
+  return { black, bpr, w, h };
+}
+function concatBytes(parts) {
+  let n = 0; for (const p of parts) n += p.length;
+  const out = new Uint8Array(n); let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
+
+// ---------- 测试 A：ESC-POS 文本 ----------
+$('btnEscText').onclick = () => {
+  const init = new Uint8Array([0x1B, 0x40]);            // ESC @
+  const body = enc.encode('HELLO P2\r\nESC-POS OK\r\n');
+  const feed = new Uint8Array([0x0A, 0x0A, 0x0A]);
+  send(concatBytes([init, body, feed]), 'ESC文本');
+};
+
+// ---------- 测试 B：ESC-POS 位图 (GS v 0)，bit=1=黑，居中到打印头 ----------
+$('btnEscRaster').onclick = () => {
+  const { black, bpr, h } = rasterCentered();
+  const header = new Uint8Array([0x1B, 0x40, 0x1D, 0x76, 0x30, 0x00,
+    bpr & 0xff, (bpr >> 8) & 0xff, h & 0xff, (h >> 8) & 0xff]);
+  const feed = new Uint8Array([0x0A, 0x0A, 0x0A]);
+  send(concatBytes([header, black, feed]), 'ESC位图');
+};
+
+// ---------- 测试 C：TSPL 位图，BITMAP 里 bit=0=黑，需取反 ----------
+$('btnTspl').onclick = () => {
+  const { black, bpr, w, h } = raster1bit();
+  const inv = new Uint8Array(black.length);
+  for (let i = 0; i < black.length; i++) inv[i] = ~black[i] & 0xff; // white=1
+  const wmm = parseInt($('wmm').value) || 30, hmm = parseInt($('hmm').value) || 30;
+  const head = enc.encode(
+    `SIZE ${wmm} mm,${hmm} mm\r\nGAP 2 mm,0 mm\r\nDIRECTION 1\r\nDENSITY 10\r\nCLS\r\n` +
+    `BITMAP 0,0,${bpr},${h},0,`);
+  const foot = enc.encode(`\r\nPRINT 1,1\r\n`);
+  send(concatBytes([head, inv, foot]), 'TSPL');
+};
+
+// ---------- 测试 D：CPCL 位图 (EG，十六进制文本)，bit=1=黑 ----------
+$('btnCpcl').onclick = () => {
+  const { black, bpr, h } = raster1bit();
+  let hex = '';
+  for (let i = 0; i < black.length; i++) hex += black[i].toString(16).padStart(2, '0');
+  const body = enc.encode(
+    `! 0 203 203 ${h} 1\r\nEG ${bpr} ${h} 0 0 ${hex}\r\nPRINT\r\n`);
+  send(body, 'CPCL');
+};
+
+// 首次渲染
+renderTest();
+log('页面就绪。先点“连接打印机”。', 'ok');
+</script>
+</body>
+</html>

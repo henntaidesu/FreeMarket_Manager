@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -201,9 +202,54 @@ def _mark_task_last_at(aid: int, keys: List[str]) -> None:
     item.save()
 
 
+#: 因等待出品任务而连续推迟自动同步的上限；超过则强制放行，避免出品源源不断时自动同步被饿死
+_MAX_LISTING_DEFER_SEC = 30 * 60
+_listing_defer_since: Optional[float] = None
+
+
+def _defer_for_pending_listings() -> bool:
+    """队列里还有待执行/执行中的出品任务时推迟本轮自动同步。
+
+    出品的「可上架预扣减」要等在售同步把新挂牌绑回库存才核销。若出品还没跑完就抢先同步，
+    既拿不到新挂牌（白跑一趟），又会与「刷新库存须等出品全部完成」的约定相悖。
+    队列是全局单 worker + FIFO，用户主动点的在售同步天然排在出品之后，这里只需让自动循环也让路。
+
+    但不能无限让路：连续推迟超过 ``_MAX_LISTING_DEFER_SEC`` 即强制放行。
+    """
+    global _listing_defer_since
+    try:
+        from .task_queue import has_pending_listing_tasks
+
+        pending = has_pending_listing_tasks()
+    except Exception:  # 队列不可用时不能拖垮自动同步
+        _listing_defer_since = None
+        return False
+
+    if not pending:
+        _listing_defer_since = None
+        return False
+
+    now = time.monotonic()
+    if _listing_defer_since is None:
+        _listing_defer_since = now
+    waited = now - _listing_defer_since
+    if waited >= _MAX_LISTING_DEFER_SEC:
+        log.warning(
+            "[mercari_auto_fetch] 已因出品任务连续推迟 %.0f 分钟，本轮强制执行",
+            waited / 60.0,
+        )
+        _listing_defer_since = None
+        return False
+    log.info("[mercari_auto_fetch] 队列中仍有出品任务，本轮跳过（已推迟 %.0fs）", waited)
+    return True
+
+
 async def run_mercari_auto_fetch_tick() -> None:
     raw = (os.environ.get("MERCARI_AUTO_FETCH") or "1").strip().lower()
     if raw in ("0", "false", "no", "off"):
+        return
+
+    if _defer_for_pending_listings():
         return
 
     now = datetime.now(timezone.utc)

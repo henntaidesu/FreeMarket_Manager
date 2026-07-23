@@ -63,6 +63,21 @@ def begin_or_conflict(kind: str, label_zh: str) -> int:
     return tok
 
 
+async def begin_waiting(kind: str, label_zh: str, *, poll_sec: float = 1.0) -> int:
+    """排队等待全局同步锁，直到拿到为止（不 409）。
+
+    供任务队列 worker 使用：队列里的任务是用户已确认要做的事，遇到自动同步循环正在跑时
+    应当等它结束再执行，而不是像 HTTP 直连入口那样直接失败。
+    """
+    import asyncio
+
+    while True:
+        tok = try_begin(kind, label_zh)
+        if tok is not None:
+            return tok
+        await asyncio.sleep(poll_sec)
+
+
 def end(token: Optional[int]) -> None:
     if token is None:
         return

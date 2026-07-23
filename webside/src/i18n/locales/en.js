@@ -93,6 +93,7 @@ export default {
       orders: "Orders",
       onSaleItems: "On Sale",
       todos: "To-Do",
+      tasks: "Task Queue",
       notifications: "Mercari Notifications",
       mercariAccounts: "Mercari Accounts",
       talkScripts: "Scripts",

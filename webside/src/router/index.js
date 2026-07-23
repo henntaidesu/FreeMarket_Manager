@@ -17,6 +17,7 @@ const routes = [
       { path: 'orders', name: 'Orders', component: () => import('@/views/Orders/index.vue'), meta: { title: '订单管理', icon: 'Tickets' } },
       { path: 'on-sale-items', name: 'OnSaleItems', component: () => import('@/views/OnSaleItems/index.vue'), meta: { title: '在售商品', icon: 'ShoppingBag' } },
       { path: 'todos', name: 'Todos', component: () => import('@/views/Todos/index.vue'), meta: { title: '待办事项', icon: 'BellFilled' } },
+      { path: 'tasks', name: 'Tasks', component: () => import('@/views/Tasks/index.vue'), meta: { title: '任务队列', icon: 'Loading' } },
       { path: 'notifications', name: 'Notifications', component: () => import('@/views/Notifications/index.vue'), meta: { title: '煤炉通知', icon: 'Bell' } },
       { path: 'mercari-accounts', name: 'MercariAccounts', component: () => import('@/views/MercariAccounts/index.vue'), meta: { title: '煤炉账号', icon: 'User' } },
       { path: 'memos', name: 'Memos', component: () => import('@/views/Memos/index.vue'), meta: { title: '备忘录', icon: 'ChatDotRound' } },

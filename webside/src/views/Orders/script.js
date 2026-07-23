@@ -2,17 +2,15 @@ import { defineComponent, ref, computed, onMounted, watch, onBeforeUnmount, next
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
 import { ElMessage } from '@/utils/notify'
-import { RefreshRight, Refresh, Plus, Minus, Loading } from '@element-plus/icons-vue'
+import { RefreshRight, Refresh, Plus, Minus } from '@element-plus/icons-vue'
 import {
   orderApi,
-  mercariApi,
   inventoryApi,
   costExpenseApi,
   costRecordApi,
   authApi,
 } from '@/api/index.js'
 import { useMercariAccountStore } from '@/stores/mercariAccount.js'
-import { useSyncLockStore } from '@/stores/syncLock.js'
 import {
   useInventoryListApiFilters,
   warehouseCascaderProps,
@@ -29,7 +27,6 @@ export default defineComponent({
   setup() {
     const { t } = useI18n()
     const mercariAccountStore = useMercariAccountStore()
-    const syncLockStore = useSyncLockStore()
 
     const orderTableRef = ref(null)
     /** 当前已展开的主表行（用于筛选变更时折叠，避免展开区与缓存不一致） */
@@ -376,13 +373,6 @@ export default defineComponent({
     /** newData：增量入库出售中；statusRefresh：库内未完成订单批量刷新（与单行「刷新」相同接口） */
     const syncMode = ref('newData')
 
-    /** 「更新列表 / 更新状态」全屏等待与步骤文案（与后端 progress_job_id 轮询同步） */
-    const syncOverlayVisible = ref(false)
-    const syncOverlayTitle = ref('')
-    const syncOverlayFailed = ref(false)
-    const syncProgressLabel = ref('')
-    let syncProgressTimer = null
-
     async function runSync(mode = 'newData') {
       if (syncLoading.value) return
       const actionLabel = mode === 'statusRefresh' ? t('orders.actionBatchUpdateStatus') : t('orders.actionUpdateSellingList')
@@ -396,88 +386,18 @@ export default defineComponent({
         return
       }
 
-      const progressJobId =
-        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-          ? crypto.randomUUID()
-          : `job_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
-
-      let lastConsoleStep = ''
-      const consoleTag = mode === 'statusRefresh' ? '[更新状态]' : '[更新列表]'
-      async function pollSyncProgress() {
-        try {
-          const pr = await mercariApi.getSyncProgress(progressJobId)
-          const d = pr?.data
-          const zh = d?.label_zh
-          if (zh) {
-            syncProgressLabel.value = zh
-            if (zh !== lastConsoleStep) {
-              lastConsoleStep = zh
-              console.log(consoleTag, zh)
-            }
-          }
-        } catch {
-          /* 轮询失败忽略 */
-        }
-      }
-
+      // 提交到任务队列后立即返回；执行进度在 /#/tasks 查看，不再阻塞本页
       syncMode.value = mode
-      syncOverlayTitle.value = mode === 'statusRefresh' ? t('orders.updatingStatus') : t('orders.updatingList')
-      syncOverlayFailed.value = false
-      syncProgressLabel.value = t('orders.connectingServer')
-      syncOverlayVisible.value = true
       syncLoading.value = true
-      await pollSyncProgress()
-      syncProgressTimer = setInterval(pollSyncProgress, 1000)
-
-      let syncHadError = false
       try {
-        const payload = { progress_job_id: progressJobId }
-        if (mode === 'statusRefresh') {
-          const res = await mercariApi.batchRefreshInfo(payload)
-          const d = res.data || {}
-          const failed = d.failed?.length ?? 0
-          const msg = t('orders.statusRefreshDoneMsg', {
-            total: d.total ?? 0,
-            ok: d.ok ?? 0,
-            skipped: d.skipped_no_account ?? 0,
-            failed,
-          })
-          if (failed > 0) ElMessage.warning(msg)
-          else ElMessage.success(msg)
-        } else {
-          const res = await mercariApi.syncNewData(payload)
-          const d = res.data || {}
-          ElMessage.success(
-            t('orders.updateDoneMsg', {
-              accountCount: d.account_count ?? 0,
-              failCount: d.fail_count ?? 0,
-              api: d.api_item_count ?? 0,
-              pending: d.pending_new ?? 0,
-              inserted: d.inserted ?? 0,
-              enriched: d.info_enriched ?? 0,
-            })
-          )
-        }
-        load()
-        loadStats()
-      } catch (e) {
-        syncHadError = true
-        syncOverlayTitle.value = mode === 'statusRefresh' ? t('orders.updateStatusFailed') : t('orders.updateListFailed')
-        syncOverlayFailed.value = true
-        const msg = e?.response?.data?.detail || e?.message || t('orders.syncFailed')
-        syncProgressLabel.value = String(msg)
+        await submitTask(
+          mode === 'statusRefresh'
+            ? TASK_TYPES.ORDERS_BATCH_REFRESH
+            : TASK_TYPES.ORDERS_SYNC_NEW_DATA,
+          {},
+          { t },
+        )
       } finally {
-        if (syncProgressTimer != null) {
-          clearInterval(syncProgressTimer)
-          syncProgressTimer = null
-        }
-        if (syncHadError) {
-          await new Promise((r) => setTimeout(r, 1200))
-        }
-        syncOverlayVisible.value = false
-        syncOverlayTitle.value = ''
-        syncOverlayFailed.value = false
-        syncProgressLabel.value = ''
         syncLoading.value = false
       }
     }
@@ -1477,66 +1397,16 @@ export default defineComponent({
         return
       }
 
-      const progressJobId =
-        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-          ? crypto.randomUUID()
-          : `job_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
-
-      let lastConsoleStep = ''
-      async function pollSyncProgress() {
-        try {
-          const pr = await orderApi.getRefreshProgress(progressJobId)
-          const d = pr?.data
-          const zh = d?.label_zh
-          if (zh) {
-            syncProgressLabel.value = zh
-            if (zh !== lastConsoleStep) {
-              lastConsoleStep = zh
-              console.log('[订单刷新]', zh)
-            }
-          }
-        } catch {
-          /* 轮询失败忽略 */
-        }
-      }
-
-      syncOverlayTitle.value = t('orders.refreshingOrder')
-      syncOverlayFailed.value = false
-      syncProgressLabel.value = t('orders.connectingServer')
-      syncOverlayVisible.value = true
+      // 提交到任务队列；刷新完成后的数据变化下次进本页/手动刷新即可见
       refreshingId.value = row.id
-      await pollSyncProgress()
-      syncProgressTimer = setInterval(pollSyncProgress, 1000)
-
-      let hadError = false
       try {
-        await orderApi.refreshInfo({
-          order_no: orderNo,
-          data_user: dataUser,
-          progress_job_id: progressJobId,
-        })
-        ElMessage.success(t('orders.refreshedFromMercari'))
-        clearOutboundExpandCache(orderNo)
-        load()
-        loadStats()
-      } catch (e) {
-        hadError = true
-        syncOverlayTitle.value = t('orders.refreshFailed')
-        syncOverlayFailed.value = true
-        const msg = e?.response?.data?.detail || e?.message || t('orders.refreshFailed')
-        syncProgressLabel.value = String(msg)
+        const task = await submitTask(
+          TASK_TYPES.ORDERS_REFRESH_ONE,
+          { order_no: orderNo, data_user: dataUser },
+          { t },
+        )
+        if (task) clearOutboundExpandCache(orderNo)
       } finally {
-        if (syncProgressTimer != null) {
-          clearInterval(syncProgressTimer)
-          syncProgressTimer = null
-        }
-        if (hadError) {
-          await new Promise((r) => setTimeout(r, 1200))
-        }
-        syncOverlayVisible.value = false
-        syncOverlayTitle.value = ''
-        syncOverlayFailed.value = false
-        syncProgressLabel.value = ''
         refreshingId.value = null
       }
     }
@@ -1616,7 +1486,6 @@ export default defineComponent({
       updateViewportState()
       window.addEventListener('resize', updateViewportState)
       mercariAccountStore.ensureLoaded()
-      syncLockStore.subscribe()
       try {
         const users = await authApi.listUsers()
         ownerUsers.value = Array.isArray(users) ? users : []
@@ -1630,11 +1499,6 @@ export default defineComponent({
 
     onBeforeUnmount(() => {
       window.removeEventListener('resize', updateViewportState)
-      if (syncProgressTimer != null) {
-        clearInterval(syncProgressTimer)
-        syncProgressTimer = null
-      }
-      syncLockStore.unsubscribe()
     })
 
     return {
@@ -1651,9 +1515,7 @@ export default defineComponent({
       Refresh,
       Plus,
       Minus,
-      Loading,
       orderApi,
-      mercariApi,
       inventoryApi,
       costExpenseApi,
       costRecordApi,
@@ -1668,7 +1530,6 @@ export default defineComponent({
       mercariImageUrlList,
       t,
       mercariAccountStore,
-      syncLockStore,
       orderTableRef,
       lastExpandedRows,
       ownerUsers,
@@ -1736,11 +1597,6 @@ export default defineComponent({
       orderListStatusFilterOptions,
       syncLoading,
       syncMode,
-      syncOverlayVisible,
-      syncOverlayTitle,
-      syncOverlayFailed,
-      syncProgressLabel,
-      syncProgressTimer,
       runSync,
       formatLocalDatetime,
       normalizeDatetimeStr,

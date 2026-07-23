@@ -2,7 +2,7 @@
 """在售商品列表处理器：从煤炉同步及详情拉取。"""
 import logging
 import re
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Optional, Set
 
 from fastapi import HTTPException
 
@@ -68,63 +68,79 @@ async def sync_on_sale(data: SyncOnSaleRequest):
     if jid and not _SYNC_JOB_ID_RE.fullmatch(jid):
         raise HTTPException(status_code=400, detail="invalid progress_job_id")
 
-    if data.account_id is not None:
-        account_ids = [int(data.account_id)]
-    else:
-        try:
-            account_ids = resolve_enabled_account_ids()
-        except RuntimeError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        account_ids = resolve_sync_account_ids(data.account_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     lock_token = sync_lock_begin("page", LABEL_FULL)
-    accounts: List[Dict[str, Any]] = []
-    api_item_count = inserted = updated = marked_deleted = 0
-    fail_count = 0
-    mgr = get_web_drive_manager()
     try:
-        for aid in account_ids:
-            try:
-                stats = await run_mercari_serial_async(
-                    queue_key_for_mercari_account(aid),
-                    lambda aid=aid: sync_on_sale_items_from_mercari(
-                        account_id=aid,
-                        progress_job_id=jid,
-                    ),
-                )
-            except Exception as exc:  # noqa: BLE001 单个账号失败不影响其余账号
-                fail_count += 1
-                accounts.append({"account_id": aid, "error": str(exc)})
-                continue
-            else:
-                api_item_count += int(stats.get("api_item_count", 0) or 0)
-                inserted += int(stats.get("inserted", 0) or 0)
-                updated += int(stats.get("updated", 0) or 0)
-                marked_deleted += int(stats.get("marked_deleted", 0) or 0)
-                accounts.append(stats)
-            finally:
-                # 关闭当前账号浏览器，确保与下一账号不重叠（队列层默认 ~10s 后才关）。
-                try:
-                    await mgr.close_session(mercari_automation_key(aid), force=True)
-                except Exception as close_exc:  # noqa: BLE001 关闭失败不阻断后续账号
-                    log.warning(
-                        "[on_sale] 关闭 account_id=%s 浏览器失败: %s", aid, close_exc
-                    )
+        data_out = await sync_on_sale_core(account_ids=account_ids, progress_job_id=jid)
     finally:
         sync_lock_end(lock_token)
         if jid:
             clear_on_sale_sync_progress(jid)
 
+    return {"success": True, "data": data_out}
+
+
+def resolve_sync_account_ids(account_id: Optional[int]) -> List[int]:
+    """指定了 account_id 就只同步它，否则取全部启用账号。RuntimeError 由调用方转 400。"""
+    if account_id is not None:
+        return [int(account_id)]
+    return resolve_enabled_account_ids()
+
+
+async def sync_on_sale_core(
+    *,
+    account_ids: List[int],
+    progress_job_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """「从煤炉同步」主体：不含 HTTP 与锁语义，**调用方须自行持有全局同步锁**。
+
+    HTTP 入口 ``sync_on_sale`` 与任务队列处理器
+    （``task_queue/handlers/on_sale.py``，用 ``begin_waiting`` 排队等锁）共用本函数。
+    """
+    accounts: List[Dict[str, Any]] = []
+    api_item_count = inserted = updated = marked_deleted = 0
+    fail_count = 0
+    mgr = get_web_drive_manager()
+    for aid in account_ids:
+        try:
+            stats = await run_mercari_serial_async(
+                queue_key_for_mercari_account(aid),
+                lambda aid=aid: sync_on_sale_items_from_mercari(
+                    account_id=aid,
+                    progress_job_id=progress_job_id,
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001 单个账号失败不影响其余账号
+            fail_count += 1
+            accounts.append({"account_id": aid, "error": str(exc)})
+            continue
+        else:
+            api_item_count += int(stats.get("api_item_count", 0) or 0)
+            inserted += int(stats.get("inserted", 0) or 0)
+            updated += int(stats.get("updated", 0) or 0)
+            marked_deleted += int(stats.get("marked_deleted", 0) or 0)
+            accounts.append(stats)
+        finally:
+            # 关闭当前账号浏览器，确保与下一账号不重叠（队列层默认 ~10s 后才关）。
+            try:
+                await mgr.close_session(mercari_automation_key(aid), force=True)
+            except Exception as close_exc:  # noqa: BLE001 关闭失败不阻断后续账号
+                log.warning(
+                    "[on_sale] 关闭 account_id=%s 浏览器失败: %s", aid, close_exc
+                )
+
     return {
-        "success": True,
-        "data": {
-            "accounts": accounts,
-            "account_count": len(account_ids),
-            "fail_count": fail_count,
-            "api_item_count": api_item_count,
-            "inserted": inserted,
-            "updated": updated,
-            "marked_deleted": marked_deleted,
-        },
+        "accounts": accounts,
+        "account_count": len(account_ids),
+        "fail_count": fail_count,
+        "api_item_count": api_item_count,
+        "inserted": inserted,
+        "updated": updated,
+        "marked_deleted": marked_deleted,
     }
 
 
@@ -142,62 +158,69 @@ async def full_update_on_sale(data: SyncOnSaleRequest):
     if jid and not _SYNC_JOB_ID_RE.fullmatch(jid):
         raise HTTPException(status_code=400, detail="invalid progress_job_id")
 
-    if data.account_id is not None:
-        account_ids = [int(data.account_id)]
-    else:
-        try:
-            account_ids = resolve_enabled_account_ids()
-        except RuntimeError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        account_ids = resolve_sync_account_ids(data.account_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     lock_token = sync_lock_begin("page", LABEL_FULL)
-    accounts: List[Dict[str, Any]] = []
-    target_count = attempted = updated = failed = 0
-    fail_count = 0
-    mgr = get_web_drive_manager()
     try:
-        for aid in account_ids:
-            try:
-                stats = await run_mercari_serial_async(
-                    queue_key_for_mercari_account(aid),
-                    lambda aid=aid: full_update_on_sale_details_from_mercari(
-                        account_id=aid,
-                        progress_job_id=jid,
-                    ),
-                )
-            except Exception as exc:  # noqa: BLE001 单个账号失败不影响其余账号
-                fail_count += 1
-                accounts.append({"account_id": aid, "error": str(exc)})
-                continue
-            else:
-                target_count += int(stats.get("target_count", 0) or 0)
-                attempted += int(stats.get("attempted", 0) or 0)
-                updated += int(stats.get("updated", 0) or 0)
-                failed += int(stats.get("failed", 0) or 0)
-                accounts.append(stats)
-            finally:
-                try:
-                    await mgr.close_session(mercari_automation_key(aid), force=True)
-                except Exception as close_exc:  # noqa: BLE001 关闭失败不阻断后续账号
-                    log.warning(
-                        "[on_sale] 关闭 account_id=%s 浏览器失败: %s", aid, close_exc
-                    )
+        data_out = await full_update_on_sale_core(
+            account_ids=account_ids, progress_job_id=jid
+        )
     finally:
         sync_lock_end(lock_token)
         if jid:
             clear_on_sale_sync_progress(jid)
 
+    return {"success": True, "data": data_out}
+
+
+async def full_update_on_sale_core(
+    *,
+    account_ids: List[int],
+    progress_job_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """「全量更新」主体：不含 HTTP 与锁语义，**调用方须自行持有全局同步锁**。"""
+    accounts: List[Dict[str, Any]] = []
+    target_count = attempted = updated = failed = 0
+    fail_count = 0
+    mgr = get_web_drive_manager()
+    for aid in account_ids:
+        try:
+            stats = await run_mercari_serial_async(
+                queue_key_for_mercari_account(aid),
+                lambda aid=aid: full_update_on_sale_details_from_mercari(
+                    account_id=aid,
+                    progress_job_id=progress_job_id,
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001 单个账号失败不影响其余账号
+            fail_count += 1
+            accounts.append({"account_id": aid, "error": str(exc)})
+            continue
+        else:
+            target_count += int(stats.get("target_count", 0) or 0)
+            attempted += int(stats.get("attempted", 0) or 0)
+            updated += int(stats.get("updated", 0) or 0)
+            failed += int(stats.get("failed", 0) or 0)
+            accounts.append(stats)
+        finally:
+            try:
+                await mgr.close_session(mercari_automation_key(aid), force=True)
+            except Exception as close_exc:  # noqa: BLE001 关闭失败不阻断后续账号
+                log.warning(
+                    "[on_sale] 关闭 account_id=%s 浏览器失败: %s", aid, close_exc
+                )
+
     return {
-        "success": True,
-        "data": {
-            "accounts": accounts,
-            "account_count": len(account_ids),
-            "fail_count": fail_count,
-            "target_count": target_count,
-            "attempted": attempted,
-            "updated": updated,
-            "failed": failed,
-        },
+        "accounts": accounts,
+        "account_count": len(account_ids),
+        "fail_count": fail_count,
+        "target_count": target_count,
+        "attempted": attempted,
+        "updated": updated,
+        "failed": failed,
     }
 
 

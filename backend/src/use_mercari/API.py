@@ -53,6 +53,53 @@ class SyncOrdersRequest(PydanticModel):
     progress_job_id: Optional[str] = None
 
 
+async def sync_new_data_core(*, progress_job_id: Optional[str] = None) -> Dict[str, Any]:
+    """「更新列表」主体：不含 HTTP 与锁语义，**调用方须自行持有全局同步锁**。
+
+    HTTP 入口 ``api_sync_new_data`` 与任务队列处理器
+    （``task_queue/handlers/orders.py``，用 ``begin_waiting`` 排队等锁）共用本函数。
+    """
+    account_ids = resolve_enabled_account_ids()
+    accounts: List[Dict[str, Any]] = []
+    api_item_count = pending_new = inserted = info_enriched = 0
+    fail_count = 0
+    mgr = get_web_drive_manager()
+    for aid in account_ids:
+        try:
+            stats = await run_mercari_serial_async(
+                queue_key_for_mercari_account(aid),
+                lambda aid=aid: sync_new_data(account_id=aid, progress_job_id=progress_job_id),
+            )
+        except Exception as exc:  # noqa: BLE001 单个账号失败不影响其余账号
+            fail_count += 1
+            accounts.append({"account_id": aid, "error": str(exc)})
+            continue
+        else:
+            api_item_count += int(stats.get("api_item_count", 0) or 0)
+            pending_new += int(stats.get("pending_new", 0) or 0)
+            inserted += int(stats.get("inserted", 0) or 0)
+            info_enriched += int(stats.get("info_enriched", 0) or 0)
+            accounts.append(stats)
+        finally:
+            # 关闭当前账号浏览器，确保与下一账号不重叠（队列层默认 ~10s 后才关）。
+            try:
+                await mgr.close_session(mercari_automation_key(aid), force=True)
+            except Exception as close_exc:  # noqa: BLE001 关闭失败不阻断后续账号
+                log.warning(
+                    "[orders] 关闭 account_id=%s 浏览器失败: %s", aid, close_exc
+                )
+
+    return {
+        "accounts": accounts,
+        "account_count": len(account_ids),
+        "fail_count": fail_count,
+        "api_item_count": api_item_count,
+        "pending_new": pending_new,
+        "inserted": inserted,
+        "info_enriched": info_enriched,
+    }
+
+
 @router.post("/sync-new-data")
 async def api_sync_new_data(data: SyncOrdersRequest):
     """
@@ -60,63 +107,54 @@ async def api_sync_new_data(data: SyncOrdersRequest):
     WebDriver 打开取引中一覧 + MITM 截获 trading 列表；仅增量入库尚未存在的出售中单，倒序写入。
 
     不再指定单个账号：点击即更新全部已开启账号，逐个执行并汇总结果；每账号完成后立即关闭其浏览器。
+
+    注：前端现已改为提交到任务队列（``POST /use_web/tasks/submit``），本端点保留可直连调用。
     """
     jid = (data.progress_job_id or "").strip() or None
     if jid and not _SYNC_JOB_ID_RE.fullmatch(jid):
         raise HTTPException(status_code=400, detail="invalid progress_job_id")
 
     try:
-        account_ids = resolve_enabled_account_ids()
+        resolve_enabled_account_ids()
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     lock_token = sync_lock_begin("page", LABEL_FULL)
-    accounts: List[Dict[str, Any]] = []
-    api_item_count = pending_new = inserted = info_enriched = 0
-    fail_count = 0
-    mgr = get_web_drive_manager()
     try:
-        for aid in account_ids:
-            try:
-                stats = await run_mercari_serial_async(
-                    queue_key_for_mercari_account(aid),
-                    lambda aid=aid: sync_new_data(account_id=aid, progress_job_id=jid),
-                )
-            except Exception as exc:  # noqa: BLE001 单个账号失败不影响其余账号
-                fail_count += 1
-                accounts.append({"account_id": aid, "error": str(exc)})
-                continue
-            else:
-                api_item_count += int(stats.get("api_item_count", 0) or 0)
-                pending_new += int(stats.get("pending_new", 0) or 0)
-                inserted += int(stats.get("inserted", 0) or 0)
-                info_enriched += int(stats.get("info_enriched", 0) or 0)
-                accounts.append(stats)
-            finally:
-                # 关闭当前账号浏览器，确保与下一账号不重叠（队列层默认 ~10s 后才关）。
-                try:
-                    await mgr.close_session(mercari_automation_key(aid), force=True)
-                except Exception as close_exc:  # noqa: BLE001 关闭失败不阻断后续账号
-                    log.warning(
-                        "[orders] 关闭 account_id=%s 浏览器失败: %s", aid, close_exc
-                    )
+        data_out = await sync_new_data_core(progress_job_id=jid)
     finally:
         sync_lock_end(lock_token)
         if jid:
             clear_sync_progress(jid)
 
-    return {
-        "success": True,
-        "data": {
-            "accounts": accounts,
-            "account_count": len(account_ids),
-            "fail_count": fail_count,
-            "api_item_count": api_item_count,
-            "pending_new": pending_new,
-            "inserted": inserted,
-            "info_enriched": info_enriched,
-        },
-    }
+    return {"success": True, "data": data_out}
+
+
+async def batch_refresh_info_core(
+    *,
+    account_id: Optional[int] = None,
+    progress_job_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """「更新状态」主体：不含 HTTP 与锁语义，**调用方须自行持有全局同步锁**。
+
+    HTTP 入口 ``api_batch_refresh_info`` 与任务队列处理器共用本函数。
+    """
+    if account_id is not None:
+        qk = queue_key_for_mercari_account(int(account_id))
+        return await run_mercari_serial_async(
+            qk,
+            lambda: batch_refresh_orders_info(
+                account_id=int(account_id),
+                progress_job_id=progress_job_id,
+            ),
+        )
+    return await run_mercari_serial_async(
+        GLOBAL_QUEUE_KEY,
+        lambda: batch_refresh_orders_info(
+            account_id=None,
+            progress_job_id=progress_job_id,
+        ),
+    )
 
 
 @router.post("/batch-refresh-info")
@@ -124,29 +162,17 @@ async def api_batch_refresh_info(data: SyncOrdersRequest):
     """
     订单页「更新状态」：逐条打开取引页并由 MITM 截获 transaction_evidences/get 回填（与单行刷新一致）。
     account_id：可选；指定则只处理该账号 seller_id 对应的订单。
+
+    注：前端现已改为提交到任务队列（``POST /use_web/tasks/submit``），本端点保留可直连调用。
     """
     jid = (data.progress_job_id or "").strip() or None
     if jid and not _SYNC_JOB_ID_RE.fullmatch(jid):
         raise HTTPException(status_code=400, detail="invalid progress_job_id")
     lock_token = sync_lock_begin("page", LABEL_FULL)
     try:
-        if data.account_id is not None:
-            qk = queue_key_for_mercari_account(int(data.account_id))
-            result = await run_mercari_serial_async(
-                qk,
-                lambda: batch_refresh_orders_info(
-                    account_id=int(data.account_id),
-                    progress_job_id=jid,
-                ),
-            )
-        else:
-            result = await run_mercari_serial_async(
-                GLOBAL_QUEUE_KEY,
-                lambda: batch_refresh_orders_info(
-                    account_id=None,
-                    progress_job_id=jid,
-                ),
-            )
+        result = await batch_refresh_info_core(
+            account_id=data.account_id, progress_job_id=jid
+        )
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except TimeoutError as exc:

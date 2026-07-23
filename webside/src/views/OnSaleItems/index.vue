@@ -67,29 +67,18 @@
           </el-select>
         </el-col>
         <el-col :xs="24" :md="10" class="search-actions">
+          <!-- 以下三项已改为提交任务队列：提交即返回，不再受全局同步锁阻挡 -->
           <template v-if="!batchMode">
-            <el-tooltip :disabled="!syncLockStore.locked" :content="syncLockStore.label" placement="top">
-              <span>
-                <el-button type="primary" :icon="Download" :loading="syncLoading || syncLockStore.locked" :disabled="syncLockStore.locked" @click="runSync">
-                  {{ t('onSaleItems.syncFromMercari') }}
-                </el-button>
-              </span>
-            </el-tooltip>
+            <el-button type="primary" :icon="Download" :loading="syncLoading" @click="runSync">
+              {{ t('onSaleItems.syncFromMercari') }}
+            </el-button>
             <!-- TEMP_FULL_UPDATE: 临时功能，现有数据补齐发货时效后删除此按钮 -->
-            <el-tooltip :disabled="!syncLockStore.locked" :content="syncLockStore.label" placement="top">
-              <span>
-                <el-button type="warning" :icon="Refresh" :loading="fullUpdateLoading || syncLockStore.locked" :disabled="syncLockStore.locked" @click="runFullUpdate">
-                  {{ t('onSaleItems.fullUpdate') }}
-                </el-button>
-              </span>
-            </el-tooltip>
-            <el-tooltip :disabled="!syncLockStore.locked" :content="syncLockStore.label" placement="top">
-              <span>
-                <el-button type="success" :disabled="syncLockStore.locked" @click="enterBatchMode">
-                  {{ t('onSaleItems.batchRevisePrice') }}
-                </el-button>
-              </span>
-            </el-tooltip>
+            <el-button type="warning" :icon="Refresh" :loading="fullUpdateLoading" @click="runFullUpdate">
+              {{ t('onSaleItems.fullUpdate') }}
+            </el-button>
+            <el-button type="success" @click="enterBatchMode">
+              {{ t('onSaleItems.batchRevisePrice') }}
+            </el-button>
           </template>
           <template v-else>
             <span class="batch-pick-count">{{ t('onSaleItems.batchSelectedCount', { count: batchSelectedCount }) }}</span>
@@ -475,17 +464,14 @@
                 </el-button>
               </span>
             </el-tooltip>
-            <el-tooltip v-if="detailViewBase && !detailIsAuction" :disabled="!syncLockStore.locked" :content="syncLockStore.label" placement="top">
-              <span>
-                <el-button
-                  type="primary"
-                  :disabled="syncLockStore.locked"
-                  @click="openReviseDialog"
-                >
-                  {{ t('onSaleItems.editListing') }}
-                </el-button>
-              </span>
-            </el-tooltip>
+            <!-- 「修改」已改为提交任务队列，不受全局同步锁阻挡 -->
+            <el-button
+              v-if="detailViewBase && !detailIsAuction"
+              type="primary"
+              @click="openReviseDialog"
+            >
+              {{ t('onSaleItems.editListing') }}
+            </el-button>
             <el-tooltip v-if="detailViewBase" :disabled="!syncLockStore.locked" :content="syncLockStore.label" placement="top">
               <span>
                 <el-button

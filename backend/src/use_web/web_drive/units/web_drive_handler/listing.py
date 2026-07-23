@@ -84,7 +84,12 @@ def listing_post_progress(job_id: str):
         return {"success": True, "data": {"step": None, "label_zh": None, "ts": None}}
     return {"success": True, "data": row}
 
-async def post_to_market(body: PostToMarketBody, *, background_caller: bool = False):
+async def post_to_market(
+    body: PostToMarketBody,
+    *,
+    background_caller: bool = False,
+    wait_for_lock: Optional[bool] = None,
+):
     """
     在出品专用**独立无头** profile（``mercari_{id}__listing``）经 SSL 中间人代理打开
     https://jp.mercari.com/sell/create，并自动完成全部表单步骤：
@@ -95,7 +100,11 @@ async def post_to_market(body: PostToMarketBody, *, background_caller: bool = Fa
 
     全局出品锁：同一时刻只允许一个出品在执行（跨账号、跨用户）。
     - HTTP 手动出品（默认）：锁被占用时直接 409，前端提示稍候再试；
-    - ``background_caller=True``（自动补挂等后台任务）：排队等待锁，不丢任务。
+    - ``background_caller=True``（自动补挂等后台任务）：排队等待锁，不丢任务，
+      且**不再进账号串行队列**（调用方已在队列槽内，再入队会自我死锁）。
+    - ``wait_for_lock``：单独控制「等锁 / 冲突即 409」，默认跟随 ``background_caller``。
+      任务队列 worker 传 ``background_caller=False, wait_for_lock=True``——
+      既要进账号串行队列（与同账号同步/待办互斥），又要排队等锁而不是失败。
     """
     from .....web_drive.core.account_serial_queue import (
         queue_key_for_mercari_account,
@@ -152,11 +161,12 @@ async def post_to_market(body: PostToMarketBody, *, background_caller: bool = Fa
                 progress_job_id=jid,
             )
 
-        # 全局出品锁：手动入口冲突即 409；后台补挂排队等待
+        # 全局出品锁：手动入口冲突即 409；后台补挂 / 任务队列排队等待
         label = "自动出品（售出补挂）进行中" if background_caller else "其他用户正在出品"
+        wait = background_caller if wait_for_lock is None else bool(wait_for_lock)
 
         async def _locked_run() -> Dict[str, Any]:
-            async with hold_listing_lock(label, wait=background_caller):
+            async with hold_listing_lock(label, wait=wait):
                 return await _run()
 
         if background_caller:

@@ -93,6 +93,7 @@ export default {
       orders: "注文管理",
       onSaleItems: "出品中",
       todos: "タスク",
+      tasks: "タスクキュー",
       notifications: "メルカリ通知",
       mercariAccounts: "メルカリアカウント",
       talkScripts: "定型文",

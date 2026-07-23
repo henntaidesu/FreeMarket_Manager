@@ -11,6 +11,7 @@ from .product_type import ProductTypeModel
 from .product_type_category_mapping import ProductTypeCategoryMappingModel
 from .talk_script import TalkScriptModel
 from .system_log import SystemLogModel
+from .task_queue import TaskQueueModel
 from .user import UserModel
 from .config_entry import ConfigEntryModel
 
@@ -25,6 +26,7 @@ __all__ = [
     "ProductTypeCategoryMappingModel",
     "TalkScriptModel",
     "SystemLogModel",
+    "TaskQueueModel",
     "UserModel",
     "ConfigEntryModel",
 ]

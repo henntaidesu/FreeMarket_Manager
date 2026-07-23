@@ -93,7 +93,15 @@ class InventoryModel(BaseModel):
                 'not_null': True,
                 'default': 0,
             },
-            # 可上架数量 = 库存(总持有) - 在售 - 待出（派生值，落库以便筛选/判断；上架可否以此判定）
+            # 已提交到任务队列、尚未被在售同步计入 on_sale_quantity 的出品件数（预扣减）。
+            # 由 task_queue/reservations.py 维护：出品入队 +1，在售同步绑定/失败/TTL 兜底后 -1。
+            # 作用：点「出品」后可上架立刻减少，防止重复提交超量出品。
+            'pending_listing_qty': {
+                'type': 'INTEGER',
+                'not_null': True,
+                'default': 0,
+            },
+            # 可上架数量 = 库存(总持有) - 在售 - 待出 - 组合预留 - 出品预扣减（派生值，落库以便筛选/判断）
             # 由 inventory_counters.recompute_listable_quantity 维护，并在库存列表读取时自愈。
             'listable_quantity': {
                 'type': 'INTEGER',

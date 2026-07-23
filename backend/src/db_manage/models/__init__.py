@@ -14,6 +14,7 @@ from .system.product_type_category_mapping import ProductTypeCategoryMappingMode
 from .system.config_entry import ConfigEntryModel
 from .system.talk_script import TalkScriptModel
 from .system.system_log import SystemLogModel
+from .system.task_queue import TaskQueueModel
 from .inventory.inventory import InventoryModel
 from .inventory.image_embedding import ImageEmbeddingModel
 from .orders.order import OrderModel
@@ -54,6 +55,7 @@ __all__ = [
     'MemoModel',
     'TalkScriptModel',
     'SystemLogModel',
+    'TaskQueueModel',
     'GotionTableModel',
     'GotionColumnModel',
     'GotionRowModel',

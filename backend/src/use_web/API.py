@@ -33,6 +33,7 @@ from .inventory.API import router as inventory_router
 from .inventory.API import public_router as inventory_public_router
 from .mercari_accounts.API import router as mercari_accounts_router
 from .todos.API import router as todos_router
+from .tasks.API import router as tasks_router
 from .notifications.API import router as notifications_router
 from .memos.API import router as memos_router
 from .talk_scripts.API import router as talk_scripts_router
@@ -61,6 +62,8 @@ router.include_router(orders_router, prefix="/orders", tags=["orders"], dependen
 router.include_router(inventory_router, prefix="/inventory", tags=["inventory"], dependencies=_AUTH)
 router.include_router(mercari_accounts_router, prefix="/mercari-accounts", tags=["mercari-accounts"], dependencies=_AUTH)
 router.include_router(todos_router, prefix="/todos", tags=["todos"], dependencies=_AUTH)
+# 任务队列：出品/同步/改价等重型操作的统一提交入口与状态查询
+router.include_router(tasks_router, prefix="/tasks", tags=["tasks"], dependencies=_AUTH)
 router.include_router(notifications_router, prefix="/notifications", tags=["notifications"], dependencies=_AUTH)
 router.include_router(memos_router, prefix="/memos", tags=["memos"], dependencies=_AUTH)
 router.include_router(talk_scripts_router, prefix="/talk-scripts", tags=["talk-scripts"], dependencies=_AUTH)

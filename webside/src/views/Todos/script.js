@@ -3,7 +3,8 @@ import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
 import { ElMessage } from '@/utils/notify'
 import { Loading, Plus, Minus } from '@element-plus/icons-vue'
-import { todosApi, costRecordApi, costExpenseApi, orderApi } from '@/api'
+import { todosApi, costRecordApi, costExpenseApi, orderApi, TASK_TYPES } from '@/api'
+import { submitTask } from '@/utils/taskSubmit.js'
 import { useMercariAccountStore } from '@/stores/mercariAccount.js'
 import { useSyncLockStore } from '@/stores/syncLock.js'
 import { useSyncOverlay } from '@/composables/useSyncOverlay'
@@ -866,57 +867,13 @@ export default defineComponent({
         return
       }
 
-      // 进度轮询：后端按账号分组逐条评价，步骤写入 sync-progress，前端轮询展示
-      const progressJobId =
-        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-          ? crypto.randomUUID()
-          : `job_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
-      let progressTimer = null
-      async function pollProgress() {
-        try {
-          const pr = await todosApi.getSyncProgress(progressJobId)
-          const zh = pr?.data?.label_zh
-          if (zh) syncProgressLabel.value = zh
-        } catch { /* 轮询失败忽略 */ }
-      }
-
+      // 提交到任务队列：后端全局单 worker 按账号分组逐条评价，进度在 /#/tasks 查看
       bulkReviewLoading.value = true
-      syncOverlayTitle.value = t('todos.bulkReviewRunning')
-      syncOverlayFailed.value = false
-      syncProgressLabel.value = t('todos.connectingServer')
-      syncOverlayVisible.value = true
-      progressTimer = setInterval(pollProgress, 400)
-
       try {
-        const d = (await todosApi.bulkSubmitReviews({
-          text: DEFAULT_REVIEW,
-          progress_job_id: progressJobId,
-        })) || {}
-        const okCount = Number(d.ok || 0)
-        const failCount = Number(d.fail || 0)
-        const total = Number(d.total || 0)
-        const failures = Array.isArray(d.failures) ? d.failures : []
-        const summary = t('todos.bulkReviewResult', { ok: okCount, fail: failCount, total })
-        ElMessageBox.alert(
-          failures.length ? `${summary}\n${failures.slice(0, 10).join('\n')}` : summary,
-          t('todos.bulkReviewConfirmTitle'),
-          { type: failCount ? 'warning' : 'success', confirmButtonText: t('dialog.confirmBtn') },
-        )
-      } catch (e) {
-        const msg = e?.response?.data?.detail || e?.message || t('todos.bulkReviewRunning')
-        ElMessage.error(msg)
+        await submitTask(TASK_TYPES.TODOS_BULK_REVIEW, { text: DEFAULT_REVIEW }, { t })
       } finally {
-        if (progressTimer != null) {
-          clearInterval(progressTimer)
-          progressTimer = null
-        }
-        syncOverlayVisible.value = false
-        syncOverlayTitle.value = t('todos.syncingFromMercari')
-        syncProgressLabel.value = ''
         bulkReviewLoading.value = false
       }
-
-      await load()
     }
 
     // 一键确认发送：对所有「已打包」待办批量执行发货通知（勾选→発送通知→発送しました）。
@@ -949,60 +906,13 @@ export default defineComponent({
         return
       }
 
-      const progressJobId =
-        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-          ? crypto.randomUUID()
-          : `job_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
-      let progressTimer = null
-      async function pollProgress() {
-        try {
-          const pr = await todosApi.getSyncProgress(progressJobId)
-          const zh = pr?.data?.label_zh
-          if (zh) syncProgressLabel.value = zh
-        } catch { /* 轮询失败忽略 */ }
-      }
-
+      // 提交到任务队列：后端按账号分组逐条确认发送，进度在 /#/tasks 查看
       bulkConfirmShipLoading.value = true
-      syncOverlayTitle.value = t('todos.bulkConfirmShipRunning')
-      syncOverlayFailed.value = false
-      syncProgressLabel.value = t('todos.connectingServer')
-      syncOverlayVisible.value = true
-      progressTimer = setInterval(pollProgress, 400)
-
       try {
-        const d = (await todosApi.bulkFinalizePostShipping({
-          progress_job_id: progressJobId,
-        })) || {}
-        const okCount = Number(d.ok || 0)
-        const failCount = Number(d.fail || 0)
-        const total = Number(d.total || 0)
-        const alreadyShipped = Number(d.already_shipped || 0)
-        const failures = Array.isArray(d.failures) ? d.failures : []
-        let summary = t('todos.bulkConfirmShipResult', { ok: okCount, fail: failCount, total })
-        // 已在别处发送、跳过确认发送仅回填订单的条数（计入成功）追加一行说明
-        if (alreadyShipped) {
-          summary += `\n${t('todos.bulkConfirmShipAlreadyShipped', { count: alreadyShipped })}`
-        }
-        ElMessageBox.alert(
-          failures.length ? `${summary}\n${failures.slice(0, 10).join('\n')}` : summary,
-          t('todos.bulkConfirmShipConfirmTitle'),
-          { type: failCount ? 'warning' : 'success', confirmButtonText: t('dialog.confirmBtn') },
-        )
-      } catch (e) {
-        const msg = e?.response?.data?.detail || e?.message || t('todos.bulkConfirmShipRunning')
-        ElMessage.error(msg)
+        await submitTask(TASK_TYPES.TODOS_BULK_CONFIRM_SHIP, {}, { t })
       } finally {
-        if (progressTimer != null) {
-          clearInterval(progressTimer)
-          progressTimer = null
-        }
-        syncOverlayVisible.value = false
-        syncOverlayTitle.value = t('todos.syncingFromMercari')
-        syncProgressLabel.value = ''
         bulkConfirmShipLoading.value = false
       }
-
-      await load()
     }
 
     // 入参可为 kind 字符串（下拉筛选）或整行（表格）；标题为「発送をしてください」时一律按待发货

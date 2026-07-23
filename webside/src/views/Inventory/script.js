@@ -1,7 +1,7 @@
 import { defineComponent, ref, computed, watch, onMounted, onBeforeUnmount, nextTick, reactive } from 'vue'
-import { ElMessage, reportLog } from '@/utils/notify'
+import { ElMessage } from '@/utils/notify'
 import { ElMessageBox } from 'element-plus'
-import { Loading, WarningFilled } from '@element-plus/icons-vue'
+import { WarningFilled } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import {
   inventoryApi,
@@ -13,10 +13,11 @@ import {
   transactionApi,
   productTypeCategoryMappingApi,
   onSaleItemApi,
-  listingApi,
   configApi,
-  mercariAccountApi
+  mercariAccountApi,
+  TASK_TYPES
 } from '@/api/index.js'
+import { submitTask } from '@/utils/taskSubmit.js'
 import { encodeMgmtId, encodeMgmtIds, stripTrailingMgmtBlock } from '@/utils/mgmtIdCipher.js'
 import { warehouseShelfLeafLabel } from '@/utils/warehouseLabel.js'
 import { useSyncLockStore } from '@/stores/syncLock.js'
@@ -29,7 +30,6 @@ import {
 
 export default defineComponent({
   components: {
-    Loading,
     WarningFilled,
   },
   setup() {
@@ -483,11 +483,6 @@ export default defineComponent({
     /** 库存表单图片上传上限（与后端 save_upload_image 默认一致） */
     const MAX_UPLOAD_IMAGE_BYTES = 25 * 1024 * 1024
     /** WebDriver 出品自动化：全屏等待与步骤文案（与 progress_job_id 轮询同步） */
-    const listingPostOverlayVisible = ref(false)
-    const listingPostOverlayTitle = ref(t('inventory.listingInProgress'))
-    const listingPostOverlayFailed = ref(false)
-    const listingPostProgressLabel = ref('')
-    let listingPostProgressTimer = null
     const productTypeCascaderPath = ref([])
     const warehouseCascaderPath = ref([])
     const inventoryExpandById = ref({})
@@ -2846,45 +2841,6 @@ export default defineComponent({
       }
     }
 
-    /** 煤炉 WebDriver 自动化返回的 *_error 字段 → 中文项目名（用于「上架失败」提示） */
-    const webDriveListingErrorLabels = computed(() => [
-      ['switch_error', t('inventory.errPageSwitch')],
-      ['images_error', t('inventory.errImagesUpload')],
-      ['name_error', t('inventory.errProductName')],
-      ['category_error', t('inventory.errProductType')],
-      ['sell_wizard_error', t('inventory.errSellWizard')],
-      ['condition_error', t('inventory.errCondition')],
-      ['description_error', t('inventory.errDescription')],
-      ['shipping_payer_error', t('inventory.errShippingPayer')],
-      ['shipping_method_error', t('inventory.errShippingMethod')],
-      ['shipping_from_error', t('inventory.errShippingFrom')],
-      ['shipping_days_error', t('inventory.errShippingDays')],
-      ['sale_price_error', t('inventory.errSalePrice')],
-      ['submit_error', t('inventory.errSubmit')],
-      ['fatal_error', t('inventory.errFatal')]
-    ])
-
-    function collectWebDriveListingFailures(data) {
-      if (!data || typeof data !== 'object') return []
-      const out = []
-      for (const [key, label] of webDriveListingErrorLabels.value) {
-        const detail = data[key]
-        if (detail != null && String(detail).trim()) {
-          out.push({ key, label, detail: String(detail).trim() })
-        }
-      }
-      return out
-    }
-
-    function formatWebDriveListingFailureMessage(failures, maxEach = 180) {
-      return failures
-        .map(({ label, detail }) => {
-          const d = detail.length > maxEach ? `${detail.slice(0, maxEach)}…` : detail
-          return `${label}：${d}`
-        })
-        .join('；')
-    }
-
     /** 出品保存：写回所选库存的出品标题、listing_body、price 与出品设置（供自动出品复用） */
     async function onListingFormSaved(data) {
       const ids = (data.inventory_ids || []).map((id) => Number(id)).filter((x) => Number.isFinite(x))
@@ -2915,7 +2871,7 @@ export default defineComponent({
         return
       }
 
-      // ── 2. 派发出品自动化（开启浏览器，填写 Mercari 出品页） ─────────────── //
+      // ── 2. 组装出品参数 ─────────────────────────────────────────────────── //
       const accountId = data.mercari_account_id
       if (!accountId) {
         ElMessage.success(t('inventory.listingSavedNoAccount'))
@@ -2924,8 +2880,8 @@ export default defineComponent({
         return
       }
 
-      // account_key：mercari_{id}；后端使用独立无头 profile mercari_{id}__listing 出品（全局出品锁：
-      // 同一时刻仅一人出品，冲突时返回 409 提示稍候），不占用主 profile / 手动打开的浏览器
+      // account_key：mercari_{id}；后端用独立无头 profile mercari_{id}__listing 出品，
+      // 不占用主 profile / 手动打开的浏览器。出品锁被占用时任务排队等待，不再 409。
       const accountKey = `mercari_${accountId}`
 
       // 收集图片 URL：单条出品用 listing_image_urls（与库存全部图一致）；否则正面/背面；组合出品用 combined_images
@@ -2947,56 +2903,22 @@ export default defineComponent({
         }
       }
 
-      const progressJobId =
-        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-          ? crypto.randomUUID()
-          : `job_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
-
-      let lastConsoleStep = ''
-      async function pollListingPostProgress() {
-        try {
-          const pr = await listingApi.getPostProgress(progressJobId)
-          const d = pr?.data
-          const zh = d?.label_zh
-          if (zh) {
-            listingPostProgressLabel.value = zh
-            if (zh !== lastConsoleStep) {
-              lastConsoleStep = zh
-              console.log('[出品自动化]', zh)
-            }
-          }
-        } catch {
-          /* 轮询失败忽略 */
-        }
-      }
-
-      listingPostOverlayTitle.value = t('inventory.listingInProgress')
-      listingPostOverlayFailed.value = false
-      listingPostProgressLabel.value = t('inventory.connectingToServer')
-      listingPostOverlayVisible.value = true
-      await pollListingPostProgress()
-      listingPostProgressTimer = setInterval(pollListingPostProgress, 400)
-
-      // 记录出品前各库存的在售数：失败/不确定时用「在售对账」判定是否其实已上架（防重复出品）
-      const prevOnSaleById = new Map()
-      for (const invId of ids) {
-        const r = list.value.find((x) => Number(x.id) === Number(invId))
-        prevOnSaleById.set(Number(invId), Number(r?.on_sale_quantity ?? 0))
-      }
-
-      let listingPostHadStepErrors = false
-      let listingSubmittedOk = false
-      let listingSubmitUncertain = false // 已点击出品但未确认成功（可能已上架），待在售对账判定
-      try {
-        const res = await listingApi.postToMarket({
+      // ── 3. 提交出品任务（入队即返回，可上架已在后端预扣减） ─────────────── //
+      // 过去这里要等自动化跑完，还要在前端跑一遍在售同步 + 对账判断是否其实已上架。
+      // 现在整段都在后端 task_queue/handlers/listing.py 里：
+      //   · 入队瞬间 inventory.pending_listing_qty +1 → 本页「可上架」立刻减少，无法重复提交超量；
+      //   · 出品完成后，队列里再没有待出品任务时才自动追加一次在售同步，把新挂牌绑回库存。
+      await submitTask(
+        TASK_TYPES.INVENTORY_LISTING,
+        {
+          inventory_ids: ids,
           account_key: accountKey,
+          account_id: Number(accountId),
           name: listing_title,
           description: listing_body,
           image_urls: imageUrls,
           watermark: data.watermark === true,
-          category_mapping_id: data.category_mapping_id != null
-            ? String(data.category_mapping_id)
-            : null,
+          category_mapping_id: data.category_mapping_id != null ? String(data.category_mapping_id) : null,
           status: data.status || '',
           shipping_payer: data.shipping_payer || 'seller',
           shipping_method: data.shipping_method || 'undecided',
@@ -3006,197 +2928,11 @@ export default defineComponent({
           shipping_days: data.shipping_days || '2_3_days',
           shipping_from_area_id: data.shipping_from ? String(data.shipping_from) : '',
           use_mitm_proxy: true,
-          progress_job_id: progressJobId
-        })
-        if (res?.success) {
-          const d = res.data || {}
-          const confirmedSuccess = d.submitted === true
-          // 已点击「出品する」但未确认成功：可能已上架，绝不当失败重复出品，稍后用在售对账判定
-          const submitReached = d.submit_clicked === true || d.submit_uncertain === true
-          const failures = collectWebDriveListingFailures(d)
-          if (confirmedSuccess) {
-            listingSubmittedOk = true
-            ElMessage.success(t('inventory.listingSuccess') + (d.submit_message ? `（${d.submit_message}）` : ''))
-            // 出品成功：记录本次提交的出品信息到系统日志（category='listing'）
-            reportLog({
-              level: 'success',
-              category: 'listing',
-              account_id: Number(accountId),
-              message: `${t('inventory.listingSuccess')}：${listing_title}（¥${safePrice}）`,
-              detail: {
-                inventory_ids: ids,
-                account_id: Number(accountId),
-                title: listing_title,
-                price: safePrice,
-                status: data.status || '',
-                sale_type: data.sale_type || 'instant_buy',
-                auction_duration: data.auction_duration || 'normal',
-                shipping_payer: data.shipping_payer || 'seller',
-                shipping_method: data.shipping_method || 'undecided',
-                shipping_days: data.shipping_days || '2_3_days',
-                shipping_from_area_id: data.shipping_from ? String(data.shipping_from) : '',
-                category_mapping_id: data.category_mapping_id != null ? String(data.category_mapping_id) : null,
-                image_count: imageUrls.length,
-                submit_message: d.submit_message || null
-              }
-            })
-          } else if (submitReached) {
-            // 标记不确定：进入下方「在售对账」分支，匹配到新挂牌即判成功，避免重复上架
-            listingSubmitUncertain = true
-          } else if (failures.length) {
-            listingPostHadStepErrors = true
-            const detailMsg = formatWebDriveListingFailureMessage(failures)
-            listingPostOverlayTitle.value = t('inventory.listingFailed')
-            listingPostOverlayFailed.value = true
-            listingPostProgressLabel.value = detailMsg
-            console.error('[出品自动化] 上架失败', failures)
-            ElMessage.error(t('inventory.listingFailedWithDetail', { detail: detailMsg }))
-          } else {
-            const parts = []
-            if (d.images_uploaded) parts.push(t('inventory.uploadedNImages', { n: d.images_uploaded }))
-            if (d.name_filled) parts.push(t('inventory.listingTitleFilled'))
-            if (d.description_filled) parts.push(t('inventory.descriptionFilled'))
-            if (d.category_selected) parts.push(t('inventory.productTypeSelected'))
-            if (d.sell_wizard_back_clicked) parts.push(t('inventory.returnedFromWizard'))
-            if (d.condition_set) parts.push(t('inventory.conditionSelected'))
-            if (d.shipping_payer_set) parts.push(t('inventory.shippingPayerSet'))
-            if (d.shipping_method_set) parts.push(t('inventory.shippingMethodSet'))
-            if (d.sale_type_set && d.price_filled) parts.push(t('inventory.salePriceSet'))
-            if (d.shipping_days_set) parts.push(t('inventory.shippingDaysSet'))
-            if (d.shipping_from_set) parts.push(t('inventory.shippingFromSet'))
-            ElMessage.success(
-              parts.length ? t('inventory.listingPageFilled', { parts: parts.join('、') }) : t('inventory.browserOpenedListing')
-            )
-          }
-        }
-      } catch {
-        // axios 拦截器已弹窗，此处仅记录
-      } finally {
-        if (listingPostProgressTimer != null) {
-          clearInterval(listingPostProgressTimer)
-          listingPostProgressTimer = null
-        }
-        if (listingPostHadStepErrors) {
-          await new Promise((r) => setTimeout(r, 1200))
-        }
-        listingPostOverlayVisible.value = false
-        listingPostOverlayTitle.value = t('inventory.listingInProgress')
-        listingPostOverlayFailed.value = false
-        listingPostProgressLabel.value = ''
-      }
+        },
+        { t },
+      )
 
-      // ── 3. 出品联动 / 失败对账 ──────────────────────────────────────────────── //
-      // 成功：同步该账号在售列表并拉取新商品详情，立刻反映到在售页（并绑定 on_sale_quantity）。
-      // 不确定：同样跑一遍在售同步——若匹配到新挂牌（在售数较出品前增加），即判定其实已上架成功，
-      //         不再提示失败、也无需重复出品；否则强提示人工核对，避免盲目重试造成重复上架。
-      if (listingSubmittedOk || listingSubmitUncertain) {
-        const syncJobId =
-          typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-            ? crypto.randomUUID()
-            : `job_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
-        let lastSyncStep = ''
-        async function pollListingSyncProgress() {
-          try {
-            const pr = await onSaleItemApi.getSyncProgress(syncJobId)
-            const zh = pr?.data?.label_zh
-            if (zh) {
-              listingPostProgressLabel.value = zh
-              if (zh !== lastSyncStep) {
-                lastSyncStep = zh
-                console.log('[出品联动·在售同步]', zh)
-              }
-            }
-          } catch {
-            /* 轮询失败忽略 */
-          }
-        }
-
-        listingPostOverlayTitle.value = listingSubmitUncertain
-          ? t('inventory.listingReconciling')
-          : t('inventory.listingSyncingOnSale')
-        listingPostOverlayFailed.value = false
-        listingPostProgressLabel.value = t('inventory.connectingToServer')
-        listingPostOverlayVisible.value = true
-        await pollListingSyncProgress()
-        listingPostProgressTimer = setInterval(pollListingSyncProgress, 400)
-        try {
-          await onSaleItemApi.sync(
-            { account_id: Number(accountId), progress_job_id: syncJobId },
-            { timeout: 0 }
-          )
-        } catch {
-          // 联动同步失败不阻断后续判定：拦截器已弹窗
-        } finally {
-          if (listingPostProgressTimer != null) {
-            clearInterval(listingPostProgressTimer)
-            listingPostProgressTimer = null
-          }
-          listingPostOverlayVisible.value = false
-          listingPostOverlayTitle.value = t('inventory.listingInProgress')
-          listingPostProgressLabel.value = ''
-        }
-
-        // 不确定 → 在售对账：在售数较出品前增加即视为已上架成功（无需重复出品）
-        if (listingSubmitUncertain) {
-          let matched = false
-          for (const invId of ids) {
-            try {
-              const r = await inventoryApi.get(Number(invId))
-              const cur = Number(r?.on_sale_quantity ?? 0)
-              const prev = Number(prevOnSaleById.get(Number(invId)) ?? 0)
-              if (cur > prev) {
-                matched = true
-                break
-              }
-            } catch {
-              /* 单条查询失败按未匹配处理 */
-            }
-          }
-          if (matched) {
-            listingSubmittedOk = true
-            ElMessage.success(t('inventory.listingSuccessReconciled'))
-            reportLog({
-              level: 'success',
-              category: 'listing',
-              account_id: Number(accountId),
-              message: `${t('inventory.listingSuccessReconciled')}：${listing_title}（¥${safePrice}）`,
-              detail: {
-                inventory_ids: ids,
-                account_id: Number(accountId),
-                title: listing_title,
-                price: safePrice,
-                image_count: imageUrls.length,
-                reconciled: true
-              }
-            })
-          } else {
-            // 未匹配：可能确未上架，也可能在售同步暂未抓到 → 提示人工核对，勿盲目重试
-            ElMessage.warning(t('inventory.listingUncertainCheck'))
-            reportLog({
-              level: 'warning',
-              category: 'listing',
-              account_id: Number(accountId),
-              message: `${t('inventory.listingUncertainCheck')}：${listing_title}（¥${safePrice}）`,
-              detail: {
-                inventory_ids: ids,
-                account_id: Number(accountId),
-                title: listing_title,
-                price: safePrice,
-                image_count: imageUrls.length,
-                uncertain: true
-              }
-            })
-          }
-        }
-      }
-
-      if (listingPostHadStepErrors) {
-        ElMessage.info(
-          t('inventory.listingAbortedFollowRed')
-        )
-      } else if (!listingSubmitUncertain) {
-        ElMessage.success(t('inventory.listingFieldsSaved'))
-      }
+      // 重新拉列表以反映预扣减后的「可上架」
       await load({ resetPage: false })
       loadInventoryStats()
     }
@@ -4251,10 +3987,6 @@ export default defineComponent({
       stopContScan()
       onProductImgCameraClosed()
       syncLockStore.unsubscribe()
-      if (listingPostProgressTimer != null) {
-        clearInterval(listingPostProgressTimer)
-        listingPostProgressTimer = null
-      }
     })
 
     return {
@@ -4266,7 +3998,6 @@ export default defineComponent({
       nextTick,
       reactive,
       ElMessage,
-      Loading,
       useI18n,
       syncLockStore,
       inventoryApi,
@@ -4278,7 +4009,6 @@ export default defineComponent({
       transactionApi,
       productTypeCategoryMappingApi,
       onSaleItemApi,
-      listingApi,
       configApi,
       mercariAccountApi,
       encodeMgmtId,
@@ -4385,11 +4115,6 @@ export default defineComponent({
       nbCameraUploadPercent,
       noBarcodeUploadAbortByIndex,
       MAX_UPLOAD_IMAGE_BYTES,
-      listingPostOverlayVisible,
-      listingPostOverlayTitle,
-      listingPostOverlayFailed,
-      listingPostProgressLabel,
-      listingPostProgressTimer,
       productTypeCascaderPath,
       warehouseCascaderPath,
       inventoryExpandById,
@@ -4615,9 +4340,6 @@ export default defineComponent({
       openCombinedProductDialog,
       normalizeCombinedProductItemQty,
       submitCombinedProduct,
-      webDriveListingErrorLabels,
-      collectWebDriveListingFailures,
-      formatWebDriveListingFailureMessage,
       onListingFormSaved,
       isListingPickSelectable,
       enterListingPickMode,

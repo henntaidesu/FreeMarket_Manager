@@ -1122,10 +1122,11 @@
               :loading="submitting"
               :disabled="inventorySaveBlockedByImageUpload"
             >{{ t('common.save') }}</el-button>
+            <!-- 出品已改为提交任务队列：不受全局同步锁阻挡；可上架为 0 时仍禁用（后端亦会二次把关） -->
             <el-tooltip
               v-if="form.id"
-              :disabled="!syncLockStore.locked && !currentEditRowIsAlert"
-              :content="syncLockStore.locked ? syncLockStore.label : currentEditRowAlertReason"
+              :disabled="!currentEditRowIsAlert"
+              :content="currentEditRowAlertReason"
               placement="top"
             >
               <span>
@@ -1141,7 +1142,7 @@
                     <el-button
                       type="warning"
                       :loading="listingSubmitting"
-                      :disabled="inventorySaveBlockedByImageUpload || listableQuantity(form) <= 0 || syncLockStore.locked || currentEditRowIsAlert"
+                      :disabled="inventorySaveBlockedByImageUpload || listableQuantity(form) <= 0 || currentEditRowIsAlert"
                     >{{ t('inventory.listSubmit') }}</el-button>
                   </template>
                 </el-popconfirm>
@@ -1664,21 +1665,6 @@
       >{{ imageSearchIndexStatus.message }}</div>
     </el-dialog>
 
-    <teleport to="body">
-      <div
-        v-show="listingPostOverlayVisible"
-        class="listing-post-overlay listing-post-overlay--dark"
-        :class="{ 'listing-post-overlay--failed': listingPostOverlayFailed }"
-        role="status"
-        aria-live="polite"
-      >
-        <div class="listing-post-overlay__box">
-          <el-icon class="is-loading listing-post-overlay__icon" :size="40"><Loading /></el-icon>
-          <div class="listing-post-overlay__title">{{ listingPostOverlayTitle }}</div>
-          <div class="listing-post-overlay__step">{{ listingPostProgressLabel || t('inventory.pleaseWait') }}</div>
-        </div>
-      </div>
-    </teleport>
   </div>
 </template>
 
