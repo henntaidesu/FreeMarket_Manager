@@ -22,6 +22,7 @@ from ....task_queue import (
     get_task,
     known_types,
     list_tasks,
+    request_cancel_running,
     submit_task,
 )
 from ....task_queue.reservations import InsufficientListableError
@@ -101,25 +102,36 @@ def get_task_detail(task_id: int):
 
 
 def cancel_task(task_id: int):
-    """取消一个**尚未开始**的任务。
+    """取消任务。
 
-    执行中的任务不予中断：浏览器自动化跑到一半强杀会在煤炉侧留下半改状态
-    （例如已点过「出品する」），比等它跑完危险得多。
+    - ``pending``：干净取消，无任何副作用；出品任务同时释放入队时占用的可上架。
+    - ``running``：中断正在跑的浏览器自动化。**可能在煤炉侧留下半完成状态**
+      （例如已点过「出品する」但没等到结果），前端须先明确警告。此时出品的可上架
+      预扣减**不释放**——无法判定是否已挂牌，宁可少挂也不诱导重复出品，交给 TTL 兜底。
     """
     task = get_task(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="任务不存在")
-    if not cancel_pending(task_id):
-        raise HTTPException(
-            status_code=409,
-            detail="该任务已开始执行或已结束，无法取消（执行中的浏览器自动化不可中断）",
-        )
-    # 出品任务被取消 → 释放入队时占用的可上架
-    if str(task.get("task_type") or "") == "inventory.listing":
-        from ....task_queue import reservations
 
-        reservations.settle_task(task, released=True)
-    return {"success": True, "data": get_task(task_id)}
+    status = str(task.get("status") or "")
+    is_listing = str(task.get("task_type") or "") == "inventory.listing"
+
+    if status == "pending":
+        if not cancel_pending(task_id):
+            # 极小概率：刚好在这一瞬被 worker 领走
+            raise HTTPException(status_code=409, detail="该任务刚刚开始执行，请重试取消")
+        if is_listing:
+            from ....task_queue import reservations
+
+            reservations.settle_task(task, released=True)
+        return {"success": True, "data": get_task(task_id)}
+
+    if status == "running":
+        if not request_cancel_running(task_id):
+            raise HTTPException(status_code=409, detail="该任务已结束，无需取消")
+        return {"success": True, "data": get_task(task_id)}
+
+    raise HTTPException(status_code=409, detail="该任务已结束，无法取消")
 
 
 def retry_task(task_id: int, claims: dict = Depends(require_auth)):

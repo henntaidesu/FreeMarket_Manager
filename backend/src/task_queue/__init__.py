@@ -28,7 +28,7 @@ from .store import (
     list_tasks,
 )
 from .submit import submit_task
-from .worker import start_worker, stop_worker
+from .worker import request_cancel_running, start_worker, stop_worker
 
 
 def has_pending_listing_tasks() -> bool:
@@ -51,6 +51,7 @@ __all__ = [
     "has_pending_listing_tasks",
     "known_types",
     "list_tasks",
+    "request_cancel_running",
     "start_worker",
     "stop_worker",
     "submit_task",

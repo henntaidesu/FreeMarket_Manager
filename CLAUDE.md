@@ -6,13 +6,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Mercari is a **full-stack inventory and order management system** with deep integration to the Japanese Mercari marketplace. It's built as a Vue 3 frontend (Vite) with a Python FastAPI backend, featuring order synchronization, product listing automation, and local inventory management with support for barcode scanning and OCR.
 
-## Production Database Safety
+## Database Safety
 
-- **MySQL mode = production. NEVER perform any data-modifying operations.** When the database backend is MySQL (`DB_BACKEND=mysql`, or MySQL selected in the UI / persisted in `backend/system.db`), the database is the **production environment**. Do NOT run, generate, or execute any statement that changes data or schema — no `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `TRUNCATE`, no migrations, no seed/test data, no manual writes through the ORM or a client. Read-only inspection (`SELECT`, `SHOW`, `DESCRIBE`) is fine. If a task appears to require a data or schema change in MySQL mode, **stop and ask the user first** — never modify production data on your own initiative.
+Which database is safe to write to is decided by the **database name**, not by the backend type.
+Read the active name from `backend/system.db` (`system_settings.mysql_database`) or `MYSQL_DATABASE`.
+
+- **`freemarket_test` — test database.** Normal development work, schema migrations, and test data are all fine here. This is the database usually configured in this repo.
+- **SQLite (`backend/mercariDB.db`) — local development.** Free to modify.
+- **Any other MySQL database — treat as production.** Do NOT run or generate any statement that changes data or schema (`INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `TRUNCATE`, migrations, seed data, manual ORM writes). Read-only inspection (`SELECT`, `SHOW`, `DESCRIBE`) is fine. If a task appears to require a change there, **stop and ask first**.
+
+When unsure which database is active, check the name before writing — an unrecognized name counts as production.
 
 ## Code Organization Rules
 
-- **Max file length: 500 lines.** No `.py` file under `backend/` may exceed **500 lines**. When a module grows past this, split it by feature into smaller modules — convert it into a package (a folder named after the module with an `__init__.py` that re-exports the public API so existing imports keep working) and group related functions into separate files. Keep shared helpers in a `_common`/`_helpers` module and group cohesive features into their own files (and subfolders when a feature spans several files). This rule also applies to new files: never write a `.py` over 500 lines.
+- **Target file length: 500 lines.** Keep `.py` files under `backend/` at or below **500 lines**. When a module grows past this, prefer splitting it by feature — convert it into a package (a folder named after the module with an `__init__.py` that re-exports the public API so existing imports keep working) and group related functions into separate files. Keep shared helpers in a `_common`/`_helpers` module and group cohesive features into their own files (and subfolders when a feature spans several files).
+
+- **Exceeding 500 lines is allowed when splitting would hurt.** Some files are more readable whole — a single cohesive state machine, a long linear automation script, or a registry of related definitions. Don't split a file *just* to satisfy the number, and don't refactor an existing over-length file unless you're already changing it for another reason. Current accepted exceptions: `db_manage/db_manager.py`, `web_drive/listing/units/post_to_macket/post.py`, `use_mercari/get_to_du_list/transaction_detail/wait_shipping/ship_finalize.py`. For **new** files, still aim under 500 — go over only deliberately.
 
 ## Technology Stack
 

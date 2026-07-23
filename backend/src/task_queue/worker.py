@@ -23,6 +23,35 @@ _SWEEP_EVERY_SEC = 300.0
 _worker_task: Optional[asyncio.Task] = None
 _stopping = False
 
+#: 当前正在执行的 (task_id, 处理器协程 task)，供「取消执行中的任务」中断
+_current: Optional[tuple] = None
+#: 已被用户请求中断的任务 id——用来把 CancelledError 区分成「用户取消」而非「后端关闭」
+_cancel_requested: set = set()
+
+
+def request_cancel_running(task_id: int) -> bool:
+    """中断**正在执行**的任务。仅当它确实是当前在跑的那条时才生效。
+
+    浏览器自动化被中途打断可能在煤炉侧留下半完成状态（例如已点过「出品する」），
+    因此调用方必须先向用户明示风险；出品任务的可上架预扣减也**不会**因取消而释放
+    （无法判定是否已挂牌），留给 TTL 兜底。
+    """
+    cur = _current
+    if cur is None:
+        return False
+    tid, handle = cur
+    if int(tid) != int(task_id) or handle.done():
+        return False
+    _cancel_requested.add(int(task_id))
+    handle.cancel()
+    log.warning("[task_queue] #%s 收到用户中断请求", task_id)
+    return True
+
+
+def current_running_id() -> Optional[int]:
+    cur = _current
+    return int(cur[0]) if cur else None
+
 
 def _error_text(exc: BaseException) -> str:
     """业务函数多用 HTTPException 表达错误，取它的 detail 更可读。"""
@@ -56,8 +85,13 @@ async def _run_one(task: dict) -> None:
                 isinstance(result, dict) and result.get("reservation_released")
             )
     except asyncio.CancelledError:
-        # 关停中断：出品可能已点过提交，保守起见继续持有占用，交给 TTL 兜底
-        store.mark_failed(task_id, "后端关闭中断")
+        # 用户中断 → canceled；否则是后端关停 → failed。
+        # 两种情况都不释放出品预扣减：无法判定是否已点过「出品する」，交给 TTL 兜底。
+        if task_id in _cancel_requested:
+            _cancel_requested.discard(task_id)
+            store.mark_canceled(task_id, "用户取消（执行中中断）")
+        else:
+            store.mark_failed(task_id, "后端关闭中断")
         raise
     except Exception as exc:  # noqa: BLE001 单条任务失败不影响队列
         log.exception("[task_queue] #%s (%s) 执行失败", task_id, task_type)
@@ -73,6 +107,7 @@ async def _run_one(task: dict) -> None:
 
 
 async def _loop() -> None:
+    global _current
     log.info("[task_queue] worker 已启动")
     last_sweep = 0.0
     while not _stopping:
@@ -90,9 +125,22 @@ async def _loop() -> None:
                 await asyncio.sleep(_IDLE_SEC)
                 continue
             log.info("[task_queue] #%s 开始执行：%s", task["id"], task["task_type"])
-            await _run_one(task)
+            # 单独包成 task，才能被 request_cancel_running 精确中断而不连带杀掉整个 worker
+            handle = asyncio.create_task(_run_one(task))
+            _current = (int(task["id"]), handle)
+            try:
+                await handle
+            except asyncio.CancelledError:
+                # 关停时连带取消处理器；用户中断则 handle 内部已落 canceled，继续下一条
+                if _stopping or not handle.cancelled():
+                    handle.cancel()
+                    raise
+            finally:
+                _current = None
         except asyncio.CancelledError:
-            break
+            if _stopping:
+                break
+            continue
         except Exception:
             # 取任务本身出错（如 DB 短暂不可用）：退避后继续，绝不让 worker 死掉
             log.exception("[task_queue] worker 循环异常，2s 后重试")

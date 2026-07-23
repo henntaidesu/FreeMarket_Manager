@@ -2,7 +2,6 @@
 .search-row { justify-content: space-between; }
 .search-left-group { display: flex; align-items: center; gap: 20px; }
 .search-actions { display: flex; justify-content: flex-end; align-items: center; gap: 12px; }
-.table-card { border-radius: 8px; }
 .pagination { margin-top: 16px; display: flex; justify-content: flex-end; }
 
 .task-summary {
@@ -12,26 +11,137 @@
   gap: 8px;
   margin-top: 12px;
 }
-.task-hint {
-  font-size: 12px;
-  color: #7d8aa5;
+
+/* ── 任务卡片列表 ───────────────────────────────────────────── */
+.task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 120px;
 }
 
-.task-title {
+.task-card {
+  padding: 12px 16px;
+  background: #131c2f;
+  border: 1px solid #28354a;
+  /* 左侧状态色条，按状态着色 */
+  border-left: 3px solid #5a6b87;
+  border-radius: 8px;
   cursor: pointer;
-  color: #6aa9ff;
+  transition: background 0.15s, border-color 0.15s;
 }
-.task-title:hover { text-decoration: underline; }
+.task-card:hover {
+  background: #1b2942;
+  border-color: #3a4a66;
+}
+.task-card--pending  { border-left-color: #6b7a94; }
+.task-card--running  { border-left-color: #e6a23c; }
+.task-card--success  { border-left-color: #4ea86e; }
+.task-card--failed   { border-left-color: #f56c6c; }
+.task-card--canceled { border-left-color: #4a5568; }
 
-.task-error {
-  margin-top: 2px;
+/* 标题行 */
+.task-card__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.task-card__status { flex: none; }
+.task-card__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #e5e7eb;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-card__id {
+  flex: none;
   font-size: 12px;
-  line-height: 1.4;
-  color: #f56c6c;
-  word-break: break-all;
+  color: #6b7a94;
+  font-variant-numeric: tabular-nums;
 }
-.task-progress { color: #e6a23c; }
+.task-card__actions {
+  flex: none;
+  display: flex;
+  gap: 4px;
+  min-width: 48px;
+  justify-content: flex-end;
+}
 
+/* 元信息小标签 */
+.task-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.task-chip {
+  padding: 1px 8px;
+  font-size: 12px;
+  line-height: 18px;
+  color: #a8b4ce;
+  background: #18233a;
+  border: 1px solid #28354a;
+  border-radius: 10px;
+}
+.task-chip--ghost {
+  color: #7d8aa5;
+  background: transparent;
+}
+/* 系统自动发起（非真人提交），与用户名区分开 */
+.task-chip--system {
+  color: #7fb2e5;
+  background: transparent;
+  border-color: #35507a;
+}
+
+/* 执行中 / 失败 / 成功 的正文行 */
+.task-card__progress,
+.task-card__error,
+.task-card__done {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+.task-card__progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #e6a23c;
+}
+.task-card__error { color: #f89a9a; }
+.task-card__done { color: #8fa3c0; }
+
+/* 底部时间行 */
+.task-card__foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: #6b7a94;
+  font-variant-numeric: tabular-nums;
+}
+.task-card__dur::before {
+  content: '·';
+  margin-right: 12px;
+  color: #3a4456;
+}
+
+/* 窄屏：标题允许换行、操作换到下一行右侧 */
+@media (max-width: 768px) {
+  .search-left-group { flex-direction: column; align-items: stretch; gap: 10px; }
+  .search-actions { margin-top: 10px; justify-content: space-between; }
+  .task-card__head { flex-wrap: wrap; }
+  .task-card__title { flex-basis: 100%; order: 3; white-space: normal; }
+}
+
+/* ── 详情弹窗 ───────────────────────────────────────────────── */
 .detail-block { margin-top: 14px; }
 .detail-label {
   margin-bottom: 6px;

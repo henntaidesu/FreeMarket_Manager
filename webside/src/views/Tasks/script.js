@@ -1,6 +1,7 @@
 import { defineComponent, ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
+import { Loading } from '@element-plus/icons-vue'
 import { ElMessage } from '@/utils/notify'
 import { tasksApi, mercariAccountApi } from '@/api/index.js'
 import { formatUnixSecLocal } from '@/utils/timeDisplay.js'
@@ -10,6 +11,7 @@ const POLL_ACTIVE_MS = 2000
 const POLL_IDLE_MS = 6000
 
 export default defineComponent({
+  components: { Loading },
   setup() {
     const { t } = useI18n()
 
@@ -44,6 +46,11 @@ export default defineComponent({
 
     function typeLabel(taskType) {
       return taskTypes.value[taskType] || taskType
+    }
+
+    /** 系统自动发起的任务（如出品完成后自动补的在售同步），提交者署名为 System 且无 user_id */
+    function isSystemTask(row) {
+      return row?.user_id == null && String(row?.username || '') === 'System'
     }
 
     /** 耗时：已结束用 finished-started，执行中用 now-started */
@@ -124,13 +131,20 @@ export default defineComponent({
       detailVisible.value = true
     }
 
+    /** 取消任务。执行中的会中断浏览器自动化，风险更高，用更重的确认文案。 */
     async function cancelTask(row) {
+      const running = row.status === 'running'
       try {
-        await ElMessageBox.confirm(t('tasks.cancelConfirm'), t('common.warning'), {
-          type: 'warning',
-          confirmButtonText: t('common.confirm'),
-          cancelButtonText: t('common.cancel')
-        })
+        await ElMessageBox.confirm(
+          running ? t('tasks.cancelRunningConfirm') : t('tasks.cancelConfirm'),
+          t('common.warning'),
+          {
+            type: running ? 'error' : 'warning',
+            confirmButtonText: t('common.confirm'),
+            cancelButtonText: t('common.cancel'),
+            confirmButtonClass: running ? 'el-button--danger' : ''
+          }
+        )
       } catch {
         return
       }
@@ -181,6 +195,7 @@ export default defineComponent({
       detailRow,
       statusConfig,
       typeLabel,
+      isSystemTask,
       durationText,
       jsonText,
       formatUnixSecLocal,

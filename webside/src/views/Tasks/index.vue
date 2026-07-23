@@ -30,50 +30,35 @@
         <el-tag v-if="stats.failed_recent > 0" type="danger" effect="plain" size="small">
           {{ t('tasks.summaryFailed', { n: stats.failed_recent }) }}
         </el-tag>
-        <span class="task-hint">{{ t('tasks.runningHint') }}</span>
       </div>
     </el-card>
 
-    <el-card shadow="never" class="table-card">
-      <el-table :data="list" v-loading="loading" stripe :empty-text="t('tasks.emptyText')">
-        <el-table-column :label="t('tasks.colId')" prop="id" width="76" align="center" />
-        <el-table-column :label="t('tasks.colStatus')" width="92" align="center">
-          <template #default="{ row }">
-            <el-tag :type="statusConfig[row.status]?.tag || 'info'" size="small" effect="light">
-              {{ statusConfig[row.status]?.label || row.status }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column :label="t('tasks.colType')" width="110" align="center">
-          <template #default="{ row }">{{ typeLabel(row.task_type) }}</template>
-        </el-table-column>
-        <el-table-column :label="t('tasks.colTitle')" min-width="220" show-overflow-tooltip>
-          <template #default="{ row }">
-            <a class="task-title" @click="openDetail(row)">{{ row.title || row.task_type }}</a>
-            <div v-if="row.error" class="task-error">{{ row.error }}</div>
-          </template>
-        </el-table-column>
-        <el-table-column :label="t('tasks.colProgress')" min-width="180" show-overflow-tooltip>
-          <template #default="{ row }">
-            <span v-if="row.status === 'running'" class="task-progress">{{ row.progress_label || '-' }}</span>
-            <span v-else>-</span>
-          </template>
-        </el-table-column>
-        <el-table-column :label="t('tasks.colAccount')" width="130" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.account_name || (row.account_id != null ? `#${row.account_id}` : '-') }}</template>
-        </el-table-column>
-        <el-table-column :label="t('tasks.colUser')" width="110" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.username || (row.user_id != null ? `#${row.user_id}` : '-') }}</template>
-        </el-table-column>
-        <el-table-column :label="t('tasks.colCreated')" width="160">
-          <template #default="{ row }">{{ formatUnixSecLocal(row.created_at) }}</template>
-        </el-table-column>
-        <el-table-column :label="t('tasks.colDuration')" width="90" align="center">
-          <template #default="{ row }">{{ durationText(row) }}</template>
-        </el-table-column>
-        <el-table-column :label="t('tasks.colActions')" width="130" align="center" fixed="right">
-          <template #default="{ row }">
-            <el-button v-if="row.status === 'pending'" link type="danger" size="small" @click="cancelTask(row)">
+    <!-- 任务卡片列表 -->
+    <div v-loading="loading" class="task-list">
+      <el-empty v-if="!loading && !list.length" :description="t('tasks.emptyText')" :image-size="80" />
+
+      <div
+        v-for="row in list"
+        :key="row.id"
+        class="task-card"
+        :class="`task-card--${row.status}`"
+        @click="openDetail(row)"
+      >
+        <!-- 标题行：状态 + 任务名 + 编号 + 操作 -->
+        <div class="task-card__head">
+          <el-tag :type="statusConfig[row.status]?.tag || 'info'" size="small" effect="dark" class="task-card__status">
+            {{ statusConfig[row.status]?.label || row.status }}
+          </el-tag>
+          <span class="task-card__title">{{ row.title || row.task_type }}</span>
+          <span class="task-card__id">#{{ row.id }}</span>
+          <span class="task-card__actions" @click.stop>
+            <el-button
+              v-if="row.status === 'pending' || row.status === 'running'"
+              link
+              type="danger"
+              size="small"
+              @click="cancelTask(row)"
+            >
               {{ t('tasks.cancel') }}
             </el-button>
             <el-button
@@ -85,23 +70,56 @@
             >
               {{ t('tasks.retry') }}
             </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+          </span>
+        </div>
 
-      <div class="pagination">
-        <el-pagination
-          v-model:current-page="page"
-          v-model:page-size="pageSize"
-          :total="total"
-          :page-sizes="[20, 50, 100]"
-          layout="total, sizes, prev, pager, next"
-          @change="load"
-          background
-          size="small"
-        />
+        <!-- 元信息：类型 / 账号 / 提交者 -->
+        <div class="task-card__meta">
+          <span class="task-chip">{{ typeLabel(row.task_type) }}</span>
+          <span v-if="row.account_name || row.account_id != null" class="task-chip">
+            {{ row.account_name || `#${row.account_id}` }}
+          </span>
+          <span
+            v-if="row.username"
+            class="task-chip"
+            :class="isSystemTask(row) ? 'task-chip--system' : 'task-chip--ghost'"
+          >{{ row.username }}</span>
+        </div>
+
+        <!-- 执行中：当前步骤 -->
+        <div v-if="row.status === 'running'" class="task-card__progress">
+          <el-icon class="is-loading"><Loading /></el-icon>
+          <span>{{ row.progress_label || t('tasks.colProgress') }}</span>
+        </div>
+
+        <!-- 失败：错误原因 -->
+        <div v-else-if="row.error" class="task-card__error">{{ row.error }}</div>
+
+        <!-- 成功：结果摘要（取自最后一次进度文案） -->
+        <div v-else-if="row.status === 'success' && row.progress_label" class="task-card__done">
+          {{ row.progress_label }}
+        </div>
+
+        <!-- 底部：时间与耗时 -->
+        <div class="task-card__foot">
+          <span>{{ formatUnixSecLocal(row.created_at) }}</span>
+          <span v-if="row.started_at" class="task-card__dur">{{ t('tasks.colDuration') }} {{ durationText(row) }}</span>
+        </div>
       </div>
-    </el-card>
+    </div>
+
+    <div v-if="total > 0" class="pagination">
+      <el-pagination
+        v-model:current-page="page"
+        v-model:page-size="pageSize"
+        :total="total"
+        :page-sizes="[20, 50, 100]"
+        layout="total, sizes, prev, pager, next"
+        @change="load"
+        background
+        size="small"
+      />
+    </div>
 
     <!-- 任务详情 -->
     <el-dialog v-model="detailVisible" :title="t('tasks.detailTitle')" width="720px">

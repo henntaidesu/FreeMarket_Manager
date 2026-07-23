@@ -25,6 +25,11 @@ from ..db_manage.models.system.task_queue import (
 
 log = logging.getLogger(__name__)
 
+#: 系统自动发起的任务的提交者署名（``user_id`` 留空）。
+#: 用于出品完成后自动追加的在售同步等——这些不是某个用户点出来的，
+#: 署上真人用户名会让任务页看起来像是他手动提交的，产生误导。
+SYSTEM_USERNAME = "System"
+
 _enqueue_guard = threading.Lock()
 
 _COLUMNS = (
@@ -239,7 +244,7 @@ def mark_failed(task_id: int, error: str) -> None:
 
 
 def cancel_pending(task_id: int) -> bool:
-    """仅取消 pending。running 的浏览器自动化中途强杀会留下半改状态，不予中断。"""
+    """取消尚未开始的任务（``pending`` → ``canceled``）。已开始的用 ``mark_canceled``。"""
     changed = DatabaseManager().execute_update(
         """
         UPDATE [task_queue]
@@ -249,6 +254,12 @@ def cancel_pending(task_id: int) -> bool:
         (CANCELED, now_ts(), "用户取消", int(task_id), PENDING),
     )
     return bool(changed)
+
+
+def mark_canceled(task_id: int, reason: str = "用户取消") -> None:
+    """把任务落为 canceled（执行中被用户中断时由 worker 调用）。"""
+    _finish(task_id, CANCELED, error=reason)
+    log.warning("[task_queue] #%s 已取消：%s", task_id, reason)
 
 
 def recover_orphans() -> List[Dict[str, Any]]:

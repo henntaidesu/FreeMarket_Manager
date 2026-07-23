@@ -97,10 +97,13 @@ def _log_listing(level: str, message: str, account_id: Optional[int], detail: Di
         log.debug("[listing] 写系统日志失败", exc_info=True)
 
 
-def _maybe_enqueue_on_sale_sync(account_id: Optional[int], user_id, username) -> Optional[int]:
+def _maybe_enqueue_on_sale_sync(account_id: Optional[int]) -> Optional[int]:
     """队列里已无待出品任务时，追加一条该账号的在售同步，用于把新挂牌绑回库存。
 
     ``dedup_key`` 保证同账号最多只排一条；若已有一条在排队，直接复用它。
+
+    提交者署 ``System``（不继承发起出品的那个用户）——这条是系统为了绑定新挂牌自动补的，
+    不是谁点出来的，署上真人会让任务页看起来像他手动同步过。
     """
     if account_id is None:
         return None
@@ -115,8 +118,8 @@ def _maybe_enqueue_on_sale_sync(account_id: Optional[int], user_id, username) ->
             account_id=int(account_id),
             account_name=_account_name(account_id),
             dedup_key=f"{ON_SALE_SYNC}:{int(account_id)}",
-            user_id=user_id,
-            username=username,
+            user_id=None,
+            username=store.SYSTEM_USERNAME,
         )
         log.info(
             "[listing] 出品完毕，%s在售同步任务 #%s",
@@ -204,9 +207,7 @@ async def handle_listing(task: Dict[str, Any]) -> Dict[str, Any]:
 
     sync_task_id = None
     if submitted or uncertain:
-        sync_task_id = _maybe_enqueue_on_sale_sync(
-            account_id, task.get("user_id"), task.get("username")
-        )
+        sync_task_id = _maybe_enqueue_on_sale_sync(account_id)
 
     if not submitted and not uncertain:
         # 确认未挂牌：任务落 failed（任务页红色可见），worker 据此异常类型释放预扣减
