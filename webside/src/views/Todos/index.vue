@@ -37,6 +37,14 @@
           >{{ t('todos.packedOnly') }}</div>
           <div
             class="search-filter-chip"
+            :class="{ 'search-filter-chip--active': filters.scanned_only }"
+            role="button"
+            tabindex="0"
+            @click="selectFilterChip('scanned')"
+            @keyup.enter="selectFilterChip('scanned')"
+          >{{ t('todos.scannedOnly') }}</div>
+          <div
+            class="search-filter-chip"
             :class="{ 'search-filter-chip--active': filters.categories.includes('other') }"
             role="button"
             tabindex="0"
@@ -45,13 +53,10 @@
           >{{ t('todos.categoryOther') }}</div>
         </div>
         <div class="search-actions">
-          <el-tooltip :disabled="!syncLockStore.locked" :content="syncLockStore.label" placement="top">
-            <span>
-              <el-button type="primary" :loading="syncLoading || syncLockStore.locked" :disabled="bulkReviewLoading || bulkConfirmShipLoading || syncLockStore.locked" @click="runSync">
-                {{ t('todos.syncFromMercari') }}
-              </el-button>
-            </span>
-          </el-tooltip>
+          <!-- 已改为提交任务队列：提交即返回，不再受全局同步锁阻挡 -->
+          <el-button type="primary" :loading="syncLoading" @click="runSync">
+            {{ t('todos.syncFromMercari') }}
+          </el-button>
           <el-button v-if="filters.packed_only" type="success" :loading="bulkConfirmShipLoading" :disabled="syncLoading || bulkReviewLoading" @click="runBulkConfirmShip">
             {{ t('todos.bulkConfirmShip') }}
           </el-button>
@@ -101,6 +106,36 @@
           </template>
         </el-table-column>
 
+        <!-- 扫码照片：仅「发货中 / 发货失败」期间存在（成功后已删除）。
+             待发货筛选下展示，方便失败时核对当时扫的是哪个码。 -->
+        <el-table-column
+          v-if="filters.categories.includes('wait_shipping') || filters.scanned_only"
+          :label="t('todos.colShipQrPhoto')"
+          width="150"
+          align="center"
+          header-align="center"
+        >
+          <template #default="{ row }">
+            <el-image
+              v-if="row.ship_qr_photo_path"
+              class="todo-qr-thumb"
+              :src="mercariImageUrl(row.ship_qr_photo_path)"
+              fit="contain"
+              lazy
+              @click="openShipQrPhoto(row)"
+            >
+              <template #error><span class="thumb-fallback">-</span></template>
+            </el-image>
+            <span v-else class="thumb-fallback">-</span>
+            <div v-if="row.ship_qr_state === 'failed'" class="cell-ship-failed">
+              {{ t('todos.shipQrFailedHint') }}
+            </div>
+            <div v-else-if="row.ship_qr_scanned_at" class="cell-scanned-at">
+              {{ displayTs(row.ship_qr_scanned_at) }}
+            </div>
+          </template>
+        </el-table-column>
+
         <el-table-column :label="t('todos.todoType')" width="140" align="center" header-align="center">
           <template #default="{ row }">
             <el-tag
@@ -112,6 +147,7 @@
               {{ kindLabel(row) }}
             </el-tag>
             <div v-if="row.is_delete" class="row-tag-done">{{ t('todos.done') }}</div>
+            <div v-if="row.ship_qr_scanned_at" class="row-tag-scanned">{{ t('todos.scanned') }}</div>
           </template>
         </el-table-column>
 
@@ -719,7 +755,7 @@
       </template>
     </el-dialog>
 
-    <!-- QR 扫描镜像：把有头浏览器的 /qr_code_scanner 摄像头画面镜像到此处 -->
+    <!-- 发货扫码：本机摄像头取景 → 拍一张含二维码的照片 → 提交进任务队列后台执行 -->
     <el-dialog
       v-model="qrScanVisible"
       :title="t('todos.qrScanTitle')"
@@ -729,15 +765,19 @@
       @close="onQrScanDialogClose"
     >
       <div class="qr-scan-stage">
+        <!-- 取景（未拍照时） -->
         <video
+          v-show="!qrShot"
           ref="qrVideoEl"
           class="qr-scan-video"
           autoplay
           playsinline
           muted
         ></video>
-        <!-- 中央扫描取景框：四角括号 + 扫描线，方便用户对准二维码 -->
-        <div v-if="!qrScanDone" class="qr-scan-frame" aria-hidden="true">
+        <!-- 已拍照：显示留存的照片供确认 -->
+        <img v-if="qrShot" :src="qrShot" class="qr-scan-video" :alt="t('todos.qrShotPreview')" />
+        <!-- 中央取景框：四角括号 + 扫描线，方便对准二维码 -->
+        <div v-if="!qrShot" class="qr-scan-frame" aria-hidden="true">
           <span class="qr-scan-corner qr-scan-corner--tl"></span>
           <span class="qr-scan-corner qr-scan-corner--tr"></span>
           <span class="qr-scan-corner qr-scan-corner--bl"></span>
@@ -747,10 +787,23 @@
         <div v-if="qrCamError" class="qr-scan-error">
           {{ t('todos.cameraOpenFailed') }}: {{ qrCamError }}
         </div>
-        <div v-if="qrScanDone" class="qr-scan-done">{{ t('todos.qrScanDone') }}</div>
       </div>
+      <div class="qr-scan-tip">{{ qrShot ? t('todos.qrShotTip') : t('todos.qrAimTip') }}</div>
       <template #footer>
         <el-button @click="onQrScanDialogClose">{{ t('common.close') }}</el-button>
+        <el-button v-if="qrShot" @click="retakeQrShot">{{ t('todos.qrRetake') }}</el-button>
+        <el-button
+          v-if="!qrShot"
+          type="primary"
+          :disabled="!!qrCamError"
+          @click="takeQrShot"
+        >{{ t('todos.qrTakeShot') }}</el-button>
+        <el-button
+          v-else
+          type="primary"
+          :loading="qrSubmitting"
+          @click="submitQrShot"
+        >{{ t('todos.qrSubmit') }}</el-button>
       </template>
     </el-dialog>
 
@@ -818,22 +871,6 @@
         </el-button>
       </template>
     </el-dialog>
-
-    <teleport to="body">
-      <div
-        v-show="syncOverlayVisible"
-        class="todos-sync-overlay todos-sync-overlay--dark"
-        :class="{ 'todos-sync-overlay--failed': syncOverlayFailed }"
-        role="status"
-        aria-live="polite"
-      >
-        <div class="todos-sync-overlay__box">
-          <el-icon class="is-loading todos-sync-overlay__icon" :size="40"><Loading /></el-icon>
-          <div class="todos-sync-overlay__title">{{ syncOverlayTitle }}</div>
-          <div class="todos-sync-overlay__step">{{ syncProgressLabel || t('todos.pleaseWait') }}</div>
-        </div>
-      </div>
-    </teleport>
 
     <!-- 发货码大图：点击列表缩略图后弹出，二维码上方显示订单号（末 4 位高亮） -->
     <teleport to="body">

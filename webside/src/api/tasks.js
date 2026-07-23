@@ -17,7 +17,9 @@ export const TASK_TYPES = {
   ON_SALE_FULL_UPDATE: 'on_sale.full_update',
   ON_SALE_REVISE: 'on_sale.revise',
   TODOS_BULK_REVIEW: 'todos.bulk_review',
-  TODOS_BULK_CONFIRM_SHIP: 'todos.bulk_confirm_ship'
+  TODOS_BULK_CONFIRM_SHIP: 'todos.bulk_confirm_ship',
+  TODOS_SYNC: 'todos.sync',
+  TODOS_SHIPPING_QR: 'todos.shipping_qr'
 }
 
 /** 每次点击生成一个 token：双击 / 网络重发时后端凭它幂等，不会重复排队 */

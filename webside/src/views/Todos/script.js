@@ -3,10 +3,9 @@ import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
 import { ElMessage } from '@/utils/notify'
 import { Loading, Plus, Minus } from '@element-plus/icons-vue'
-import { todosApi, costRecordApi, costExpenseApi, orderApi, TASK_TYPES } from '@/api'
+import { todosApi, costRecordApi, costExpenseApi, orderApi, TASK_TYPES, newClientToken } from '@/api'
 import { submitTask } from '@/utils/taskSubmit.js'
 import { useMercariAccountStore } from '@/stores/mercariAccount.js'
-import { useSyncLockStore } from '@/stores/syncLock.js'
 import { useSyncOverlay } from '@/composables/useSyncOverlay'
 import SyncOverlay from '@/components/SyncOverlay.vue'
 import { mercariImageUrl, mercariImageUrlList } from '@/utils/mercariImage.js'
@@ -21,11 +20,10 @@ export default defineComponent({
   setup() {
     const { t } = useI18n()
 
-    // 交易详情类「浏览器自动化」操作的等待覆盖（与 syncOverlay*（从煤炉同步）独立）
+    // 交易详情类「浏览器自动化」操作的等待覆盖
     const txOverlay = useSyncOverlay()
 
     const mercariAccountStore = useMercariAccountStore()
-    const syncLockStore = useSyncLockStore()
 
     const KIND_LABEL_KEYS = {
       WaitShippingCard: 'todos.kind.waitShipping',
@@ -202,6 +200,7 @@ export default defineComponent({
 
     const filters = ref({
       packed_only: false,
+      scanned_only: false,
       // 分类筛选 chip（单选，互斥）；默认选中「待发货」
       categories: ['wait_shipping'],
     })
@@ -211,11 +210,6 @@ export default defineComponent({
     const bulkConfirmShipLoading = ref(false)
 
     /** 「从煤炉同步」全屏等待与步骤文案（与后端 progress_job_id 轮询同步） */
-    const syncOverlayVisible = ref(false)
-    const syncOverlayTitle = ref(t('todos.syncingFromMercari'))
-    const syncOverlayFailed = ref(false)
-    const syncProgressLabel = ref('')
-    let syncProgressTimer = null
 
     // ─── 交易详情面板 ───
     // 后端抓取接口未接入；先用本地 row 已有字段填充，其他字段留 null 显示占位
@@ -699,6 +693,7 @@ export default defineComponent({
     function listParams() {
       const p = { page: page.value, page_size: pageSize.value }
       if (filters.value.packed_only) p.packed_only = true
+      if (filters.value.scanned_only) p.scanned_only = true
       if (filters.value.categories.length) p.categories = filters.value.categories.join(',')
       return p
     }
@@ -721,18 +716,19 @@ export default defineComponent({
       load()
     }
 
-    // 筛选 chip 单选（待发货 / 待回复 / 已打包 / 其他，互斥）：点某项只显示该项；
-    // 再次点当前项则取消，回到默认全部显示。已打包用 packed_only，其余用 categories。
+    // 筛选 chip 单选（待发货 / 待回复 / 已打包 / 已扫码 / 其他，互斥）：点某项只显示该项；
+    // 再次点当前项则取消，回到默认全部显示。
+    // 已打包用 packed_only、已扫码用 scanned_only，其余用 categories。
+    const CHIP_FLAGS = { packed: 'packed_only', scanned: 'scanned_only' }
     function selectFilterChip(chip) {
-      const active =
-        chip === 'packed'
-          ? filters.value.packed_only
-          : filters.value.categories.includes(chip)
+      const flag = CHIP_FLAGS[chip]
+      const active = flag ? filters.value[flag] : filters.value.categories.includes(chip)
       filters.value.packed_only = false
+      filters.value.scanned_only = false
       filters.value.categories = []
       if (!active) {
-        if (chip === 'packed') filters.value.packed_only = true
-        else filters.value.categories = [chip]
+        if (flag) filters.value[flag] = true
+        else filters.value = { ...filters.value, categories: [chip] }
       }
       onFilterChange()
     }
@@ -760,79 +756,11 @@ export default defineComponent({
         return
       }
 
-      const progressJobId =
-        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-          ? crypto.randomUUID()
-          : `job_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
-
-      let lastConsoleStep = ''
-      async function pollSyncProgress() {
-        try {
-          const pr = await todosApi.getSyncProgress(progressJobId)
-          const d = pr?.data
-          const zh = d?.label_zh
-          if (zh) {
-            syncProgressLabel.value = zh
-            if (zh !== lastConsoleStep) {
-              lastConsoleStep = zh
-              console.log('[待办同步]', zh)
-            }
-          }
-        } catch {
-          /* 轮询失败忽略 */
-        }
-      }
-
-      syncOverlayTitle.value = t('todos.syncingFromMercari')
-      syncOverlayFailed.value = false
-      syncProgressLabel.value = t('todos.connectingServer')
-      syncOverlayVisible.value = true
+      // 提交到任务队列即返回；执行进度在 /#/tasks 查看，不再阻塞本页
       syncLoading.value = true
-      await pollSyncProgress()
-      syncProgressTimer = setInterval(pollSyncProgress, 1000)
-
-      let syncHadError = false
       try {
-        const d = (await todosApi.sync({ progress_job_id: progressJobId })) || {}
-        let resultMsg = t('todos.syncResultMessage', {
-          accountCount: d.account_count ?? 0,
-          failCount: d.fail_count ?? 0,
-          inserted: d.inserted ?? 0,
-          updated: d.updated ?? 0,
-          markedDone: d.marked_deleted ?? 0,
-          total: d.total ?? 0,
-        })
-        // 待发货详情预缓存：仅在确有补抓（成功或失败）时追加一行
-        const detailFetched = Number(d.detail_fetched ?? 0)
-        const detailFailed = Number(d.detail_failed ?? 0)
-        if (detailFetched || detailFailed) {
-          resultMsg += `\n${t('todos.syncDetailPrecacheLine', { fetched: detailFetched, failed: detailFailed })}`
-        }
-        ElMessageBox.alert(
-          resultMsg,
-          t('todos.syncResultTitle'),
-          { type: 'success', confirmButtonText: t('dialog.confirmBtn') },
-        )
-        await load()
-      } catch (e) {
-        syncHadError = true
-        syncOverlayTitle.value = t('todos.syncFailed')
-        syncOverlayFailed.value = true
-        const msg = e?.response?.data?.detail || e?.message || t('todos.syncFailed')
-        syncProgressLabel.value = String(msg)
-        ElMessage.error(msg)
+        await submitTask(TASK_TYPES.TODOS_SYNC, {}, { t })
       } finally {
-        if (syncProgressTimer != null) {
-          clearInterval(syncProgressTimer)
-          syncProgressTimer = null
-        }
-        if (syncHadError) {
-          await new Promise((r) => setTimeout(r, 1200))
-        }
-        syncOverlayVisible.value = false
-        syncOverlayTitle.value = t('todos.syncingFromMercari')
-        syncOverlayFailed.value = false
-        syncProgressLabel.value = ''
         syncLoading.value = false
       }
     }
@@ -925,6 +853,9 @@ export default defineComponent({
       if (isRow && kindOrRow.awaiting_feedback) return t('todos.kind.awaitingFeedback')
       // Shipped（已发货 / 待买家收货）优先于标题判断：即便标题为「発送をしてください」也按待收货
       if (kind === 'Shipped') return t('todos.kind.waitReceipt')
+      // 发货扫码任务进行中/失败：优先于「待发货」显示，让用户一眼看出这单已经交给系统了
+      if (isRow && kindOrRow.ship_qr_state === 'shipping') return t('todos.kind.shipping')
+      if (isRow && kindOrRow.ship_qr_state === 'failed') return t('todos.kind.shipFailed')
       // 待发货：若已发行发货二维码/条形码（qr_image_path），类型显示映射为「已打包」（仅改名称）
       const isWaitShippingKind =
         title === WAIT_SHIPPING_TITLE || KIND_LABEL_KEYS[kind] === 'todos.kind.waitShipping'
@@ -943,6 +874,8 @@ export default defineComponent({
       const title = isRow ? String(kindOrRow.title || '').trim() : ''
       // 「待反馈」状态用绿色（success），与 kindLabel 的优先级保持一致
       if (isRow && kindOrRow.awaiting_feedback) return 'success'
+      if (isRow && kindOrRow.ship_qr_state === 'shipping') return 'primary'
+      if (isRow && kindOrRow.ship_qr_state === 'failed') return 'danger'
       if (kind === 'Shipped') return KIND_TAG_TYPES.Shipped
       if (title === WAIT_SHIPPING_TITLE) return 'warning'
       return KIND_TAG_TYPES[kind] || 'info'
@@ -962,6 +895,15 @@ export default defineComponent({
     const qrViewer = reactive({ visible: false, src: '', orderNo: '' })
     function openQrViewer(row) {
       const src = mercariImageUrl(row?.qr_image_path)
+      if (!src) return
+      qrViewer.src = src
+      qrViewer.orderNo = String(row?.item_id || '')
+      qrViewer.visible = true
+    }
+
+    /** 查看发货扫码照片（仅「发货中/失败」期间存在；成功后照片已删除） */
+    function openShipQrPhoto(row) {
+      const src = mercariImageUrl(row?.ship_qr_photo_path)
       if (!src) return
       qrViewer.src = src
       qrViewer.orderNo = String(row?.item_id || '')
@@ -1204,6 +1146,17 @@ export default defineComponent({
       // それ以外（需选发货地的方法）は完了後、返回交易ページ发行 发送用 QR/条形码（无需摄像头）。
       const wantScanQr = !!opt.auto_finish_no_facility
       const wantGenerateCode = needsFacility
+
+      // ゆうパケットポスト系：整条链路（选尺寸 → 完了する → 进扫描页 → 喂图 → 発送通知）
+      // 都交给后台任务。这里**不发任何请求**，点完立刻进拍照——原来那个几十秒的全屏转圈
+      // 就是卡在 confirmShippingSelection 上，现在没有了。
+      if (wantScanQr) {
+        qrPendingSelection.value = { class_text: classText, facility: null }
+        shippingDialogVisible.value = false
+        startQrScanMirror(currentRow.value.id)
+        return
+      }
+
       shippingConfirmLoading.value = true
       try {
         const result = await txOverlay.run({
@@ -1249,26 +1202,26 @@ export default defineComponent({
       }
     }
 
-    // ─── 远程摄像头：服务器无摄像头 → 把「本机（客户端）摄像头」推流给有头浏览器当虚拟摄像头 ───
-    // 弹窗里显示本机摄像头画面，并以 ~15fps 把每帧上传后端 → 注入到 /qr_code_scanner 的虚拟摄像头 canvas。
-    // 同一次上传的响应带 done 状态：读取成功（回到 /transaction/）即停止推流并进入二次确认。
+    // ─── 发货扫码：本机摄像头拍一张含二维码的照片 → 提交任务队列后台执行 ───
+    // 过去是按 ~15fps 持续把摄像头帧推给后端喂虚拟摄像头，用户必须一直开着弹窗盯到读出，
+    // 页面被占住、关掉就中断。现在只拍一张：后端当场校验二维码可读（读不出立刻要求重拍），
+    // 通过后入队，喂图/等读取/抓发货信息都在后台跑，弹窗随手就能关。
     const qrScanVisible = ref(false)
-    const qrScanDone = ref(false)
     const qrCamError = ref('')
     const qrVideoEl = ref(null)
-    const QR_CAM_FPS = 15
-    const QR_CAM_MAX_W = 960 // 上传帧最大宽度（限制体积，同时保留足够分辨率供二维码识别）
+    /** 已拍下的照片（JPEG dataURL）；为空表示仍在取景 */
+    const qrShot = ref('')
+    const qrSubmitting = ref(false)
+    /** 待随照片一起提交的尺寸/发货地点（ゆうパケットポスト系走后台任务，前台不预先提交） */
+    const qrPendingSelection = ref(null)
+    /** 已记过包材/出库的待办 id：重拍重提时不重复记账 */
+    const shipCommittedIds = new Set()
+    /** 拍照分辨率上限：够二维码识别，又不至于让上传体积失控 */
+    const QR_SHOT_MAX_W = 1440
     let qrCamStream = null
-    let qrCamCanvas = null
-    let qrScanTimer = null
-    let qrPushInFlight = false // 防止上一帧未返回就堆积请求
+    let qrShotCanvas = null
 
-    function stopQrScanMirror() {
-      if (qrScanTimer != null) {
-        clearInterval(qrScanTimer)
-        qrScanTimer = null
-      }
-      qrPushInFlight = false
+    function stopQrCamera() {
       if (qrCamStream) {
         try {
           qrCamStream.getTracks().forEach((tr) => tr.stop())
@@ -1282,56 +1235,12 @@ export default defineComponent({
       }
     }
 
-    /** 抓取本机摄像头一帧 → JPEG dataURL → 上传后端注入虚拟摄像头；响应里读 done */
-    async function captureAndPushFrame() {
-      const id = currentRow.value?.id
-      if (!id) return
-      if (qrPushInFlight) return
-      qrPushInFlight = true
-      try {
-        let frame = ''
-        let w = 0
-        let h = 0
-        const video = qrVideoEl.value
-        if (video && video.readyState >= 2 && video.videoWidth > 0) {
-          const sw = video.videoWidth
-          const sh = video.videoHeight
-          const scale = sw > QR_CAM_MAX_W ? QR_CAM_MAX_W / sw : 1
-          w = Math.round(sw * scale)
-          h = Math.round(sh * scale)
-          if (!qrCamCanvas) qrCamCanvas = document.createElement('canvas')
-          qrCamCanvas.width = w
-          qrCamCanvas.height = h
-          const ctx = qrCamCanvas.getContext('2d')
-          ctx.drawImage(video, 0, 0, w, h)
-          frame = qrCamCanvas.toDataURL('image/jpeg', 0.6)
-        }
-        const res = await todosApi.cameraFrame(id, { frame, width: w, height: h })
-        if (res?.done) {
-          qrScanDone.value = true
-          stopQrScanMirror()
-          // 读取成功 → 关闭扫码弹窗 → 抓取确认符号/追跡番号并缓存到发货栏（不再弹二次确认窗）。
-          // 缓存后发货栏出现「确认发送」按钮，用户随后点击才执行发送通知。
-          qrScanVisible.value = false
-          await cachePostShipAfterScan()
-        }
-      } catch (e) {
-        console.error('[QR摄像头]', e?.message || e)
-      } finally {
-        qrPushInFlight = false
-      }
-    }
-
-    async function startQrScanMirror(/* todoId */) {
-      stopQrScanMirror()
-      qrScanDone.value = false
+    async function openQrCamera() {
       qrCamError.value = ''
-      qrScanVisible.value = true
-      // 等弹窗渲染出 <video> 后再绑定摄像头流
       await nextTick()
       try {
         qrCamStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+          video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
           audio: false,
         })
         if (qrVideoEl.value) {
@@ -1344,14 +1253,81 @@ export default defineComponent({
         qrCamError.value = e?.message || String(e)
         ElMessage.error(t('todos.cameraOpenFailed'))
       }
-      // 即使本机相机打开失败，也继续轮询后端状态（done 检测）；相机正常则同时推帧
-      qrPushInFlight = false
-      captureAndPushFrame()
-      qrScanTimer = setInterval(captureAndPushFrame, Math.round(1000 / QR_CAM_FPS))
+    }
+
+    /** 打开扫码弹窗并启动本机摄像头取景 */
+    async function startQrScanMirror(/* todoId */) {
+      stopQrCamera()
+      qrShot.value = ''
+      qrSubmitting.value = false
+      qrScanVisible.value = true
+      await openQrCamera()
+    }
+
+    /** 拍照：抓取当前取景帧存为 JPEG dataURL，并停掉摄像头（已经不需要了） */
+    function takeQrShot() {
+      const video = qrVideoEl.value
+      if (!video || video.readyState < 2 || !video.videoWidth) {
+        ElMessage.warning(t('todos.cameraNotReady'))
+        return
+      }
+      const sw = video.videoWidth
+      const sh = video.videoHeight
+      const scale = sw > QR_SHOT_MAX_W ? QR_SHOT_MAX_W / sw : 1
+      const w = Math.round(sw * scale)
+      const h = Math.round(sh * scale)
+      if (!qrShotCanvas) qrShotCanvas = document.createElement('canvas')
+      qrShotCanvas.width = w
+      qrShotCanvas.height = h
+      qrShotCanvas.getContext('2d').drawImage(video, 0, 0, w, h)
+      // 质量 0.85：二维码要保留边缘锐度，压太狠会解不出来
+      qrShot.value = qrShotCanvas.toDataURL('image/jpeg', 0.85)
+      stopQrCamera()
+    }
+
+    /** 重拍：丢弃照片，重新打开摄像头取景 */
+    async function retakeQrShot() {
+      qrShot.value = ''
+      await openQrCamera()
+    }
+
+    /** 提交照片：后端校验二维码可读 → 入队 → 弹窗关闭，页面立即可用 */
+    async function submitQrShot() {
+      const id = currentRow.value?.id
+      if (!id || !qrShot.value || qrSubmitting.value) return
+      qrSubmitting.value = true
+      try {
+        const sel = qrPendingSelection.value || {}
+        await todosApi.scanQrPhoto(id, {
+          photo: qrShot.value,
+          class_text: sel.class_text || null,
+          facility: sel.facility || null,
+          client_token: newClientToken(),
+        })
+        ElMessage.success(t('tasks.enqueued'))
+        // 包裹已实际打包寄出，包材消耗与出库照记；用 Set 防止重拍重提时重复记账
+        if (!shipCommittedIds.has(id)) {
+          shipCommittedIds.add(id)
+          try {
+            await commitShipPackagingAndOutbound()
+          } catch { /* 记账失败不影响已入队的发货任务 */ }
+        }
+        qrScanVisible.value = false
+        stopQrCamera()
+        qrShot.value = ''
+        qrPendingSelection.value = null
+      } catch (e) {
+        // 二维码读不出来 → 后端 400，拦截器已弹出原因；停在当前照片让用户重拍
+        if (!e?.response) ElMessage.error(e?.message || t('todos.submitFailed'))
+      } finally {
+        qrSubmitting.value = false
+      }
     }
 
     function onQrScanDialogClose() {
-      stopQrScanMirror()
+      stopQrCamera()
+      qrShot.value = ''
+      qrPendingSelection.value = null
       qrScanVisible.value = false
     }
 
@@ -1461,7 +1437,7 @@ export default defineComponent({
         }
         // 完成后关闭本流程所有弹窗/表单：二次确认 → 扫码镜像 → 尺寸选择 → 交易详情
         // （关交易详情会触发 closeDetailBrowser 关闭有头浏览器会话）
-        stopQrScanMirror()
+        stopQrCamera()
         shipConfirmVisible.value = false
         qrScanVisible.value = false
         shippingDialogVisible.value = false
@@ -1723,23 +1699,17 @@ export default defineComponent({
 
     onMounted(() => {
       mercariAccountStore.ensureLoaded()
-      syncLockStore.subscribe()
       load()
       // 每分钟推进 nowTs，让列表里的「剩余发货时间」倒计时与颜色随时间刷新
       shipCountdownTimer = setInterval(() => { nowTs.value = Date.now() }, 60000)
     })
 
     onBeforeUnmount(() => {
-      if (syncProgressTimer != null) {
-        clearInterval(syncProgressTimer)
-        syncProgressTimer = null
-      }
       if (shipCountdownTimer != null) {
         clearInterval(shipCountdownTimer)
         shipCountdownTimer = null
       }
-      syncLockStore.unsubscribe()
-      stopQrScanMirror()
+      stopQrCamera()
       txOverlay.dispose()
     })
 
@@ -1762,7 +1732,6 @@ export default defineComponent({
       t,
       txOverlay,
       mercariAccountStore,
-      syncLockStore,
       KIND_LABEL_KEYS,
       DEFAULT_REPLY,
       DEFAULT_REVIEW,
@@ -1777,11 +1746,6 @@ export default defineComponent({
       syncLoading,
       bulkReviewLoading,
       bulkConfirmShipLoading,
-      syncOverlayVisible,
-      syncOverlayTitle,
-      syncOverlayFailed,
-      syncProgressLabel,
-      syncProgressTimer,
       dash,
       detailDialogVisible,
       detailLoading,
@@ -1858,6 +1822,7 @@ export default defineComponent({
       orderNoTail,
       qrViewer,
       openQrViewer,
+      openShipQrPhoto,
       shipRemainingText,
       shipRemainingTagType,
       displayTs,
@@ -1867,11 +1832,14 @@ export default defineComponent({
       onClickShippingSizeLocation,
       onConfirmShippingSelection,
       qrScanVisible,
-      qrScanDone,
       qrCamError,
       qrVideoEl,
+      qrShot,
+      qrSubmitting,
       startQrScanMirror,
-      stopQrScanMirror,
+      takeQrShot,
+      retakeQrShot,
+      submitQrShot,
       onQrScanDialogClose,
       shipConfirmVisible,
       shipConfirmLoading,

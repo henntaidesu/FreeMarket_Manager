@@ -24,7 +24,6 @@ export default defineComponent({
     const page = ref(1)
     const pageSize = ref(20)
     const filters = ref({ status: '', task_type: '', account_id: null })
-    const autoRefresh = ref(true)
 
     const detailVisible = ref(false)
     const detailRow = ref(null)
@@ -98,7 +97,6 @@ export default defineComponent({
     /** 轮询用 setTimeout 自调度：间隔随队列忙闲变化，且不会在请求未回时叠加 */
     function scheduleNextPoll() {
       clearPoll()
-      if (!autoRefresh.value) return
       pollTimer = setTimeout(async () => {
         try {
           await load({ silent: true })
@@ -114,11 +112,6 @@ export default defineComponent({
         clearTimeout(pollTimer)
         pollTimer = null
       }
-    }
-
-    function onAutoRefreshChange() {
-      if (autoRefresh.value) scheduleNextPoll()
-      else clearPoll()
     }
 
     function onFilterChange() {
@@ -190,7 +183,6 @@ export default defineComponent({
       page,
       pageSize,
       filters,
-      autoRefresh,
       detailVisible,
       detailRow,
       statusConfig,
@@ -201,7 +193,6 @@ export default defineComponent({
       formatUnixSecLocal,
       load,
       onFilterChange,
-      onAutoRefreshChange,
       openDetail,
       cancelTask,
       retryTask

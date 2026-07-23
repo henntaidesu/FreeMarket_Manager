@@ -91,6 +91,9 @@ def reserve(inventory_ids: List[int]) -> None:
     ids = [int(i) for i in (inventory_ids or []) if i is not None]
     if not ids:
         return
+    # CAS 判据是落库的 listable_quantity，而库存列表是读取时重算展示的：先刷新这几行，
+    # 免得任何一条漏调重算的写入路径导致「页面显示可上架 1，出品却被拒」。
+    _recompute(ids)
     done: List[int] = []
     try:
         for inv_id in ids:

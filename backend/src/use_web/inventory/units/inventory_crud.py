@@ -81,6 +81,9 @@ def create_inventory(data: InventoryCreate, _claims: dict = Depends(require_auth
         if "unique" in err and "barcode" in err:
             raise HTTPException(status_code=400, detail="保存失败，条形码可能重复")
         raise HTTPException(status_code=400, detail="保存失败，请检查填写内容后重试")
+    # 新行的 listable_quantity 需立即落库，否则展示值（读取时重算）与出品预扣减的 CAS 判据不一致
+    from ....use_mercari.inventory_counters import recompute_listable_quantity
+    recompute_listable_quantity([int(new_id)])
     _enqueue_image_index(new_id)
     inventory_items = _query_inventory_with_joins(" AND p.id = ? LIMIT 1", (new_id,))
     return inventory_items[0] if inventory_items else {"id": new_id}
@@ -168,12 +171,14 @@ def update_inventory(pid: int, data: InventoryUpdate, _claims: dict = Depends(re
             raise
         except Exception:
             raise HTTPException(status_code=400, detail="更新失败，条形码可能重复")
-        # 组合商品库存（套数）变化会改变来源商品被「拉走」的件数，重算来源可上架（组合不扣减来源库存）。
-        if old_is_combined and "quantity" in update_data:
-            source_ids = [int(it["inventory_id"]) for it in _parse_combined_items(old_combined_items)]
-            if source_ids:
-                from ....use_mercari.inventory_counters import recompute_listable_quantity
-                recompute_listable_quantity(source_ids)
+        # 改动库存/在售会改变本商品可上架；组合商品套数变化还会改变来源商品被「拉走」的件数，
+        # 一并重算来源可上架（组合不扣减来源库存）。
+        if "quantity" in update_data or "on_sale_quantity" in update_data:
+            from ....use_mercari.inventory_counters import recompute_listable_quantity
+            touched = [pid]
+            if old_is_combined and "quantity" in update_data:
+                touched += [int(it["inventory_id"]) for it in _parse_combined_items(old_combined_items)]
+            recompute_listable_quantity(touched)
     if "images_json" in update_data:
         _enqueue_image_index(pid)
     inventory_items = _query_inventory_with_joins(" AND p.id = ? LIMIT 1", (pid,))

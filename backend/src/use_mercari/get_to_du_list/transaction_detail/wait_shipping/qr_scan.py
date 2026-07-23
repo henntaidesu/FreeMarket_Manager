@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Any, Dict
+from ....sync.sync_progress import set_sync_progress
 from .....db_manage.models.todos.todo_item import TodoItemModel
 from .....web_drive.core.manager import get_web_drive_manager
 from .....web_drive.core.paths import mercari_todo_key
@@ -213,6 +214,66 @@ async def push_remote_camera_frame(
         "url": url,
         "pushed": pushed,
     }
+
+async def feed_photo_until_scanned(
+    todo_id: int,
+    photo: str,
+    *,
+    timeout_sec: float = 90.0,
+    interval_sec: float = 0.4,
+    progress_job_id: str = "",
+) -> Dict[str, Any]:
+    """把**一张**照片反复喂给煤炉的 QR スキャナ，直到它读出二维码（或超时）。
+
+    与逐帧推流的区别：客户端只拍一次，之后不需要保持页面打开。虚拟摄像头 canvas 每隔
+    ``interval_sec`` 重绘同一张图，扫描器把它当作静止画面的实时视频流去解码——
+    它内部按帧轮询解码，因此静止画同样能读出。
+
+    读取成功的判定沿用既有口径：页面离开 ``/qr_code_scanner`` 回到 ``/transaction/``。
+
+    :returns: ``{done, elapsed_sec, pushes, url}``；``done=False`` 表示超时未读出。
+    """
+    def report(step: str, label: str) -> None:
+        if progress_job_id:
+            try:
+                set_sync_progress(progress_job_id, step, label)
+            except Exception:
+                pass
+
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    pushes = 0
+    last_url = ""
+    while loop.time() - started < timeout_sec:
+        res = await push_remote_camera_frame(
+            int(todo_id), frame=photo, width=0, height=0
+        )
+        last_url = str(res.get("url") or "")
+        if res.get("pushed"):
+            pushes += 1
+        if res.get("done"):
+            elapsed = loop.time() - started
+            log.info(
+                "[qrphoto] todo=%s 二维码已被读取（耗时 %.1fs，推送 %d 次）",
+                todo_id, elapsed, pushes,
+            )
+            report("qr_scanned", "二维码已读取，正在获取发货信息…")
+            return {"done": True, "elapsed_sec": round(elapsed, 1), "pushes": pushes, "url": last_url}
+        if not res.get("on_scanner") and not res.get("done"):
+            # 既不在扫描页也没回到交易页：页面被关掉或跳去了别处，再等也没意义
+            log.warning("[qrphoto] todo=%s 已离开扫描页且未完成（URL=%s）", todo_id, last_url)
+            break
+        elapsed = loop.time() - started
+        report("qr_feeding", f"正在识别二维码…（已用时 {int(elapsed)}s）")
+        await asyncio.sleep(interval_sec)
+
+    elapsed = loop.time() - started
+    log.warning(
+        "[qrphoto] todo=%s 未能读出二维码（耗时 %.1fs，推送 %d 次，URL=%s）",
+        todo_id, elapsed, pushes, last_url,
+    )
+    return {"done": False, "elapsed_sec": round(elapsed, 1), "pushes": pushes, "url": last_url}
+
 
 async def capture_qr_scanner_frame(todo_id: int) -> Dict[str, Any]:
     """QR スキャナ（/qr_code_scanner）を開いている有頭ブラウザの現在タブを

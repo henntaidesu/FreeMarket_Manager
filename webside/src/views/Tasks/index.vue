@@ -3,7 +3,7 @@
     <!-- 筛选 + 概览 -->
     <el-card shadow="never" class="search-card">
       <el-row :gutter="0" align="middle" class="search-row">
-        <el-col :xs="24" :md="16" class="search-left-group">
+        <el-col :span="24" class="search-left-group">
           <el-select v-model="filters.status" :placeholder="t('tasks.statusFilter')" clearable @change="onFilterChange" style="width:100%">
             <el-option :label="t('tasks.statusPending')" value="pending" />
             <el-option :label="t('tasks.statusRunning')" value="running" />
@@ -17,10 +17,6 @@
           <el-select v-model="filters.account_id" :placeholder="t('tasks.accountFilter')" clearable filterable @change="onFilterChange" style="width:100%">
             <el-option v-for="a in accounts" :key="a.id" :label="a.account_name || `#${a.id}`" :value="a.id" />
           </el-select>
-        </el-col>
-        <el-col :xs="24" :md="8" class="search-actions">
-          <el-checkbox v-model="autoRefresh" @change="onAutoRefreshChange">{{ t('tasks.autoRefresh') }}</el-checkbox>
-          <el-button @click="load">{{ t('common.refresh') }}</el-button>
         </el-col>
       </el-row>
 

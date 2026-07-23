@@ -156,6 +156,31 @@ class TodoItemModel(BaseModel):
                 "not_null": False,
                 "default": None,
             },
+            # ── ゆうパケットポスト系 发货扫码（与上面的 qr_image_path 无关：
+            #    那是煤炉「发行」的发货二维码，这里是用户「拍摄」的包裹二维码）──
+            # ship_qr_scanned_at: 扫码完成时刻（unix 秒）。非空 = 已扫码，供列表筛选与标记。
+            "ship_qr_scanned_at": {
+                "type": "INTEGER",
+                "not_null": False,
+                "default": None,
+            },
+            # ship_qr_photo_path: 当时拍摄的那张照片（/imges/xxx.jpg）。
+            # **仅在「发货中 / 失败」期间存在**：成功发出発送通知后会删除文件并清空本字段
+            # （成功件无需留证）；失败时保留，让用户在待发货列表里看到当时扫的是哪个码。
+            "ship_qr_photo_path": {
+                "type": "TEXT",
+                "not_null": False,
+                "default": None,
+            },
+            # ship_qr_state: 发货扫码任务的进行状态。
+            #   'shipping' = 已提交照片、任务进行中 → 列表类型显示「发货中」，且移出「待发货」筛选
+            #   'failed'   = 任务失败 → 退回「待发货」，并显示保留的照片供人工判断
+            #   NULL       = 无进行中的扫码（含成功后清空）
+            "ship_qr_state": {
+                "type": "TEXT",
+                "not_null": False,
+                "default": None,
+            },
         }
 
     @classmethod

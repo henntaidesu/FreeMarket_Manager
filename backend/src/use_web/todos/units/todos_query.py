@@ -19,11 +19,16 @@ _WAIT_REPLY_COND = "IFNULL(t.[kind], '') = 'IncomingMessage'"
 # 「待评价」类判定：卖家待评价（ReviewedSeller）。
 _WAIT_REVIEW_COND = "IFNULL(t.[kind], '') = 'ReviewedSeller'"
 
+# 「发货中」判定：已提交扫码照片、后台任务进行中。这类行不再算作「待发货」——
+# 用户已经拍完码交给系统了，再列在待发货里会让人以为还没处理。失败后 state 变 'failed'，
+# 本条件不再成立，行自动退回「待发货」并带上当时那张照片。
+_SHIPPING_IN_PROGRESS_COND = "IFNULL(t.[ship_qr_state], '') = 'shipping'"
+
 # 前端「待发货 / 待回复 / 待评价 / 其他」分类筛选（chip）。
 # 「其他」= 既非待发货、也非待回复、也非待评价。
 # 传入多个分类时取并集；未传（默认）不做分类过滤，全部显示。
 _CATEGORY_CONDS = {
-    "wait_shipping": _WAIT_SHIPPING_COND,
+    "wait_shipping": f"{_WAIT_SHIPPING_COND} AND NOT ({_SHIPPING_IN_PROGRESS_COND})",
     "wait_reply": _WAIT_REPLY_COND,
     "wait_review": _WAIT_REVIEW_COND,
     "other": (
@@ -67,6 +72,9 @@ _LIST_COLS = (
     "qr_image_path",
     "awaiting_feedback",
     "shipping_duration",
+    "ship_qr_scanned_at",
+    "ship_qr_photo_path",
+    "ship_qr_state",
 )
 
 
@@ -76,6 +84,7 @@ def list_todos(
     keyword: Optional[str] = None,
     include_deleted: bool = False,
     packed_only: bool = False,
+    scanned_only: bool = False,
     categories: Optional[str] = None,
     page: int = 1,
     page_size: int = 20,
@@ -86,6 +95,10 @@ def list_todos(
     - ``include_deleted=False``（默认）只显示未完成（``is_delete=0``）
     - ``packed_only=False``（默认）隐藏「已打包」行（见 ``_PACKED_COND``），
       只显示待发货/待回复等；``packed_only=True`` 则只显示「已打包」行
+    - ``scanned_only=True`` 只显示「已扫码」行（``ship_qr_scanned_at`` 非空）。
+      这是一个**回顾用**筛选：扫码后発送通知已自动发出、该行随即被 finalize 成
+      ``is_delete=1`` 而从默认列表消失，因此此筛选下不再套用 is_delete 与「已打包」两个默认条件，
+      否则刚扫完的单子一条都看不到。
     - ``categories`` 逗号分隔的分类筛选（``wait_shipping`` / ``wait_reply`` / ``other``），
       多个取并集；为空（默认）不做分类过滤，全部显示
     - ``keyword`` 匹配 title / message / item_id / item_name
@@ -96,12 +109,16 @@ def list_todos(
 
     where = ["1=1"]
     params: List[Any] = []
-    if not include_deleted:
-        where.append("COALESCE(t.[is_delete], 0) = 0")
-    if packed_only:
-        where.append(f"({_PACKED_COND})")
+    if scanned_only:
+        # 已扫码回顾：只按「扫过码」过滤，不受 is_delete / 已打包 默认条件影响
+        where.append("t.[ship_qr_scanned_at] IS NOT NULL")
     else:
-        where.append(f"NOT ({_PACKED_COND})")
+        if not include_deleted:
+            where.append("COALESCE(t.[is_delete], 0) = 0")
+        if packed_only:
+            where.append(f"({_PACKED_COND})")
+        else:
+            where.append(f"NOT ({_PACKED_COND})")
     if categories:
         cats = [c.strip() for c in str(categories).split(",") if c.strip() in _CATEGORY_CONDS]
         if cats:

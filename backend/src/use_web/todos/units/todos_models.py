@@ -61,6 +61,25 @@ class CameraFrameRequest(PydanticModel):
     height: int = 0
 
 
+class ShippingQrPhotoRequest(PydanticModel):
+    """ゆうパケットポスト系 发货扫码：客户端拍的**一张**含二维码的照片（data URL）。
+
+    提交后后端先用 zxingcpp 验一遍能否读出二维码，通过才落盘入队；
+    之后喂图给煤炉扫描器、抓发货信息都在后台任务里做，页面不必等待。
+    """
+
+    photo: str = Field(..., min_length=1)
+    #: 所选商品尺寸（ゆうパケットポスト / ゆうパケットポストmini）。
+    #: 传了就由任务在后台完成「选尺寸 → 完了する → 进扫描页」，前台不再阻塞等待。
+    class_text: Optional[str] = Field(default=None, max_length=120)
+    #: 发货地点；ゆうパケットポスト系为 None（页面自动选好）
+    facility: Optional[str] = Field(default=None, max_length=40)
+    #: 喂图等待煤炉读出的超时秒数；留空用默认 90s
+    timeout_sec: Optional[float] = None
+    #: 前端一次点击生成的幂等 token
+    client_token: Optional[str] = Field(default=None, max_length=128)
+
+
 class SubmitTransactionReviewRequest(PydanticModel):
     text: str = Field(..., min_length=1, max_length=140)
     progress_job_id: Optional[str] = None

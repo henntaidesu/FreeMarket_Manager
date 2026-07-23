@@ -37,50 +37,69 @@ async def sync_todos(req: SyncTodosRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc))
 
     lock_token = sync_lock_begin("page", LABEL_FULL)
+    try:
+        return await sync_todos_core(account_ids=account_ids, progress_job_id=jid)
+    finally:
+        sync_lock_end(lock_token)
+        if jid:
+            clear_sync_progress(jid)
+
+
+def resolve_sync_todo_account_ids() -> list:
+    """全部启用账号；ValueError 由调用方转 400。"""
+    return resolve_enabled_account_ids()
+
+
+async def sync_todos_core(
+    *,
+    account_ids: list,
+    progress_job_id: str = None,
+) -> Dict[str, Any]:
+    """「从煤炉同步待办」主体：不含 HTTP 与锁语义，**调用方须自行持有全局同步锁**。
+
+    HTTP 入口 ``sync_todos`` 与任务队列处理器
+    （``task_queue/handlers/todos.py``，用 ``begin_waiting`` 排队等锁）共用本函数。
+    """
+    jid = progress_job_id
     accounts: list[Dict[str, Any]] = []
     inserted = updated = marked_deleted = total = 0
     detail_fetched = detail_failed = 0
     fail_count = 0
     mgr = get_web_drive_manager()
-    try:
-        # 逐个账号严格串行：每个账号 await 完成（列表抓取 + 详情预缓存 + 新待发货联动）后，
-        # 必须先关闭其浏览器，再开始下一个账号。todolist 抓取走单一全局响应文件（请求路径不含
-        # seller_id，无法区分账号），若两个账号的 /todos 页同时在线会导致响应串台。
-        # 整账号作为一个队列任务（suppress_idle_close=True：列表/详情/联动复用同一浏览器会话）。
-        for aid in account_ids:
+    # 逐个账号严格串行：每个账号 await 完成（列表抓取 + 详情预缓存 + 新待发货联动）后，
+    # 必须先关闭其浏览器，再开始下一个账号。todolist 抓取走单一全局响应文件（请求路径不含
+    # seller_id，无法区分账号），若两个账号的 /todos 页同时在线会导致响应串台。
+    # 整账号作为一个队列任务（suppress_idle_close=True：列表/详情/联动复用同一浏览器会话）。
+    for aid in account_ids:
+        try:
+            stats = await run_mercari_serial_async(
+                queue_key_for_mercari_account(aid),
+                lambda aid=aid: sync_todos_with_details(
+                    account_id=aid,
+                    progress_job_id=jid,
+                ),
+                suppress_idle_close=True,
+            )
+        except Exception as exc:  # noqa: BLE001 单个账号失败不影响其余账号
+            fail_count += 1
+            accounts.append({"account_id": aid, "error": str(exc)})
+            continue
+        else:
+            inserted += int(stats.get("inserted", 0) or 0)
+            updated += int(stats.get("updated", 0) or 0)
+            marked_deleted += int(stats.get("marked_deleted", 0) or 0)
+            total += int(stats.get("total", 0) or 0)
+            detail_fetched += int(stats.get("detail_fetched", 0) or 0)
+            detail_failed += int(stats.get("detail_failed", 0) or 0)
+            accounts.append(stats)
+        finally:
+            # 关闭当前账号浏览器，确保与下一账号不重叠（消除全局响应文件的串台窗口）。
             try:
-                stats = await run_mercari_serial_async(
-                    queue_key_for_mercari_account(aid),
-                    lambda aid=aid: sync_todos_with_details(
-                        account_id=aid,
-                        progress_job_id=jid,
-                    ),
-                    suppress_idle_close=True,
+                await mgr.close_session(mercari_automation_key(aid), force=True)
+            except Exception as close_exc:  # noqa: BLE001 关闭失败不阻断后续账号
+                log.warning(
+                    "[todolist] 关闭 account_id=%s 浏览器失败: %s", aid, close_exc
                 )
-            except Exception as exc:  # noqa: BLE001 单个账号失败不影响其余账号
-                fail_count += 1
-                accounts.append({"account_id": aid, "error": str(exc)})
-                continue
-            else:
-                inserted += int(stats.get("inserted", 0) or 0)
-                updated += int(stats.get("updated", 0) or 0)
-                marked_deleted += int(stats.get("marked_deleted", 0) or 0)
-                total += int(stats.get("total", 0) or 0)
-                detail_fetched += int(stats.get("detail_fetched", 0) or 0)
-                detail_failed += int(stats.get("detail_failed", 0) or 0)
-                accounts.append(stats)
-            finally:
-                # 关闭当前账号浏览器，确保与下一账号不重叠（消除全局响应文件的串台窗口）。
-                try:
-                    await mgr.close_session(mercari_automation_key(aid), force=True)
-                except Exception as close_exc:  # noqa: BLE001 关闭失败不阻断后续账号
-                    log.warning(
-                        "[todolist] 关闭 account_id=%s 浏览器失败: %s", aid, close_exc
-                    )
-    finally:
-        sync_lock_end(lock_token)
-        if jid:
-            clear_sync_progress(jid)
 
     return {
         "accounts": accounts,

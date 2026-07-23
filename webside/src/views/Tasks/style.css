@@ -1,7 +1,6 @@
 .search-card { margin-bottom: 16px; border-radius: 8px; }
 .search-row { justify-content: space-between; }
 .search-left-group { display: flex; align-items: center; gap: 20px; }
-.search-actions { display: flex; justify-content: flex-end; align-items: center; gap: 12px; }
 .pagination { margin-top: 16px; display: flex; justify-content: flex-end; }
 
 .task-summary {
@@ -133,10 +132,9 @@
   color: #3a4456;
 }
 
-/* 窄屏：标题允许换行、操作换到下一行右侧 */
+/* 窄屏：筛选竖排、标题允许换行 */
 @media (max-width: 768px) {
   .search-left-group { flex-direction: column; align-items: stretch; gap: 10px; }
-  .search-actions { margin-top: 10px; justify-content: space-between; }
   .task-card__head { flex-wrap: wrap; }
   .task-card__title { flex-basis: 100%; order: 3; white-space: normal; }
 }

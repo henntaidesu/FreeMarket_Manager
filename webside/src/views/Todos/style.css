@@ -772,16 +772,13 @@
   font-size: 12px;
   text-align: center;
 }
-.qr-scan-done {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.55);
-  color: var(--el-color-success);
-  font-size: 18px;
-  font-weight: 700;
+/* 取景/拍照提示（弹窗底部一行） */
+.qr-scan-tip {
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #a8b4ce;
+  text-align: center;
 }
 
 /* 中央扫描取景框（浏览器扫码器同款）：居中正方形 + 四角括号 + 上下往返扫描线 */
@@ -1034,4 +1031,21 @@
   border: 1px solid var(--el-border-color);
   border-radius: 6px;
   background: #fff;
+}
+
+/* 「已扫码」行标记与扫码时间（已扫码筛选下的核对信息） */
+.row-tag-scanned {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--el-color-success);
+}
+.cell-scanned-at {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #7d8aa5;
+}
+.cell-ship-failed {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--el-color-danger);
 }

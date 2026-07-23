@@ -53,6 +53,26 @@ def current_running_id() -> Optional[int]:
     return int(cur[0]) if cur else None
 
 
+def _ensure_terminal(task_id: int) -> None:
+    """兜底：任务行若仍停在 running，补一个终态。
+
+    ``asyncio.Task`` 有可能在协程体**还没开始执行**时就被取消——此时 ``_run_one`` 里的
+    ``except CancelledError`` 根本不会运行，任务行会永远卡在 running（占着去重位、
+    也占着出品预扣减）。取消请求来得越快越容易撞上，必须在这里补齐。
+    """
+    try:
+        row = store.get_task(int(task_id))
+        if not row or str(row.get("status")) != "running":
+            return
+        if int(task_id) in _cancel_requested:
+            _cancel_requested.discard(int(task_id))
+            store.mark_canceled(int(task_id), "用户取消（执行中中断）")
+        else:
+            store.mark_failed(int(task_id), "任务被中断")
+    except Exception:
+        log.exception("[task_queue] #%s 收尾补终态失败", task_id)
+
+
 def _error_text(exc: BaseException) -> str:
     """业务函数多用 HTTPException 表达错误，取它的 detail 更可读。"""
     detail = getattr(exc, "detail", None)
@@ -137,6 +157,8 @@ async def _loop() -> None:
                     raise
             finally:
                 _current = None
+                # 协程体未及执行就被取消时，_run_one 的收尾不会走到，这里补终态
+                _ensure_terminal(int(task["id"]))
         except asyncio.CancelledError:
             if _stopping:
                 break

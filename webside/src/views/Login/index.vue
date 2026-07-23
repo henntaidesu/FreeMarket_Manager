@@ -23,15 +23,22 @@
         </div>
       </template>
 
-      <el-form ref="formRef" :model="form" :rules="rules" @submit.prevent="handleLogin">
+      <!-- 关闭浏览器账号密码自动填充：不给 name="username"/"password" 这类识别信号，
+           密码框用 new-password（Chrome 会忽略 off，但认 new-password） -->
+      <el-form
+        ref="formRef"
+        :model="form"
+        :rules="rules"
+        autocomplete="off"
+        @submit.prevent="handleLogin"
+      >
         <el-form-item prop="username">
           <el-input
             v-model="form.username"
             :placeholder="t('login.usernamePlaceholder')"
             size="large"
             clearable
-            name="username"
-            autocomplete="username"
+            autocomplete="off"
           />
         </el-form-item>
         <el-form-item prop="password">
@@ -41,8 +48,7 @@
             :placeholder="t('login.passwordPlaceholder')"
             size="large"
             show-password
-            name="password"
-            autocomplete="current-password"
+            autocomplete="new-password"
           />
         </el-form-item>
         <el-form-item>

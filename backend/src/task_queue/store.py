@@ -287,6 +287,21 @@ def has_active_tasks(task_type: str) -> bool:
     return bool(rows)
 
 
+def has_active_account_task(task_type: str, account_id: int) -> bool:
+    """某账号下是否还有该类型的 pending/running 任务。
+
+    用于「这个账号的自动化浏览器现在能不能关」——任务排队/执行期间前端若把浏览器关掉，
+    任务会以「会话不可用或无活动页」失败。
+    """
+    ph = ",".join("?" * len(ACTIVE_STATUSES))
+    rows = DatabaseManager().execute_query(
+        f"SELECT 1 FROM [task_queue] WHERE [task_type] = ? AND [account_id] = ? "
+        f"AND [status] IN ({ph}) LIMIT 1",
+        (str(task_type), int(account_id), *ACTIVE_STATUSES),
+    )
+    return bool(rows)
+
+
 def get_stats() -> Dict[str, int]:
     """``{pending, running, failed_recent}``，供侧边栏徽标与各页轮询。"""
     db = DatabaseManager()

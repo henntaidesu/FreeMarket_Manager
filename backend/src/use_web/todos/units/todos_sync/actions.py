@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """交易处理动作端点：发送消息/选尺寸/发货/改方式/评价/反应等"""
 
+import logging
 from typing import Any, Dict, Optional
 from fastapi import HTTPException
 from .....db_manage.models.todos.todo_item import TodoItemModel
@@ -11,6 +12,8 @@ from .....web_drive.core.manager import get_web_drive_manager
 from .....web_drive.core.paths import mercari_todo_key
 from ..todos_models import CameraFrameRequest, ChangeShippingMethodRequest, ConfirmShippingSelectionRequest, SendMessageReactionRequest, SendTransactionMessageRequest, SubmitTransactionReviewRequest, TransactionActionRequest
 from .detail import _validate_job_id
+
+log = logging.getLogger(__name__)
 
 
 async def send_transaction_message_endpoint(
@@ -239,10 +242,28 @@ async def send_message_reaction_endpoint(
             clear_sync_progress(jid)
 
 async def close_detail_browser(account_id: int) -> Dict[str, Any]:
-    """关闭某账号的自动化浏览器（``__sync``；关闭交易详情 dialog 时调用）。"""
+    """关闭某账号的自动化浏览器（``mercari_{id}__todo``；关闭交易详情 dialog 时调用）。
+
+    **发货扫码任务进行中时拒绝关闭**：该任务全程要用这个会话（选尺寸 → 进扫描页 →
+    喂图 → 発送通知），前端一关就会以「会话不可用或无活动页」失败。用户提交完照片后
+    通常立刻就把弹窗关了，任务才刚排上队，正好撞上。
+    """
     aid = int(account_id)
     if aid <= 0:
         raise HTTPException(status_code=400, detail="account_id 无效")
+
+    from .....task_queue import has_active_account_task
+    from .....task_queue.registry import TODOS_SHIPPING_QR
+
+    if has_active_account_task(TODOS_SHIPPING_QR, aid):
+        log.info("[todos] account_id=%s 有发货扫码任务在进行，跳过关闭浏览器", aid)
+        return {
+            "account_id": aid,
+            "closed": False,
+            "skipped": True,
+            "reason": "发货扫码任务进行中，浏览器保持打开",
+        }
+
     mgr = get_web_drive_manager()
     main_key = mercari_todo_key(aid)
     result = await mgr.close_session(main_key, force=True)

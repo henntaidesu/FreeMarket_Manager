@@ -12,7 +12,10 @@ from src.db_manage.db_settings import get_or_create_jwt_secret
 # 不再回退到可预测的源码常量。
 JWT_SECRET = get_or_create_jwt_secret()
 JWT_ALGORITHM = "HS256"
-JWT_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "12"))  # 默认 12 小时（配合 token_version 吊销）
+# 0 = 永不过期（默认）：不写 exp 声明，登录状态长期有效。
+# 失效仍由 token_version 控制：改密码 / 禁用账号 / 强制下线会立刻踢掉旧令牌。
+# 如需恢复定时过期，设置环境变量 JWT_EXPIRE_HOURS=12 之类的正整数。
+JWT_EXPIRE_HOURS = int(os.getenv("JWT_EXPIRE_HOURS", "0"))
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -24,8 +27,9 @@ def create_access_token(user_id: int, username: str, token_version: int = 0) -> 
         "username": username,
         "tv": int(token_version or 0),  # 令牌版本：与库中 token_version 不一致即失效
         "iat": int(now.timestamp()),
-        "exp": int((now + timedelta(hours=JWT_EXPIRE_HOURS)).timestamp()),
     }
+    if JWT_EXPIRE_HOURS > 0:
+        payload["exp"] = int((now + timedelta(hours=JWT_EXPIRE_HOURS)).timestamp())
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 

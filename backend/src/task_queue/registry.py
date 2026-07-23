@@ -21,6 +21,8 @@ ON_SALE_FULL_UPDATE = "on_sale.full_update"
 ON_SALE_REVISE = "on_sale.revise"
 TODOS_BULK_REVIEW = "todos.bulk_review"
 TODOS_BULK_CONFIRM_SHIP = "todos.bulk_confirm_ship"
+TODOS_SHIPPING_QR = "todos.shipping_qr"
+TODOS_SYNC = "todos.sync"
 
 
 @dataclass(frozen=True)
@@ -95,6 +97,19 @@ _SPECS: Dict[str, TaskSpec] = {
         dedup_key=lambda p: TODOS_BULK_REVIEW,
         title=lambda p: "待办一键好评（全部启用账号）",
     ),
+    TODOS_SYNC: TaskSpec(
+        task_type=TODOS_SYNC,
+        label_zh="待办同步",
+        dedup_key=lambda p: TODOS_SYNC,
+        title=lambda p: "待办从煤炉同步（全部启用账号）",
+    ),
+    TODOS_SHIPPING_QR: TaskSpec(
+        task_type=TODOS_SHIPPING_QR,
+        label_zh="发货扫码",
+        # 同一笔待办同时只允许一次扫码在跑，避免重复喂图把煤炉流程搞乱
+        dedup_key=lambda p: f"{TODOS_SHIPPING_QR}:{p.get('todo_id')}",
+        title=lambda p: f"发货扫码：{p.get('order_no') or ('待办#' + str(p.get('todo_id')))}",
+    ),
     TODOS_BULK_CONFIRM_SHIP: TaskSpec(
         task_type=TODOS_BULK_CONFIRM_SHIP,
         label_zh="一键确认发送",
@@ -143,4 +158,10 @@ def resolve_handler(task_type: str) -> Callable:
     if tt == TODOS_BULK_CONFIRM_SHIP:
         from .handlers.todos import handle_bulk_confirm_ship
         return handle_bulk_confirm_ship
+    if tt == TODOS_SHIPPING_QR:
+        from .handlers.todos import handle_shipping_qr
+        return handle_shipping_qr
+    if tt == TODOS_SYNC:
+        from .handlers.todos import handle_sync
+        return handle_sync
     raise KeyError(f"未注册的任务类型：{task_type}")

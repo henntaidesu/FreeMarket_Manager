@@ -54,6 +54,7 @@ from .wait_shipping.shipping_select import (
 )
 from .wait_shipping.qr_scan import (
     capture_qr_scanner_frame,
+    feed_photo_until_scanned,
     push_remote_camera_frame,
 )
 from .wait_shipping.ship_finalize import (
@@ -88,6 +89,7 @@ __all__ = [
     "start_select_shipping_class",
     "confirm_shipping_selection",
     "capture_qr_scanner_frame",
+    "feed_photo_until_scanned",
     "push_remote_camera_frame",
     "read_post_shipping_confirm_info",
     "finalize_post_shipping",

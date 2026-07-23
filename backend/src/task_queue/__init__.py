@@ -24,6 +24,7 @@ from .store import (
     cancel_pending,
     get_stats,
     get_task,
+    has_active_account_task,
     has_active_tasks,
     list_tasks,
 )
@@ -47,6 +48,7 @@ __all__ = [
     "cancel_pending",
     "get_stats",
     "get_task",
+    "has_active_account_task",
     "has_active_tasks",
     "has_pending_listing_tasks",
     "known_types",
