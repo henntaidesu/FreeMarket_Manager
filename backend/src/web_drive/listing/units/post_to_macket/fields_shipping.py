@@ -7,7 +7,7 @@ import logging
 import urllib.request
 from typing import Any
 from ._constants import SHIPPING_DAYS_OPTION_INDEX, SHIPPING_DAYS_SELECT_SIGNATURES, SHIPPING_DAYS_SELECT_XPATH, SHIPPING_FROM_SELECT_SIGNATURES, SHIPPING_FROM_SELECT_XPATH, SHIPPING_METHODS_URL_FRAGMENT, SHIPPING_METHOD_CONFIRM_TEXT, SHIPPING_METHOD_ENTRY_TEXTS, SHIPPING_METHOD_ITEM_JA, SHIPPING_METHOD_RADIO_NAME, SHIPPING_METHOD_RADIO_VALUE, SHIPPING_METHOD_RADIO_XPATH, SHIPPING_METHOD_UNDECIDED_EXPAND_XPATH, SHIPPING_PAYER_SELECT_SIGNATURES, SHIPPING_PAYER_SELECT_XPATH, SHIPPING_PAYER_VALUE
-from ._helpers import _click_button_by_text, _click_by_texts, _react_set_select, _robust_set_select
+from ._helpers import _click_button_by_text, _click_by_texts, _robust_set_select
 from ._sell_wizard import _url_is_sell_shipping_methods
 
 log = logging.getLogger(__name__)
@@ -28,32 +28,16 @@ async def _set_shipping_days(
         log.warning("[shipping_days] 未知的值: %s，跳过", shipping_days)
         return
 
-    select_loc = page.locator(f"xpath={SHIPPING_DAYS_SELECT_XPATH}")
-    await select_loc.first.wait_for(state="visible", timeout=element_timeout_ms)
-    await select_loc.first.scroll_into_view_if_needed()
-
-    # 先尝试 Playwright select_option（by index）
-    try:
-        # Playwright index 是 0-based；XPath option[2] 对应 index=1
-        await select_loc.first.select_option(index=opt_index - 1, timeout=element_timeout_ms)
-        log.info("[shipping_days] 已选 option[%s] (%s)", opt_index, shipping_days)
-        return
-    except Exception:
-        pass
-
-    # 兜底：JavaScript 通过 option value 设置
-    opt_xpath = f"{SHIPPING_DAYS_SELECT_XPATH}/option[{opt_index}]"
-    opt_value = await page.evaluate(
-        """(xpath) => {
-            const el = document.evaluate(xpath, document, null,
-                XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-            return el ? el.value : null;
-        }""",
-        opt_xpath,
+    # 位置 XPath（快路径）+ 签名兜底一并交给健壮设值器。
+    # XPath option[N] 为 1-based，DOM options 数组为 0-based → option_index = opt_index - 1。
+    how = await _robust_set_select(
+        page,
+        xpath=SHIPPING_DAYS_SELECT_XPATH,
+        signatures=SHIPPING_DAYS_SELECT_SIGNATURES,
+        option_index=opt_index - 1,
+        timeout_ms=element_timeout_ms,
     )
-    if opt_value is not None:
-        await _react_set_select(page, SHIPPING_DAYS_SELECT_XPATH, str(opt_value))
-        log.info("[shipping_days] JS设置 option value=%s", opt_value)
+    log.info("[shipping_days] 已选 option[%s] (%s) via %s", opt_index, shipping_days, how)
 
 async def _set_shipping_from(
     page: Any,
@@ -69,21 +53,14 @@ async def _set_shipping_from(
     if not aid:
         return
 
-    select_loc = page.locator(f"xpath={SHIPPING_FROM_SELECT_XPATH}")
-    await select_loc.first.wait_for(state="visible", timeout=element_timeout_ms)
-    await select_loc.first.scroll_into_view_if_needed()
-
-    # 先尝试 Playwright select_option（by value）
-    try:
-        await select_loc.first.select_option(value=aid, timeout=element_timeout_ms)
-        log.info("[shipping_from] 已选 area_id=%s", aid)
-        return
-    except Exception:
-        pass
-
-    # 兜底：JavaScript
-    await _react_set_select(page, SHIPPING_FROM_SELECT_XPATH, aid)
-    log.info("[shipping_from] JS设置 area_id=%s", aid)
+    how = await _robust_set_select(
+        page,
+        xpath=SHIPPING_FROM_SELECT_XPATH,
+        signatures=SHIPPING_FROM_SELECT_SIGNATURES,
+        value=aid,
+        timeout_ms=element_timeout_ms,
+    )
+    log.info("[shipping_from] 已选 area_id=%s via %s", aid, how)
 
 async def _set_shipping_payer(
     page: Any,
@@ -101,20 +78,14 @@ async def _set_shipping_payer(
         log.warning("[shipping_payer] 未知值: %s，跳过", shipping_payer)
         return
 
-    select_loc = page.locator(f"xpath={SHIPPING_PAYER_SELECT_XPATH}")
-    await select_loc.first.wait_for(state="visible", timeout=element_timeout_ms)
-    await select_loc.first.scroll_into_view_if_needed()
-
-    try:
-        await select_loc.first.select_option(value=value, timeout=element_timeout_ms)
-        log.info("[shipping_payer] 已选 %s (value=%s)", shipping_payer, value)
-        return
-    except Exception:
-        pass
-
-    # 兜底：JavaScript
-    await _react_set_select(page, SHIPPING_PAYER_SELECT_XPATH, value)
-    log.info("[shipping_payer] JS设置 value=%s", value)
+    how = await _robust_set_select(
+        page,
+        xpath=SHIPPING_PAYER_SELECT_XPATH,
+        signatures=SHIPPING_PAYER_SELECT_SIGNATURES,
+        value=value,
+        timeout_ms=element_timeout_ms,
+    )
+    log.info("[shipping_payer] 已选 %s (value=%s) via %s", shipping_payer, value, how)
 
 async def _click_shipping_method_radio_by_xpath(
     page: Any,

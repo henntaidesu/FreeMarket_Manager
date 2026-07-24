@@ -2,6 +2,7 @@
 """出品通用工具：图片解析 / React 输入设值 / 按文本点击 / 进度与中止"""
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import tempfile
@@ -171,8 +172,6 @@ async def _robust_set_select(
     if value is None and option_index is None:
         raise ValueError("_robust_set_select 需提供 value 或 option_index")
 
-    import asyncio
-
     deadline_polls = max(1, int(timeout_ms / max(1, poll_ms)))
     last = "notfound"
     for _ in range(deadline_polls):
@@ -223,6 +222,56 @@ async def _robust_set_select(
     raise RuntimeError(
         f"未能定位 select（xpath={xpath} signatures={list(signatures)}）：{timeout_ms}ms 超时"
     )
+
+async def _js_click_radio_by_label(
+    page: Any,
+    label_substrings: Sequence[str],
+    *,
+    timeout_ms: int = 8_000,
+    poll_ms: int = 350,
+) -> bool:
+    """位置 XPath / 可及名都失效时的最终兜底：扫描页面所有 radio，按其「关联标签文本」
+    （input.labels / 最近的 <label> / 父元素文本）命中 label_substrings 任一子串的那个，
+    原生 setter 置 checked=true 并派发 click+change（对隐藏/自定义样式 radio 同样有效）。
+
+    每 poll_ms 轮询一次，最多 timeout_ms。命中返回 True，否则 False（不抛异常）。
+    """
+    deadline_polls = max(1, int(timeout_ms / max(1, poll_ms)))
+    for _ in range(deadline_polls):
+        ok = await page.evaluate(
+            """([subs]) => {
+                const ctxText = (el) => {
+                    let t = '';
+                    if (el.labels && el.labels.length) {
+                        t += Array.from(el.labels).map(l => l.textContent || '').join(' ');
+                    }
+                    const lab = el.closest('label');
+                    if (lab) t += ' ' + (lab.textContent || '');
+                    if (!t.trim() && el.parentElement) t += ' ' + (el.parentElement.textContent || '');
+                    return t;
+                };
+                const radios = Array.from(document.querySelectorAll("input[type='radio']"));
+                for (const r of radios) {
+                    const t = ctxText(r);
+                    if (subs.some(s => t.includes(s))) {
+                        try { r.scrollIntoView({ block: 'center' }); } catch (e) {}
+                        const setter = Object.getOwnPropertyDescriptor(
+                            window.HTMLInputElement.prototype, 'checked'
+                        ).set;
+                        setter.call(r, true);
+                        r.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                        r.dispatchEvent(new Event('change', { bubbles: true }));
+                        return true;
+                    }
+                }
+                return false;
+            }""",
+            [list(label_substrings)],
+        )
+        if ok:
+            return True
+        await asyncio.sleep(poll_ms / 1000.0)
+    return False
 
 # ──────────────────────────── 主函数 ────────────────────────────────────── #
 

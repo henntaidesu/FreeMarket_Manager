@@ -145,6 +145,12 @@ SHIPPING_METHOD_ITEM_JA: Dict[str, str] = {
 # 出品表单提交按钮（按文案）
 SUBMIT_BUTTON_TEXTS: Tuple[str, ...] = ("出品する", "出品")
 
+# 販売タイプ radio 的标签文案兜底：绝对 XPath 随类目多插 section 易串位失效时，
+# 按 radio 关联标签文本命中（即購=定价直购 / オークション=拍卖）。
+SALE_INSTANT_RADIO_LABELS: Tuple[str, ...] = ("即購入", "定価", "すぐ購入")
+
+SALE_AUCTION_RADIO_LABELS: Tuple[str, ...] = ("オークション", "競り", "入札")
+
 # 販売タイプ — 即購（定価）（body 下绝对路径，与煤炉当前 DOM 一致）
 SALE_INSTANT_RADIO_XPATH = (
     "/html/body/div[2]/div[2]/main/form/section[5]/div[2]/div/div/div[2]/div[1]/label/input"

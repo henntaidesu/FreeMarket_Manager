@@ -7,8 +7,8 @@ import logging
 import re
 import urllib.request
 from typing import Any, Callable, List, Optional
-from ._constants import CATEGORY_ENTRY_TEXTS, CATEGORY_ITEM_XPATH_TPL, CONDITION_ENTRY_TEXTS, CONDITION_ITEM_JA, DEFAULT_ELEMENT_TIMEOUT_MS, SALE_AUCTION_DURATION_3H_XPATH, SALE_AUCTION_DURATION_NORMAL_XPATH, SALE_AUCTION_PRICE_XPATH, SALE_AUCTION_RADIO_XPATH, SALE_ELEMENT_TIMEOUT_MS, SALE_INSTANT_PRICE_XPATH, SALE_INSTANT_RADIO_XPATH
-from ._helpers import _click_by_texts, _react_fill_input_locator, _react_set_input
+from ._constants import CATEGORY_ENTRY_TEXTS, CATEGORY_ITEM_XPATH_TPL, CONDITION_ENTRY_TEXTS, CONDITION_ITEM_JA, DEFAULT_ELEMENT_TIMEOUT_MS, SALE_AUCTION_DURATION_3H_XPATH, SALE_AUCTION_DURATION_NORMAL_XPATH, SALE_AUCTION_PRICE_XPATH, SALE_AUCTION_RADIO_LABELS, SALE_AUCTION_RADIO_XPATH, SALE_ELEMENT_TIMEOUT_MS, SALE_INSTANT_PRICE_XPATH, SALE_INSTANT_RADIO_LABELS, SALE_INSTANT_RADIO_XPATH
+from ._helpers import _click_by_texts, _js_click_radio_by_label, _react_fill_input_locator, _react_set_input
 from ._sell_wizard import _leave_sell_wizard_if_present
 
 log = logging.getLogger(__name__)
@@ -141,6 +141,49 @@ async def _pick_visible_price_locator(
         raise last_exc
     raise RuntimeError("未找到販売価格输入框")
 
+async def _click_sale_type_radio(
+    page: Any,
+    *,
+    is_instant: bool,
+    radio_xpath: str,
+    element_timeout_ms: int,
+) -> str:
+    """健壮选中販売タイプ radio（即購 / 拍卖）。
+
+    绝对 XPath 随类目多插 section 易串位失效（且元素缺失时白等满超时），故：
+      1. 位置 XPath（短超时快路径，命中即用）；
+      2. 可及名 get_by_role("radio", name=...)；
+      3. #main 内 label / fieldset 按文案过滤取其 radio；
+      4. JS 兜底：按 radio 关联标签文本扫描并原生置 checked+派发事件。
+    返回命中方式；全部失败抛最后一次异常。
+    """
+    labels = SALE_INSTANT_RADIO_LABELS if is_instant else SALE_AUCTION_RADIO_LABELS
+    name_re = re.compile("|".join(re.escape(s) for s in labels))
+    # 位置 XPath 存在时 attached 立即返回；缺失才等待——故给它更短的超时，别白等满 8s
+    xpath_timeout = min(element_timeout_ms, 2_500)
+
+    candidates = [
+        ("xpath", page.locator(f"xpath={radio_xpath}"), xpath_timeout),
+        ("role", page.get_by_role("radio", name=name_re), element_timeout_ms),
+        ("label", page.locator("#main label").filter(has_text=name_re).locator("input[type='radio']"), element_timeout_ms),
+        ("fieldset", page.locator("#main fieldset").filter(has_text=name_re).locator("input[type='radio']"), element_timeout_ms),
+    ]
+    last_exc: Optional[BaseException] = None
+    for how, loc, per in candidates:
+        try:
+            await loc.first.wait_for(state="attached", timeout=per)
+            await loc.first.scroll_into_view_if_needed()
+            await loc.first.click(timeout=element_timeout_ms, force=True)
+            return how
+        except Exception as exc:
+            last_exc = exc
+            continue
+
+    if await _js_click_radio_by_label(page, labels, timeout_ms=element_timeout_ms):
+        return "js"
+
+    raise last_exc if last_exc else RuntimeError("未找到販売タイプ radio")
+
 async def _set_sale_type_and_price(
     page: Any,
     sale_type: str,
@@ -173,24 +216,17 @@ async def _set_sale_type_and_price(
     except Exception:
         pass
 
-    # 点击 radio（主 XPath + 文案兜底）
-    radio_loc = page.locator(f"xpath={radio_xpath}")
+    # 点击 radio：位置 XPath 快路径 → 可及名/标签文案 → JS 兜底
     try:
-        await radio_loc.first.wait_for(state="attached", timeout=element_timeout_ms)
-        await radio_loc.first.scroll_into_view_if_needed()
-        await radio_loc.first.click(timeout=element_timeout_ms, force=True)
-    except Exception:
-        log.info("[sale] 主 XPath 点 radio 失败，尝试即购/拍卖文案")
-        try:
-            if is_instant:
-                alt = page.locator("#main label").filter(has_text=re.compile(r"即購|定価|すぐ購入", re.I)).locator("input").first
-            else:
-                alt = page.locator("#main label").filter(has_text=re.compile(r"オークション|競り", re.I)).locator("input").first
-            await alt.wait_for(state="attached", timeout=element_timeout_ms)
-            await alt.scroll_into_view_if_needed()
-            await alt.click(timeout=element_timeout_ms, force=True)
-        except Exception as exc:
-            log.warning("[sale] radio 兜底失败: %s", exc)
+        how = await _click_sale_type_radio(
+            page,
+            is_instant=is_instant,
+            radio_xpath=radio_xpath,
+            element_timeout_ms=element_timeout_ms,
+        )
+        log.info("[sale] 已选販売タイプ %s via %s", "即购" if is_instant else "拍卖", how)
+    except Exception as exc:
+        log.warning("[sale] radio 选择失败: %s", exc)
     await page.wait_for_timeout(250)
 
     # 拍卖时选择时长（通常 / 三小时）
