@@ -69,8 +69,21 @@ def _ensure_terminal(task_id: int) -> None:
             store.mark_canceled(int(task_id), "用户取消（执行中中断）")
         else:
             store.mark_failed(int(task_id), "任务被中断")
+        # 协程未及执行就被取消：发货扫码状态也要复位
+        if str(row.get("task_type") or "") == registry.TODOS_SHIPPING_QR:
+            _reset_shipping_qr(row)
     except Exception:
         log.exception("[task_queue] #%s 收尾补终态失败", task_id)
+
+
+def _reset_shipping_qr(task: dict) -> None:
+    """发货扫码任务非成功收场 → 把待办 ship_qr_state 复位（幂等）。绝不让复位失败拖累 worker。"""
+    try:
+        from ..use_web.todos.units.todos_sync.qr_photo import mark_ship_failed_for_task
+
+        mark_ship_failed_for_task(task)
+    except Exception:
+        log.exception("[task_queue] #%s 复位发货扫码状态失败", task.get("id"))
 
 
 def _error_text(exc: BaseException) -> str:
@@ -86,15 +99,21 @@ async def _run_one(task: dict) -> None:
     task_id = int(task["id"])
     task_type = str(task["task_type"])
     is_listing = task_type == registry.INVENTORY_LISTING
+    is_shipping_qr = task_type == registry.TODOS_SHIPPING_QR
     # 出品预扣减默认**继续持有**（等在售同步核销）。只有确认没挂牌时才释放——
     # 反过来（拿不准就释放）会让可上架涨回去，诱导用户重复出品，那是不可逆的真实损失。
     release_reservation = False
+    # 发货扫码任务是否以「非成功」收场——用于把待办的 ship_qr_state 从 shipping 复位为 failed。
+    # 取消 / 关停中断 / 各种执行异常都会绕过 handler 内部的失败标记，必须在这里统一补。
+    shipping_qr_failed = False
     try:
         handler = registry.resolve_handler(task_type)
     except KeyError as exc:
         store.mark_failed(task_id, str(exc))
         if is_listing:
             reservations.settle_task(task, released=True)
+        if is_shipping_qr:
+            _reset_shipping_qr(task)
         return
 
     try:
@@ -112,10 +131,12 @@ async def _run_one(task: dict) -> None:
             store.mark_canceled(task_id, "用户取消（执行中中断）")
         else:
             store.mark_failed(task_id, "后端关闭中断")
+        shipping_qr_failed = True
         raise
     except Exception as exc:  # noqa: BLE001 单条任务失败不影响队列
         log.exception("[task_queue] #%s (%s) 执行失败", task_id, task_type)
         store.mark_failed(task_id, _error_text(exc))
+        shipping_qr_failed = True
         if is_listing:
             from .handlers.listing import ListingNotSubmittedError
 
@@ -124,6 +145,8 @@ async def _run_one(task: dict) -> None:
     finally:
         if is_listing:
             reservations.settle_task(task, released=release_reservation)
+        if is_shipping_qr and shipping_qr_failed:
+            _reset_shipping_qr(task)
 
 
 async def _loop() -> None:
@@ -179,6 +202,10 @@ def start_worker() -> None:
     try:
         orphans = store.recover_orphans()
         reservations.release_for_tasks(orphans)
+        # 重启中断的发货扫码任务：把对应待办从 shipping 复位为 failed，供用户重扫
+        for t in orphans:
+            if str(t.get("task_type") or "") == registry.TODOS_SHIPPING_QR:
+                _reset_shipping_qr(t)
     except Exception:
         log.exception("[task_queue] 启动恢复失败（不阻断启动）")
     _worker_task = asyncio.create_task(_loop())

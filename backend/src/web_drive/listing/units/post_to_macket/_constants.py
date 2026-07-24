@@ -93,6 +93,10 @@ SHIPPING_PAYER_SELECT_XPATH = (
     '//*[@id="main"]/form/section[4]/div[2]/div/label/div/select'
 )
 
+# 位置 XPath 失败时的签名兜底：唯一同时含「送料込み」「着払い」两项的 select 即运费承担
+# （某些类目会多插入品牌/尺码等 section，导致 section[4] 位置串位、位置 XPath 失效）。
+SHIPPING_PAYER_SELECT_SIGNATURES: Tuple[str, ...] = ("送料込み", "着払い")
+
 # select value 映射：seller(出品者負担)=2  buyer(購入者負担)=1
 SHIPPING_PAYER_VALUE: Dict[str, str] = {
     "seller": "2",  # 送料込み(出品者負担)
@@ -174,6 +178,9 @@ SHIPPING_DAYS_SELECT_XPATH = (
     '//*[@id="main"]/form/section[4]/div[5]/div/label/div/select'
 )
 
+# 位置 XPath 失败时的签名兜底：发货天数 select 的每个 option 文本均含「日で発送」。
+SHIPPING_DAYS_SELECT_SIGNATURES: Tuple[str, ...] = ("日で発送",)
+
 SHIPPING_DAYS_OPTION_INDEX: Dict[str, int] = {
     "1_2_days": 2,
     "2_3_days": 3,
@@ -184,3 +191,6 @@ SHIPPING_DAYS_OPTION_INDEX: Dict[str, int] = {
 SHIPPING_FROM_SELECT_XPATH = (
     '//*[@id="main"]/form/section[4]/div[4]/div/label/div/select'
 )
+
+# 位置 XPath 失败时的签名兜底：唯一同时含「北海道」「東京都」两项的 select 即发货地。
+SHIPPING_FROM_SELECT_SIGNATURES: Tuple[str, ...] = ("北海道", "東京都")

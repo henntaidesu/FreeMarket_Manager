@@ -114,7 +114,9 @@ def cancel_task(task_id: int):
         raise HTTPException(status_code=404, detail="任务不存在")
 
     status = str(task.get("status") or "")
-    is_listing = str(task.get("task_type") or "") == "inventory.listing"
+    task_type = str(task.get("task_type") or "")
+    is_listing = task_type == "inventory.listing"
+    is_shipping_qr = task_type == "todos.shipping_qr"
 
     if status == "pending":
         if not cancel_pending(task_id):
@@ -124,6 +126,12 @@ def cancel_task(task_id: int):
             from ....task_queue import reservations
 
             reservations.settle_task(task, released=True)
+        if is_shipping_qr:
+            # pending 取消不进 worker，必须在这里把待办 ship_qr_state 从 shipping 复位，
+            # 否则列表一直显示「已扫码」、也无法重扫。
+            from ....use_web.todos.units.todos_sync.qr_photo import mark_ship_failed_for_task
+
+            mark_ship_failed_for_task(task)
         return {"success": True, "data": get_task(task_id)}
 
     if status == "running":

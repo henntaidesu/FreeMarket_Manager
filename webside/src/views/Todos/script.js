@@ -853,8 +853,10 @@ export default defineComponent({
       if (isRow && kindOrRow.awaiting_feedback) return t('todos.kind.awaitingFeedback')
       // Shipped（已发货 / 待买家收货）优先于标题判断：即便标题为「発送をしてください」也按待收货
       if (kind === 'Shipped') return t('todos.kind.waitReceipt')
-      // 发货扫码任务进行中/失败：优先于「待发货」显示，让用户一眼看出这单已经交给系统了
-      if (isRow && kindOrRow.ship_qr_state === 'shipping') return t('todos.kind.shipping')
+      // 发货扫码中间态：优先于「待发货」显示。
+      // 'shipping' 表示照片已提交、任务排队/执行中 → 对用户而言这单「已扫码」，不必再管；
+      // 'failed' 表示出错 → 退回可操作状态，需要重拍。
+      if (isRow && kindOrRow.ship_qr_state === 'shipping') return t('todos.kind.scanned')
       if (isRow && kindOrRow.ship_qr_state === 'failed') return t('todos.kind.shipFailed')
       // 待发货：若已发行发货二维码/条形码（qr_image_path），类型显示映射为「已打包」（仅改名称）
       const isWaitShippingKind =
@@ -874,7 +876,7 @@ export default defineComponent({
       const title = isRow ? String(kindOrRow.title || '').trim() : ''
       // 「待反馈」状态用绿色（success），与 kindLabel 的优先级保持一致
       if (isRow && kindOrRow.awaiting_feedback) return 'success'
-      if (isRow && kindOrRow.ship_qr_state === 'shipping') return 'primary'
+      if (isRow && kindOrRow.ship_qr_state === 'shipping') return 'success'
       if (isRow && kindOrRow.ship_qr_state === 'failed') return 'danger'
       if (kind === 'Shipped') return KIND_TAG_TYPES.Shipped
       if (title === WAIT_SHIPPING_TITLE) return 'warning'
@@ -901,7 +903,40 @@ export default defineComponent({
       qrViewer.visible = true
     }
 
-    /** 查看发货扫码照片（仅「发货中/失败」期间存在；成功后照片已删除） */
+    /** 详情表单里的扫码照片（仅「已扫码(排队/执行中)」与「失败」期间存在） */
+    const shipQrPhotoUrl = computed(() => {
+      const p = currentRow.value?.ship_qr_photo_path
+      return p ? mercariImageUrl(p) : ''
+    })
+    const shipQrFailed = computed(() => currentRow.value?.ship_qr_state === 'failed')
+    /** 发货扫码中间态（已扫码/失败）：此时包材与「发货/修改」按钮都不该再显示——
+     *  这单已进入扫码流程，包材第一次提交时已记账，发货由重扫任务接管。 */
+    const isShipQrActive = computed(() => {
+      const st = currentRow.value?.ship_qr_state
+      return st === 'shipping' || st === 'failed'
+    })
+
+    /** 换一张照片重扫。重扫必须重走完整流程（开浏览器→选尺寸→进扫描页→喂图），
+     *  因为每次都是新开的无头浏览器，不能假设还停在扫描页。 */
+    async function onRetakeShipQr() {
+      const row = currentRow.value
+      if (!row?.id) return
+      // 不按 ship_qr_state 硬拦：真有任务在跑时由后端 dedup 兜底（提交会 409）。
+      if (row.ship_qr_class_text) {
+        // 记得上次选的尺寸 → 直接开相机，任务用它重走完整流程
+        qrPendingSelection.value = { class_text: row.ship_qr_class_text, facility: null }
+        await startQrScanMirror(row.id)
+      } else {
+        // 旧数据没记尺寸（加 ship_qr_class_text 列之前提交的）：弹尺寸选择框重选，
+        // 选完由 onConfirmShippingSelection 的扫码分支开相机——没尺寸就直接喂图，
+        // 浏览器又是新开且没进扫描页，必然「浏览器未打开」失败。
+        shippingPickedIdx.value = null
+        shippingFacility.value = null
+        shippingDialogVisible.value = true
+      }
+    }
+
+    /** 查看发货扫码照片（仅「已扫码/失败」期间存在；成功后照片已删除） */
     function openShipQrPhoto(row) {
       const src = mercariImageUrl(row?.ship_qr_photo_path)
       if (!src) return
@@ -1823,6 +1858,10 @@ export default defineComponent({
       qrViewer,
       openQrViewer,
       openShipQrPhoto,
+      shipQrPhotoUrl,
+      shipQrFailed,
+      isShipQrActive,
+      onRetakeShipQr,
       shipRemainingText,
       shipRemainingTagType,
       displayTs,

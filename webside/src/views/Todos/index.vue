@@ -316,7 +316,7 @@
           </section>
 
           <!-- 包材（待发货时，放在发货之前；已打包后不再展示） -->
-          <section v-if="!isReviewedSeller && isWaitShipping && !isPackedDetail" class="detail-section">
+          <section v-if="!isReviewedSeller && isWaitShipping && !isPackedDetail && !isShipQrActive" class="detail-section">
             <div class="detail-section-title">{{ t('todos.packaging') }}</div>
             <div v-if="invMatch.loading" class="detail-empty">{{ t('todos.matching') }}</div>
             <div v-else-if="!hasInventoryMatch" class="detail-empty-hint">{{ t('todos.updateOrderFirst') }}</div>
@@ -383,6 +383,32 @@
                   @click="onReviseShippingAfterQr"
                 >
                   {{ t('todos.changeShippingMethod') }}
+                </el-button>
+              </div>
+            </div>
+            <!-- 发货扫码照片：仅「已扫码(排队/执行中)」与「失败」期间存在（成功后已删除）。
+                 失败时可直接换一张重拍重扫，不必回列表。 -->
+            <div v-if="shipQrPhotoUrl" class="detail-shipqr">
+              <div class="detail-shipqr__head">
+                <span class="detail-label">{{ t('todos.shipQrPhotoTitle') }}</span>
+                <el-tag
+                  :type="shipQrFailed ? 'danger' : 'success'"
+                  size="small"
+                  effect="light"
+                >{{ shipQrFailed ? t('todos.kind.shipFailed') : t('todos.kind.scanned') }}</el-tag>
+              </div>
+              <el-image
+                class="detail-shipqr__img"
+                :src="shipQrPhotoUrl"
+                :preview-src-list="[shipQrPhotoUrl]"
+                :preview-teleported="true"
+                fit="contain"
+              >
+                <template #error><span class="thumb-fallback">-</span></template>
+              </el-image>
+              <div class="detail-shipqr__actions">
+                <el-button size="default" type="warning" @click="onRetakeShipQr">
+                  {{ t('todos.shipQrRetake') }}
                 </el-button>
               </div>
             </div>
@@ -470,8 +496,9 @@
                 </div>
               </div>
             </template>
-            <!-- 未发行：发货方式卡片 + お届け先 + 发货/修改 按钮（全部置于表单卡片中）-->
-            <template v-else>
+            <!-- 未发行：发货方式卡片 + お届け先 + 发货/修改 按钮。
+                 扫码流程进行中/失败时（isShipQrActive）不显示——发货已交给重扫任务接管。-->
+            <template v-else-if="!isShipQrActive">
               <div class="detail-ship-form">
                 <!-- お届け先（配送方法「未定」/ 非匿名时煤炉页面才有的买家收货地址）：整行显示 -->
                 <div v-if="detail.recipient_address" class="detail-recipient">
@@ -776,14 +803,6 @@
         ></video>
         <!-- 已拍照：显示留存的照片供确认 -->
         <img v-if="qrShot" :src="qrShot" class="qr-scan-video" :alt="t('todos.qrShotPreview')" />
-        <!-- 中央取景框：四角括号 + 扫描线，方便对准二维码 -->
-        <div v-if="!qrShot" class="qr-scan-frame" aria-hidden="true">
-          <span class="qr-scan-corner qr-scan-corner--tl"></span>
-          <span class="qr-scan-corner qr-scan-corner--tr"></span>
-          <span class="qr-scan-corner qr-scan-corner--bl"></span>
-          <span class="qr-scan-corner qr-scan-corner--br"></span>
-          <span class="qr-scan-line"></span>
-        </div>
         <div v-if="qrCamError" class="qr-scan-error">
           {{ t('todos.cameraOpenFailed') }}: {{ qrCamError }}
         </div>

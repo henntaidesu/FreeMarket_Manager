@@ -75,6 +75,7 @@ _LIST_COLS = (
     "ship_qr_scanned_at",
     "ship_qr_photo_path",
     "ship_qr_state",
+    "ship_qr_class_text",
 )
 
 
@@ -95,10 +96,10 @@ def list_todos(
     - ``include_deleted=False``（默认）只显示未完成（``is_delete=0``）
     - ``packed_only=False``（默认）隐藏「已打包」行（见 ``_PACKED_COND``），
       只显示待发货/待回复等；``packed_only=True`` 则只显示「已打包」行
-    - ``scanned_only=True`` 只显示「已扫码」行（``ship_qr_scanned_at`` 非空）。
-      这是一个**回顾用**筛选：扫码后発送通知已自动发出、该行随即被 finalize 成
-      ``is_delete=1`` 而从默认列表消失，因此此筛选下不再套用 is_delete 与「已打包」两个默认条件，
-      否则刚扫完的单子一条都看不到。
+    - ``scanned_only=True`` 只显示**尚未完成**的扫码行（``ship_qr_state`` 为
+      ``shipping`` 排队/执行中 或 ``failed`` 出错）。已成功发出発送通知的不再显示——
+      那些单子已经办完了，留在这里只会干扰判断「还有哪些要我管」。
+      此筛选下不套用 is_delete 与「已打包」两个默认条件，否则中间态的行一条都看不到。
     - ``categories`` 逗号分隔的分类筛选（``wait_shipping`` / ``wait_reply`` / ``other``），
       多个取并集；为空（默认）不做分类过滤，全部显示
     - ``keyword`` 匹配 title / message / item_id / item_name
@@ -110,8 +111,9 @@ def list_todos(
     where = ["1=1"]
     params: List[Any] = []
     if scanned_only:
-        # 已扫码回顾：只按「扫过码」过滤，不受 is_delete / 已打包 默认条件影响
-        where.append("t.[ship_qr_scanned_at] IS NOT NULL")
+        # 只看「还没办完」的：排队中/执行中(shipping) 与 出错(failed)。
+        # 成功的已 finalize，不该再出现在这里。
+        where.append("IFNULL(t.[ship_qr_state], '') IN ('shipping', 'failed')")
     else:
         if not include_deleted:
             where.append("COALESCE(t.[is_delete], 0) = 0")

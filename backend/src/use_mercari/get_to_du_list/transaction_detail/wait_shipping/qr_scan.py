@@ -23,6 +23,10 @@ _SCAN_START_BUTTON_TEXT = "QRコードをスキャンする"
 # 読み取り成功後の交易ページ上の発送確定 UI
 _SCAN_OK_TEXT = "読み取りが正しく完了しました"
 
+#: 喂图等待煤炉读出的超时（秒）。静态照片能读就是一两秒的事；读不出再等也没用，
+#: 与其让任务挂在那里，不如尽快失败让用户重拍。
+SCAN_TIMEOUT_SEC = 10.0
+
 # ─── 远程摄像头注入 ───────────────────────────────────────────────
 # 服务器没有摄像头：在 QR スキャナページに入る前に、navigator.mediaDevices の
 # getUserMedia / enumerateDevices を差し替え、canvas.captureStream() を「カメラ」として返す。
@@ -219,7 +223,7 @@ async def feed_photo_until_scanned(
     todo_id: int,
     photo: str,
     *,
-    timeout_sec: float = 90.0,
+    timeout_sec: float = SCAN_TIMEOUT_SEC,
     interval_sec: float = 0.4,
     progress_job_id: str = "",
 ) -> Dict[str, Any]:

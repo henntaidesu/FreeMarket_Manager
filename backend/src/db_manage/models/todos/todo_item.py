@@ -172,6 +172,14 @@ class TodoItemModel(BaseModel):
                 "not_null": False,
                 "default": None,
             },
+            # ship_qr_class_text: 本单提交扫码时选的商品尺寸（ゆうパケットポスト / mini）。
+            # 失败后「更换相片重新扫码」要用它重走完整流程——那时浏览器多半已关闭，
+            # 不能假设页面还停在扫描页，必须能重新选尺寸再进扫描页。
+            "ship_qr_class_text": {
+                "type": "TEXT",
+                "not_null": False,
+                "default": None,
+            },
             # ship_qr_state: 发货扫码任务的进行状态。
             #   'shipping' = 已提交照片、任务进行中 → 列表类型显示「发货中」，且移出「待发货」筛选
             #   'failed'   = 任务失败 → 退回「待发货」，并显示保留的照片供人工判断

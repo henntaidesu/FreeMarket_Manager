@@ -101,15 +101,16 @@ def to_web_path(abs_path: str) -> str:
     return "/imges/" + os.path.basename(abs_path or "")
 
 
-def _update_todo(todo_id: int, sql_set: str, params: tuple) -> None:
+def _update_todo(todo_id: int, sql_set: str, params: tuple, extra_where: str = "") -> None:
     from .....db_manage.database import DatabaseManager
 
     DatabaseManager().execute_update(
-        f"UPDATE [todo_items] SET {sql_set} WHERE [id] = ?", (*params, int(todo_id))
+        f"UPDATE [todo_items] SET {sql_set} WHERE [id] = ? {extra_where}".rstrip(),
+        (*params, int(todo_id)),
     )
 
 
-def mark_shipping(todo_id: int, photo_path: str) -> None:
+def mark_shipping(todo_id: int, photo_path: str, class_text: str = "") -> None:
     """照片提交入队 → 标记「发货中」并记下照片。
 
     立刻落库，列表才能马上把类型显示成「发货中」并把该行移出「待发货」——
@@ -118,8 +119,8 @@ def mark_shipping(todo_id: int, photo_path: str) -> None:
     try:
         _update_todo(
             todo_id,
-            "[ship_qr_state] = ?, [ship_qr_photo_path] = ?",
-            ("shipping", to_web_path(photo_path)),
+            "[ship_qr_state] = ?, [ship_qr_photo_path] = ?, [ship_qr_class_text] = ?",
+            ("shipping", to_web_path(photo_path), (class_text or None)),
         )
         log.info("[qrphoto] 待办 %s 进入发货中", todo_id)
     except Exception:
@@ -127,12 +128,41 @@ def mark_shipping(todo_id: int, photo_path: str) -> None:
 
 
 def mark_ship_failed(todo_id: int) -> None:
-    """任务失败 → 退回「待发货」，照片保留供人工判断当时扫的是哪个码。"""
+    """任务失败/取消 → 退回「待发货」，照片保留供人工判断当时扫的是哪个码。
+
+    幂等：只把 ``shipping`` 复位为 ``failed``，不动已成功清空(NULL)或已是 failed 的行——
+    避免成功件被误标失败。
+    """
     try:
-        _update_todo(todo_id, "[ship_qr_state] = ?", ("failed",))
-        log.info("[qrphoto] 待办 %s 发货扫码失败，已退回待发货（照片保留）", todo_id)
+        _update_todo(
+            todo_id,
+            "[ship_qr_state] = ?",
+            ("failed",),
+            extra_where="AND IFNULL([ship_qr_state], '') = 'shipping'",
+        )
+        log.info("[qrphoto] 待办 %s 发货扫码未完成，已退回待发货（照片保留）", todo_id)
     except Exception:
         log.exception("[qrphoto] 标记发货失败态失败 todo_id=%s", todo_id)
+
+
+def mark_ship_failed_for_task(task: Dict[str, Any]) -> None:
+    """从任务 payload 取 todo_id 并复位其发货状态。
+
+    供 worker / 取消入口在**发货扫码任务进入任何非成功终态**（失败 / 用户取消 /
+    重启中断）时统一调用——这些路径绕过了 handler 内部的失败标记，若不补这一下，
+    ``ship_qr_state`` 会一直卡在 ``shipping``，列表类型永远显示「已扫码」、也无法重扫。
+    """
+    import json
+
+    payload = task.get("payload") or {}
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload or "{}")
+        except (TypeError, ValueError):
+            return
+    todo_id = payload.get("todo_id")
+    if todo_id:
+        mark_ship_failed(int(todo_id))
 
 
 def mark_scanned_and_cleanup(todo_id: int, photo_path: str) -> None:
@@ -145,7 +175,8 @@ def mark_scanned_and_cleanup(todo_id: int, photo_path: str) -> None:
     try:
         _update_todo(
             todo_id,
-            "[ship_qr_scanned_at] = ?, [ship_qr_photo_path] = NULL, [ship_qr_state] = NULL",
+            "[ship_qr_scanned_at] = ?, [ship_qr_photo_path] = NULL, "
+            "[ship_qr_state] = NULL, [ship_qr_class_text] = NULL",
             (int(time.time()),),
         )
     except Exception:
@@ -218,6 +249,6 @@ async def submit_shipping_qr_photo(
         raise
 
     if created:
-        mark_shipping(int(todo_id), stored["photo_path"])
+        mark_shipping(int(todo_id), stored["photo_path"], str(req.class_text or ""))
 
     return {"success": True, "data": {"task": task, "created": created}}

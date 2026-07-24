@@ -145,6 +145,85 @@ async def _react_set_select(page: Any, xpath: str, value: str) -> bool:
         [xpath, value],
     )
 
+async def _robust_set_select(
+    page: Any,
+    *,
+    xpath: str,
+    signatures: Sequence[str],
+    value: Optional[str] = None,
+    option_index: Optional[int] = None,
+    timeout_ms: int = 12_000,
+    poll_ms: int = 400,
+) -> str:
+    """健壮地定位并设置一个 <select>，绕开位置 XPath 易串位 / 原生 select 被自定义
+    下拉遮挡（不 visible）导致的超时。
+
+    定位优先级：
+      1. 位置 XPath（命中即用，快路径）；
+      2. 签名扫描：遍历所有 <select>，命中「其 option 文本/值同时包含 signatures 全部子串」
+         的那个（如运费承担用 送料込み+着払い，发货地用 北海道+東京都，发货天数用 日で発送）。
+
+    设值方式：value 指定则按 value 写入；否则按 option_index 取该项 value 写入。
+    统一走 React 原生 setter + change 事件（对隐藏/自定义下拉同样有效）。
+
+    每 poll_ms 轮询一次，最多 timeout_ms。返回命中方式（"xpath"/"signature"），失败抛异常。
+    """
+    if value is None and option_index is None:
+        raise ValueError("_robust_set_select 需提供 value 或 option_index")
+
+    import asyncio
+
+    deadline_polls = max(1, int(timeout_ms / max(1, poll_ms)))
+    last = "notfound"
+    for _ in range(deadline_polls):
+        last = await page.evaluate(
+            """([xpath, signatures, value, optionIndex]) => {
+                const applySet = (el) => {
+                    if (!el || el.tagName !== 'SELECT') return false;
+                    let target = value;
+                    if (target === null) {
+                        const idx = optionIndex;
+                        if (idx == null || idx < 0 || idx >= el.options.length) return false;
+                        target = el.options[idx].value;
+                    }
+                    const setter = Object.getOwnPropertyDescriptor(
+                        window.HTMLSelectElement.prototype, 'value'
+                    ).set;
+                    setter.call(el, String(target));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                    return el.value === String(target);
+                };
+                // 1. 位置 XPath 快路径
+                let el = null;
+                try {
+                    el = document.evaluate(
+                        xpath, document, null,
+                        XPathResult.FIRST_ORDERED_NODE_TYPE, null
+                    ).singleNodeValue;
+                } catch(e) {}
+                if (el && applySet(el)) return 'xpath';
+                // 2. 签名扫描：option 文本 + value 拼接后须包含 signatures 全部子串
+                const selects = Array.from(document.querySelectorAll('select'));
+                for (const s of selects) {
+                    const joined = Array.from(s.options)
+                        .map(o => (o.textContent || '') + '|' + (o.value || ''))
+                        .join(' ');
+                    if (signatures.every(sig => joined.includes(sig))) {
+                        if (applySet(s)) return 'signature';
+                    }
+                }
+                return 'notfound';
+            }""",
+            [xpath, list(signatures), value, option_index],
+        )
+        if last != "notfound":
+            return last
+        await asyncio.sleep(poll_ms / 1000.0)
+
+    raise RuntimeError(
+        f"未能定位 select（xpath={xpath} signatures={list(signatures)}）：{timeout_ms}ms 超时"
+    )
+
 # ──────────────────────────── 主函数 ────────────────────────────────────── #
 
 def _make_listing_progress_reporter(progress_job_id: Optional[str]) -> Callable[[str, str], None]:

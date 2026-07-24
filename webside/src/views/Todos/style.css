@@ -781,75 +781,6 @@
   text-align: center;
 }
 
-/* 中央扫描取景框（浏览器扫码器同款）：居中正方形 + 四角括号 + 上下往返扫描线 */
-.qr-scan-frame {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 240px;
-  height: 240px;
-  max-width: 70%;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35);
-  border-radius: 12px;
-}
-.qr-scan-corner {
-  position: absolute;
-  width: 30px;
-  height: 30px;
-  border: 3px solid var(--el-color-primary);
-}
-.qr-scan-corner--tl {
-  top: -1px;
-  left: -1px;
-  border-right: none;
-  border-bottom: none;
-  border-top-left-radius: 12px;
-}
-.qr-scan-corner--tr {
-  top: -1px;
-  right: -1px;
-  border-left: none;
-  border-bottom: none;
-  border-top-right-radius: 12px;
-}
-.qr-scan-corner--bl {
-  bottom: -1px;
-  left: -1px;
-  border-right: none;
-  border-top: none;
-  border-bottom-left-radius: 12px;
-}
-.qr-scan-corner--br {
-  bottom: -1px;
-  right: -1px;
-  border-left: none;
-  border-top: none;
-  border-bottom-right-radius: 12px;
-}
-.qr-scan-line {
-  position: absolute;
-  left: 8px;
-  right: 8px;
-  height: 2px;
-  border-radius: 2px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    var(--el-color-primary) 20%,
-    var(--el-color-primary) 80%,
-    transparent
-  );
-  box-shadow: 0 0 8px var(--el-color-primary);
-  animation: qr-scan-sweep 2s ease-in-out infinite;
-}
-@keyframes qr-scan-sweep {
-  0% { top: 8px; }
-  50% { top: calc(100% - 10px); }
-  100% { top: 8px; }
-}
-
 .ship-facility-section {
   margin-top: 16px;
   padding: 12px;
@@ -1048,4 +979,30 @@
   margin-top: 2px;
   font-size: 11px;
   color: var(--el-color-danger);
+}
+
+/* 详情表单里的发货扫码照片（仅已扫码/失败期间存在） */
+.detail-shipqr {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: rgba(19, 28, 47, 0.5);
+  border: 1px solid #28354a;
+  border-radius: 8px;
+}
+.detail-shipqr__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.detail-shipqr__img {
+  width: 100%;
+  max-height: 220px;
+  border-radius: 6px;
+  background: #0b1220;
+}
+.detail-shipqr__actions {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
 }

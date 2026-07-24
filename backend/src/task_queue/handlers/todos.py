@@ -71,6 +71,9 @@ async def handle_shipping_qr(task: Dict[str, Any]) -> Dict[str, Any]:
     注意第 3 步不可撤回：扫错码会直接错发。故第 2 步一旦超时就立刻中止，绝不带着
     不确定的扫描结果往下走。
     """
+    from ...use_mercari.get_to_du_list.transaction_detail.wait_shipping.qr_scan import (
+        SCAN_TIMEOUT_SEC,
+    )
     from ...use_mercari.get_to_du_list.transaction_detail import (
         confirm_shipping_selection,
         feed_photo_until_scanned,
@@ -91,11 +94,17 @@ async def handle_shipping_qr(task: Dict[str, Any]) -> Dict[str, Any]:
     todo_id = int(payload.get("todo_id") or 0)
     account_id = int(task.get("account_id") or 0)
     photo_path = str(payload.get("photo_path") or "")
-    timeout_sec = float(payload.get("timeout_sec") or 90.0)
+    timeout_sec = float(payload.get("timeout_sec") or SCAN_TIMEOUT_SEC)
     class_text = str(payload.get("class_text") or "").strip()
     facility = payload.get("facility") or None
     if not todo_id or not photo_path:
         raise ValueError("发货扫码任务缺少 todo_id 或照片")
+    if not class_text:
+        # 没有尺寸就没法开浏览器进扫描页，直接喂图只会绕一圈报「浏览器未打开」。
+        # 明确失败，提示走完整重扫流程（前端会弹尺寸选择框）。
+        raise RuntimeError(
+            "该单缺少发货尺寸信息，无法自动进入扫描页。请在详情页点「更换相片并重新扫码」重新选择尺寸后再试。"
+        )
 
     photo = load_photo_data_url(photo_path)
 
