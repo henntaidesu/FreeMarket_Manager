@@ -68,7 +68,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount("/imges", StaticFiles(directory=ensure_image_dir()), name="imges")
+class _NoCacheStaticFiles(StaticFiles):
+    """图片目录禁用浏览器缓存：发货二维码在「修改发货方式」后会被删除并重新发行，
+    启发式缓存会让别的页签/设备把已作废的旧码从缓存里读出来打印（去店里扫不上）。
+    文件名含每次发行的 UUID，禁缓存的代价只是重复加载，正确性优先。"""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+
+app.mount("/imges", _NoCacheStaticFiles(directory=ensure_image_dir()), name="imges")
 
 # 注册 V2 根路由 → /mercariV2/src/...
 app.include_router(v2_router, prefix="/mercariV2")

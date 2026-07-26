@@ -78,16 +78,26 @@ function withTimeout(promise, ms, msg) {
   ])
 }
 
+/** 当前浏览器是否支持免弹框自动重连（getDevices 持久化授权） */
+export function supportsAutoReconnect() {
+  return typeof navigator.bluetooth?.getDevices === 'function'
+}
+
 /**
- * 免弹框重连上次的设备：浏览器支持 getDevices()（持久化授权）且保存过 deviceId 时，
- * 直接按 id 找回设备并连接。找不到 / 超时（打印机未开机）返回 false，由调用方回退弹框。
+ * 免弹框重连上次的设备：浏览器支持 getDevices()（持久化授权）时，从已授权列表里
+ * 找回上次的设备并连接。匹配顺序：设备 id → 设备名（旧配置没存 id）→ 列表里仅有一台。
+ * 找不到 / 超时（打印机未开机）返回 false，由调用方回退弹框。
  */
 async function tryReconnectSaved() {
   const cfg = loadPrinterConfig()
-  if (!cfg.deviceId || typeof navigator.bluetooth?.getDevices !== 'function') return false
+  if (!supportsAutoReconnect()) return false
   let list = []
   try { list = await navigator.bluetooth.getDevices() } catch { return false }
-  const found = list.find((d) => d.id === cfg.deviceId)
+  let found = cfg.deviceId ? list.find((d) => d.id === cfg.deviceId) : null
+  if (!found && cfg.deviceName) found = list.find((d) => d.name === cfg.deviceName)
+  // 不做「列表仅一台就用它」的兜底：那台可能是本站授权过的**其它**蓝牙设备，
+  // 连上后 discoverAndPick 会把它的第一个可写特征持久化成打印机配置，
+  // 之后的 ESC/POS 字节流会静默发给一个不是打印机的设备。找不到就回退弹框让用户选。
   if (!found) return false
   device = found
   attachDisconnectListener(device)
@@ -175,19 +185,31 @@ export async function ensureConnected() {
   await sleep(200) // 给打印机一点缓冲
 }
 
+/** 模块级发送互斥：两处入口（待办页打印 / 设置页测试打印）各自只有页面级 busy 守卫，
+ *  并发调用会把两条 ESC/POS 字节流的分片交错写进同一特征 → 标签乱码/半张发货码。
+ *  用 promise 链把所有 sendBytes 串行化（跨页面、跨来源）。 */
+let _sendLock = Promise.resolve()
+
 /** 分片顺序写入（避开 BLE MTU 上限），spike 实测 180B/片 + 20ms 间隔稳定 */
-export async function sendBytes(bytes) {
-  if (!writeChar) throw new Error('打印机未连接')
-  const chunk = Number(loadPrinterConfig().chunk) || 180
-  for (let i = 0; i < bytes.length; i += chunk) {
-    const slice = bytes.slice(i, i + chunk)
-    try {
-      await writeChar.writeValueWithoutResponse(slice)
-    } catch {
-      await writeChar.writeValue(slice)
+export function sendBytes(bytes) {
+  const run = async () => {
+    if (!writeChar) throw new Error('打印机未连接')
+    const chunk = Math.max(1, Number(loadPrinterConfig().chunk) || 180)
+    for (let i = 0; i < bytes.length; i += chunk) {
+      const slice = bytes.slice(i, i + chunk)
+      if (!writeChar) throw new Error('打印机连接已断开，发送中止')
+      try {
+        await writeChar.writeValueWithoutResponse(slice)
+      } catch {
+        if (!writeChar) throw new Error('打印机连接已断开，发送中止')
+        await writeChar.writeValue(slice)
+      }
+      await sleep(20)
     }
-    await sleep(20)
   }
+  const p = _sendLock.then(run, run)
+  _sendLock = p.catch(() => {})
+  return p
 }
 
 export function disconnectPrinter() {

@@ -16,6 +16,7 @@ const DEFAULTS = {
   chunk: 180,     // BLE 分片字节数
   threshold: 128, // 二值化阈值（灰度 < 阈值视为黑）
   density: 10,    // 打印浓度 1~31（DC2 # 指令，固件不支持时无效果）
+  feedMm: 15,     // 打印完成后的走纸距离 mm（把标签送出到撕纸位）
   serviceUuid: '',
   charUuid: '',
   deviceId: '',   // requestDevice 返回的持久 id，配合 getDevices() 免弹框重连

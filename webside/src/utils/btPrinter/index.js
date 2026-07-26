@@ -8,6 +8,7 @@
 import { loadPrinterConfig, savePrinterConfig } from './config.js'
 import {
   isBluetoothSupported,
+  supportsAutoReconnect,
   isConnected,
   getPrinterState,
   connectPrinter,
@@ -21,12 +22,17 @@ import { rasterizeImageUrl, rasterizeTestPattern } from './rasterize.js'
 import { buildEscposRaster } from './commands/escpos.js'
 
 /** 打印一张发货码图片（url 已经过 mercariImageUrl 处理） */
+function buildOptions(cfg) {
+  const dpmm = (Number(cfg.dpi) || 203) / 25.4
+  return { density: cfg.density, feedDots: Math.round((Number(cfg.feedMm) || 0) * dpmm) }
+}
+
 export async function printLabelImage(url) {
   if (!url) throw new Error('没有可打印的发货码图片')
   await ensureConnected()
   const cfg = loadPrinterConfig()
   const raster = await rasterizeImageUrl(url, cfg)
-  await sendBytes(buildEscposRaster(raster, cfg.density))
+  await sendBytes(buildEscposRaster(raster, buildOptions(cfg)))
 }
 
 /** 测试打印（校准标签尺寸用） */
@@ -34,13 +40,14 @@ export async function printTestLabel() {
   await ensureConnected()
   const cfg = loadPrinterConfig()
   const raster = rasterizeTestPattern(cfg)
-  await sendBytes(buildEscposRaster(raster, cfg.density))
+  await sendBytes(buildEscposRaster(raster, buildOptions(cfg)))
 }
 
 export {
   loadPrinterConfig,
   savePrinterConfig,
   isBluetoothSupported,
+  supportsAutoReconnect,
   isConnected,
   getPrinterState,
   connectPrinter,

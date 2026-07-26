@@ -322,8 +322,14 @@ def cascade_combined_child_restock(
         )
 
 
-def _adjust_on_sale(db: DatabaseManager, inv_id: int, on_sale_delta: int) -> bool:
-    """对单个库存行的在售数量应用增量（clamp >= 0），并同步重算可上架。返回是否实际更新。"""
+def _adjust_on_sale(
+    db: DatabaseManager, inv_id: int, on_sale_delta: int, *, consume: bool = True
+) -> bool:
+    """对单个库存行的在售数量应用增量（clamp >= 0），并同步重算可上架。返回是否实际更新。
+
+    ``consume=False``：正增量不核销「出品预扣减/未同步补挂」台账。用于「换绑挪计数」——
+    在售名额只是从旧库存挪到新库存，并非新挂牌，不应吃掉新库存排队中的出品预留。
+    """
     if on_sale_delta == 0:
         return False
     on_sale_expr = db.dialect.greatest("0", "COALESCE([on_sale_quantity], 0) + ?")
@@ -336,7 +342,7 @@ def _adjust_on_sale(db: DatabaseManager, inv_id: int, on_sale_delta: int) -> boo
         (int(on_sale_delta), int(inv_id)),
     )
     recompute_listable_quantity([int(inv_id)])
-    if on_sale_delta > 0:
+    if on_sale_delta > 0 and consume:
         # 新挂牌已计入在售 → 核销 auto_relist「未同步补挂」台账（防无限循环出品）
         try:
             from .auto_relist import consume_unsynced_relists
@@ -354,15 +360,57 @@ def _adjust_on_sale(db: DatabaseManager, inv_id: int, on_sale_delta: int) -> boo
     return bool(changed)
 
 
-def _set_counted_flag(db: DatabaseManager, item_id: str, flag: int) -> None:
-    """按 on_sale_items.item_id 设置 counted_on_sale 标记。"""
+def _set_counted_flag(
+    db: DatabaseManager,
+    item_id: str,
+    flag: int,
+    inv_ids: Optional[Iterable[int]] = None,
+) -> None:
+    """按 on_sale_items.item_id 设置 counted_on_sale 标记，并同步记录实际被计入的库存 id。
+
+    flag=1 时把 ``inv_ids`` 写入 counted_inventory_ids（JSON 数组），供换绑/解绑时把 -1
+    精确退回「当初 +1 的那些库存」；flag=0 时清空记录。
+    """
     iid = str(item_id or "").strip()
     if not iid:
         return
+    ids_json: Optional[str] = None
+    if int(flag) and inv_ids:
+        ids = sorted({int(i) for i in inv_ids})
+        if ids:
+            ids_json = json.dumps(ids)
     db.execute_update(
-        "UPDATE [on_sale_items] SET [counted_on_sale] = ? WHERE TRIM([item_id]) = TRIM(?)",
-        (int(flag), iid),
+        "UPDATE [on_sale_items] SET [counted_on_sale] = ?, [counted_inventory_ids] = ? "
+        "WHERE TRIM([item_id]) = TRIM(?)",
+        (int(flag), ids_json, iid),
     )
+
+
+def _parse_counted_inventory_ids(raw: object) -> Optional[Set[int]]:
+    """解析 on_sale_items.counted_inventory_ids（JSON 数组）→ 库存 id 集合。
+
+    NULL/空串/不可解析/空数组 均视为 None（旧数据无记录，调用方回退按当前绑定处理）。
+    """
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        return None
+    if not isinstance(parsed, list):
+        return None
+    out: Set[int] = set()
+    for v in parsed:
+        try:
+            i = int(v)
+        except (TypeError, ValueError):
+            continue
+        if i > 0:
+            out.add(i)
+    return out or None
 
 
 def _bound_inventory_map(db: DatabaseManager) -> Dict[str, Set[int]]:
@@ -393,9 +441,10 @@ def _bound_inventory_map(db: DatabaseManager) -> Dict[str, Set[int]]:
 def _load_listing_states(
     db: DatabaseManager, item_ids: Iterable[str]
 ) -> Dict[str, Dict[str, object]]:
-    """按 item_id 读取 on_sale_items 的 status / is_delete / counted_on_sale（未软删的最新一条）。
+    """按 item_id 读取 on_sale_items 的 status / is_delete / counted_on_sale /
+    counted_inventory_ids（未软删的最新一条）。
 
-    返回 {规范化键: {item_id, status, is_delete, counted}}。同一商品多键都会指向同一状态。
+    返回 {规范化键: {item_id, status, is_delete, counted, counted_inv}}。同一商品多键都会指向同一状态。
     """
     cleaned: List[str] = []
     seen: Set[str] = set()
@@ -409,7 +458,8 @@ def _load_listing_states(
     ph = ",".join("?" * len(cleaned))
     rows = db.execute_query(
         f"""
-        SELECT [item_id], [status], COALESCE([is_delete], 0), COALESCE([counted_on_sale], 0)
+        SELECT [item_id], [status], COALESCE([is_delete], 0), COALESCE([counted_on_sale], 0),
+               [counted_inventory_ids]
         FROM [on_sale_items]
         WHERE TRIM([item_id]) IN ({ph})
         ORDER BY [id] DESC
@@ -417,12 +467,13 @@ def _load_listing_states(
         tuple(cleaned),
     )
     out: Dict[str, Dict[str, object]] = {}
-    for item_id, status, is_delete, counted in rows or []:
+    for item_id, status, is_delete, counted, counted_inv_raw in rows or []:
         state = {
             "item_id": str(item_id or "").strip(),
             "status": (str(status or "").strip() or None),
             "is_delete": int(is_delete or 0),
             "counted": int(counted or 0),
+            "counted_inv": _parse_counted_inventory_ids(counted_inv_raw),
         }
         for key in _norm_keys(str(item_id or "")):
             out.setdefault(key, state)
@@ -432,9 +483,14 @@ def _load_listing_states(
 def reconcile_listing_counts(item_ids: Iterable[str]) -> Dict[str, int]:
     """对给定煤炉商品 ID 集合，依据 on_sale_items 当前状态与绑定库存，对齐「在售」计数（库存不变）。
 
-    幂等：凭 on_sale_items.counted_on_sale 标记，仅在「应计入」状态翻转时增减在售。
-      · counted 0 → 应计入(未软删 + status∈on_sale/stop + 已绑定存在库存)：上架 → 在售 +1，标记=1
-      · counted 1 → 不应计入(软删/下架/售出从在售消失，或解绑)：在售 -1，标记=0
+    幂等：凭 on_sale_items.counted_on_sale 标记，仅在「应计入」状态翻转时增减在售；
+    counted_inventory_ids 记录「实际被 +1 的库存」，保证 -1 精确退回原库存。
+      · counted 0 → 应计入(未软删 + status∈on_sale/stop + 已绑定存在库存)：上架 → 每个绑定库存
+        在售 +1，标记=1 并记录被计入的库存 id
+      · counted 1 → 不应计入(软删/下架/售出从在售消失，或解绑)：按记录退回 在售 -1（旧数据无
+        记录时回退按当前绑定），标记=0 并清空记录
+      · counted 1 且仍应计入，但记录与当前绑定不一致（说明被编辑改指向其他库存，换绑）：
+        把在售名额从旧库存挪到新库存（旧 -1 / 新 +1，+1 不核销出品预扣减），更新记录
       · 其余（暂停/恢复、未绑定、状态不变）：不动
 
     库存 quantity 不在此变动（仅入库/出库改变）；可上架由 _adjust_on_sale 同步重算。
@@ -471,18 +527,37 @@ def reconcile_listing_counts(item_ids: Iterable[str]) -> Dict[str, int]:
             and bool(bound)
         )
 
+        recorded = state.get("counted_inv")  # 实际被 +1 的库存记录；None=旧数据无记录
+
         if should_count and counted == 0:
-            # 上架：每个绑定库存 在售 +1（库存不变）
+            # 上架：每个绑定库存 在售 +1（库存不变），并记录实际被计入的库存
             for inv_id in bound:
                 _adjust_on_sale(db, inv_id, +1)
-            _set_counted_flag(db, iid, 1)
+            _set_counted_flag(db, iid, 1, bound)
             stats["listed_inc"] += len(bound)
         elif not should_count and counted == 1:
-            # 退出在售（下架/售出/解绑）：每个绑定库存 在售 -1（库存不变；待出由订单派生）
-            for inv_id in bound:
+            # 退出在售（下架/售出/解绑）：按记录把 -1 退回「当初 +1 的库存」（库存不变；
+            # 待出由订单派生）。解绑到空时 bound 为空，凭记录仍能正确退回；旧数据无记录
+            # 时回退按当前绑定处理（历史行为）。
+            targets = recorded if recorded is not None else bound
+            for inv_id in targets:
                 _adjust_on_sale(db, inv_id, -1)
                 stats["listed_dec"] += 1
             _set_counted_flag(db, iid, 0)
+        elif should_count and counted == 1:
+            if recorded is None:
+                # 旧数据补录：不增减在售，仅把当前绑定回填为「已计入」记录
+                _set_counted_flag(db, iid, 1, bound)
+            elif recorded != bound:
+                # 换绑（说明被编辑改指向其他库存）：把在售名额从旧库存挪到新库存。
+                # 非新挂牌，+1 不核销出品预扣减/未同步补挂台账（consume=False）。
+                for inv_id in recorded - bound:
+                    _adjust_on_sale(db, inv_id, -1)
+                    stats["listed_dec"] += 1
+                for inv_id in bound - recorded:
+                    _adjust_on_sale(db, inv_id, +1, consume=False)
+                    stats["listed_inc"] += 1
+                _set_counted_flag(db, iid, 1, bound)
         # 其余情形：暂停/恢复（counted 保持 1）、未绑定（counted 保持 0）等，不动
 
     if stats["listed_inc"] or stats["listed_dec"]:

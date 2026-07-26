@@ -80,13 +80,6 @@
   cursor: pointer;
   filter: blur(4px);
 }
-/* 发货码缩略图 + 蓝牙打印按钮 */
-.todo-qr-cell {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
 .cell-title {
   font-weight: 600;
   margin-bottom: 4px;
@@ -850,10 +843,10 @@
   gap: 8px;
 }
 
-/* 发送场所（发货码上方：图标 + 「○○から発送」标题 + 说明） */
+/* 发送场所（发货码上方：图标 + 「○○から発送」标题，垂直居中对齐图标） */
 .detail-facility {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
   margin-top: 12px;
 }
@@ -868,7 +861,7 @@
   min-width: 0;
 }
 .detail-facility-name {
-  font-weight: 600;
+  font-weight: 700;
   color: var(--el-text-color-primary);
 }
 .detail-facility-desc {
@@ -876,6 +869,10 @@
   font-size: 13px;
   color: var(--el-text-color-secondary);
   white-space: pre-line;
+}
+/* 「修改」按钮：顶到发送方式行最右侧 */
+.detail-facility-revise {
+  margin-left: auto;
 }
 /* 发货表单卡片：内含发货方式图标/名称、お届け先、发货/修改 按钮 */
 .detail-ship-form {
@@ -969,13 +966,6 @@
   border: 1px solid var(--el-border-color);
   border-radius: 6px;
   background: #fff;
-}
-/* 详情发货码下方：蓝牙打印 + 打印机设置 */
-.detail-qr-print {
-  margin-top: 8px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
 }
 
 /* 「已扫码」行标记与扫码时间（已扫码筛选下的核对信息） */

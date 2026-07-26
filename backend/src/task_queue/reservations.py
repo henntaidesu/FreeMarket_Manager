@@ -200,7 +200,10 @@ def consume(inventory_id: int, n: int = 1) -> None:
             # 执行前打开重复出品的闸门（外部手动上架/自动补挂吃掉排队任务的占用）。
             if task["status"] == "pending":
                 continue
-            remaining_ids = task["reserved_ids"] if task["reserved_ids"] is not None else task["inventory_ids"]
+            # 历史行（reserved_ids 为 NULL）回退用与释放同口径的「按剩余数切片」，
+            # 而非完整 payload 列表：升级前已部分核销的行若按完整列表持久化，
+            # 之后释放会超量归还（列表长度 > 实际剩余占用）。
+            remaining_ids = _remaining_release_ids(task)
             if inv_id not in remaining_ids:
                 continue
             _decr(inv_id, 1)

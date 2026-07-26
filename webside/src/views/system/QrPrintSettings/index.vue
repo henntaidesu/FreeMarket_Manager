@@ -23,6 +23,10 @@
           <el-input-number v-model="cfg.chunk" :min="20" :max="512" :controls="false" class="qrprint-num" @change="saveCfg" />
           <span class="qrprint-unit">{{ t('qrPrint.chunkHint') }}</span>
         </el-form-item>
+        <el-form-item :label="t('qrPrint.feed')">
+          <el-input-number v-model="cfg.feedMm" :min="0" :max="60" :controls="false" class="qrprint-num" @change="saveCfg" />
+          <span class="qrprint-unit">{{ t('qrPrint.feedHint') }}</span>
+        </el-form-item>
         <el-form-item :label="t('qrPrint.density')">
           <el-input-number v-model="cfg.density" :min="1" :max="31" :controls="false" class="qrprint-num" @change="saveCfg" />
           <span class="qrprint-unit">{{ t('qrPrint.densityHint') }}</span>
@@ -47,6 +51,12 @@
       <el-form label-width="120px" @submit.prevent>
         <el-form-item :label="t('qrPrint.device')">
           <span>{{ state.deviceName || t('qrPrint.noDevice') }}</span>
+        </el-form-item>
+        <!-- 免弹框自动重连：需浏览器支持 getDevices（Chrome/Edge 持久化蓝牙授权） -->
+        <el-form-item :label="t('qrPrint.autoReconnect')">
+          <span :class="autoReconnectOk ? 'qrprint-ok' : 'qrprint-warn'">
+            {{ autoReconnectOk ? t('qrPrint.autoReconnectOk') : t('qrPrint.autoReconnectNo') }}
+          </span>
         </el-form-item>
         <!-- 整表发现出多个可写特征时才显示，默认自动选第一个并持久化 -->
         <el-form-item v-if="state.writableChars.length > 1" :label="t('qrPrint.writeChar')">
@@ -78,6 +88,7 @@ import {
   loadPrinterConfig,
   savePrinterConfig,
   isBluetoothSupported,
+  supportsAutoReconnect,
   getPrinterState,
   connectPrinter,
   pickWriteChar,
@@ -90,6 +101,7 @@ const cfg = reactive(loadPrinterConfig())
 const state = ref(getPrinterState())
 const connecting = ref(false)
 const testing = ref(false)
+const autoReconnectOk = supportsAutoReconnect()
 
 function saveCfg() {
   savePrinterConfig({
@@ -98,6 +110,7 @@ function saveCfg() {
     headMm: Number(cfg.headMm) || 48,
     dpi: Number(cfg.dpi) || 203,
     chunk: Number(cfg.chunk) || 180,
+    feedMm: Math.max(0, Number(cfg.feedMm) || 0),
     density: Number(cfg.density) || 10,
     threshold: Number(cfg.threshold) || 128,
   })
@@ -117,8 +130,9 @@ async function onConnect() {
     state.value = await connectPrinter()
     ElMessage.success(t('qrPrint.connectOk'))
   } catch (e) {
-    // 用户在系统设备选择框点了取消 → 不当作错误
-    if (e?.name !== 'NotFoundError') {
+    // 仅「用户点了取消」不当作错误；GATT 服务发现失败同为 NotFoundError，须提示
+    const isCancel = e?.name === 'NotFoundError' && /cancel/i.test(String(e?.message || ''))
+    if (!isCancel) {
       ElMessage.error(t('qrPrint.connectFail') + ': ' + (e?.message || e))
     }
   } finally {
@@ -134,7 +148,8 @@ async function onTest() {
     state.value = getPrinterState()
     ElMessage.success(t('qrPrint.testSent'))
   } catch (e) {
-    if (e?.name !== 'NotFoundError') {
+    const isCancel = e?.name === 'NotFoundError' && /cancel/i.test(String(e?.message || ''))
+    if (!isCancel) {
       ElMessage.error(t('qrPrint.testFail') + ': ' + (e?.message || e))
     }
   } finally {
@@ -185,5 +200,11 @@ function onForget() {
 .qrprint-unit {
   margin-left: 6px;
   color: var(--el-text-color-secondary);
+}
+.qrprint-ok {
+  color: var(--el-color-success);
+}
+.qrprint-warn {
+  color: var(--el-color-warning);
 }
 </style>

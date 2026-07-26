@@ -16,8 +16,8 @@ function concatBytes(parts) {
   return out
 }
 
-/** { black, bpr, h } → 完整指令字节流（ESC @ 初始化 + 浓度 + GS v 0 + 走纸） */
-export function buildEscposRaster({ black, bpr, h }, density = 10) {
+/** { black, bpr, h } → 完整指令字节流（ESC @ 初始化 + 浓度 + GS v 0 + 走纸到撕纸位） */
+export function buildEscposRaster({ black, bpr, h }, { density = 10, feedDots = 120 } = {}) {
   // DC2 # n：便携热敏机通用浓度设置（bit7-5 加热间隔、bit4-0 浓度），不支持的固件会忽略
   const d = Math.min(31, Math.max(1, Number(density) || 10))
   const header = new Uint8Array([
@@ -27,6 +27,13 @@ export function buildEscposRaster({ black, bpr, h }, density = 10) {
     bpr & 0xff, (bpr >> 8) & 0xff,
     h & 0xff, (h >> 8) & 0xff,
   ])
-  const feed = new Uint8Array([0x0a, 0x0a, 0x0a])
-  return concatBytes([header, black, feed])
+  // ESC J n：按点数走纸（n ≤ 255，超出则拆多条），把打印好的标签送出到撕纸位
+  let dots = Math.max(0, Math.round(Number(feedDots) || 0))
+  const feeds = []
+  while (dots > 0) {
+    const n = Math.min(255, dots)
+    feeds.push(new Uint8Array([0x1b, 0x4a, n]))
+    dots -= n
+  }
+  return concatBytes([header, black, ...feeds])
 }

@@ -274,6 +274,14 @@ class OnSaleItemModel(BaseModel):
                 "not_null": True,
                 "default": 0,
             },
+            # counted_on_sale=1 时「实际被 +1 在售」的库存 id 记录（JSON 数组，如 [3] 或 [3,7]）。
+            # 用于换绑（说明改指向其他库存）/解绑时把 -1 精确退回当初 +1 的库存，
+            # 而非退给当前绑定的库存。NULL=旧数据，回退按当前绑定处理。仅由 inventory_counters 维护。
+            "counted_inventory_ids": {
+                "type": "TEXT",
+                "not_null": False,
+                "default": None,
+            },
         }
 
     @classmethod

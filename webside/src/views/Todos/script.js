@@ -942,13 +942,16 @@ export default defineComponent({
       return s.length > 4 ? s.slice(-4) : s
     }
 
-    // 发货码大图查看：点击列表缩略图弹出全屏遮罩，二维码上方显示订单号（末 4 位高亮）
-    const qrViewer = reactive({ visible: false, src: '', orderNo: '' })
+    // 发货码大图查看：点击列表缩略图弹出全屏遮罩，二维码上方显示订单号（末 4 位高亮）。
+    // printable：仅发货二维码可打印；扫码相机照片（openShipQrPhoto）阈值化后是一团黑，
+    // 不提供打印按钮
+    const qrViewer = reactive({ visible: false, src: '', orderNo: '', printable: true })
     function openQrViewer(row) {
       const src = mercariImageUrl(row?.qr_image_path)
       if (!src) return
       qrViewer.src = src
       qrViewer.orderNo = String(row?.item_id || '')
+      qrViewer.printable = true
       qrViewer.visible = true
     }
 
@@ -991,14 +994,15 @@ export default defineComponent({
       if (!src) return
       qrViewer.src = src
       qrViewer.orderNo = String(row?.item_id || '')
+      qrViewer.printable = false
       qrViewer.visible = true
     }
 
     // ===== 蓝牙标签打印（德佟 P2，ESC-POS 光栅，见 docs/蓝牙标签打印-方案.md）=====
-    const btPrint = reactive({ busy: false, busyId: '' })
+    const btPrint = reactive({ busy: false })
 
     /** 打印一张发货码图片。必须由点击直接触发（requestDevice 需要用户手势） */
-    async function printQrImage(url, busyId = '') {
+    async function printQrImage(url) {
       if (!url) return
       if (!isBluetoothSupported()) {
         ElMessage.error(t('todos.btPrint.notSupported'))
@@ -1006,22 +1010,20 @@ export default defineComponent({
       }
       if (btPrint.busy) return
       btPrint.busy = true
-      btPrint.busyId = busyId
       try {
         await printLabelImage(url)
         ElMessage.success(t('todos.btPrint.sent'))
       } catch (e) {
-        // 用户在系统设备选择框点了取消 → 不当作错误
-        if (e?.name !== 'NotFoundError') {
+        // 仅「用户在系统设备选择框点了取消」不当作错误。GATT 服务发现失败也是
+        // NotFoundError（如打印机服务不在 optionalServices 里），一律吞掉会让
+        // 打印点击毫无反馈——按消息里的 cancel 区分
+        const isCancel = e?.name === 'NotFoundError' && /cancel/i.test(String(e?.message || ''))
+        if (!isCancel) {
           ElMessage.error(t('todos.btPrint.fail') + ': ' + (e?.message || e))
         }
       } finally {
         btPrint.busy = false
-        btPrint.busyId = ''
       }
-    }
-    function onPrintRowQr(row) {
-      printQrImage(mercariImageUrl(row?.qr_image_path), String(row?.id || ''))
     }
     function onPrintViewerQr() {
       printQrImage(qrViewer.src)
@@ -1206,10 +1208,16 @@ export default defineComponent({
     }
 
     /** 读取交易详情本地缓存（不开浏览器）。无缓存时保持本地预填字段。 */
+    // 代次守卫（与 invMatchSeq 同理）：快速切换待办时，上一单的慢响应若晚到会把
+    // detail（含 qr_image_url/item_id）整体覆盖成别的单——弹窗显示 A 单、按钮操作 B 单，
+    // 打印发货码会打错包裹的标签。序号不匹配的响应直接丢弃。
+    let detailCacheSeq = 0
     async function loadDetailCache() {
       if (!currentRow.value?.id) return
+      const seq = ++detailCacheSeq
       try {
         const d = await todosApi.transactionDetailCache(currentRow.value.id)
+        if (seq !== detailCacheSeq) return
         if (d && typeof d === 'object') {
           const merged = { ...d }
           // null 字段不覆盖本地预填（buyer_name 等）
@@ -1995,7 +2003,6 @@ export default defineComponent({
       Printer,
       Setting,
       btPrint,
-      onPrintRowQr,
       onPrintViewerQr,
       onPrintDetailQr,
       openPrinterSettings,
