@@ -97,8 +97,8 @@ echo ========================================
 dir /b "%RELEASE%"
 echo ----------------------------------------
 echo   Put mercariDB.db next to mercariManager.exe, then run mercariManager.exe
-echo   Runs in background with a system-tray icon (bottom-right). Right-click the
-echo   tray icon to show the log window / hide / exit.
+echo   A run window with live logs opens on launch. Clicking X asks whether to
+echo   exit or minimize to the tray; the tray icon (bottom-right) restores it.
 echo   Then open https://localhost:9600 in your browser (self-signed cert auto-generated)
 echo ========================================
 pause

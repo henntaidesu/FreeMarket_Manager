@@ -4,6 +4,7 @@
 """
 
 import json
+import re
 from typing import Any, Dict, List, Optional
 
 from ....db_manage.database import DatabaseManager
@@ -79,6 +80,37 @@ _LIST_COLS = (
 )
 
 
+_DIGITS_RE = re.compile(r"\d+")
+
+
+def _ship_deadline_ts(item: Dict[str, Any]) -> Optional[int]:
+    """发货截止时刻(ms) = 下单时间 + ``shipping_duration`` 中的最大天数。
+
+    与前端 ``shipDeadlineTs`` 同口径：``shipping_duration`` 形如「4~7日で発送」，
+    取其中最大天数（卖家承诺的最迟发货天数）；下单时间取 ``mercari_created``，
+    缺失时回落 ``mercari_updated``。任一项取不到则返回 None（无法推算）。
+    """
+    nums = _DIGITS_RE.findall(str(item.get("shipping_duration") or ""))
+    if not nums:
+        return None
+    days = max(int(n) for n in nums)
+    if not days:
+        return None
+    try:
+        base = int(item.get("mercari_created") or item.get("mercari_updated") or 0)
+    except (TypeError, ValueError):
+        return None
+    if not base:
+        return None
+    return base + days * 24 * 3600 * 1000
+
+
+def _ship_deadline_sort_key(item: Dict[str, Any]):
+    """排序键：能推算发货期限的排在前面（截止越早越前）；推算不出的统一垫底。"""
+    dl = _ship_deadline_ts(item)
+    return (1, 0) if dl is None else (0, dl)
+
+
 def list_todos(
     account_id: Optional[int] = None,
     kind: Optional[str] = None,
@@ -142,13 +174,11 @@ def list_todos(
         params.extend([kw, kw, kw, kw])
 
     where_sql = " AND ".join(where)
-    total = db.execute_query(
-        f"SELECT COUNT(*) FROM [todo_items] t WHERE {where_sql}",
-        tuple(params),
-    )[0][0]
 
     sel_cols = ", ".join(f"t.[{c}]" for c in _LIST_COLS) + ", a.[account_name] AS account_name"
-    offset = (page - 1) * page_size
+    # 按「发货期限剩余时间」升序（越紧急越前）排序。截止时刻要由 shipping_duration
+    # 文本（「4~7日で発送」）解析天数再与下单时间相加，SQLite / MySQL 的字符串函数不通用，
+    # 故整表取出后在 Python 里排序、分页（待办为在办事项，行数很小）。
     rows = db.execute_query(
         f"""
         SELECT {sel_cols}
@@ -156,17 +186,19 @@ def list_todos(
         LEFT JOIN [mercari_accounts] a ON a.[id] = t.[account_id]
         WHERE {where_sql}
         ORDER BY t.[id] ASC
-        LIMIT ? OFFSET ?
         """,
-        tuple(params + [page_size, offset]),
+        tuple(params),
     )
     keys = list(_LIST_COLS) + ["account_name"]
     items = [dict(zip(keys, row)) for row in rows]
+    # 稳定排序：推算不出发货期限的行保持原有 id 升序垫底
+    items.sort(key=_ship_deadline_sort_key)
+    offset = (page - 1) * page_size
     return {
-        "total": total,
+        "total": len(items),
         "page": page,
         "page_size": page_size,
-        "items": items,
+        "items": items[offset:offset + page_size],
     }
 
 

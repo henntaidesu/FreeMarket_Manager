@@ -1,7 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller spec —— 主程序 mercariManager.exe（FastAPI + uvicorn，同端口提供 API 与前端）。
 
-输出单文件 mercariManager.exe（windowed 无控制台，后台运行 + 系统托盘）。前端 webside/dist
+输出单文件 mercariManager.exe（windowed 无控制台；启动即显示运行窗口，点 X 可选「退出程序 /
+收入任务栏」，见 src/log_window.py + src/tray.py）。前端 webside/dist
 打入 exe，main.py 冻结后优先从 exe 同级目录读取，缺失时回退打入的产物。
 
 环境变量 BUNDLE_OCR=1 时额外打入 easyocr/torch（体积巨大）；默认不打，OCR 端点会优雅提示未安装。
@@ -50,6 +51,9 @@ hiddenimports += [
     "mitmproxy.tools.main",
     "mitmproxy.tools.dump",
 ]
+
+# 运行窗口 src/log_window.py 使用 tkinter（import 写在函数里），显式声明确保 tcl/tk 被打入
+hiddenimports += ["tkinter"]
 
 # 业务源码（backend/src）整体打入，覆盖函数内的延迟 import
 hiddenimports += collect_submodules("src")

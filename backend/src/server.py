@@ -153,10 +153,18 @@ def run(app: FastAPI) -> None:
     )
     server = uvicorn.Server(config)
 
-    # 打包态（windowed）启动系统托盘：点托盘「退出程序」→ 触发 uvicorn 优雅停机。
+    # 打包态（windowed）启动系统托盘：点托盘「退出程序」或运行窗口 X 里的「退出程序」
+    # → 触发 uvicorn 优雅停机。
     if getattr(sys, "frozen", False) and sys.platform == "win32":
 
         def _on_tray_quit() -> None:
+            # 先摘掉托盘图标：优雅停机可能耗时数秒，图标应立刻消失而不是等到进程被杀。
+            try:
+                from .tray import stop_tray
+
+                stop_tray()
+            except Exception:  # noqa: BLE001
+                pass
             server.should_exit = True
             # 看门狗兜底：若优雅停机被彻底卡住（uvicorn 主循环停不下来），到点直接强杀进程树，
             # 确保托盘图标消失后进程不会残留在后台。
@@ -165,6 +173,13 @@ def run(app: FastAPI) -> None:
                 _hard_kill_process_tree()
 
             threading.Thread(target=_watchdog, daemon=True).start()
+
+        try:
+            from .log_window import set_on_quit
+
+            set_on_quit(_on_tray_quit)
+        except Exception:  # noqa: BLE001
+            pass
 
         try:
             from .tray import start_tray
