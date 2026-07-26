@@ -169,18 +169,27 @@ def mark_scanned_and_cleanup(todo_id: int, photo_path: str) -> None:
     """扫码 + 発送通知成功 → 记扫码时刻、清空照片字段并**删除照片文件**。
 
     成功件不留证：通知已正常发出，照片没有留存价值，攒着只会让 imges 无限增长。
+    DB 更新失败（重试一次后）则**保留照片文件**：此时行仍处于 ``shipping`` 且
+    ``ship_qr_photo_path`` 还指向照片，先删文件会留下悬空路径 + 永远卡在发货中的行。
     """
     import time
 
-    try:
-        _update_todo(
-            todo_id,
-            "[ship_qr_scanned_at] = ?, [ship_qr_photo_path] = NULL, "
-            "[ship_qr_state] = NULL, [ship_qr_class_text] = NULL",
-            (int(time.time()),),
-        )
-    except Exception:
-        log.exception("[qrphoto] 标记已扫码失败 todo_id=%s", todo_id)
+    updated = False
+    for attempt in (1, 2):
+        try:
+            _update_todo(
+                todo_id,
+                "[ship_qr_scanned_at] = ?, [ship_qr_photo_path] = NULL, "
+                "[ship_qr_state] = NULL, [ship_qr_class_text] = NULL",
+                (int(time.time()),),
+            )
+            updated = True
+            break
+        except Exception:
+            log.exception("[qrphoto] 标记已扫码失败 todo_id=%s (第 %s 次)", todo_id, attempt)
+    if not updated:
+        log.warning("[qrphoto] 待办 %s 状态未能更新，照片保留不删除", todo_id)
+        return
     cleanup_photo(photo_path)
     log.info("[qrphoto] 待办 %s 发货完成，照片已删除", todo_id)
 

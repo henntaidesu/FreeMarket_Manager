@@ -41,8 +41,26 @@ def apply_on_sale_list_sync(
         if str(r.item_id or "").strip()
     }
 
-    # API 未返回但本地仍存在（is_delete=0）→ 需软删除
-    soft_deleted_ids = existed_id_set - incoming_ids
+    # API 未返回但本地仍存在（is_delete=0）→ 需软删除。
+    # 仅当本次抓取**完整**时才允许：分页中途失败（もっと見る没找到/截获超时/响应异常）
+    # 返回的是部分列表，按缺席软删会把仍在售的商品整批误标下架 → on_sale_quantity
+    # 被批量回吐 → 可上架虚高 → 用户/自动补挂重复上架仍在售的商品（不可逆）。
+    total_expected = 0
+    try:
+        total_expected = int(meta.get("total_item_count") or 0)
+    except (TypeError, ValueError):
+        total_expected = 0
+    capture_complete = not bool(meta.get("has_next")) and (
+        total_expected == 0 or len(incoming_ids) >= total_expected
+    )
+    soft_deleted_ids = (existed_id_set - incoming_ids) if capture_complete else set()
+    if not capture_complete:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "[on_sale_sync] seller=%s 本次抓取不完整（%d/%s，has_next=%s），跳过缺席软删",
+            seller_key, len(incoming_ids), total_expected or "?", meta.get("has_next"),
+        )
 
     # 本次 upsert / 软删除涉及的所有煤炉商品 ID（同步后统一交由 inventory_counters 对账在售/库存）
     touched_item_ids: set[str] = set()

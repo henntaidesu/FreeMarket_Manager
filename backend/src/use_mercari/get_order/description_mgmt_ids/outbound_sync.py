@@ -58,6 +58,7 @@ def refresh_inventory_pending_outbound_qty(inventory_ids: Optional[List[int]] = 
             INNER JOIN [orders] o ON o.[order_no] = l.[order_no]
             WHERE l.[inventory_id] IS NOT NULL
               AND COALESCE(l.[is_stocked_out], 0) = 0
+              AND COALESCE(l.[stock_deducted], 0) = 0
               AND o.[status] NOT IN ({term_ph})
               AND l.[inventory_id] IN ({ph})
             GROUP BY l.[inventory_id]
@@ -74,6 +75,9 @@ def refresh_inventory_pending_outbound_qty(inventory_ids: Optional[List[int]] = 
             INNER JOIN [orders] o ON o.[order_no] = l.[order_no]
             WHERE l.[inventory_id] IS NOT NULL
               AND COALESCE(l.[is_stocked_out], 0) = 0
+              -- stock_deducted=1 的行（手动预扣）已经从 quantity 里物理扣过：再计入待出
+              -- 会让可上架被双重压低（qty 与 pending 各扣一次）
+              AND COALESCE(l.[stock_deducted], 0) = 0
               AND o.[status] NOT IN ({term_ph})
             GROUP BY l.[inventory_id]
             """,
@@ -104,9 +108,12 @@ def sync_outbound_lines_for_order(
 
     包一层在所有出库行变更（含 skip_if_has_lines 跳过重建、但订单金额可能已变化的刷新场景）后统一重算。
     """
-    _sync_outbound_lines_for_order_impl(
-        order_no, description, skip_if_has_lines=skip_if_has_lines
-    )
+    # 整个「删旧行 + 逐行重建」放进一个事务：中途失败（某行 save 报错/崩溃）时整体回滚，
+    # 不会把已删除的持有出库状态的行永久丢掉（丢掉后取消回吐找不到行，扣减变成孤儿）。
+    with DatabaseManager().transaction():
+        _sync_outbound_lines_for_order_impl(
+            order_no, description, skip_if_has_lines=skip_if_has_lines
+        )
     # 延迟导入避免 use_mercari -> use_web 潜在环引用
     from ....use_web.orders.units.order_goods_ratio import recompute_and_store_order_ratio
 
@@ -166,6 +173,9 @@ def _sync_outbound_lines_for_order_impl(
         for mr in old_manual_rows
         if mr.inventory_id is not None and str(mr.inventory_id).strip() != ""
     }
+    # 末位携带旧行的 inventory_id：手动改绑/归属转化只改行的 inventory_id、不改 token，
+    # 重建若按 token 重推库存会把行弹回旧库存（此后取消回吐会吐错商品）。同 token 重建时
+    # 优先沿用旧行绑定的库存。
     old_token_state: dict = {}
     for r in old_rows:
         lk = str(r.line_kind or "").strip()
@@ -177,6 +187,7 @@ def _sync_outbound_lines_for_order_impl(
             int(r.is_stocked_out or 0),
             int(r.stocked_out_at) if r.stocked_out_at is not None else None,
             int(r.stock_deducted or 0),
+            int(r.inventory_id) if r.inventory_id is not None else None,
         )
 
     OrderOutboundLineModel.delete_all("[order_no] = ?", (ono,))
@@ -221,6 +232,9 @@ def _sync_outbound_lines_for_order_impl(
                     touched_inv_ids.add(int(mr.inventory_id))
             refresh_inventory_pending_outbound_qty(list(touched_inv_ids))
             return
+        # 同名标题可能有多行（各自出库状态不同）：按标题聚成**列表**逐行配对消费，
+        # 单值字典会让后一行覆盖前一行 —— 已出库/未出库两行会拿到同一份状态
+        # （要么已扣的变回待出被二次出库，要么未扣的被标已出永不扣减）。
         old_bundle_state_by_norm: dict = {}
         for r in old_rows:
             if str(r.line_kind or "").strip() != "bundle_title":
@@ -228,11 +242,11 @@ def _sync_outbound_lines_for_order_impl(
             nt = _normalize_match_text(str(r.management_id or ""))
             if not nt:
                 continue
-            old_bundle_state_by_norm[nt] = (
+            old_bundle_state_by_norm.setdefault(nt, []).append((
                 int(r.is_stocked_out or 0),
                 int(r.stocked_out_at) if r.stocked_out_at is not None else None,
                 int(r.stock_deducted or 0),
-            )
+            ))
         touched_inv_ids = set(old_inv_ids)
         # 账号隔离：只在本订单卖出账号（orders.data_user = seller.id）的在售记录中匹配。
         seller_id = _order_seller_id(ono)
@@ -258,9 +272,8 @@ def _sync_outbound_lines_for_order_impl(
                 continue
             if inv_id is not None:
                 used_inv_ids.add(inv_id)
-            stocked, stocked_at, deducted = old_bundle_state_by_norm.get(
-                tnorm, (0, None, 0)
-            )
+            states = old_bundle_state_by_norm.get(tnorm)
+            stocked, stocked_at, deducted = states.pop(0) if states else (0, None, 0)
             line = OrderOutboundLineModel(
                 order_no=ono,
                 inventory_id=inv_id,
@@ -305,15 +318,18 @@ def _sync_outbound_lines_for_order_impl(
             mid = int(val)
             exists = _inventory_id_exists(mid)
             inv_for_line = mid if exists else None
+            lk = "mgmt_id"
+            mid_s = str(mid)
+            stocked, stocked_at, deducted, kept_inv = old_token_state.get(
+                (lk, mid_s, qn), (0, None, 0, None)
+            )
+            # 旧行绑定的库存优先（保留手动改绑/归属转化的结果）
+            if kept_inv is not None:
+                inv_for_line = kept_inv
             if inv_for_line is not None and inv_for_line in manual_inv_ids:
                 continue
             if inv_for_line is not None and inv_for_line in token_inv_written:
                 continue
-            lk = "mgmt_id"
-            mid_s = str(mid)
-            stocked, stocked_at, deducted = old_token_state.get(
-                (lk, mid_s, qn), (0, None, 0)
-            )
             line = OrderOutboundLineModel(
                 order_no=ono,
                 inventory_id=inv_for_line,
@@ -328,14 +344,17 @@ def _sync_outbound_lines_for_order_impl(
         else:
             bc = str(val).strip()
             inv_id = _inventory_id_by_barcode(bc)
+            lk = "barcode"
+            stocked, stocked_at, deducted, kept_inv = old_token_state.get(
+                (lk, bc, qn), (0, None, 0, None)
+            )
+            # 旧行绑定的库存优先（保留手动改绑/归属转化的结果）
+            if kept_inv is not None:
+                inv_id = kept_inv
             if inv_id is not None and inv_id in manual_inv_ids:
                 continue
             if inv_id is not None and inv_id in token_inv_written:
                 continue
-            lk = "barcode"
-            stocked, stocked_at, deducted = old_token_state.get(
-                (lk, bc, qn), (0, None, 0)
-            )
             line = OrderOutboundLineModel(
                 order_no=ono,
                 inventory_id=inv_id,
@@ -382,6 +401,7 @@ def sql_pending_outbound_subquery(alias: str = "p") -> str:
             INNER JOIN [orders] o ON o.order_no = l.order_no
             WHERE l.inventory_id = {alias}.[id]
               AND COALESCE(l.is_stocked_out, 0) = 0
+              AND COALESCE(l.stock_deducted, 0) = 0
               AND o.status NOT IN ({ph})
         ), 0)
     """

@@ -128,7 +128,7 @@ def _held_tasks() -> List[Dict]:
     """
     rows = DatabaseManager().execute_query(
         """
-        SELECT [id], [reserved_qty], [payload], [created_at]
+        SELECT [id], [reserved_qty], [payload], [created_at], [status], [reserved_ids]
         FROM [task_queue]
         WHERE [reserved_qty] > 0 AND [task_type] = ?
         ORDER BY [id] ASC
@@ -136,7 +136,7 @@ def _held_tasks() -> List[Dict]:
         (INVENTORY_LISTING,),
     ) or []
     out: List[Dict] = []
-    for tid, qty, payload, created in rows:
+    for tid, qty, payload, created, status, reserved_ids in rows:
         try:
             p = json.loads(payload) if payload else {}
         except (TypeError, ValueError):
@@ -147,8 +147,33 @@ def _held_tasks() -> List[Dict]:
             "reserved_qty": int(qty or 0),
             "inventory_ids": ids,
             "created_at": int(created or 0),
+            "status": str(status or ""),
+            "reserved_ids": _parse_reserved_ids(reserved_ids),
         })
     return out
+
+
+def _parse_reserved_ids(raw) -> Optional[List[int]]:
+    """解析 reserved_ids JSON 列（NULL/损坏返回 None → 调用方回退按数量切片）。"""
+    if raw is None or str(raw).strip() == "":
+        return None
+    try:
+        vals = json.loads(raw)
+        if isinstance(vals, list):
+            return [int(x) for x in vals if x is not None]
+    except (TypeError, ValueError):
+        pass
+    return None
+
+
+def _remaining_release_ids(task: Dict) -> List[int]:
+    """本任务仍应释放的库存 id 列表：优先精确的 reserved_ids，历史行回退按剩余数切片。"""
+    exact = task.get("reserved_ids")
+    if exact is not None:
+        return list(exact)
+    ids = task.get("inventory_ids") or []
+    remaining = int(task.get("reserved_qty") or 0)
+    return ids if remaining >= len(ids) else ids[:max(0, remaining)]
 
 
 def _set_reserved_qty(task_id: int, qty: int) -> None:
@@ -171,10 +196,21 @@ def consume(inventory_id: int, n: int = 1) -> None:
         for task in _held_tasks():
             if left <= 0:
                 break
-            if inv_id not in task["inventory_ids"]:
+            # pending 任务还没执行，其出品不可能是本次增量的来源——核销它会在任务真正
+            # 执行前打开重复出品的闸门（外部手动上架/自动补挂吃掉排队任务的占用）。
+            if task["status"] == "pending":
+                continue
+            remaining_ids = task["reserved_ids"] if task["reserved_ids"] is not None else task["inventory_ids"]
+            if inv_id not in remaining_ids:
                 continue
             _decr(inv_id, 1)
-            _set_reserved_qty(task["id"], task["reserved_qty"] - 1)
+            # 精确记录剩余占用（移除一个该库存 id），释放时不会落错库存
+            new_ids = list(remaining_ids)
+            new_ids.remove(inv_id)
+            DatabaseManager().execute_update(
+                "UPDATE [task_queue] SET [reserved_qty] = ?, [reserved_ids] = ? WHERE [id] = ?",
+                (max(0, task["reserved_qty"] - 1), json.dumps(new_ids), int(task["id"])),
+            )
             left -= 1
             touched = True
             log.info(
@@ -188,29 +224,37 @@ def consume(inventory_id: int, n: int = 1) -> None:
 
 
 def settle_task(task: Dict, *, released: bool) -> None:
-    """出品任务收尾：``released=True`` 立即释放本任务全部占用，否则继续持有等在售同步。"""
+    """出品任务收尾：``released=True`` 立即释放本任务全部**剩余**占用，否则继续持有等在售同步。
+
+    worker 传入的 task 是认领时的快照，执行期间 consume 可能已核销部分占用——
+    这里重读 DB 取最新的 reserved_qty / reserved_ids，避免用过期值多释放。
+    """
     try:
-        payload = task.get("payload") or {}
-        if isinstance(payload, str):
-            payload = json.loads(payload or "{}")
-        ids = [int(x) for x in (payload.get("inventory_ids") or []) if x is not None]
-        if not ids:
+        if not released:
             return
-        if released:
-            release(ids)
-            _set_reserved_qty(int(task["id"]), 0)
+        rows = DatabaseManager().execute_query(
+            "SELECT [reserved_qty], [reserved_ids], [payload] FROM [task_queue] WHERE [id] = ?",
+            (int(task["id"]),),
+        )
+        if not rows:
+            return
+        qty, reserved_ids_raw, payload_raw = rows[0]
+        try:
+            payload = json.loads(payload_raw) if payload_raw else {}
+        except (TypeError, ValueError):
+            payload = {}
+        fresh = {
+            "id": int(task["id"]),
+            "reserved_qty": int(qty or 0),
+            "reserved_ids": _parse_reserved_ids(reserved_ids_raw),
+            "inventory_ids": [int(x) for x in (payload.get("inventory_ids") or []) if x is not None],
+        }
+        to_release = _remaining_release_ids(fresh)
+        if to_release:
+            release(to_release)
+        _set_reserved_qty(int(task["id"]), 0)
     except Exception:
         log.exception("[reservations] 任务 #%s 占用收尾失败", task.get("id"))
-
-
-def release_for_tasks(tasks: Iterable[Dict]) -> None:
-    """批量释放若干任务的占用（启动时恢复被中断的出品任务用）。"""
-    for t in tasks or []:
-        if str(t.get("task_type") or "") != INVENTORY_LISTING:
-            continue
-        if int(t.get("reserved_qty") or 0) <= 0:
-            continue
-        settle_task(t, released=True)
 
 
 def sweep_stale() -> int:
@@ -223,13 +267,20 @@ def sweep_stale() -> int:
     deadline = now_ts() - ttl
     freed = 0
     for task in _held_tasks():
+        # 仍在排队/执行中的任务不清理：长队列尾部任务的 created_at 很容易超 TTL，
+        # 但它还没跑，释放会在任务执行前就打开重复出品的闸门。只兜底终态任务
+        # （出品完成/失败后在售同步始终没核销的场景）。
+        if task["status"] in ("pending", "running"):
+            continue
         if task["created_at"] >= deadline:
             continue
         ids = task["inventory_ids"]
-        if ids:
-            release(ids)
+        # 只释放剩余占用（精确按 reserved_ids；部分已被 consume 核销时不全量释放）
+        to_release = _remaining_release_ids(task)
+        if to_release:
+            release(to_release)
         _set_reserved_qty(task["id"], 0)
-        freed += task["reserved_qty"]
+        freed += len(to_release)
         log.warning(
             "[reservations] 任务 #%s 占用超过 %ds 未被在售同步核销，已强制释放：%s",
             task["id"], ttl, ids,

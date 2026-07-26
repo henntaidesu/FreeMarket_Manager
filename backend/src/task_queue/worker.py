@@ -201,7 +201,10 @@ def start_worker() -> None:
     _stopping = False
     try:
         orphans = store.recover_orphans()
-        reservations.release_for_tasks(orphans)
+        # 出品预扣减**不在重启时释放**：硬崩溃（断电/被杀）恰是最无法判定
+        # 「出品する」有没有点下去的场景，与用户取消/关停中断同一口径——保持占用、
+        # 交给 TTL 兜底。立即释放会让可上架涨回去，诱导重复出品（不可逆的真实损失）。
+        # 与其它中断路径一致：宁可少上架（可恢复），绝不重复上架。
         # 重启中断的发货扫码任务：把对应待办从 shipping 复位为 failed，供用户重扫
         for t in orphans:
             if str(t.get("task_type") or "") == registry.TODOS_SHIPPING_QR:

@@ -132,12 +132,18 @@ def _upsert_todo_row(db: DatabaseManager, row: Dict[str, Any]) -> str:
         f"INSERT INTO [todo_items] ({cols_sql}) VALUES ({placeholders}) "
         f"ON CONFLICT([account_id], [uuid]) DO UPDATE SET {update_assigns}"
     )
-    params = tuple(row.get(c) for c in _UPSERT_COLS)
-    # 先查存在与否（无法靠 lastrowid 区分 insert/update）
+    # 先查存在与否（无法靠 lastrowid 区分 insert/update），顺带取本地完成标记
     pre = db.execute_query(
-        "SELECT 1 FROM [todo_items] WHERE [account_id] = ? AND [uuid] = ? LIMIT 1",
+        "SELECT COALESCE([shipped_finalized], 0) FROM [todo_items] "
+        "WHERE [account_id] = ? AND [uuid] = ? LIMIT 1",
         (row["account_id"], row["uuid"]),
     )
+    # 本地已完成（确认发送/已评价/已回复等置 shipped_finalized=1）的行：煤炉的陈旧列表
+    # 仍可能返回同 uuid（is_delete=0），若照抄 excluded 会把它复活回待处理——保持隐藏。
+    if pre and int(pre[0][0] or 0) == 1:
+        row = dict(row)
+        row["is_delete"] = 1
+    params = tuple(row.get(c) for c in _UPSERT_COLS)
     db.execute_update(sql, params)
     return "updated" if pre else "inserted"
 
@@ -151,11 +157,15 @@ def _item_id_finalized(db: DatabaseManager, account_id: int, item_id: Optional[s
     iid = (item_id or "").strip()
     if not iid:
         return False
+    # 仅统计**待发货类**的完成标记：shipped_finalized 现在也被评价/回复完成用作
+    # 通用防复活标记，若不加类别过滤，同交易「已回复」会把后来真正的待发货行也压制掉。
+    kind_ph = ",".join(["?"] * len(_WAIT_SHIPPING_KINDS))
     rows = db.execute_query(
-        "SELECT 1 FROM [todo_items] "
-        "WHERE [account_id] = ? AND [item_id] = ? "
-        "AND COALESCE([shipped_finalized], 0) = 1 LIMIT 1",
-        (int(account_id), iid),
+        f"SELECT 1 FROM [todo_items] "
+        f"WHERE [account_id] = ? AND [item_id] = ? "
+        f"AND COALESCE([shipped_finalized], 0) = 1 "
+        f"AND ([kind] IN ({kind_ph}) OR [title] = ?) LIMIT 1",
+        (int(account_id), iid, *tuple(_WAIT_SHIPPING_KINDS), _WAIT_SHIPPING_TITLE),
     )
     return bool(rows)
 
@@ -167,8 +177,14 @@ def _row_is_wait_shipping(row: Dict[str, Any]) -> bool:
     return kind in _WAIT_SHIPPING_KINDS or title == _WAIT_SHIPPING_TITLE
 
 
-def apply_todolist_sync(account_id: int, items: List[Dict[str, Any]]) -> Dict[str, int]:
-    """写入本地 ``todo_items``，并软删除本次未出现的旧行。"""
+def apply_todolist_sync(
+    account_id: int, items: List[Dict[str, Any]], *, complete: bool = True
+) -> Dict[str, int]:
+    """写入本地 ``todo_items``，并软删除本次未出现的旧行。
+
+    ``complete=False``（分页抓取中途失败，列表不完整）时**跳过软删**：
+    不完整列表里缺席 ≠ 已完成，按缺席软删会把后几页的待办整批误标已完成。
+    """
     db = DatabaseManager()
     synced_at_ms = int(time.time() * 1000)
 
@@ -219,9 +235,15 @@ def apply_todolist_sync(account_id: int, items: List[Dict[str, Any]]) -> Dict[st
         else:
             skipped += 1
 
-    # 软删除：当前账号下、未在本次返回中的活跃行
+    # 软删除：当前账号下、未在本次返回中的活跃行。
+    # 抓取不完整（分页中途失败）时跳过：缺席不等于已完成。
     marked_deleted = 0
-    if incoming_uuids:
+    if not complete:
+        log.warning(
+            "[todolist] account_id=%s 本次抓取不完整（%d 条），跳过缺席软删",
+            account_id, len(incoming_uuids),
+        )
+    elif incoming_uuids:
         placeholders = ",".join(["?"] * len(incoming_uuids))
         marked_deleted = db.execute_update(
             f"UPDATE [todo_items] SET [is_delete] = 1 "
@@ -318,10 +340,12 @@ async def sync_todos_from_mercari(
     report("open_browser", "正在启动浏览器与 MITM 代理…")
     async with mitm_automation_browser(int(aid), start_url=TODOS_PAGE_URL) as (mgr, auto_key):
         report("capture_todos", "已打开待办事项页，等待煤炉返回待办列表…")
-        items = await capture_todolist_via_mitm_session(mgr, auto_key, since_ms=since_ms)
+        items, capture_complete = await capture_todolist_via_mitm_session(
+            mgr, auto_key, since_ms=since_ms
+        )
 
     report("apply_sync", f"已获取 {len(items)} 条待办事项，正在写入本地数据库…")
-    stats = apply_todolist_sync(int(aid), items)
+    stats = apply_todolist_sync(int(aid), items, complete=capture_complete)
     stats["account_id"] = int(aid)
     log.info(
         "[todolist] 同步完成 account_id=%s total=%d inserted=%d updated=%d marked_deleted=%d",

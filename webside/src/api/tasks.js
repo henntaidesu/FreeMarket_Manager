@@ -17,6 +17,8 @@ export const TASK_TYPES = {
   ON_SALE_FULL_UPDATE: 'on_sale.full_update',
   ON_SALE_REVISE: 'on_sale.revise',
   ON_SALE_DELIST: 'on_sale.delist',
+  ON_SALE_SUSPEND: 'on_sale.suspend',
+  ON_SALE_RESUME: 'on_sale.resume',
   TODOS_BULK_REVIEW: 'todos.bulk_review',
   TODOS_BULK_CONFIRM_SHIP: 'todos.bulk_confirm_ship',
   TODOS_SYNC: 'todos.sync',

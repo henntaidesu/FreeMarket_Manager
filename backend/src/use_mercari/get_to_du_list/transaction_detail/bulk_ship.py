@@ -30,6 +30,7 @@ from ....web_drive.core.paths import mercari_automation_key, mercari_todo_key
 from ...get_order.get_in_progress_order.get_order_info import (
     apply_item_info_to_order,
     apply_post_ship_codes_to_order,
+    mark_order_shipped,
 )
 from ...sync.sync_progress import make_sync_reporter
 from ._cache import get_cached_transaction_detail
@@ -47,13 +48,18 @@ def list_pending_packed_todos(account_id: Optional[int] = None) -> List[Any]:
     """查未软删的「已打包」待办（可按账号过滤），按 mercari_updated 升序（旧的先发）。
 
     「已打包」= 待发货 + 已发行发货二维码/条形码（``qr_image_path`` 非空）。
+    与 UI 的已打包筛选（todos_query._PACKED_COND）同口径：排除待反馈
+    （``awaiting_feedback=1``，已通知、数据连携确认中）与待收货（kind='Shipped'）行，
+    避免批量执行的集合比确认框展示的更大。
     """
     kinds = list(_WAIT_SHIPPING_KINDS)
     kind_placeholders = ",".join(["?"] * len(kinds))
     where = (
         f"([kind] IN ({kind_placeholders}) OR [title] = ?) "
         "AND [qr_image_path] IS NOT NULL AND TRIM([qr_image_path]) != '' "
-        "AND COALESCE([is_delete], 0) = 0"
+        "AND COALESCE([is_delete], 0) = 0 "
+        "AND COALESCE([awaiting_feedback], 0) = 0 "
+        "AND IFNULL([kind], '') != 'Shipped'"
     )
     params: List[Any] = [*kinds, _WAIT_SHIPPING_TITLE]
     if account_id is not None:
@@ -94,6 +100,11 @@ async def _refresh_orders_after_ship(
             item_id = rec.get("item_id") or ""
             todo_id = rec.get("todo_id")
             report("bulk_ship_refresh", f"{progress_prefix} 刷新订单（{idx}/{n}）{item_id}…")
+            # 与单条「确认发送」一致：成功即记录订单发货时间（写一次，不覆盖）
+            try:
+                mark_order_shipped(item_id)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("[bulk_ship] 记录 shipped_at 失败 item_id=%s: %s", item_id, exc)
             try:
                 err = await apply_item_info_to_order(
                     item_id, account_id=int(account_id), timeout=_REFRESH_TIMEOUT_SEC
@@ -121,15 +132,29 @@ async def _refresh_orders_after_ship(
             log.warning("[bulk_ship] 关闭刷新浏览器失败 account_id=%s: %s", account_id, exc)
 
 
-def _finalize_todo(todo: Any) -> None:
-    """成功确认发送后：软删 + 标记 shipped_finalized（跨同步存活，不再复活/显示）。"""
-    try:
-        todo.is_delete = 1
-        todo.shipped_finalized = 1
-        todo.synced_at = int(time.time() * 1000)
-        todo.save()
-    except Exception as exc:  # noqa: BLE001
-        log.warning("[bulk_ship] 标记 finalized 失败 todo_id=%s: %s", getattr(todo, "id", "?"), exc)
+def _finalize_todo(todo: Any) -> bool:
+    """成功确认发送后：软删 + 标记 shipped_finalized（跨同步存活，不再复活/显示）。
+
+    保存失败重试一次；仍失败返回 False——该行会留在「已打包」列表被下次批量重开
+    （安全性依赖 already-shipped 检测），故调用方应把它记进 failures 让人看见。
+    """
+    for attempt in (1, 2):
+        try:
+            todo.is_delete = 1
+            todo.shipped_finalized = 1
+            todo.synced_at = int(time.time() * 1000)
+            if todo.save():
+                return True
+            log.warning(
+                "[bulk_ship] 标记 finalized 保存失败 todo_id=%s (第 %s 次)",
+                getattr(todo, "id", "?"), attempt,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "[bulk_ship] 标记 finalized 异常 todo_id=%s (第 %s 次): %s",
+                getattr(todo, "id", "?"), attempt, exc,
+            )
+    return False
 
 
 async def bulk_finalize_post_shipping_for_account(
@@ -192,7 +217,8 @@ async def bulk_finalize_post_shipping_for_account(
                     if already:
                         ok += 1
                         already_shipped += 1
-                        _finalize_todo(todo)
+                        if not _finalize_todo(todo):
+                            failures.append(f"#{todo.id} {item_id}: 已发送但本地状态更新失败（下次批量会重开该交易）")
                         completed.append({"todo_id": int(todo.id), "item_id": item_id})
                         report("bulk_ship_item", f"{label}：已在别处发送，跳过确认发送，仅更新订单")
                         log.info("[bulk_ship] 已发送跳过 todo_id=%s marker=%s", todo.id, already)
@@ -207,7 +233,8 @@ async def bulk_finalize_post_shipping_for_account(
                     steps = await _run_post_ship_steps(page, report, int(todo.id))
                     if bool(steps.get("shipped_ok")):
                         ok += 1
-                        _finalize_todo(todo)
+                        if not _finalize_todo(todo):
+                            failures.append(f"#{todo.id} {item_id}: 已发送但本地状态更新失败（下次批量会重开该交易）")
                         completed.append({"todo_id": int(todo.id), "item_id": item_id})
                     else:
                         fail += 1

@@ -213,8 +213,9 @@ tasks, so closing the page no longer aborts halfway.
   reservation — under-listing is recoverable, duplicate listing is not.
 - Ordering: since the worker is FIFO, a sync task submitted after listings naturally waits for them.
   `mercari_auto_fetch_loop` additionally defers while listing tasks are queued (max 30 min).
-- On restart, `running` tasks are marked failed and their reservations released — browser
-  automation is never auto-retried (it may already have clicked 出品する).
+- On restart, `running` tasks are marked failed but their listing reservations are **kept**
+  (released only by the TTL sweep) — a hard crash cannot tell whether 出品する was already
+  clicked, and browser automation is never auto-retried.
 
 ## Environment Variables
 

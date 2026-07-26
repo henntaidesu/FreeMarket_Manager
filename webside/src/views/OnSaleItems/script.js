@@ -3,7 +3,7 @@ import { ElMessageBox } from 'element-plus'
 import { ElMessage } from '@/utils/notify'
 import { Download, Refresh, Loading, WarningFilled, Check } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
-import { onSaleItemApi, mercariAccountApi, webDriveApi, inventoryApi, TASK_TYPES } from '@/api/index.js'
+import { onSaleItemApi, mercariAccountApi, inventoryApi, TASK_TYPES } from '@/api/index.js'
 import { submitTask, submitTasks } from '@/utils/taskSubmit.js'
 import { parseMgmtIdsFromDescription, isCipherMgmtLine } from '@/utils/mgmtIdCipher.js'
 import { mercariImageUrlList } from '@/utils/mercariImage.js'
@@ -866,67 +866,23 @@ export default defineComponent({
       }
       if (resumeItemLoading.value) return
 
-      const progressJobId =
-        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-          ? crypto.randomUUID()
-          : `job_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
-
-      let pollTimer = null
-      let lastConsoleStep = ''
-      async function poll() {
-        try {
-          const pr = await onSaleItemApi.getSyncProgress(progressJobId)
-          const zh = pr?.data?.label_zh
-          if (zh) {
-            syncProgressLabel.value = zh
-            if (zh !== lastConsoleStep) {
-              lastConsoleStep = zh
-              console.log('[恢复出售]', zh)
-            }
-          }
-        } catch {
-          /* 轮询失败忽略 */
-        }
-      }
-
-      syncOverlayTitle.value = t('onSaleItems.resumingMercariItem')
-      syncOverlayFailed.value = false
-      syncProgressLabel.value = t('onSaleItems.connectingServer')
-      syncOverlayVisible.value = true
+      // 提交到任务队列即返回（与「下架」一致，不占用前台）；
+      // 同一 item_id 已有恢复在排队时后端会 409 拦截，进度去 /#/tasks 看。
       resumeItemLoading.value = true
-      await poll()
-      pollTimer = setInterval(poll, 400)
-
-      let hadError = false
       try {
-        await webDriveApi.resumeMercariItem({
-          account_key: resolved.accountKey,
-          item_id: iid,
-          use_mitm_proxy: true,
-          progress_job_id: progressJobId,
-        })
-        ElMessage.success(t('onSaleItems.resumeSuccess'))
-        detailViewVisible.value = false
-        await load()
-      } catch (e) {
-        hadError = true
-        syncOverlayTitle.value = t('onSaleItems.resumeFailed')
-        syncOverlayFailed.value = true
-        const msg = e?.response?.data?.detail || e?.message || t('onSaleItems.resumeFailed')
-        syncProgressLabel.value = String(msg)
-        // 绑定库存归零/不足等校验失败：用可关闭的提示明确告知，避免红色遮罩一闪而过
-        ElMessage.error({ message: String(msg), duration: 6000, showClose: true })
+        const task = await submitTask(
+          TASK_TYPES.ON_SALE_RESUME,
+          {
+            account_key: resolved.accountKey,
+            item_id: iid,
+            use_mitm_proxy: true,
+          },
+          { t },
+        )
+        if (task) {
+          detailViewVisible.value = false
+        }
       } finally {
-        if (pollTimer != null) {
-          clearInterval(pollTimer)
-        }
-        if (hadError) {
-          await new Promise((r) => setTimeout(r, 1200))
-        }
-        syncOverlayVisible.value = false
-        syncOverlayTitle.value = t('onSaleItems.syncingFromMercari')
-        syncOverlayFailed.value = false
-        syncProgressLabel.value = ''
         resumeItemLoading.value = false
       }
     }
@@ -954,65 +910,23 @@ export default defineComponent({
       }
       if (suspendItemLoading.value) return
 
-      const progressJobId =
-        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-          ? crypto.randomUUID()
-          : `job_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
-
-      let pollTimer = null
-      let lastConsoleStep = ''
-      async function poll() {
-        try {
-          const pr = await onSaleItemApi.getSyncProgress(progressJobId)
-          const zh = pr?.data?.label_zh
-          if (zh) {
-            syncProgressLabel.value = zh
-            if (zh !== lastConsoleStep) {
-              lastConsoleStep = zh
-              console.log('[暂停出售]', zh)
-            }
-          }
-        } catch {
-          /* 轮询失败忽略 */
-        }
-      }
-
-      syncOverlayTitle.value = t('onSaleItems.suspendingMercariItem')
-      syncOverlayFailed.value = false
-      syncProgressLabel.value = t('onSaleItems.connectingServer')
-      syncOverlayVisible.value = true
+      // 提交到任务队列即返回（与「下架」一致，不占用前台）；
+      // 同一 item_id 已有暂停在排队时后端会 409 拦截，进度去 /#/tasks 看。
       suspendItemLoading.value = true
-      await poll()
-      pollTimer = setInterval(poll, 400)
-
-      let hadError = false
       try {
-        await webDriveApi.suspendMercariItem({
-          account_key: resolved.accountKey,
-          item_id: iid,
-          use_mitm_proxy: true,
-          progress_job_id: progressJobId,
-        })
-        ElMessage.success(t('onSaleItems.suspendSuccess'))
-        detailViewVisible.value = false
-        await load()
-      } catch (e) {
-        hadError = true
-        syncOverlayTitle.value = t('onSaleItems.suspendFailed')
-        syncOverlayFailed.value = true
-        const msg = e?.response?.data?.detail || e?.message || t('onSaleItems.suspendFailed')
-        syncProgressLabel.value = String(msg)
+        const task = await submitTask(
+          TASK_TYPES.ON_SALE_SUSPEND,
+          {
+            account_key: resolved.accountKey,
+            item_id: iid,
+            use_mitm_proxy: true,
+          },
+          { t },
+        )
+        if (task) {
+          detailViewVisible.value = false
+        }
       } finally {
-        if (pollTimer != null) {
-          clearInterval(pollTimer)
-        }
-        if (hadError) {
-          await new Promise((r) => setTimeout(r, 1200))
-        }
-        syncOverlayVisible.value = false
-        syncOverlayTitle.value = t('onSaleItems.syncingFromMercari')
-        syncOverlayFailed.value = false
-        syncProgressLabel.value = ''
         suspendItemLoading.value = false
       }
     }
@@ -1225,7 +1139,6 @@ export default defineComponent({
       useI18n,
       onSaleItemApi,
       mercariAccountApi,
-      webDriveApi,
       parseMgmtIdsFromDescription,
       mercariImageUrlList,
       useMercariAccountStore,

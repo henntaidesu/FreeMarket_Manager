@@ -92,16 +92,26 @@
         <!-- 发货码（仅「已打包」筛选时显示）：点击缩略图弹出大图，大图上方显示订单号 -->
         <el-table-column v-if="filters.packed_only" :label="t('todos.colShipCode')" width="150" align="center" header-align="center">
           <template #default="{ row }">
-            <el-image
-              v-if="row.qr_image_path"
-              class="todo-qr-thumb"
-              :src="mercariImageUrl(row.qr_image_path)"
-              fit="contain"
-              lazy
-              @click="openQrViewer(row)"
-            >
-              <template #error><span class="thumb-fallback">-</span></template>
-            </el-image>
+            <div v-if="row.qr_image_path" class="todo-qr-cell">
+              <el-image
+                class="todo-qr-thumb"
+                :src="mercariImageUrl(row.qr_image_path)"
+                fit="contain"
+                lazy
+                @click="openQrViewer(row)"
+              >
+                <template #error><span class="thumb-fallback">-</span></template>
+              </el-image>
+              <!-- 蓝牙标签机打印发货码 -->
+              <el-button
+                class="todo-qr-print"
+                size="small"
+                :icon="Printer"
+                circle
+                :loading="btPrint.busy && btPrint.busyId === String(row.id)"
+                @click.stop="onPrintRowQr(row)"
+              />
+            </div>
             <span v-else class="thumb-fallback">-</span>
           </template>
         </el-table-column>
@@ -438,6 +448,13 @@
                   fit="contain"
                   class="detail-qr-img"
                 />
+                <!-- 蓝牙标签机打印发货码 -->
+                <div class="detail-qr-print">
+                  <el-button :icon="Printer" :loading="btPrint.busy" @click="onPrintDetailQr">
+                    {{ t('todos.btPrint.print') }}
+                  </el-button>
+                  <el-button :icon="Setting" circle @click="openPrinterSettings" />
+                </div>
               </div>
             </template>
             <!-- 待发送通知（ゆうパケットポスト等：シール读取已完成/別の場所で扫码済み）。
@@ -903,6 +920,13 @@
             <span class="cell-order-no-head">{{ orderNoHead(qrViewer.orderNo) }}</span><span class="cell-order-no-tail">{{ orderNoTail(qrViewer.orderNo) }}</span>
           </div>
           <img :src="qrViewer.src" class="qr-viewer-img" alt="" />
+          <!-- 蓝牙标签机打印发货码 + 打印机设置 -->
+          <div class="qr-viewer-actions">
+            <el-button type="primary" :icon="Printer" :loading="btPrint.busy" @click="onPrintViewerQr">
+              {{ t('todos.btPrint.print') }}
+            </el-button>
+            <el-button :icon="Setting" circle @click="openPrinterSettings" />
+          </div>
         </div>
         <div class="qr-viewer-close" @click="qrViewer.visible = false">×</div>
       </div>

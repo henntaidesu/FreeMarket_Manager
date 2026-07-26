@@ -2,6 +2,8 @@
 """结算记录持久化：保存结算快照、查询已结算区间（用于前端禁选）、列表、删除。"""
 
 import json
+import threading
+import time
 from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, HTTPException
@@ -42,6 +44,16 @@ def _overlaps(start: int, end: int, exclude_id: Optional[int] = None) -> bool:
     return bool(_db.execute_query(sql, tuple(params)))
 
 
+# 结算创建互斥：重叠检查是「先查后插」，并发双击/双开页面会同时通过检查各存一份，
+# 同一区间被结算/支付两次。单进程部署下用进程内锁把检查+落库串行化即可。
+_save_lock = threading.Lock()
+
+
+def _today_local_midnight_ts() -> int:
+    lt = time.localtime()
+    return int(time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1)))
+
+
 def save_settlement(
     body: SettlementSaveBody,
     auth: Dict[str, Any] = Depends(require_auth),
@@ -51,9 +63,13 @@ def save_settlement(
     end = int(body.end)
     if end < start:
         raise HTTPException(status_code=400, detail="结算结束日期不能早于开始日期")
-    if _overlaps(start, end):
-        raise HTTPException(status_code=409, detail="所选日期区间与已结算记录重叠，请重新选择")
-
+    # 只允许结算**已过完**的日期：区间含今天/未来时，之后才完成的订单会落在已结算
+    # 且被永久锁定（禁止重叠重结）的天里，钱悄无声息永远分不出去
+    if end >= _today_local_midnight_ts():
+        raise HTTPException(
+            status_code=400,
+            detail="结算区间只能包含已过完的日期（不含今天），否则今天之后完成的订单将永远无法结算",
+        )
     overall = body.overall or {}
     # 完整明细快照：提交的所有数据都记录，供结算记录详情还原
     detail = {
@@ -85,8 +101,11 @@ def save_settlement(
         detail_json=json.dumps(detail, ensure_ascii=False),
         operator=auth.get("username"),
     )
-    if not rec.save():
-        raise HTTPException(status_code=500, detail="保存结算记录失败")
+    with _save_lock:
+        if _overlaps(start, end):
+            raise HTTPException(status_code=409, detail="所选日期区间与已结算记录重叠，请重新选择")
+        if not rec.save():
+            raise HTTPException(status_code=500, detail="保存结算记录失败")
     return {"ok": True, "id": rec.id}
 
 

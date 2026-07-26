@@ -2,13 +2,15 @@ import { defineComponent, computed, nextTick, onBeforeUnmount, onMounted, reacti
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
 import { ElMessage } from '@/utils/notify'
-import { Loading, Plus, Minus } from '@element-plus/icons-vue'
+import { Loading, Plus, Minus, Printer, Setting } from '@element-plus/icons-vue'
 import { todosApi, costRecordApi, costExpenseApi, orderApi, TASK_TYPES, newClientToken } from '@/api'
 import { submitTask } from '@/utils/taskSubmit.js'
 import { useMercariAccountStore } from '@/stores/mercariAccount.js'
 import { useSyncOverlay } from '@/composables/useSyncOverlay'
 import SyncOverlay from '@/components/SyncOverlay.vue'
 import { mercariImageUrl, mercariImageUrlList } from '@/utils/mercariImage.js'
+import { useRouter } from 'vue-router'
+import { printLabelImage, isBluetoothSupported } from '@/utils/btPrinter/index.js'
 
 export default defineComponent({
   components: {
@@ -19,6 +21,7 @@ export default defineComponent({
   },
   setup() {
     const { t } = useI18n()
+    const router = useRouter()
 
     // 交易详情类「浏览器自动化」操作的等待覆盖
     const txOverlay = useSyncOverlay()
@@ -269,6 +272,37 @@ export default defineComponent({
     function selectedPackagingMeta(itemName) {
       return (packagingItemsOptions.value || []).find((it) => it.item_name === itemName) || null
     }
+    /** 发货前预校验所选包材：拉最新库存，确认每种所选包材仍存在且库存足够。
+     *  原来只在发货完成后记账时才校验，煤炉侧已不可撤回；提前到点「确认并发送」前拦截。 */
+    async function validatePackagingBeforeShip() {
+      const counts = new Map()
+      for (const r of shipPackagingRows.value || []) {
+        const name = String(r?.item_name || '').trim()
+        if (!name || name === PACKAGING_ITEM_NONE) continue
+        counts.set(name, (counts.get(name) || 0) + 1)
+      }
+      if (!counts.size) return true
+      await loadPackagingItemOptions()
+      // 选项拉取失败（网络错误时置空数组）：报「无法获取库存」而不是误导性的「库存不足」
+      if (!(packagingItemsOptions.value || []).length) {
+        ElMessage.error(t('todos.packagingStockUnknown'))
+        return false
+      }
+      // 记账按「每个关联订单各记一份」（见 commitShipPackagingAndOutbound），需求量要乘订单数
+      const orderCount = Math.max(
+        1,
+        [...new Set((invMatch.order_nos || []).map((x) => String(x || '').trim()).filter(Boolean))].length,
+      )
+      for (const [name, qty] of counts) {
+        const meta = selectedPackagingMeta(name)
+        const stock = Number(meta?.quantity || 0)
+        if (!meta || stock < qty * orderCount) {
+          ElMessage.error(t('todos.packagingStockShort', { name, stock }))
+          return false
+        }
+      }
+      return true
+    }
     /** 归一化包材行：选「不选择包材」时独占一行；否则保留已选行（不再自动追加空行，
      *  新增下拉由用户点「+」显式添加），且至少保留一行（可为空）供首次选择。 */
     function normalizePackagingRows() {
@@ -414,8 +448,14 @@ export default defineComponent({
           for (const [name, qty] of counts) {
             try {
               const meta = selectedPackagingMeta(name)
-              // 单价取库存包材配置金额；后端要求单价为正整数（0 会被拒绝），故最低为 1
-              const unitPrice = Math.max(1, Number(meta?.amount || 0))
+              // 单价取库存包材配置金额；取不到（选项未加载/该包材已下架或库存归零）时
+              // 不能悄悄按 ¥1 记账——计入失败并跳过，让用户到订单页手动补记
+              const unitPrice = Number(meta?.amount || 0)
+              if (!(unitPrice > 0)) {
+                packFail += 1
+                console.error('[包材同步] 单价缺失（包材选项未加载或该包材已不存在）', ono, name)
+                continue
+              }
               await costExpenseApi.create({ order_no: ono, item_name: name, quantity: qty, unit_price: unitPrice })
             } catch (e) {
               packFail += 1
@@ -478,9 +518,13 @@ export default defineComponent({
       return !invMatch.loading && !hasLocalInventoryImages.value
     })
 
+    // 反查请求代次：切换待办后丢弃前一单的慢响应，防止 A 单的 order_nos 覆盖到 B 单
+    // （发货时 commitShipPackagingAndOutbound 按 invMatch.order_nos 记包材/出库，串单会记错订单）
+    let invMatchSeq = 0
     async function loadInventoryMatch(itemId) {
       const iid = String(itemId || '').trim()
       if (!iid) return
+      const seq = ++invMatchSeq
       resetInvMatch()
       resetShipCommit()
       // 恢复用户上次为该商品选择的包材（localStorage 缓存）
@@ -488,6 +532,7 @@ export default defineComponent({
       invMatch.loading = true
       try {
         const res = await todosApi.matchInventory(iid)
+        if (seq !== invMatchSeq) return
         invMatch.inventory = Array.isArray(res?.inventory) ? res.inventory : []
         invMatch.order_nos = Array.isArray(res?.order_nos) ? res.order_nos : []
         // 预载包材选项 + 关联订单出库明细，供发货成功后同步到 /#/orders
@@ -497,7 +542,7 @@ export default defineComponent({
         // 反查失败不打断处理流程，仅记录
         console.error('[库存反查]', e?.message || e)
       } finally {
-        invMatch.loading = false
+        if (seq === invMatchSeq) invMatch.loading = false
       }
     }
 
@@ -769,12 +814,15 @@ export default defineComponent({
       if (bulkReviewLoading.value || syncLoading.value) return
 
       // 先统计候选数量（仅用于二次确认提示；真正的逐条编排在后端按账号分组复用浏览器执行）
+      // 后端 page_size 上限 200：返回被截断时用后端 total 兜底，避免超过 200 条时少报
       let candidateCount = 0
       try {
-        const res = await todosApi.list({ page: 1, page_size: 500, kind: 'ReviewedSeller' })
-        candidateCount = (res?.items || []).filter(
+        const res = await todosApi.list({ page: 1, page_size: 200, kind: 'ReviewedSeller' })
+        const items = res?.items || []
+        candidateCount = items.filter(
           (r) => !r.is_delete && String(r.title || '').trim() === '評価をしてください',
         ).length
+        if (Number(res?.total || 0) > items.length) candidateCount = Number(res.total)
       } catch (e) {
         ElMessage.error(e?.message || t('todos.loadFailed'))
         return
@@ -809,11 +857,12 @@ export default defineComponent({
     async function runBulkConfirmShip() {
       if (bulkConfirmShipLoading.value || syncLoading.value) return
 
-      // 统计「已打包」候选数量（packed_only 只取已打包行，再逐行按 isPackedRow 判定）
+      // 统计「已打包」候选数量：packed_only 服务端即按已打包条件过滤（与批量执行集同口径），
+      // 直接用后端 total，超过单页上限（200）也不少报
       let candidateCount = 0
       try {
-        const res = await todosApi.list({ page: 1, page_size: 500, packed_only: true })
-        candidateCount = (res?.items || []).filter((r) => isPackedRow(r)).length
+        const res = await todosApi.list({ page: 1, page_size: 200, packed_only: true })
+        candidateCount = Number(res?.total || 0) || (res?.items || []).filter((r) => isPackedRow(r)).length
       } catch (e) {
         ElMessage.error(e?.message || t('todos.loadFailed'))
         return
@@ -945,6 +994,47 @@ export default defineComponent({
       qrViewer.visible = true
     }
 
+    // ===== 蓝牙标签打印（德佟 P2，ESC-POS 光栅，见 docs/蓝牙标签打印-方案.md）=====
+    const btPrint = reactive({ busy: false, busyId: '' })
+
+    /** 打印一张发货码图片。必须由点击直接触发（requestDevice 需要用户手势） */
+    async function printQrImage(url, busyId = '') {
+      if (!url) return
+      if (!isBluetoothSupported()) {
+        ElMessage.error(t('todos.btPrint.notSupported'))
+        return
+      }
+      if (btPrint.busy) return
+      btPrint.busy = true
+      btPrint.busyId = busyId
+      try {
+        await printLabelImage(url)
+        ElMessage.success(t('todos.btPrint.sent'))
+      } catch (e) {
+        // 用户在系统设备选择框点了取消 → 不当作错误
+        if (e?.name !== 'NotFoundError') {
+          ElMessage.error(t('todos.btPrint.fail') + ': ' + (e?.message || e))
+        }
+      } finally {
+        btPrint.busy = false
+        btPrint.busyId = ''
+      }
+    }
+    function onPrintRowQr(row) {
+      printQrImage(mercariImageUrl(row?.qr_image_path), String(row?.id || ''))
+    }
+    function onPrintViewerQr() {
+      printQrImage(qrViewer.src)
+    }
+    function onPrintDetailQr() {
+      printQrImage(mercariImageUrl(detail.qr_image_url))
+    }
+
+    /** 打印机参数/连接管理统一在 系统管理 → 二维码设置 页调整 */
+    function openPrinterSettings() {
+      router.push('/system/qr-print')
+    }
+
     // 是否「已打包」行（待发货 + 已发行发货二维码/条形码）。与 kindLabel 的「已打包」判定一致：
     // 「待反馈」/ 待收货(Shipped) 优先，不算已打包。已打包在列表里显示橙色底色（见 style.css）。
     function isPackedRow(row) {
@@ -989,13 +1079,25 @@ export default defineComponent({
       if (!nums || !nums.length) return 0
       return Math.max(...nums.map(Number))
     }
-    // 发货截止时刻(ms)：下单时间(mercari_created，回落 mercari_updated) + 最大天数。无法推算返回 0
+    // 发货截止时刻(ms)：下单日（JST）起第 N 天的 JST 日终（23:59:59.999）。
+    // 煤炉的発送期限按「日」计（到第 N 天 JST 当天结束），不是下单时刻 + N*24h；
+    // 后者会比真实期限早最多近一天，导致提前标红「已超时」。与后端 _ship_deadline_ts 同口径。
+    const JST_OFFSET_MS = 9 * 3600 * 1000
+    const DAY_MS = 24 * 3600 * 1000
     function shipDeadlineTs(row) {
+      // 仅对「待发货」行计算：shipping_duration 抓取时写入同交易的所有待办行，
+      // 待回复/待评价行也带该值——那不是它们的期限，不显示倒计时也不参与排序
+      const title = String(row?.title || '').trim()
+      const isWaitShipping =
+        title === WAIT_SHIPPING_TITLE ||
+        KIND_LABEL_KEYS[String(row?.kind || '').trim()] === 'todos.kind.waitShipping'
+      if (!isWaitShipping) return 0
       const days = parseMaxShippingDays(row?.shipping_duration)
       if (!days) return 0
       const base = Number(row?.mercari_created || row?.mercari_updated || 0)
       if (!base) return 0
-      return base + days * 24 * 3600 * 1000
+      const jstDayStart = Math.floor((base + JST_OFFSET_MS) / DAY_MS) * DAY_MS
+      return jstDayStart + (days + 1) * DAY_MS - 1 - JST_OFFSET_MS
     }
     // 剩余毫秒（可为负=已超时）；无法推算返回 null
     function shipRemainingMs(row) {
@@ -1157,6 +1259,12 @@ export default defineComponent({
         ElMessage.warning(t('todos.updateOrderFirst'))
         return
       }
+      // 必须先选包材（或显式选「不选择包材」）。按钮 :disabled 已拦一层，
+      // 这里函数级再拦一层，防止键盘/编程路径绕过
+      if (isWaitShipping.value && !hasPackagingSelected.value) {
+        ElMessage.warning(t('todos.pickPackagingFirst'))
+        return
+      }
       // 仅弹本地尺寸选择框，不开浏览器；尺寸列表是前端硬编码（按 shipping_method_name 区分）。
       // 用户选好尺寸/发货地点「确认并发送」后，才由 confirmShippingSelection 一并打开浏览器、
       // 点「商品サイズと発送場所を選択する」入口并完成后续选择。
@@ -1181,6 +1289,10 @@ export default defineComponent({
       // それ以外（需选发货地的方法）は完了後、返回交易ページ发行 发送用 QR/条形码（无需摄像头）。
       const wantScanQr = !!opt.auto_finish_no_facility
       const wantGenerateCode = needsFacility
+
+      // 发货动作在煤炉侧不可撤回：出发前先校验所选包材仍存在且库存足够，
+      // 不足现在就拦，而不是发完货记账时才报「库存不足」
+      if (!(await validatePackagingBeforeShip())) return
 
       // ゆうパケットポスト系：整条链路（选尺寸 → 完了する → 进扫描页 → 喂图 → 発送通知）
       // 都交给后台任务。这里**不发任何请求**，点完立刻进拍照——原来那个几十秒的全屏转圈
@@ -1207,11 +1319,26 @@ export default defineComponent({
               progress_job_id: jobId,
             }),
         })
+        // 出码分支：后端在没抓到二维码时也会返回 success（qr_image_url 为空）——
+        // 此时实际未出码、未打包，不能提示成功，更不能记包材/出库
+        if (wantGenerateCode && !result?.qr_image_url) {
+          ElMessage.error(t('todos.shipCodeMissing'))
+          return
+        }
         ElMessage.success(t('todos.shippingDone', { classText }))
         shippingDialogVisible.value = false
-        // 「确认并发送」成功（返回二维码/条形码/发送确认等，各分支均视为已发货）→
-        // 立即把所选包材同步到关联订单，并把关联物品自动出库到 /#/orders
-        await commitShipPackagingAndOutbound()
+        // 「确认并发送」成功 → 把所选包材同步到关联订单，并把关联物品自动出库到 /#/orders。
+        // 同一待办只记一次（修改发货方式后重新出码不重复记账，与 submitQrShot 同一 Set）
+        if (!shipCommittedIds.has(currentRow.value.id)) {
+          shipCommittedIds.add(currentRow.value.id)
+          try {
+            await commitShipPackagingAndOutbound()
+          } catch {
+            // 记账整体失败：撤销防重标记（下次重试还能记），并显式提醒手动处理
+            shipCommittedIds.delete(currentRow.value.id)
+            ElMessage.warning(t('todos.packagingSyncFailed'))
+          }
+        }
         if (wantScanQr && result?.qr_scanner_open) {
           // 后端已自动打开 /qr_code_scanner → 开镜像弹窗轮询视频帧
           startQrScanMirror(currentRow.value.id)
@@ -1345,7 +1472,11 @@ export default defineComponent({
           shipCommittedIds.add(id)
           try {
             await commitShipPackagingAndOutbound()
-          } catch { /* 记账失败不影响已入队的发货任务 */ }
+          } catch {
+            // 记账整体失败：撤销防重标记（重拍重提还能记），并显式提醒手动处理
+            shipCommittedIds.delete(id)
+            ElMessage.warning(t('todos.packagingSyncFailed'))
+          }
         }
         qrScanVisible.value = false
         stopQrCamera()
@@ -1519,8 +1650,11 @@ export default defineComponent({
             todosApi.reviseShippingAfterQr(currentRow.value.id, { progress_job_id: jobId }),
         })
         if (result?.success !== false) {
-          // 清除二维码，恢复原本发货方式选择（UI 自动切回选尺寸/改方式布局）
+          // 清除二维码，恢复原本发货方式选择（UI 自动切回选尺寸/改方式布局）。
+          // currentRow.qr_image_path 也要清，否则 isPackedDetail 仍为 true：
+          // 包材/发货表单保持隐藏，从「已打包」筛选进来的行发货按钮会一直不可用。
           detail.qr_image_url = ''
+          if (currentRow.value) currentRow.value.qr_image_path = ''
           loadDetailCache()
           ElMessage.success(t('todos.reviseQrDone'))
         }
@@ -1858,6 +1992,13 @@ export default defineComponent({
       qrViewer,
       openQrViewer,
       openShipQrPhoto,
+      Printer,
+      Setting,
+      btPrint,
+      onPrintRowQr,
+      onPrintViewerQr,
+      onPrintDetailQr,
+      openPrinterSettings,
       shipQrPhotoUrl,
       shipQrFailed,
       isShipQrActive,

@@ -81,6 +81,28 @@ async def send_message_reaction_by_index(
     except Exception:
         page = None
 
+    if page is not None and item_id:
+        # __todo 浏览器按账号共享，可能停留在**另一笔交易**页（有头残留会话不会被上面关闭）。
+        # 「+」反应按钮在任何有买家消息的交易页都存在，reaction_index 又是按本待办缓存
+        # 计算的——不校验 URL 会把表情点在别的交易的任意消息上。不匹配则先导航过去。
+        current = ""
+        try:
+            current = page.url or ""
+        except Exception:
+            current = ""
+        if item_id not in current:
+            log.warning(
+                "[reaction] 当前页面 (%s) 不是目标交易页 (item_id=%s)，先导航", current, item_id
+            )
+            try:
+                await page.goto(
+                    f"https://jp.mercari.com/transaction/{item_id}",
+                    wait_until="domcontentloaded",
+                )
+                await asyncio.sleep(1.5)
+            except Exception as exc:
+                raise RuntimeError("导航到交易页失败，请重试") from exc
+
     if page is None:
         # 浏览器未打开（待回复面板走缓存 / 上一步已关掉无头会话）：以**有头+最小化**
         # 方式打开交易页（在任务栏运行，不在桌面弹出）。进入上下文即打开并导航；退出
@@ -187,6 +209,8 @@ async def send_message_reaction_by_index(
         report("finalize", "已发送反应，正在收尾并关闭浏览器…")
         try:
             todo.is_delete = 1
+            # 本地完成标记（通用防复活，不限发货类）：煤炉陈旧列表返回同 uuid 时保持隐藏
+            todo.shipped_finalized = 1
             todo.synced_at = int(time.time() * 1000)
             todo.save()
             log.info("[reaction] IncomingMessage 已软删 todo_id=%s", todo_id)

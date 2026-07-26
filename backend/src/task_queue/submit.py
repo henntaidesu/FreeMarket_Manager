@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Dict, Optional, Tuple
 
@@ -80,12 +81,17 @@ def submit_task(
     on_reserve = None
     on_rollback = None
     reserved_qty = 0
+    reserved_ids_json: Optional[str] = None
     if spec.task_type == registry.INVENTORY_LISTING:
-        inventory_ids = [int(x) for x in (data.get("inventory_ids") or []) if x is not None]
+        # 去重保序：重复 id 会让 reserve 对同一商品占用多件，绕过「可上架不足即拒绝」闸门
+        inventory_ids = list(dict.fromkeys(
+            int(x) for x in (data.get("inventory_ids") or []) if x is not None
+        ))
         if not inventory_ids:
             raise ValueError("出品任务缺少 inventory_ids")
         data["inventory_ids"] = inventory_ids
         reserved_qty = len(inventory_ids)
+        reserved_ids_json = json.dumps(inventory_ids)
         # 预扣减在 store.enqueue 的入队锁内执行，与写任务行构成原子段：
         # 可上架不足 → 抛错 → 任务行根本不会产生
         on_reserve = lambda: reserve(inventory_ids)  # noqa: E731
@@ -102,6 +108,7 @@ def submit_task(
         user_id=user_id,
         username=username,
         reserved_qty=reserved_qty,
+        reserved_ids=reserved_ids_json,
         on_reserve=on_reserve,
         on_rollback=on_rollback,
     )

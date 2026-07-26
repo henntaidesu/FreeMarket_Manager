@@ -21,11 +21,16 @@ COMPLETED_STATUS = "done"
 
 
 def _time_col(by_purchase_time: bool) -> str:
-    """与 OrderModel._build_list_filter 一致的时间列口径。"""
+    """结算时间列口径：优先写一次不再变的 completed_at。
+
+    order_updated_at 会被煤炉刷新反复覆盖：用它筛选，已结算区间内的订单会在刷新后
+    「漂」进未结算区间被二次分账，或反向漂进已锁定区间永远结不到。与
+    OrderModel.aggregate_sums(use_completed_time=True) 同口径。
+    """
     return (
         "o.purchase_time"
         if by_purchase_time
-        else "COALESCE(o.order_updated_at, o.purchase_time, o.order_date)"
+        else "COALESCE(o.completed_at, o.order_updated_at, o.purchase_time, o.order_date)"
     )
 
 
@@ -97,6 +102,7 @@ def settlement_summary(
             end_ts=end,
             owner_user_id=oid,
             by_purchase_time=by_purchase_time,
+            use_completed_time=not by_purchase_time,
         )
         net = int(agg.get("sum_net_income") or 0)
         assigned_net += net
@@ -109,6 +115,7 @@ def settlement_summary(
                 end_ts=end,
                 owner_user_id=oid,
                 by_purchase_time=by_purchase_time,
+                use_completed_time=not by_purchase_time,
             )
             or 0
         )
@@ -133,6 +140,7 @@ def settlement_summary(
         start_ts=start,
         end_ts=end,
         by_purchase_time=by_purchase_time,
+        use_completed_time=not by_purchase_time,
     )
     overall_net = int(overall.get("sum_net_income") or 0)
     overall_packaging = int(
@@ -141,6 +149,7 @@ def settlement_summary(
             start_ts=start,
             end_ts=end,
             by_purchase_time=by_purchase_time,
+            use_completed_time=not by_purchase_time,
         )
         or 0
     )

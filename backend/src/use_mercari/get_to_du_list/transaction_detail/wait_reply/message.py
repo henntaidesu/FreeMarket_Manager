@@ -40,6 +40,28 @@ async def _send_chat_message(aid: int, item_id: str, body: str, *, report) -> No
     except Exception:
         page = None
 
+    if page is not None:
+        # __todo 浏览器按账号共享，上一个流程可能停留在**另一笔交易**页上；
+        # 聊天输入框在每个交易页都存在，不校验 URL 会把回复发进错误的交易。
+        # 与 ship_finalize._ensure_transaction_page 同口径：不匹配则先导航过去。
+        current = ""
+        try:
+            current = page.url or ""
+        except Exception:
+            current = ""
+        if item_id not in current:
+            log.warning(
+                "[reply] 当前页面 (%s) 不是目标交易页 (item_id=%s)，先导航", current, item_id
+            )
+            try:
+                await page.goto(
+                    f"https://jp.mercari.com/transaction/{item_id}",
+                    wait_until="domcontentloaded",
+                )
+                await asyncio.sleep(1.5)
+            except Exception as exc:
+                raise RuntimeError("导航到交易页失败，请重试") from exc
+
     if page is None:
         # 浏览器未打开（待回复面板走缓存、未开浏览器）：自动打开交易页。
         # 进入上下文即打开并导航；退出不关闭，浏览器保持打开供下方填表/点发送。
@@ -94,6 +116,35 @@ async def _send_chat_message(aid: int, item_id: str, body: str, *, report) -> No
         len(body),
     )
 
+    # 发送确认：成功后煤炉会清空输入框并把消息渲染进聊天流，两个信号任一命中即视为已发送。
+    # 超时未确认则抛错——调用方不会把待办标记完成，避免「点了但没发出去」被静默当成功
+    # （待办软删后买家实际没收到回复、且再无重试入口）。
+    report("confirm_send", "正在确认消息已发送…")
+    snippet = body.splitlines()[0][:30] if body.splitlines() else ""
+    confirmed = False
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        try:
+            val = await textarea.first.input_value()
+        except Exception:
+            val = None
+        if val == "":
+            confirmed = True
+            break
+        try:
+            text_now = await page.inner_text("body")
+        except Exception:
+            text_now = ""
+        if snippet and snippet in text_now:
+            confirmed = True
+            break
+        await asyncio.sleep(0.5)
+    if not confirmed:
+        raise RuntimeError(
+            "已点击发送，但未确认消息已发出（输入框未清空且消息未出现在聊天记录）。"
+            "请打开交易页人工确认后再试。"
+        )
+
 
 async def send_transaction_message(
     todo_id: int,
@@ -132,6 +183,8 @@ async def send_transaction_message(
         await asyncio.sleep(1.5)
         try:
             todo.is_delete = 1
+            # 本地完成标记（通用防复活，不限发货类）：煤炉陈旧列表返回同 uuid 时保持隐藏
+            todo.shipped_finalized = 1
             todo.synced_at = int(time.time() * 1000)
             todo.save()
             log.info("[reply] IncomingMessage 已软删 todo_id=%s", todo_id)

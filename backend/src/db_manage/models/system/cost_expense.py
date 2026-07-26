@@ -48,6 +48,21 @@ class CostExpenseModel(BaseModel):
                 'not_null': True,
                 'default': 0,
             },
+            # 本行实际扣减的包材物理库存数。多归属人拆分时 quantity=1 只承载金额分摊，
+            # 物理件数按金额权重拆到 stock_qty（行合计=实际扣减数）；删除/编辑按此归还。
+            # NULL（历史行）时回退用 quantity。
+            'stock_qty': {
+                'type': 'INTEGER',
+                'not_null': False,
+                'default': None,
+            },
+            # 扣减时命中的 cost_records 行 id：归还优先落回同一行（该行已删则回退最新行），
+            # 避免中途新增同名采购记录后归还落错行。NULL（历史行）时归还到最新行。
+            'source_record_id': {
+                'type': 'INTEGER',
+                'not_null': False,
+                'default': None,
+            },
             'owner': {
                 'type': 'TEXT',
                 'not_null': False,

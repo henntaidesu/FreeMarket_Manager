@@ -61,6 +61,8 @@ def update_order(oid: int, data: OrderUpdate):
         raise HTTPException(status_code=404, detail="订单不存在")
 
     old_status = str(item.status or "").strip()
+    old_order_no = str(item.order_no or "").strip()
+    old_description = str(item.description or "")
     if data.order_no is not None:
         item.order_no = _normalize_order_no(data.order_no)
     if data.order_date is not None:
@@ -117,12 +119,34 @@ def update_order(oid: int, data: OrderUpdate):
     if not item.save():
         raise HTTPException(status_code=400, detail="更新失败，订单号可能重复")
     new_status = str(item.status or "").strip()
-    # 订单被取消：把已预扣/已出库占用的库存回吐（须在重建出库行之前，趁占用标记尚在）
+    # 订单被取消：把已预扣/已出库占用的库存回吐（须在重建出库行之前，趁占用标记尚在），
+    # 并回滚包材支出（归还包材库存、恢复净收益），避免残留支出与幻影扣减
     if old_status != "cancelled" and new_status == "cancelled":
         restock_order_holding_lines(
             item.order_no, reason=f"订单取消回吐 {item.order_no}"
         )
-    sync_outbound_lines_for_order(item.order_no, item.description)
+        from ...system.cost_expenses.units.cost_expenses_helpers import (
+            reverse_packaging_expenses_for_order,
+        )
+        if reverse_packaging_expenses_for_order(item.order_no):
+            # 净收益在回滚中被另一实例更新过：重读本行，避免返回过期 net_income
+            refreshed = OrderModel.find_by_id(id=oid)
+            if refreshed:
+                item = refreshed
+    # 仅在商品说明（或订单号）实际变化时重建出库明细。原来任意字段编辑（改备注等）都
+    # 触发重建：重建会把手动改绑/归属转化的行按说明 token 弹回旧库存、丢失出库状态携带，
+    # 已扣库存的行变回待出库后会被再次出库（双扣）。需要强制重建时用「重新匹配商品」。
+    if (
+        str(item.description or "") != old_description
+        or str(item.order_no or "").strip() != old_order_no
+    ):
+        sync_outbound_lines_for_order(item.order_no, item.description)
+    elif "amount" in data.model_fields_set:
+        # 说明未变但金额变了：货物比例（ratio_price）按 orders.amount 分摊，
+        # 不重建明细也必须重算比例，否则各归属人金额/包材拆分一直用旧金额
+        from .order_goods_ratio import recompute_and_store_order_ratio
+
+        recompute_and_store_order_ratio(str(item.order_no or "").strip())
     if old_status != new_status:
         refresh_inventory_pending_outbound_qty(_inventory_ids_for_order(item.order_no))
     return item.to_dict()
@@ -151,6 +175,11 @@ def delete_order(oid: int):
         restock_order_holding_lines(ono, reason=f"订单删除回吐 {ono}")
         OrderOutboundLineModel.delete_all("[order_no] = ?", (ono,))
         refresh_inventory_pending_outbound_qty(touched_ids)
+        # 一并清掉该订单的包材支出并归还包材库存，不留无法编辑的孤儿支出
+        from ...system.cost_expenses.units.cost_expenses_helpers import (
+            reverse_packaging_expenses_for_order,
+        )
+        reverse_packaging_expenses_for_order(ono)
     if not item.delete():
         raise HTTPException(status_code=500, detail="删除失败")
     return {"message": "删除成功"}

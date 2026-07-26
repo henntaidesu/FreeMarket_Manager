@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from ...ssl_mitm_proxy.capture_config import (
     clear_todolist_response_file,
@@ -34,8 +34,12 @@ async def capture_todolist_via_mitm_session(
     auto_key: str,
     *,
     since_ms: int,
-) -> List[Dict[str, Any]]:
+) -> Tuple[List[Dict[str, Any]], bool]:
     """轮询截获 MITM 写入的 todolist 响应 → 必要时滚动加载更多页。
+
+    返回 ``(items, complete)``：``complete=False`` 表示分页中途失败（响应体异常 /
+    滚动失败 / 触顶 _MAX_PAGES 仍有 nextPageToken），列表**不完整**——调用方不得
+    据此软删「本次未出现」的行，否则后几页的待办会被整批误标已完成。
 
     调用方需在打开浏览器**之前**先 ``clear_todolist_response_file()``
     并取 ``since_ms=int(time.time()*1000)``，否则浏览器首次请求的响应会被
@@ -44,6 +48,7 @@ async def capture_todolist_via_mitm_session(
     items: List[Dict[str, Any]] = []
     page_no = 0
     cur_since_ms = since_ms
+    complete = False
     while page_no < _MAX_PAGES:
         page_no += 1
         data = await wait_mitm_capture(
@@ -64,6 +69,7 @@ async def capture_todolist_via_mitm_session(
             items.extend(chunk)
         next_token = str(body.get("nextPageToken") or "").strip()
         if not next_token:
+            complete = True
             break
         # 滚动到底部触发前端请求下一页（MITM 接住后写入新文件）
         log.info(
@@ -82,5 +88,8 @@ async def capture_todolist_via_mitm_session(
         # 给 SPA 一点时间发起下一个请求
         await asyncio.sleep(0.5)
 
-    log.info("[todolist] 抓取完成，共 %d 条（%d 页）", len(items), page_no)
-    return items
+    log.info(
+        "[todolist] 抓取完成，共 %d 条（%d 页）%s",
+        len(items), page_no, "" if complete else "（不完整：中途失败或超过页数上限）",
+    )
+    return items, complete

@@ -271,16 +271,20 @@ async def _relist_single_inventory(
     if int(getattr(inv, "auto_listing_enabled", 0) or 0) != 1:
         return
 
-    quantity = int(getattr(inv, "quantity", 0) or 0)
-    on_sale = int(getattr(inv, "on_sale_quantity", 0) or 0)
-    pending = int(getattr(inv, "pending_outbound_qty", 0) or 0)
+    # 用权威口径 listable_quantity（先重算再读）：它额外扣掉了任务队列的出品预扣
+    # （pending_listing_qty）与组合商品占用。自行拼公式会漏掉这两项——已有排队中的
+    # 出品任务时 auto_relist 仍以为有余量，绕过队列直接补挂 → 重复上架。
+    from .inventory_counters import recompute_listable_quantity
+
+    recompute_listable_quantity([int(inventory_id)])
+    inv = InventoryModel.find_by_id(id=inventory_id) or inv
+    listable = int(getattr(inv, "listable_quantity", 0) or 0)
     unsynced = _unsynced_relist_count(inventory_id)
-    available = quantity - on_sale - pending - unsynced
+    available = listable - unsynced
     if available <= 0:
         log.info(
-            "[auto_relist] 商品 %s 无剩余可售库存"
-            "（quantity=%s on_sale=%s pending=%s 未同步补挂=%s），跳过",
-            inventory_id, quantity, on_sale, pending, unsynced,
+            "[auto_relist] 商品 %s 无剩余可售库存（listable=%s 未同步补挂=%s），跳过",
+            inventory_id, listable, unsynced,
         )
         return
 

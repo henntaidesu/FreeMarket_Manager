@@ -52,3 +52,9 @@
 .qr-viewer-close:hover {
   background: rgba(255, 255, 255, 0.28);
 }
+/* 大图下方：打印发货码 + 打印机设置 */
+.qr-viewer-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}

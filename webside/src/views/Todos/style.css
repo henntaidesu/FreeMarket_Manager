@@ -80,6 +80,13 @@
   cursor: pointer;
   filter: blur(4px);
 }
+/* 发货码缩略图 + 蓝牙打印按钮 */
+.todo-qr-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
 .cell-title {
   font-weight: 600;
   margin-bottom: 4px;
@@ -962,6 +969,13 @@
   border: 1px solid var(--el-border-color);
   border-radius: 6px;
   background: #fff;
+}
+/* 详情发货码下方：蓝牙打印 + 打印机设置 */
+.detail-qr-print {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 /* 「已扫码」行标记与扫码时间（已扫码筛选下的核对信息） */

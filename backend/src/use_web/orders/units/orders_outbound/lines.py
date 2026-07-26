@@ -40,6 +40,16 @@ def restock_order_holding_lines(order_no: str, *, reason: str) -> None:
             continue
         inv_id = int(line.inventory_id)
         qty = max(1, int(line.quantity or 1))
+        # 先原子清除占用标记（认领）：并发的取消/删除两路都读到旧标记时，只有一个命中，
+        # 防止同一行被回吐两次；也替代 line.save()（对已删行会重插旧行）。
+        claimed = db.execute_update(
+            "UPDATE [order_outbound_lines] "
+            "SET [is_stocked_out] = 0, [stocked_out_at] = NULL, [stock_deducted] = 0 "
+            "WHERE [id] = ? AND (COALESCE([is_stocked_out], 0) = 1 OR COALESCE([stock_deducted], 0) = 1)",
+            (int(line.id),),
+        )
+        if claimed <= 0:
+            continue
         inv_rows = db.execute_query(
             "SELECT [warehouse_id] FROM [inventory] WHERE [id] = ? LIMIT 1", (inv_id,)
         )
@@ -62,11 +72,6 @@ def restock_order_holding_lines(order_no: str, *, reason: str) -> None:
                 pass
         # 组合商品：反向级联回吐来源子商品物理库存（普通商品为空操作）
         cascade_combined_child_restock(inv_id, qty, reason=reason)
-        # 清除占用标记，防止二次回吐
-        line.is_stocked_out = 0
-        line.stocked_out_at = None
-        line.stock_deducted = 0
-        line.save()
         touched.append(inv_id)
     if touched:
         refresh_inventory_pending_outbound_qty(list(set(touched)))
@@ -276,12 +281,10 @@ def convert_outbound_line_owner(
                     raise HTTPException(status_code=400, detail="原库存不足（并发变更），请重试")
                 new_qty_value = qty
             else:
-                # 已出库或已预扣：账面上这 qty 已被占用，原库存先回吐再用新库存扣减
-                cur.execute(
-                    "UPDATE [inventory] SET [quantity] = COALESCE([quantity], 0) + ? WHERE [id] = ?",
-                    (qty, src_id),
-                )
-                # 新库存先以 qty 起始（克隆），再立刻扣减 qty 占用，结果为 0
+                # 已出库或已预扣：这 qty 的物理扣减已发生在原库存上，占用随明细行迁移到新库存。
+                # 原库存**不回吐**（回吐又不从新库存扣，等于凭空多出 qty 件幻影库存）；
+                # 新库存以 0 起始（= 克隆 qty 件后立刻被占用扣光）。取消回吐时按行指向
+                # 的新库存 +qty，总量守恒。
                 new_qty_value = 0
 
             cur.execute(
@@ -359,50 +362,66 @@ def stock_out_order_outbound_line(line_id: int, data: OutboundStockOutBody):
         raise HTTPException(status_code=404, detail="库存商品不存在")
     current_qty = int(inv_rows[0][0] or 0)
     warehouse_id = inv_rows[0][1]
-    if int(line.stock_deducted or 0) == 0:
-        if current_qty < qty:
-            raise HTTPException(status_code=400, detail=f"库存不足，当前库存：{current_qty}")
-        # 原子扣减：条件 UPDATE 保证并发下不超卖（库存不足时本语句不命中行）
-        updated = db.execute_update(
-            """
-            UPDATE [inventory]
-            SET [quantity] = COALESCE([quantity], 0) - ?,
-                [pending_outbound_qty] = CASE
-                    WHEN COALESCE([pending_outbound_qty], 0) >= ? THEN COALESCE([pending_outbound_qty], 0) - ?
-                    ELSE 0
-                END
-            WHERE [id] = ? AND COALESCE([quantity], 0) >= ?
-            """,
-            (qty, qty, qty, inv_id, qty),
-        )
-        if updated <= 0:
-            raise HTTPException(status_code=400, detail=f"库存不足，当前库存：{current_qty}")
-        if warehouse_id is not None:
-            db.execute_insert(
-                """
-                INSERT INTO [transactions] (
-                    type, inventory_id, warehouse_id, quantity, remark, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    "out",
-                    inv_id,
-                    warehouse_id,
-                    qty,
-                    (data.remark or "").strip() or f"订单手动出库 {line.order_no} / line#{line.id}",
-                    int(time.time()),
-                ),
-            )
-        # 组合商品：套数已扣减，级联扣减来源子商品物理库存（普通商品为空操作）
-        cascade_combined_child_deduction(
-            inv_id, qty,
-            reason=(data.remark or "").strip() or f"组合售出级联扣减 {line.order_no} / line#{line.id}",
-        )
 
-    line.is_stocked_out = 1
-    line.stocked_out_at = int(time.time())
-    if not line.save():
-        raise HTTPException(status_code=500, detail="写入出库状态失败")
+    # 原子认领本行（0→1）：并发重复请求（双击/超时重试/订单页与待办页同时出库）只有一个
+    # 能命中，其余在此失败——顶部的内存快照检查挡不住 check-then-act 双扣。
+    # 也不再用 line.save() 写状态：save 对已被同步重建删除的行会按新行重插（复活旧行）。
+    claimed = db.execute_update(
+        "UPDATE [order_outbound_lines] SET [is_stocked_out] = 1, [stocked_out_at] = ? "
+        "WHERE [id] = ? AND COALESCE([is_stocked_out], 0) = 0",
+        (int(time.time()), int(line.id)),
+    )
+    if claimed <= 0:
+        raise HTTPException(status_code=400, detail="该明细已出库，不能重复出库")
+
+    try:
+        if int(line.stock_deducted or 0) == 0:
+            if current_qty < qty:
+                raise HTTPException(status_code=400, detail=f"库存不足，当前库存：{current_qty}")
+            # 原子扣减：条件 UPDATE 保证并发下不超卖（库存不足时本语句不命中行）
+            updated = db.execute_update(
+                """
+                UPDATE [inventory]
+                SET [quantity] = COALESCE([quantity], 0) - ?,
+                    [pending_outbound_qty] = CASE
+                        WHEN COALESCE([pending_outbound_qty], 0) >= ? THEN COALESCE([pending_outbound_qty], 0) - ?
+                        ELSE 0
+                    END
+                WHERE [id] = ? AND COALESCE([quantity], 0) >= ?
+                """,
+                (qty, qty, qty, inv_id, qty),
+            )
+            if updated <= 0:
+                raise HTTPException(status_code=400, detail=f"库存不足，当前库存：{current_qty}")
+            if warehouse_id is not None:
+                db.execute_insert(
+                    """
+                    INSERT INTO [transactions] (
+                        type, inventory_id, warehouse_id, quantity, remark, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "out",
+                        inv_id,
+                        warehouse_id,
+                        qty,
+                        (data.remark or "").strip() or f"订单手动出库 {line.order_no} / line#{line.id}",
+                        int(time.time()),
+                    ),
+                )
+            # 组合商品：套数已扣减，级联扣减来源子商品物理库存（普通商品为空操作）
+            cascade_combined_child_deduction(
+                inv_id, qty,
+                reason=(data.remark or "").strip() or f"组合售出级联扣减 {line.order_no} / line#{line.id}",
+            )
+    except Exception:
+        # 扣减失败：撤销行认领，让用户可重试（撤销期间并发请求会误报「已出库」，可接受）
+        db.execute_update(
+            "UPDATE [order_outbound_lines] SET [is_stocked_out] = 0, [stocked_out_at] = NULL "
+            "WHERE [id] = ?",
+            (int(line.id),),
+        )
+        raise
     refresh_inventory_pending_outbound_qty([inv_id])
 
     new_qty_rows = db.execute_query("SELECT [quantity] FROM [inventory] WHERE [id] = ? LIMIT 1", (inv_id,))

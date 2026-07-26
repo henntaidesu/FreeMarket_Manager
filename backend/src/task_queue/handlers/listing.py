@@ -110,30 +110,50 @@ def _maybe_enqueue_on_sale_sync(
     提交者署 ``System``（不继承发起出品的那个用户）——这条是系统为了绑定新挂牌自动补的，
     不是谁点出来的，署上真人会让任务页看起来像他手动同步过。
     """
-    if account_id is None:
-        return None
     if store.has_active_tasks(INVENTORY_LISTING, exclude_id=current_task_id):
         log.info("[listing] 队列中仍有其它出品任务，暂不追加在售同步")
         return None
+    # 队列排空时，之前完成的出品可能属于**其它账号**（多账号连续出品只在最后追加同步）。
+    # 只同步当前账号会让先完成账号的新挂牌迟迟绑不上、占用挂到 TTL 才释放——
+    # 这里把「仍持有出品占用」的所有账号一并追加同步（dedup_key 保证每账号最多一条）。
+    account_ids = set()
+    if account_id is not None:
+        account_ids.add(int(account_id))
     try:
-        task, created = store.enqueue(
-            task_type=ON_SALE_SYNC,
-            payload={"account_id": int(account_id)},
-            title=f"在售同步（出品联动·账号#{account_id}）",
-            account_id=int(account_id),
-            account_name=_account_name(account_id),
-            dedup_key=f"{ON_SALE_SYNC}:{int(account_id)}",
-            user_id=None,
-            username=store.SYSTEM_USERNAME,
-        )
-        log.info(
-            "[listing] 出品完毕，%s在售同步任务 #%s",
-            "已追加" if created else "复用既有", task["id"],
-        )
-        return int(task["id"])
-    except Exception as exc:  # 已有同账号在售同步在排队（TaskDuplicateError）等
-        log.info("[listing] 无需追加在售同步：%s", exc)
-        return None
+        from ...db_manage.database import DatabaseManager
+
+        rows = DatabaseManager().execute_query(
+            "SELECT DISTINCT [account_id] FROM [task_queue] "
+            "WHERE [task_type] = ? AND [reserved_qty] > 0 AND [account_id] IS NOT NULL",
+            (INVENTORY_LISTING,),
+        ) or []
+        for (aid,) in rows:
+            if aid is not None:
+                account_ids.add(int(aid))
+    except Exception:
+        log.debug("[listing] 查询待核销出品账号失败", exc_info=True)
+    first_task_id: Optional[int] = None
+    for aid in sorted(account_ids):
+        try:
+            task, created = store.enqueue(
+                task_type=ON_SALE_SYNC,
+                payload={"account_id": aid},
+                title=f"在售同步（出品联动·账号#{aid}）",
+                account_id=aid,
+                account_name=_account_name(aid),
+                dedup_key=f"{ON_SALE_SYNC}:{aid}",
+                user_id=None,
+                username=store.SYSTEM_USERNAME,
+            )
+            log.info(
+                "[listing] 出品完毕，%s在售同步任务 #%s（账号#%s）",
+                "已追加" if created else "复用既有", task["id"], aid,
+            )
+            if first_task_id is None:
+                first_task_id = int(task["id"])
+        except Exception as exc:  # 已有同账号在售同步在排队（TaskDuplicateError）等
+            log.info("[listing] 账号#%s 无需追加在售同步：%s", aid, exc)
+    return first_task_id
 
 
 async def handle_listing(task: Dict[str, Any]) -> Dict[str, Any]:

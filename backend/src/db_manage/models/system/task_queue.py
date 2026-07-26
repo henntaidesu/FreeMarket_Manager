@@ -72,6 +72,10 @@ class TaskQueueModel(BaseModel):
             # 入队时 = len(payload.inventory_ids)；被在售同步核销 / 失败释放 / TTL 兜底后归 0。
             # 详见 src/task_queue/reservations.py
             "reserved_qty": {"type": "INTEGER", "not_null": True, "default": 0},
+            # 仍被占用的库存 id JSON 列表（与 reserved_qty 同步维护）：核销时移除对应 id，
+            # 释放时按此精确归还。多商品出品任务部分核销后，靠 reserved_qty 数量切片会
+            # 释放错库存（已核销的被再放一次、未核销的永久卡住）。NULL（历史行）时回退切片。
+            "reserved_ids": {"type": "TEXT", "not_null": False, "default": None},
             # 提交者
             "user_id": {"type": "INTEGER", "not_null": False, "default": None},
             "username": {"type": "TEXT", "not_null": False, "default": None},

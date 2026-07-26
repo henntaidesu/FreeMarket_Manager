@@ -230,6 +230,14 @@ def cascade_combined_child_deduction(
             if affected:
                 real_deduct = deduct
                 break
+        else:
+            # 6 次 CAS 全部失联（持续并发写同一子商品）：静默跳过会让子商品物理库存
+            # 虚高而可能超卖，必须留痕供人工核对
+            log.warning(
+                "[combined] 子商品 %s 级联扣减 CAS 重试耗尽（需扣 %s），本次未扣减，"
+                "库存可能虚高，请人工核对（组合 %s，原因：%s）",
+                child_id, need, combo_inv_id, reason,
+            )
         if real_deduct <= 0:
             continue
         if warehouse_id is not None:

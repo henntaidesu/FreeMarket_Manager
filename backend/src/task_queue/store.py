@@ -111,6 +111,7 @@ def enqueue(
     user_id: Optional[int] = None,
     username: Optional[str] = None,
     reserved_qty: int = 0,
+    reserved_ids: Optional[str] = None,
     on_reserve=None,
     on_rollback=None,
 ) -> Tuple[Dict[str, Any], bool]:
@@ -149,9 +150,9 @@ def enqueue(
                 """
                 INSERT INTO [task_queue] (
                     [task_type], [title], [status], [payload], [account_id], [account_name],
-                    [client_token], [active_dedup_key], [reserved_qty],
+                    [client_token], [active_dedup_key], [reserved_qty], [reserved_ids],
                     [user_id], [username], [created_at]
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(task_type),
@@ -163,6 +164,7 @@ def enqueue(
                     token,
                     key,
                     int(reserved_qty or 0),
+                    reserved_ids,
                     user_id,
                     username,
                     ts,

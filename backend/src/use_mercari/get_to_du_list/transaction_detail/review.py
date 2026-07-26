@@ -29,9 +29,15 @@ DEFAULT_REVIEW_TEXT = "この度はお取引ありがとうございました。
 
 
 def _soft_delete_review_todo(todo: Any) -> None:
-    """评价完成后软删除本地 todo（页面已结案，对应煤炉端 todolist 下次同步也会剔除）。"""
+    """评价完成后软删除本地 todo（页面已结案，对应煤炉端 todolist 下次同步也会剔除）。
+
+    同时置本地完成标记 ``shipped_finalized=1``（通用「本地已完成、不得被同步复活」标记，
+    不限发货类）：煤炉陈旧列表仍返回同 uuid 时，同步照抄 is_delete=0 会把该行复活回
+    待评价，一键好评会再点一次并计入失败噪音。
+    """
     try:
         todo.is_delete = 1
+        todo.shipped_finalized = 1
         todo.synced_at = int(time.time() * 1000)
         todo.save()
         log.info("[review] 已软删除 todo_id=%s", getattr(todo, "id", None))

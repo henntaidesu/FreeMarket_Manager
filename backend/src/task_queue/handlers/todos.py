@@ -14,6 +14,18 @@ from .. import progress
 log = logging.getLogger(__name__)
 
 
+def _raise_if_all_failed(result: Dict[str, Any], what: str) -> None:
+    """批量结果全部失败时抛错，让任务落成 failed 而不是把失败折进 result JSON 里显示「成功」。"""
+    ok = int(result.get("ok") or 0)
+    fail = int(result.get("fail") or 0)
+    already = int(result.get("already_shipped") or 0)
+    if fail > 0 and ok == 0 and already == 0:
+        failures = [str(f) for f in (result.get("failures") or [])]
+        detail = "；".join(failures[:5])
+        more = f"（共 {len(failures)} 条）" if len(failures) > 5 else ""
+        raise RuntimeError(f"{what}全部失败：{detail}{more}")
+
+
 async def handle_sync(task: Dict[str, Any]) -> Dict[str, Any]:
     """待办「从煤炉同步」。与自动同步循环竞争全局同步锁时排队等待，不像 HTTP 入口那样 409。"""
     from ...use_mercari.sync.sync_lock import LABEL_FULL, begin_waiting, end as lock_end
@@ -42,7 +54,9 @@ async def handle_bulk_review(task: Dict[str, Any]) -> Dict[str, Any]:
             text=str(payload.get("text") or ""),
             progress_job_id=jid,
         )
-        return await bulk_submit_reviews_endpoint(req)
+        result = await bulk_submit_reviews_endpoint(req)
+    _raise_if_all_failed(result, "一键好评")
+    return result
 
 
 async def handle_bulk_confirm_ship(task: Dict[str, Any]) -> Dict[str, Any]:
@@ -52,7 +66,9 @@ async def handle_bulk_confirm_ship(task: Dict[str, Any]) -> Dict[str, Any]:
 
     async with progress.bridge(task["id"], "sync") as jid:
         req = BulkFinalizePostShippingRequest(progress_job_id=jid)
-        return await bulk_finalize_post_shipping_endpoint(req)
+        result = await bulk_finalize_post_shipping_endpoint(req)
+    _raise_if_all_failed(result, "一键确认发送")
+    return result
 
 
 async def handle_shipping_qr(task: Dict[str, Any]) -> Dict[str, Any]:

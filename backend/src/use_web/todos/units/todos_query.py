@@ -83,12 +83,18 @@ _LIST_COLS = (
 _DIGITS_RE = re.compile(r"\d+")
 
 
+_JST_OFFSET_MS = 9 * 3600 * 1000
+_DAY_MS = 24 * 3600 * 1000
+
+
 def _ship_deadline_ts(item: Dict[str, Any]) -> Optional[int]:
-    """发货截止时刻(ms) = 下单时间 + ``shipping_duration`` 中的最大天数。
+    """发货截止时刻(ms) = 下单日（JST）起第 N 天的 JST 日终（23:59:59.999）。
 
     与前端 ``shipDeadlineTs`` 同口径：``shipping_duration`` 形如「4~7日で発送」，
-    取其中最大天数（卖家承诺的最迟发货天数）；下单时间取 ``mercari_created``，
-    缺失时回落 ``mercari_updated``。任一项取不到则返回 None（无法推算）。
+    取其中最大天数（卖家承诺的最迟发货天数）。煤炉的発送期限按「日」计（到第 N 天
+    JST 当天结束为止），不是下单时刻 + N*24h —— 后者会比真实期限早最多近一天，
+    导致页面提前标红「已超时」。下单时间取 ``mercari_created``，缺失时回落
+    ``mercari_updated``。任一项取不到则返回 None（无法推算）。
     """
     nums = _DIGITS_RE.findall(str(item.get("shipping_duration") or ""))
     if not nums:
@@ -102,11 +108,33 @@ def _ship_deadline_ts(item: Dict[str, Any]) -> Optional[int]:
         return None
     if not base:
         return None
-    return base + days * 24 * 3600 * 1000
+    # 平移到 JST 后取日界：下单日 0 点(JST) + (N+1) 天 − 1ms = 第 N 天 JST 日终
+    jst_day_start = ((base + _JST_OFFSET_MS) // _DAY_MS) * _DAY_MS
+    return jst_day_start + (days + 1) * _DAY_MS - 1 - _JST_OFFSET_MS
+
+
+_WAIT_SHIPPING_KINDS_PY = {
+    "WaitShippingCard", "WaitShippingPoint", "WaitShippingCarrier", "TransactionWaitShippingFunds",
+}
+
+
+def _is_wait_shipping_item(item: Dict[str, Any]) -> bool:
+    """Python 侧的「待发货」判定，与 _WAIT_SHIPPING_COND 同口径。"""
+    return (
+        str(item.get("title") or "").strip() == "発送をしてください"
+        or str(item.get("kind") or "") in _WAIT_SHIPPING_KINDS_PY
+    )
 
 
 def _ship_deadline_sort_key(item: Dict[str, Any]):
-    """排序键：能推算发货期限的排在前面（截止越早越前）；推算不出的统一垫底。"""
+    """排序键：能推算发货期限的排在前面（截止越早越前）；推算不出的统一垫底。
+
+    仅对「待发货」行按截止时间排序：shipping_duration 抓取时按 account_id+item_id
+    写入同交易的**所有**待办行，待回复/待评价行也会带上该值——那不是它们的期限，
+    不应参与截止排序（否则混合视图里这些行被伪期限顶到前面）。
+    """
+    if not _is_wait_shipping_item(item):
+        return (1, 0)
     dl = _ship_deadline_ts(item)
     return (1, 0) if dl is None else (0, dl)
 

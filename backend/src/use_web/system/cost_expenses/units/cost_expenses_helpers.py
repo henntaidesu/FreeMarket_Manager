@@ -97,7 +97,10 @@ def _apply_order_net_income_cost(order_no: Optional[str], expense_total: int):
         return
     rows = OrderModel.find_all(where="[order_no] = ?", params=(normalized,), limit=1)
     if not rows:
-        raise HTTPException(status_code=404, detail="关联订单不存在")
+        # 与 _restore_order_net_income_cost 对称：订单已不存在时静默跳过。
+        # 新增时订单存在性已由 _ensure_order_exists 前置校验；这里再抛 404 只会让
+        # 「订单已删除的历史支出」永远无法编辑（删除能走、编辑必失败的不对称）。
+        return
     order = rows[0]
     current = int(order.net_income or 0)
     order.net_income = current - int(expense_total)
@@ -121,29 +124,119 @@ def _restore_order_net_income_cost(order_no: Optional[str], expense_total: int) 
         raise HTTPException(status_code=500, detail="更新订单净收益失败")
 
 
-def _deduct_packaging_stock(item_name: str, quantity: int) -> None:
-    """扣减库存包材：与新增支出时的扣减一致（编辑应用新值时调用）。"""
+def _deduct_packaging_stock(item_name: str, quantity: int) -> Optional[int]:
+    """扣减库存包材（原子条件更新）：仅当库存足量才扣，防跨连接 TOCTOU 导致的超卖/丢更新。
+
+    返回命中的 cost_records 行 id（存到支出行 source_record_id，归还时落回同一行）。
+    """
     qty = int(quantity or 0)
     if qty <= 0:
-        return
+        return None
     source = _find_packaging_item_latest(item_name)
     if not source:
         raise HTTPException(status_code=400, detail="库存包材中不存在该物品名称")
-    source.quantity = int(source.quantity or 0) - qty
-    if not source.save():
-        raise HTTPException(status_code=500, detail="自动扣减库存包材失败")
+    affected = CostRecordModel().db.execute_update(
+        "UPDATE [cost_records] SET [quantity] = COALESCE([quantity], 0) - ? "
+        "WHERE [id] = ? AND COALESCE([quantity], 0) >= ?",
+        (qty, int(source.id), qty),
+    )
+    if affected == 0:
+        raise HTTPException(status_code=400, detail="库存包材数量不足（可能被并发操作占用），请重试")
+    return int(source.id)
 
 
-def _restore_packaging_stock(item_name: str, quantity: int) -> None:
-    """归还库存包材：新增支出时扣减库存的逆操作（删除/编辑时调用）。找不到源行时静默跳过。"""
+def _restore_packaging_stock(item_name: str, quantity: int, record_id: Optional[int] = None) -> None:
+    """归还库存包材（原子增量更新）：扣减的逆操作（删除/编辑时调用）。
+
+    优先归还到扣减时命中的 ``record_id`` 行；该行已删（或历史行未记录）时回退到
+    该物品最新一条记录。两处都找不到时静默跳过。
+    """
     qty = int(quantity or 0)
     if qty <= 0:
         return
+    db = CostRecordModel().db
+    if record_id:
+        affected = db.execute_update(
+            "UPDATE [cost_records] SET [quantity] = COALESCE([quantity], 0) + ? WHERE [id] = ?",
+            (qty, int(record_id)),
+        )
+        if affected > 0:
+            return
     source = _find_packaging_item_latest(item_name)
     if not source:
         return
-    source.quantity = int(source.quantity or 0) + qty
-    source.save()
+    db.execute_update(
+        "UPDATE [cost_records] SET [quantity] = COALESCE([quantity], 0) + ? WHERE [id] = ?",
+        (qty, int(source.id)),
+    )
+
+
+def _order_period_settled(order_no: Optional[str]) -> bool:
+    """该订单是否属于某条已保存结算记录的区间（仅「已完成」订单参与结算）。"""
+    ono = _normalize_order_no(order_no)
+    if not ono:
+        return False
+    rows = OrderModel.find_all(where="[order_no] = ?", params=(ono,), limit=1)
+    if not rows:
+        return False
+    order = rows[0]
+    if str(order.status or "").strip() != "done":
+        return False
+    ts = None
+    for attr in ("completed_at", "order_updated_at", "purchase_time", "order_date"):
+        v = getattr(order, attr, None)
+        if v:
+            ts = int(v)
+            break
+    if not ts:
+        return False
+    hit = CostExpenseModel().db.execute_query(
+        "SELECT 1 FROM [settlement_records] WHERE [start_date] <= ? AND [end_date] >= ? LIMIT 1",
+        (ts, ts),
+    )
+    return bool(hit)
+
+
+def _reject_if_order_period_settled(order_no: Optional[str]) -> None:
+    """已结算期间的订单禁止再增删改支出：净收益已按快照分账支付，改了也永远结不回来。"""
+    if _order_period_settled(order_no):
+        raise HTTPException(
+            status_code=400,
+            detail="该订单所属期间已结算，禁止修改支出记录；如需调整请先删除对应结算记录",
+        )
+
+
+def reverse_packaging_expenses_for_order(order_no: Optional[str]) -> int:
+    """删除该订单全部成本支出并逆转副作用：归还包材库存、恢复订单净收益。
+
+    订单取消/删除时调用：包裹未寄出（或订单不再存在），包材记账与库存扣减一并回滚，
+    避免残留孤儿支出与幻影扣减。订单已不存在时净收益恢复自动跳过。返回删除的行数。
+
+    **已发货订单跳过**：煤炉允许发货后取消（退货/协商取消），此时包材已实际消耗、
+    包裹已寄出——回滚会凭空归还早已用掉的包材（幻影库存）并抹掉真实发生的成本，
+    故 shipped_at/packed_at 已记录的订单不做任何回滚，支出记录保留。
+    """
+    ono = _normalize_order_no(order_no)
+    if not ono:
+        return 0
+    order_rows = OrderModel.find_all(where="[order_no] = ?", params=(ono,), limit=1)
+    if order_rows and (order_rows[0].shipped_at or order_rows[0].packed_at):
+        return 0
+    rows = CostExpenseModel.find_all(where="[order_no] = ?", params=(ono,))
+    removed = 0
+    for row in rows:
+        qty = int(row.quantity or 0)
+        stock_qty = int(row.stock_qty) if row.stock_qty is not None else qty
+        total = qty * int(row.unit_price or 0)
+        if not row.delete():
+            continue
+        removed += 1
+        if (row.type or "").strip() == "包装材料":
+            _restore_packaging_stock(
+                (row.item_name or "").strip(), stock_qty, record_id=row.source_record_id
+            )
+        _restore_order_net_income_cost(ono, total)
+    return removed
 
 
 def total_packaging_expense_yen_for_order(order_no: Optional[str]) -> int:

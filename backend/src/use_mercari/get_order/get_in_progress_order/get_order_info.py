@@ -367,10 +367,15 @@ def _mark_order_cancelled(item_id: str, report: Any) -> Optional[str]:
             return "save_failed"
         from ....use_web.orders.units.orders_outbound.lines import restock_order_holding_lines
         from ....use_web.orders.units.orders_helpers import _inventory_ids_for_order
+        from ....use_web.system.cost_expenses.units.cost_expenses_helpers import (
+            reverse_packaging_expenses_for_order,
+        )
         from ..description_mgmt_ids import refresh_inventory_pending_outbound_qty
 
         restock_order_holding_lines(o.order_no, reason=f"订单取消回吐 {o.order_no}")
         refresh_inventory_pending_outbound_qty(_inventory_ids_for_order(o.order_no))
+        # 与手动取消同口径：回滚包材支出（归还包材库存、恢复净收益）
+        reverse_packaging_expenses_for_order(o.order_no)
     report("done", f"订单已取消（订单号 {item_id}）")
     return None
 

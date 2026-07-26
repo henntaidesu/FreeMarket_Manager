@@ -20,6 +20,8 @@ ON_SALE_SYNC = "on_sale.sync"
 ON_SALE_FULL_UPDATE = "on_sale.full_update"
 ON_SALE_REVISE = "on_sale.revise"
 ON_SALE_DELIST = "on_sale.delist"
+ON_SALE_SUSPEND = "on_sale.suspend"
+ON_SALE_RESUME = "on_sale.resume"
 TODOS_BULK_REVIEW = "todos.bulk_review"
 TODOS_BULK_CONFIRM_SHIP = "todos.bulk_confirm_ship"
 TODOS_SHIPPING_QR = "todos.shipping_qr"
@@ -99,6 +101,20 @@ _SPECS: Dict[str, TaskSpec] = {
         dedup_key=lambda p: f"{ON_SALE_DELIST}:{p.get('item_id')}",
         title=lambda p: f"下架在售商品：{p.get('item_id') or ''}",
     ),
+    ON_SALE_SUSPEND: TaskSpec(
+        task_type=ON_SALE_SUSPEND,
+        label_zh="暂停出售",
+        # 同一商品同时只允许排一条暂停，避免重复打开编辑页操作
+        dedup_key=lambda p: f"{ON_SALE_SUSPEND}:{p.get('item_id')}",
+        title=lambda p: f"暂停出售：{p.get('item_id') or ''}",
+    ),
+    ON_SALE_RESUME: TaskSpec(
+        task_type=ON_SALE_RESUME,
+        label_zh="恢复出售",
+        # 同一商品同时只允许排一条恢复，避免重复打开编辑页操作
+        dedup_key=lambda p: f"{ON_SALE_RESUME}:{p.get('item_id')}",
+        title=lambda p: f"恢复出售：{p.get('item_id') or ''}",
+    ),
     TODOS_BULK_REVIEW: TaskSpec(
         task_type=TODOS_BULK_REVIEW,
         label_zh="一键好评",
@@ -163,6 +179,12 @@ def resolve_handler(task_type: str) -> Callable:
     if tt == ON_SALE_DELIST:
         from .handlers.on_sale import handle_delist
         return handle_delist
+    if tt == ON_SALE_SUSPEND:
+        from .handlers.on_sale import handle_suspend
+        return handle_suspend
+    if tt == ON_SALE_RESUME:
+        from .handlers.on_sale import handle_resume
+        return handle_resume
     if tt == TODOS_BULK_REVIEW:
         from .handlers.todos import handle_bulk_review
         return handle_bulk_review

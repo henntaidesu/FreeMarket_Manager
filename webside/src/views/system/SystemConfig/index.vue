@@ -1,5 +1,6 @@
 <template>
-  <div>
+  <div class="sysconf-page">
+    <div class="sysconf-grid">
     <!-- DeepSeek AI 配置 -->
     <el-card shadow="never" class="sysconf-card" v-loading="loading">
       <template #header>
@@ -190,8 +191,9 @@
         </el-form-item>
       </el-form>
     </el-card>
+    </div>
 
-    <el-card v-if="migrateSummary.length" shadow="never" class="sysconf-card db-card">
+    <el-card v-if="migrateSummary.length" shadow="never" class="sysconf-card summary-card">
       <template #header>
         <div class="card-title">迁移 / 备份结果（逐表行数校验）</div>
       </template>
@@ -550,21 +552,19 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.sysconf-card {
-  max-width: 720px;
+.sysconf-page {
+  max-width: 1500px;
 }
-.listing-def-card {
-  margin-top: 16px;
+.sysconf-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+  gap: 16px;
 }
 .card-title {
   font-weight: 600;
 }
-.sysconf-form {
-  max-width: 640px;
-}
-.db-card {
+.summary-card {
   margin-top: 16px;
-  max-width: 820px;
 }
 .card-head {
   display: flex;

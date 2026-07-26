@@ -27,6 +27,29 @@ from .qr_scan import _SCAN_OK_TEXT
 log = logging.getLogger(__name__)
 
 
+async def _ensure_transaction_page(page: Any, item_id: str, url: str) -> None:
+    """复用共享浏览器页面前，确认当前页面就是本 todo 的交易页；不是则先导航过去。
+
+    /todos 的浏览器按账号共享（mercari_todo_key），用户可能刚打开过另一笔交易的详情。
+    不校验就直接操作会把「発送通知」点在别的交易上（勾选/按钮匹配均不依赖文案，
+    _detect_ship_code_mismatch 在页面无符号时也不拦截）。导航加载交易页与批量发货
+    每件 reload 的行为一致，不会丢失待发送通知状态。
+    """
+    current = ""
+    try:
+        current = page.url or ""
+    except Exception:
+        current = ""
+    if item_id and item_id in current:
+        return
+    log.warning(
+        "[postship] 当前页面 (%s) 不是本待办的交易页 (item_id=%s)，先导航到交易页",
+        current, item_id,
+    )
+    await page.goto(url, wait_until="domcontentloaded")
+    await asyncio.sleep(1.5)
+
+
 _NOTIFY_SHIP_BUTTON_TEXT = "商品を発送したので、発送通知をする"
 
 _SHIPPED_CONFIRM_BUTTON_TEXT = "発送しました"
@@ -52,6 +75,13 @@ async def read_post_shipping_confirm_info(todo_id: int) -> Dict[str, Any]:
         page = await mgr.active_tab_page(auto_key)
     except Exception as exc:
         raise RuntimeError("浏览器未打开或已关闭") from exc
+
+    # 校验当前页面属于本 todo 的交易，否则会把别的交易的 確認符号/追跡番号 缓存进本 todo。
+    item_id = (todo.item_id or "").strip()
+    if item_id:
+        await _ensure_transaction_page(
+            page, item_id, f"https://jp.mercari.com/transaction/{item_id}"
+        )
 
     # SPA 再描画待ち（スキャン直後に取ると未反映の場合がある）
     text = ""
@@ -370,6 +400,24 @@ async def _run_post_ship_steps(page: Any, report: Any, todo_id: int) -> Dict[str
             success_signal = "送り状番号"
             break
         await asyncio.sleep(0.5)
+    # 轮询超时：页面可能只是渲染慢——二次确认已点击的情况下，reload 一次复检，
+    # 避免把「实际已发货」记成失败（失败会触发重试/人工重发的误导流程）
+    if not shipped_ok and confirmed:
+        try:
+            report("waiting_reload", "未检测到完成文案，正在刷新页面复检…")
+            await page.reload(wait_until="domcontentloaded")
+            await asyncio.sleep(2)
+            text = await page.inner_text("body")
+            if _SHIP_SUCCESS_TEXT in text or await _has_tracking_number(page, body_text=text):
+                shipped_ok = True
+                success_signal = "reload后确认"
+            else:
+                already = await _detect_already_shipped(page)
+                if already:
+                    shipped_ok = True
+                    success_signal = f"reload后已发送标志:{already}"
+        except Exception as exc:
+            log.warning("[postship] reload 复检失败: %s", exc)
     if shipped_ok:
         log.info("[postship] 检测到成功标志「%s」 发送成功 todo=%s", success_signal, todo_id)
     else:
@@ -437,6 +485,7 @@ async def finalize_post_shipping(
 
     if page is not None:
         log.info("[postship] 复用已打开页面直接操作（不刷新）account_id=%s", aid)
+        await _ensure_transaction_page(page, item_id, url)
         already = await _detect_already_shipped(page)
         if already:
             # 已在别处发送（外部扫码发送 / 已发送通知、数据连携确认中）：无「发送通知」入口，
