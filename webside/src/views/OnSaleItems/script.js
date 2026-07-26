@@ -822,80 +822,23 @@ export default defineComponent({
       }
       if (deleteItemLoading.value) return
 
-      const progressJobId =
-        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-          ? crypto.randomUUID()
-          : `job_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
-
-      let pollTimer = null
-      let lastConsoleStep = ''
-      async function poll() {
-        try {
-          const pr = await onSaleItemApi.getSyncProgress(progressJobId)
-          const zh = pr?.data?.label_zh
-          if (zh) {
-            syncProgressLabel.value = zh
-            if (zh !== lastConsoleStep) {
-              lastConsoleStep = zh
-              console.log('[删除物品]', zh)
-            }
-          }
-        } catch {
-          /* 轮询失败忽略 */
-        }
-      }
-
-      syncOverlayTitle.value = t('onSaleItems.deletingMercariItem')
-      syncOverlayFailed.value = false
-      syncProgressLabel.value = t('onSaleItems.connectingServer')
-      syncOverlayVisible.value = true
+      // 提交到任务队列即返回（与「修改」一致，不受全局同步锁阻挡）；
+      // 同一 item_id 已有下架在排队时后端会 409 拦截，进度去 /#/tasks 看。
       deleteItemLoading.value = true
-      await poll()
-      pollTimer = setInterval(poll, 400)
-
-      let hadError = false
       try {
-        const res = await webDriveApi.deleteMercariItem({
-          account_key: resolved.accountKey,
-          item_id: iid,
-          use_mitm_proxy: true,
-          progress_job_id: progressJobId,
-        })
-        const d = res?.data || {}
-        const sync = d.sync || {}
-        if (d.delete_confirmed && sync && typeof sync === 'object') {
-          ElMessage.success(
-            t('onSaleItems.deleteSuccessFull', {
-              iid,
-              apiCount: sync.api_item_count ?? 0,
-              updated: sync.updated ?? 0,
-              marked: sync.marked_deleted ?? 0,
-            })
-          )
-        } else if (d.delete_confirmed) {
-          ElMessage.success(t('onSaleItems.deletedOnMercari', { iid }))
-        } else {
-          ElMessage.warning(t('onSaleItems.deleteFlowExecuted'))
+        const task = await submitTask(
+          TASK_TYPES.ON_SALE_DELIST,
+          {
+            account_key: resolved.accountKey,
+            item_id: iid,
+            use_mitm_proxy: true,
+          },
+          { t },
+        )
+        if (task) {
+          detailViewVisible.value = false
         }
-        detailViewVisible.value = false
-        await load()
-      } catch (e) {
-        hadError = true
-        syncOverlayTitle.value = t('onSaleItems.deleteFailed')
-        syncOverlayFailed.value = true
-        const msg = e?.response?.data?.detail || e?.message || t('onSaleItems.deleteFailed')
-        syncProgressLabel.value = String(msg)
       } finally {
-        if (pollTimer != null) {
-          clearInterval(pollTimer)
-        }
-        if (hadError) {
-          await new Promise((r) => setTimeout(r, 1200))
-        }
-        syncOverlayVisible.value = false
-        syncOverlayTitle.value = t('onSaleItems.syncingFromMercari')
-        syncOverlayFailed.value = false
-        syncProgressLabel.value = ''
         deleteItemLoading.value = false
       }
     }

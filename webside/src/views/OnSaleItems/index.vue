@@ -292,13 +292,14 @@
         </el-table-column>
         <el-table-column v-if="!batchMode" :label="t('common.operate')" width="130" fixed="right" align="center" header-align="center">
           <template #default="{ row }">
-            <el-tooltip :disabled="!syncLockStore.locked" :content="syncLockStore.label" placement="top">
+            <!-- 「查看详情」纯本地读取，不受同步锁影响；仅「获取详情」（需开煤炉抓取）在同步锁定时禁用 -->
+            <el-tooltip :disabled="hasDetailViewable(row) || !syncLockStore.locked" :content="syncLockStore.label" placement="top">
               <span>
                 <el-button
                   :type="hasDetailViewable(row) ? 'success' : 'warning'"
                   plain
                   :loading="detailLoadingIds.has(String(row.item_id || '').trim())"
-                  :disabled="syncLockStore.locked"
+                  :disabled="syncLockStore.locked && !hasDetailViewable(row)"
                   @click="onDetailActionClick(row)"
                 >
                   {{ hasDetailViewable(row) ? t('onSaleItems.viewDetail') : t('onSaleItems.fetchDetail') }}
@@ -472,19 +473,16 @@
             >
               {{ t('onSaleItems.editListing') }}
             </el-button>
-            <el-tooltip v-if="detailViewBase" :disabled="!syncLockStore.locked" :content="syncLockStore.label" placement="top">
-              <span>
-                <el-button
-                  type="danger"
-                  plain
-                  :loading="deleteItemLoading"
-                  :disabled="syncLockStore.locked"
-                  @click="deleteMercariItemFromDetail"
-                >
-                  {{ t('onSaleItems.deleteItem') }}
-                </el-button>
-              </span>
-            </el-tooltip>
+            <!-- 「下架」已改为提交任务队列，不受全局同步锁阻挡 -->
+            <el-button
+              v-if="detailViewBase"
+              type="danger"
+              plain
+              :loading="deleteItemLoading"
+              @click="deleteMercariItemFromDetail"
+            >
+              {{ t('onSaleItems.deleteItem') }}
+            </el-button>
           </div>
         </div>
       </template>

@@ -277,13 +277,20 @@ def recover_orphans() -> List[Dict[str, Any]]:
 
 # ──────────────────────────── 查询 ──────────────────────────── #
 
-def has_active_tasks(task_type: str) -> bool:
-    """队列中是否还有该类型的 pending/running 任务。"""
+def has_active_tasks(task_type: str, *, exclude_id: Optional[int] = None) -> bool:
+    """队列中是否还有该类型的 pending/running 任务。
+
+    ``exclude_id``：排除某条任务（一般是「自己」）。出品处理器在**自身仍为 running**时
+    判断「是否还有别的出品任务」，必须把当前这条排除掉，否则永远判为 True。
+    """
     ph = ",".join("?" * len(ACTIVE_STATUSES))
-    rows = DatabaseManager().execute_query(
-        f"SELECT 1 FROM [task_queue] WHERE [task_type] = ? AND [status] IN ({ph}) LIMIT 1",
-        (str(task_type), *ACTIVE_STATUSES),
-    )
+    sql = f"SELECT 1 FROM [task_queue] WHERE [task_type] = ? AND [status] IN ({ph})"
+    params: list = [str(task_type), *ACTIVE_STATUSES]
+    if exclude_id is not None:
+        sql += " AND [id] != ?"
+        params.append(int(exclude_id))
+    sql += " LIMIT 1"
+    rows = DatabaseManager().execute_query(sql, tuple(params))
     return bool(rows)
 
 

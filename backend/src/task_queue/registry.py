@@ -19,6 +19,7 @@ ORDERS_BATCH_REFRESH = "orders.batch_refresh"
 ON_SALE_SYNC = "on_sale.sync"
 ON_SALE_FULL_UPDATE = "on_sale.full_update"
 ON_SALE_REVISE = "on_sale.revise"
+ON_SALE_DELIST = "on_sale.delist"
 TODOS_BULK_REVIEW = "todos.bulk_review"
 TODOS_BULK_CONFIRM_SHIP = "todos.bulk_confirm_ship"
 TODOS_SHIPPING_QR = "todos.shipping_qr"
@@ -91,6 +92,13 @@ _SPECS: Dict[str, TaskSpec] = {
         dedup_key=lambda p: f"{ON_SALE_REVISE}:{p.get('item_id')}",
         title=lambda p: f"修改在售商品：{p.get('item_id') or ''}",
     ),
+    ON_SALE_DELIST: TaskSpec(
+        task_type=ON_SALE_DELIST,
+        label_zh="下架",
+        # 同一商品同时只允许排一条下架，避免重复打开编辑页删除
+        dedup_key=lambda p: f"{ON_SALE_DELIST}:{p.get('item_id')}",
+        title=lambda p: f"下架在售商品：{p.get('item_id') or ''}",
+    ),
     TODOS_BULK_REVIEW: TaskSpec(
         task_type=TODOS_BULK_REVIEW,
         label_zh="一键好评",
@@ -152,6 +160,9 @@ def resolve_handler(task_type: str) -> Callable:
     if tt == ON_SALE_REVISE:
         from .handlers.on_sale import handle_revise
         return handle_revise
+    if tt == ON_SALE_DELIST:
+        from .handlers.on_sale import handle_delist
+        return handle_delist
     if tt == TODOS_BULK_REVIEW:
         from .handlers.todos import handle_bulk_review
         return handle_bulk_review

@@ -78,3 +78,23 @@ async def handle_revise(task: Dict[str, Any]) -> Dict[str, Any]:
         res = await revise_on_sale_item(body)
     # revise_on_sale_item 返回 {"success": True, "data": {...}}，任务只存 data
     return res.get("data") if isinstance(res, dict) else res
+
+
+async def handle_delist(task: Dict[str, Any]) -> Dict[str, Any]:
+    """下架单件在售商品（打开编辑页删除）。不占全局同步锁，经账号串行队列执行。"""
+    from ...use_web.web_drive.units.web_drive_handler.items import (
+        DeleteMercariItemBody,
+        delete_on_sale_item,
+    )
+
+    payload = dict(task.get("payload") or {})
+    async with progress.bridge(task["id"], "sync") as jid:
+        body = DeleteMercariItemBody(
+            account_key=str(payload.get("account_key") or ""),
+            item_id=str(payload.get("item_id") or ""),
+            use_mitm_proxy=bool(payload.get("use_mitm_proxy", True)),
+            progress_job_id=jid,
+        )
+        res = await delete_on_sale_item(body)
+    # delete_on_sale_item 返回 {"success": True, "data": {...}}，任务只存 data
+    return res.get("data") if isinstance(res, dict) else res
