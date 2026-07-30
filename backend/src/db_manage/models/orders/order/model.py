@@ -38,6 +38,13 @@ class OrderModel(_AggregateMixin, _QueryMixin, BaseModel):
                 'unique': True,
                 'default': None,
             },
+            # 所属市集平台：'mercari'（煤炉，默认）/ 'yahoo'（Yahoo!フリマ）。
+            # 同步时按来源写入；平台上线前的历史订单没有值，一律按煤炉处理。
+            'platform': {
+                'type': 'TEXT',
+                'not_null': False,
+                'default': 'mercari',
+            },
             # Mercari 原始 Unix 时间戳（秒），前端按本地时区展示
             'order_date': {
                 'type': 'INTEGER',

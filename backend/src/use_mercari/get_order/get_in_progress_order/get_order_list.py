@@ -122,6 +122,7 @@ def _item_to_order_data(
         "customer_name":    buyer_id_str or None,
         "data_user":        data_user,
         "status":           te.get("status") or item.get("status", "trading"),
+        "platform":         "mercari",
         "amount":           int(round(float(item.get("price") or 0))),
         "remark":           item.get("name", ""),
         "thumbnails":       _norm_thumbnails_json(item.get("thumbnails")),
@@ -150,6 +151,7 @@ def _upsert_order(order_data: Dict[str, Any]) -> str:
         return "inserted"
 
     # 更新可变字段
+    existing.platform          = order_data.get("platform") or "mercari"
     existing.status            = order_data["status"]
     existing.amount            = order_data["amount"]
     existing.customer_name     = order_data["customer_name"]

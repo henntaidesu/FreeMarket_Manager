@@ -272,6 +272,7 @@ def list_on_sale_items(
     status: Optional[str] = None,
     auction: Optional[str] = None,
     shipping_duration_id: Optional[str] = None,
+    platform: Optional[str] = None,
     page: int = 1,
     page_size: int = 20,
     sort_by: Optional[str] = None,
@@ -286,6 +287,7 @@ def list_on_sale_items(
         keyword=keyword,
         seller_id=seller_id,
         status=status,
+        platform=platform,
     )
 
     # 出品方式筛选：auction='1' 仅拍卖（存在 auction_info_json），'0' 仅一口价（无）。

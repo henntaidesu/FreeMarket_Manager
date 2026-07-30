@@ -6,9 +6,16 @@ from typing import Any, Dict, Optional
 from fastapi import HTTPException
 from pydantic import BaseModel as PydanticModel, Field
 from .....web_drive import get_web_drive_manager
-from .listing import _LISTING_JOB_ID_RE
+from .listing import _LISTING_JOB_ID_RE, _account_platform
 
 log = logging.getLogger(__name__)
+
+#: 煤炉「発送までの日数」option value → 雅虎 post_to_yahoo 的发货天数键
+_YAHOO_SHIPPING_DAYS_BY_DURATION = {
+    "1": "1_2_days",
+    "2": "2_3_days",
+    "3": "4_7_days",
+}
 
 
 # ──────────────────────── 在售商品删除 ──────────────────────── #
@@ -58,14 +65,20 @@ async def delete_on_sale_item(body: DeleteMercariItemBody):
 
         mgr = get_web_drive_manager()
 
-        async def _run() -> Dict[str, Any]:
-            return await _do_delete(
-                mgr,
-                body.account_key,
-                item_id=item_id,
-                proxy_server=proxy,
-                progress_job_id=jid,
-            )
+        if _account_platform(account_id) == "yahoo":
+            from .....web_drive.yahoo_item import delete_yahoo_item
+
+            async def _run() -> Dict[str, Any]:
+                return await delete_yahoo_item(account_id, item_id=item_id)
+        else:
+            async def _run() -> Dict[str, Any]:
+                return await _do_delete(
+                    mgr,
+                    body.account_key,
+                    item_id=item_id,
+                    proxy_server=proxy,
+                    progress_job_id=jid,
+                )
 
         data = await run_mercari_serial_async(
             queue_key_for_mercari_account(account_id),
@@ -137,20 +150,37 @@ async def revise_on_sale_item(body: ReviseMercariItemBody):
 
         mgr = get_web_drive_manager()
 
-        async def _run() -> Dict[str, Any]:
-            return await _do_revise(
-                mgr,
-                body.account_key,
-                item_id=item_id,
-                name=body.name,
-                price=body.price,
-                description=body.description,
-                shipping_payer=body.shipping_payer,
-                shipping_duration=body.shipping_duration,
-                shipping_from_area_id=body.shipping_from_area_id,
-                proxy_server=proxy,
-                progress_job_id=jid,
-            )
+        if _account_platform(account_id) == "yahoo":
+            from .....web_drive.yahoo_item import revise_yahoo_item
+
+            async def _run() -> Dict[str, Any]:
+                # 雅虎没有「送料負担」（恒出品者負担），该字段忽略
+                return await revise_yahoo_item(
+                    account_id,
+                    item_id=item_id,
+                    name=body.name,
+                    price=body.price,
+                    description=body.description,
+                    shipping_days=_YAHOO_SHIPPING_DAYS_BY_DURATION.get(
+                        str(body.shipping_duration or "").strip()
+                    ),
+                    shipping_from_area_id=body.shipping_from_area_id,
+                )
+        else:
+            async def _run() -> Dict[str, Any]:
+                return await _do_revise(
+                    mgr,
+                    body.account_key,
+                    item_id=item_id,
+                    name=body.name,
+                    price=body.price,
+                    description=body.description,
+                    shipping_payer=body.shipping_payer,
+                    shipping_duration=body.shipping_duration,
+                    shipping_from_area_id=body.shipping_from_area_id,
+                    proxy_server=proxy,
+                    progress_job_id=jid,
+                )
 
         data = await run_mercari_serial_async(
             queue_key_for_mercari_account(account_id),
@@ -208,6 +238,13 @@ async def resume_on_sale_item(body: ResumeMercariItemBody):
     account_id = mercari_id_from_account_key(body.account_key)
     if account_id is None:
         raise HTTPException(status_code=400, detail="无效的 account_key")
+
+    if _account_platform(account_id) == "yahoo":
+        # 雅虎编辑页只有「出品を停止する」，重新公开的入口尚未接入
+        raise HTTPException(
+            status_code=400,
+            detail="雅虎商品暂不支持「重新上架」，请到雅虎 App/网页端手动重新公开",
+        )
 
     # 新计数模型下，恢复出售（stop → on_sale）不消耗库存（暂停期间该件仍占用「在售」名额），
     # 故不再做「绑定库存数量是否充足」的前置校验。
@@ -291,14 +328,20 @@ async def suspend_on_sale_item(body: SuspendMercariItemBody):
 
         mgr = get_web_drive_manager()
 
-        async def _run() -> Dict[str, Any]:
-            return await _do_suspend(
-                mgr,
-                body.account_key,
-                item_id=item_id,
-                proxy_server=proxy,
-                progress_job_id=jid,
-            )
+        if _account_platform(account_id) == "yahoo":
+            from .....web_drive.yahoo_item import suspend_yahoo_item
+
+            async def _run() -> Dict[str, Any]:
+                return await suspend_yahoo_item(account_id, item_id=item_id)
+        else:
+            async def _run() -> Dict[str, Any]:
+                return await _do_suspend(
+                    mgr,
+                    body.account_key,
+                    item_id=item_id,
+                    proxy_server=proxy,
+                    progress_job_id=jid,
+                )
 
         data = await run_mercari_serial_async(
             queue_key_for_mercari_account(account_id),

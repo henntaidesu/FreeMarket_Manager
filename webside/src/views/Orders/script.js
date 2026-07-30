@@ -345,7 +345,25 @@ export default defineComponent({
       }
     }
 
-    const filters = ref({ keyword: '', status: '', owner_user_id: null })
+    const filters = ref({ keyword: '', status: '', owner_user_id: null, platform: '' })
+
+    /** 平台筛选/标签：区分订单来自煤炉还是雅虎（历史数据无值时按煤炉处理） */
+    const platformFilterOptions = computed(() => [
+      { value: 'mercari', label: t('orders.platformMercari') },
+      { value: 'yahoo', label: t('orders.platformYahoo') },
+    ])
+
+    function platformOf(row) {
+      return String(row?.platform ?? '').trim() || 'mercari'
+    }
+
+    function platformLabel(row) {
+      return platformOf(row) === 'yahoo' ? t('orders.platformYahoo') : t('orders.platformMercari')
+    }
+
+    function platformTagType(row) {
+      return platformOf(row) === 'yahoo' ? 'warning' : 'danger'
+    }
 
     /** 展示用标签：value 与数据库/API 一致 */
     const statusMap = computed(() => ({
@@ -649,6 +667,8 @@ export default defineComponent({
       if (filters.value.keyword) params.keyword = filters.value.keyword
       const st = (filters.value.status || '').trim()
       if (st && LIST_FILTER_STATUS_SET.has(st)) params.status = st
+      const plat = (filters.value.platform || '').trim()
+      if (plat) params.platform = plat
       const ouid = filters.value.owner_user_id
       if (ouid != null && ouid !== '') {
         const n = Number(ouid)
@@ -1594,6 +1614,9 @@ export default defineComponent({
       sendOrderReply,
       mercariImageUrl,
       filters,
+      platformFilterOptions,
+      platformLabel,
+      platformTagType,
       statusMap,
       LIST_FILTER_STATUS_KEYS,
       orderListStatusFilterOptions,

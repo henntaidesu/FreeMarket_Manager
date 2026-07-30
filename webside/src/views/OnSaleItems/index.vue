@@ -24,6 +24,20 @@
             />
           </el-select>
           <el-select
+            v-model="filters.platform"
+            :placeholder="t('onSaleItems.platformFilterPlaceholder')"
+            clearable
+            style="min-width: 140px; width: 100%"
+            @change="onFilterChange"
+          >
+            <el-option
+              v-for="p in platformFilterOptions"
+              :key="p.value"
+              :label="p.label"
+              :value="p.value"
+            />
+          </el-select>
+          <el-select
             v-model="filters.status"
             :placeholder="t('onSaleItems.statusFilterPlaceholder')"
             clearable
@@ -269,6 +283,11 @@
               </span>
             </el-tooltip>
             <span v-else>{{ row.item_id }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('onSaleItems.platformColumn')" width="86" align="center" header-align="center">
+          <template #default="{ row }">
+            <el-tag :type="platformTagType(row)" size="small" effect="plain">{{ platformLabel(row) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column :label="t('onSaleItems.seller')" prop="seller_name" width="120" show-overflow-tooltip align="center" header-align="center">

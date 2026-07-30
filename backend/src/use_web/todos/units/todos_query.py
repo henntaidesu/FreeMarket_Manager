@@ -54,6 +54,7 @@ _PACKED_COND = (
 _LIST_COLS = (
     "id",
     "account_id",
+    "platform",
     "uuid",
     "kind",
     "title",
@@ -149,6 +150,7 @@ def list_todos(
     categories: Optional[str] = None,
     page: int = 1,
     page_size: int = 20,
+    platform: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     分页列出本地 ``todo_items``，附 ``account_name``。
@@ -191,6 +193,14 @@ def list_todos(
     if kind:
         where.append("t.[kind] = ?")
         params.append(str(kind).strip())
+    if platform is not None and str(platform).strip():
+        # 历史行（平台字段上线前同步的）没有值，按煤炉处理
+        plat = str(platform).strip()
+        if plat == "mercari":
+            where.append("COALESCE(NULLIF(TRIM(t.[platform]), ''), 'mercari') = 'mercari'")
+        else:
+            where.append("TRIM(t.[platform]) = TRIM(?)")
+            params.append(plat)
     if keyword:
         kw = f"%{str(keyword).strip()}%"
         where.append(

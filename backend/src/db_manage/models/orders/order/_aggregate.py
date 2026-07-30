@@ -16,6 +16,7 @@ class _AggregateMixin:
         owner_user_id: Optional[int] = None,
         by_purchase_time: bool = False,
         use_completed_time: bool = False,
+        platform: Optional[str] = None,
     ) -> Tuple[str, List[Any]]:
         base_sql = """
             FROM [orders] o
@@ -44,6 +45,14 @@ class _AggregateMixin:
         if status:
             base_sql += " AND o.status = ?"
             params.append(status)
+        if platform is not None and str(platform).strip():
+            # 历史订单（平台字段上线前同步的）没有值，按煤炉处理
+            plat = str(platform).strip()
+            if plat == "mercari":
+                base_sql += " AND COALESCE(NULLIF(TRIM(o.platform), ''), 'mercari') = 'mercari'"
+            else:
+                base_sql += " AND TRIM(o.platform) = TRIM(?)"
+                params.append(plat)
         if start_ts is not None:
             base_sql += f" AND {time_col} >= ?"
             params.append(int(start_ts))

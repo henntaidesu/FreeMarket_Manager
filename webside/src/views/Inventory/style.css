@@ -1185,3 +1185,9 @@
 .image-search-index-tip--error {
   color: var(--el-color-danger);
 }
+
+/* 出品按钮组：煤炉 / 雅虎两个平台各一个 */
+.listing-submit-buttons {
+  display: inline-flex;
+  gap: 8px;
+}

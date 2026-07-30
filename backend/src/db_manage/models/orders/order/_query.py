@@ -61,6 +61,7 @@ class _QueryMixin:
         owner_user_id: Optional[int] = None,
         page: int = 1,
         page_size: int = 20,
+        platform: Optional[str] = None,
     ) -> Dict[str, Any]:
         db = cls().db
         base_sql, params = cls._build_list_filter(
@@ -69,6 +70,7 @@ class _QueryMixin:
             start_ts=start_ts,
             end_ts=end_ts,
             owner_user_id=owner_user_id,
+            platform=platform,
         )
 
         total = db.execute_query(f"SELECT COUNT(*) {base_sql}", tuple(params))[0][0]
@@ -136,7 +138,7 @@ class _QueryMixin:
             SELECT q.id, q.order_no, q.order_date, q.order_updated_at, q.purchase_time,
                    q.packed_at, q.shipped_at, q.completed_at, q.customer_name, q.data_user,
                    q.account_name,
-                   q.status, q.amount,
+                   q.status, q.amount, q.platform,
                    q.service_fee, q.net_income, q.carrier_display_name, q.request_class_display_name,
                    q.shipping_fee, q.tracking_no, q.ship_confirm_code, q.transaction_evidence_id, q.remark, q.description,
                    q.inventory_synced, q.inventory_synced_quantity, q.thumbnails, q.packaging_waived,
@@ -154,7 +156,7 @@ class _QueryMixin:
                         WHERE IFNULL(TRIM(o.data_user), '') != ''
                           AND TRIM(ma.seller_id) = TRIM(o.data_user)
                         LIMIT 1) AS account_name,
-                       o.status, o.amount,
+                       o.status, o.amount, o.platform,
                        o.service_fee, o.net_income, o.carrier_display_name, o.request_class_display_name,
                        o.shipping_fee, o.tracking_no, o.ship_confirm_code, o.transaction_evidence_id, o.remark, o.description,
                        o.inventory_synced, o.inventory_synced_quantity, o.thumbnails,
@@ -187,7 +189,7 @@ class _QueryMixin:
             'id', 'order_no', 'order_date', 'order_updated_at', 'purchase_time',
             'packed_at', 'shipped_at', 'completed_at', 'customer_name', 'data_user',
             'account_name', 'status',
-            'amount',
+            'amount', 'platform',
             'service_fee', 'net_income', 'carrier_display_name', 'request_class_display_name',
             'shipping_fee', 'tracking_no', 'ship_confirm_code', 'transaction_evidence_id', 'remark', 'description',
             'inventory_synced', 'inventory_synced_quantity', 'thumbnails', 'packaging_waived',

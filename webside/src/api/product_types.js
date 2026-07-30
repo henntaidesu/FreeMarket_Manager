@@ -15,3 +15,13 @@ export const productTypeCategoryMappingApi = {
   update: (id, data) => http.put(`/use_web/system/product-type-category-mappings/${id}`, data),
   remove: (id) => http.delete(`/use_web/system/product-type-category-mappings/${id}`)
 }
+
+// 雅虎（Yahoo!フリマ）分类映射（System 二级页面）
+// → /mercariV2/src/use_web/system/yahoo-category-mappings/*
+export const yahooCategoryMappingApi = {
+  list: (params) => http.get('/use_web/system/yahoo-category-mappings', { params }),
+  level1: () => http.get('/use_web/system/yahoo-category-mappings/level1'),
+  create: (data) => http.post('/use_web/system/yahoo-category-mappings', data),
+  update: (id, data) => http.put(`/use_web/system/yahoo-category-mappings/${id}`, data),
+  remove: (id) => http.delete(`/use_web/system/yahoo-category-mappings/${id}`)
+}

@@ -88,11 +88,16 @@
           <el-input v-model="form.mapping_id" :placeholder="t('system.mappingIdPlaceholder')" />
         </el-form-item>
         <el-form-item :label="t('system.yahooCategoryPath')">
-          <el-input
+          <!-- 候选来自「雅虎类型映射」页采集到的分类树，避免手打日文路径打错 -->
+          <el-autocomplete
             v-model="form.yahoo_category_path"
-            type="textarea"
-            :rows="2"
+            :fetch-suggestions="queryYahooCategories"
             :placeholder="t('system.yahooCategoryPathPlaceholder')"
+            :trigger-on-focus="false"
+            value-key="value"
+            clearable
+            style="width: 100%"
+            popper-class="yahoo-category-suggest"
           />
           <div class="field-hint">{{ t('system.yahooCategoryPathHint') }}</div>
         </el-form-item>

@@ -69,6 +69,7 @@ def _normalize_todo_row(account_id: int, item: Dict[str, Any], synced_at_ms: int
     args_obj = _safe_json_loads_dict(args_raw if isinstance(args_raw, str) else "")
     return {
         "account_id": int(account_id),
+        "platform": "mercari",
         "uuid": str(item.get("uuid") or "").strip(),
         "kind": (str(item.get("kind") or "").strip() or None),
         "title": (item.get("title") or None),
@@ -93,6 +94,7 @@ def _normalize_todo_row(account_id: int, item: Dict[str, Any], synced_at_ms: int
 # INSERT 用列（含 shipped_finalized：新 uuid 的行也要带上已 finalized 标记）。
 _UPSERT_COLS = (
     "account_id",
+    "platform",
     "uuid",
     "kind",
     "title",

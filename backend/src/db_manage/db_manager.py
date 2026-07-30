@@ -20,6 +20,7 @@ from .models import (
     MercariAccountModel,
     OnSaleItemModel,
     ProductTypeCategoryMappingModel,
+    YahooCategoryMappingModel,
     ConfigEntryModel,
     TodoItemModel,
     TransactionMessageModel,
@@ -586,7 +587,8 @@ class DBManager:
             NotificationModel,  # お知らせ通知缓存（依赖 mercari_accounts，仅顺序习惯）
             BundlePurchaseRequestModel,  # 合并购买请求缓存（依赖 notifications，仅顺序习惯）
             DesiredPriceOfferModel,  # 降价请求(値下げ依頼)缓存（依赖 notifications，仅顺序习惯）
-            ProductTypeCategoryMappingModel,  # 商品类型与类别字段映射
+            ProductTypeCategoryMappingModel,  # 商品类型与类别字段映射（煤炉）
+            YahooCategoryMappingModel,  # 雅虎分类映射（自动采集）
             MemoModel,  # 备忘录 / 站内信（依赖 users，仅顺序习惯）
             TalkScriptModel,  # 话术表（全局共享，无外键依赖）
             SystemLogModel,  # 系统日志（自动上架 / 自动获取，无外键依赖）

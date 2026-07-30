@@ -355,6 +355,8 @@ async def mitm_automation_browser(
     minimized: Optional[bool] = None,
     headless: Optional[bool] = None,
     browser_key: Optional[str] = None,
+    cookie_domains: Sequence[str] = ("mercari",),
+    login_hint: str = "jp.mercari.com",
 ) -> AsyncIterator[Tuple[EdgeWebDriveManager, str]]:
     """
     上下文管理器:进入时确保账号**同步/自动化专用** profile（``mercari_{id}__sync``）
@@ -375,6 +377,8 @@ async def mitm_automation_browser(
     ``headless``: 是否无头启动。``None`` = 读环境变量 ``WEB_DRIVE_AUTOMATION_HEADLESS``
     (默认无头)。显式传 ``False`` 可强制有头(前台可见)，用于需要用户在浏览器内
     亲自操作/核对的场景(如「発送をしてください」待办的处理)。
+
+    ``cookie_domains``: 从主 profile 克隆哪些域名的登录 Cookie（雅虎账号传 ``("yahoo",)``）。
 
     ``browser_key``: 指定自动化会话 key（须为 ``mercari_<id>__xxx`` 派生 key）。
     ``None`` = 同步默认 key ``mercari_{id}__sync``；待办事项操作传
@@ -408,7 +412,9 @@ async def mitm_automation_browser(
             minimized=use_minimized,
             headless=use_headless,
         )
-        await clone_main_profile_cookies(mgr, aid, auto_key)
+        await clone_main_profile_cookies(
+            mgr, aid, auto_key, domains=cookie_domains, login_hint=login_hint
+        )
         if target_url:
             await mgr.reload_active_tab(auto_key, target_url)
 

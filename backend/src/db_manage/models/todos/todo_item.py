@@ -35,6 +35,13 @@ class TodoItemModel(BaseModel):
                 "not_null": True,
                 "default": None,
             },
+            # 所属市集平台：'mercari'（煤炉，默认）/ 'yahoo'（Yahoo!フリマ）。
+            # 同步时按来源写入；历史行没有值时按煤炉处理。
+            "platform": {
+                "type": "TEXT",
+                "not_null": False,
+                "default": "mercari",
+            },
             "uuid": {
                 "type": "TEXT",
                 "not_null": True,

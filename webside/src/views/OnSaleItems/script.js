@@ -141,10 +141,31 @@ export default defineComponent({
       status: '',
       listing_type: '',
       shipping_duration_id: '',
+      platform: '',
     })
 
     /** 表头排序状态：prop 为列字段，order 为 'ascending' | 'descending' | null */
     const sort = ref({ prop: '', order: '' })
+
+    /** 平台筛选/标签：区分商品挂在煤炉还是雅虎（历史数据无值时按煤炉处理） */
+    const platformFilterOptions = computed(() => [
+      { value: 'mercari', label: t('onSaleItems.platformMercari') },
+      { value: 'yahoo', label: t('onSaleItems.platformYahoo') },
+    ])
+
+    function platformOf(row) {
+      return String(row?.platform ?? '').trim() || 'mercari'
+    }
+
+    function platformLabel(row) {
+      return platformOf(row) === 'yahoo'
+        ? t('onSaleItems.platformYahoo')
+        : t('onSaleItems.platformMercari')
+    }
+
+    function platformTagType(row) {
+      return platformOf(row) === 'yahoo' ? 'warning' : 'danger'
+    }
 
     /** 状态筛选下拉项：出售中 / 暂停出售（值对应煤炉 item.status） */
     const statusFilterOptions = computed(() => [
@@ -261,6 +282,7 @@ export default defineComponent({
       if (filters.value.keyword?.trim()) p.keyword = filters.value.keyword.trim()
       if (filters.value.seller_id?.trim()) p.seller_id = filters.value.seller_id.trim()
       if (filters.value.status?.trim()) p.status = filters.value.status.trim()
+      if (filters.value.platform?.trim()) p.platform = filters.value.platform.trim()
       if (filters.value.listing_type === 'auction') p.auction = '1'
       else if (filters.value.listing_type === 'normal') p.auction = '0'
       if (filters.value.shipping_duration_id?.trim()) p.shipping_duration_id = filters.value.shipping_duration_id.trim()
@@ -1268,6 +1290,9 @@ export default defineComponent({
       pageSize,
       filters,
       statusFilterOptions,
+      platformFilterOptions,
+      platformLabel,
+      platformTagType,
       listingTypeOptions,
       shippingDurationFilterOptions,
       sellerFromAccounts,

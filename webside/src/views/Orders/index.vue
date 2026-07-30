@@ -9,6 +9,15 @@
             @change="onFilterChange"
           />
           <el-select
+            v-model="filters.platform"
+            :placeholder="t('orders.platformFilterPlaceholder')"
+            clearable
+            style="width: 100%"
+            @change="onFilterChange"
+          >
+            <el-option v-for="p in platformFilterOptions" :key="p.value" :label="p.label" :value="p.value" />
+          </el-select>
+          <el-select
             v-model="filters.status"
             :placeholder="t('orders.statusFilterPlaceholder')"
             clearable
@@ -335,6 +344,11 @@
               </template>
             </el-image>
             <span v-else class="thumb-fallback">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('orders.platformColumn')" width="86" align="center" header-align="center">
+          <template #default="{ row }">
+            <el-tag :type="platformTagType(row)" size="small" effect="plain">{{ platformLabel(row) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column :label="t('orders.orderNumber')" prop="order_no" width="150" align="center" header-align="center" />

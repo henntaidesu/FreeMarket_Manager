@@ -206,7 +206,27 @@ export default defineComponent({
       scanned_only: false,
       // 分类筛选 chip（单选，互斥）；默认选中「待发货」
       categories: ['wait_shipping'],
+      // 平台筛选：煤炉 / 雅虎（空=全部）
+      platform: '',
     })
+
+    /** 平台筛选/标签：历史数据无值时按煤炉处理 */
+    const platformFilterOptions = computed(() => [
+      { value: 'mercari', label: t('todos.platformMercari') },
+      { value: 'yahoo', label: t('todos.platformYahoo') },
+    ])
+
+    function platformOf(row) {
+      return String(row?.platform ?? '').trim() || 'mercari'
+    }
+
+    function platformLabel(row) {
+      return platformOf(row) === 'yahoo' ? t('todos.platformYahoo') : t('todos.platformMercari')
+    }
+
+    function platformTagType(row) {
+      return platformOf(row) === 'yahoo' ? 'warning' : 'danger'
+    }
 
     const syncLoading = ref(false)
     const bulkReviewLoading = ref(false)
@@ -740,6 +760,7 @@ export default defineComponent({
       if (filters.value.packed_only) p.packed_only = true
       if (filters.value.scanned_only) p.scanned_only = true
       if (filters.value.categories.length) p.categories = filters.value.categories.join(',')
+      if (filters.value.platform) p.platform = filters.value.platform
       return p
     }
 
@@ -1920,6 +1941,9 @@ export default defineComponent({
       page,
       pageSize,
       filters,
+      platformFilterOptions,
+      platformLabel,
+      platformTagType,
       syncLoading,
       bulkReviewLoading,
       bulkConfirmShipLoading,

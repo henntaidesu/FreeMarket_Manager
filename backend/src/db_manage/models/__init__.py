@@ -11,6 +11,7 @@ from .system.cost_record import CostRecordModel
 from .system.cost_expense import CostExpenseModel
 from .system.settlement_record import SettlementRecordModel
 from .system.product_type_category_mapping import ProductTypeCategoryMappingModel
+from .system.yahoo_category_mapping import YahooCategoryMappingModel
 from .system.config_entry import ConfigEntryModel
 from .system.talk_script import TalkScriptModel
 from .system.system_log import SystemLogModel
@@ -46,6 +47,7 @@ __all__ = [
     'OnSaleItemModel',
     'OrderOutboundLineModel',
     'ProductTypeCategoryMappingModel',
+    'YahooCategoryMappingModel',
     'ConfigEntryModel',
     'TodoItemModel',
     'TransactionMessageModel',

@@ -2970,6 +2970,46 @@ export default defineComponent({
 
     /** 编辑弹窗内「出品」：用当前表单字段派发出品自动化（单条库存）
      *  watermark=true 水印出品，false 原图出品（由「出品方式」下拉决定） */
+    /** 按平台可选的出品账号（停用账号不能出品） */
+    function listingAccountsOfPlatform(platform) {
+      const list = Array.isArray(mercariAccountOptions.value) ? mercariAccountOptions.value : []
+      return list.filter(
+        (a) => (String(a?.platform || 'mercari').trim() || 'mercari') === platform
+          && a?.status !== 'disabled'
+      )
+    }
+
+    function hasListingAccountFor(platform) {
+      return listingAccountsOfPlatform(platform).length > 0
+    }
+
+    /**
+     * 「煤炉出品 / 雅虎出品」：出品账号仍由表单里的下拉决定，这两个按钮只负责限定平台——
+     * 已选账号就是该平台的直接用；不是且该平台只有一个可用账号则自动切过去；
+     * 有多个则要求用户明确选一个（不替他猜挂到哪个号上）。
+     */
+    async function submitListingToPlatform(platform, watermark = false) {
+      const accounts = listingAccountsOfPlatform(platform)
+      const platformName = platform === 'yahoo'
+        ? t('inventory.platformNameYahoo')
+        : t('inventory.platformNameMercari')
+      if (!accounts.length) {
+        ElMessage.warning(t('inventory.noAccountForPlatform', { platform: platformName }))
+        return
+      }
+      const current = form.value?.mercari_account_id
+      const matched = accounts.find((a) => Number(a.id) === Number(current))
+      if (!matched) {
+        if (accounts.length > 1) {
+          ElMessage.warning(t('inventory.pickAccountForPlatform', { platform: platformName }))
+          return
+        }
+        form.value.mercari_account_id = accounts[0].id
+        persistListingField('mercari_account_id')
+      }
+      await submitListingFromEditForm(watermark)
+    }
+
     async function submitListingFromEditForm(watermark = false) {
       const id = Number(form.value?.id)
       if (!Number.isFinite(id) || id <= 0) return
@@ -4073,6 +4113,9 @@ export default defineComponent({
       productImgStream,
       listingDefaultsFromServer,
       listingSubmitting,
+      listingAccountsOfPlatform,
+      hasListingAccountFor,
+      submitListingToPlatform,
       canEnableAutoListing,
       autoListingDisabledReason,
       mercariAccountOptions,

@@ -1129,21 +1129,37 @@
               :content="currentEditRowAlertReason"
               placement="top"
             >
-              <span>
+              <span class="listing-submit-buttons">
                 <el-popconfirm
                   title=""
                   hide-icon
                   popper-class="listing-confirm-popper"
                   :confirm-button-text="t('common.confirm')"
                   :cancel-button-text="t('common.cancel')"
-                  @confirm="submitListingFromEditForm(Number(form.auto_listing_watermark) === 1)"
+                  @confirm="submitListingToPlatform('mercari', Number(form.auto_listing_watermark) === 1)"
                 >
                   <template #reference>
                     <el-button
-                      type="warning"
+                      type="success"
                       :loading="listingSubmitting"
-                      :disabled="inventorySaveBlockedByImageUpload || listableQuantity(form) <= 0 || currentEditRowIsAlert"
-                    >{{ t('inventory.listSubmit') }}</el-button>
+                      :disabled="inventorySaveBlockedByImageUpload || listableQuantity(form) <= 0 || currentEditRowIsAlert || !hasListingAccountFor('mercari')"
+                    >{{ t('inventory.listSubmitMercari') }}</el-button>
+                  </template>
+                </el-popconfirm>
+                <el-popconfirm
+                  title=""
+                  hide-icon
+                  popper-class="listing-confirm-popper"
+                  :confirm-button-text="t('common.confirm')"
+                  :cancel-button-text="t('common.cancel')"
+                  @confirm="submitListingToPlatform('yahoo', Number(form.auto_listing_watermark) === 1)"
+                >
+                  <template #reference>
+                    <el-button
+                      type="success"
+                      :loading="listingSubmitting"
+                      :disabled="inventorySaveBlockedByImageUpload || listableQuantity(form) <= 0 || currentEditRowIsAlert || !hasListingAccountFor('yahoo')"
+                    >{{ t('inventory.listSubmitYahoo') }}</el-button>
                   </template>
                 </el-popconfirm>
               </span>

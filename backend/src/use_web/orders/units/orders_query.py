@@ -130,6 +130,7 @@ def list_orders(
     owner_user_id: Optional[int] = None,
     page: int = 1,
     page_size: int = 20,
+    platform: Optional[str] = None,
 ):
     _validate_status_query(status)
     return OrderModel.find_detail_list(
@@ -140,4 +141,5 @@ def list_orders(
         owner_user_id=owner_user_id,
         page=page,
         page_size=page_size,
+        platform=platform,
     )

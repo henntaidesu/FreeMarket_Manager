@@ -57,6 +57,8 @@ def mercari_list_item_to_row(item: Dict[str, Any], seller_id: str) -> Optional[D
     return {
         "item_id": iid,
         "seller_id": str(seller_id).strip(),
+        # 来源平台：雅虎侧同步时在 item 里带上 platform='yahoo'，煤炉侧不带即默认煤炉
+        "platform": (str(item.get("platform") or "").strip() or "mercari"),
         "status": (str(item.get("status")).strip() if item.get("status") is not None else None) or None,
         "name": (str(item.get("name")) if item.get("name") is not None else None) or None,
         "price": _price_yen_floor(item.get("price")),

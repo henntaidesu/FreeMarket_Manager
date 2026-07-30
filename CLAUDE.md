@@ -185,8 +185,38 @@ Key tables in `backend/src/db_manage/models/`:
 
 ### Yahoo!フリマ (PayPayフリマ) Listing
 
-`mercari_accounts.platform` (`mercari` default / `yahoo`) selects the marketplace. **Only listing
-(出品) is implemented for Yahoo** — orders, on-sale sync and todos remain Mercari-only.
+`mercari_accounts.platform` (`mercari` default / `yahoo`) selects the marketplace. Implemented for
+Yahoo: **listing (出品), on-sale sync, revise/suspend/delete, sold-order sync, todo sync**.
+Still Mercari-only: relist/resume, notifications, and every todo *action* (发货/QR/批量) — Yahoo
+todos are display-only for now.
+
+Yahoo has no usable list/detail API — every page is server-rendered, so `use_yahoo/` parses pages
+with the automation browser. Two things make that tolerable: item cards carry a structured
+`data-cl-params` attribute (`rcconid` / `opentime` / `wl` / `viewcnt` / `srchcnt`), and the parsed
+rows are fed into the **existing Mercari writers** (`apply_on_sale_list_sync`, `_upsert_order`), so
+soft-delete, inventory counters and order upsert semantics stay identical across platforms.
+
+- `use_yahoo/on_sale/list_sync.py` — `/my/item/selling` → `on_sale_items` (`platform='yahoo'`).
+  Soft-delete only fires when the crawl is provably complete (`出品数: N/100` vs collected count).
+- `use_yahoo/orders/sold_sync.py` — `/my/item/sold` + each `/item/{id}/trade/seller` → `orders`
+  (`order_no` = Yahoo item id). Status is matched **only in the page's first 400 chars**: the
+  trade page keeps a hidden 取引キャンセル dialog in the DOM that makes whole-body matching report
+  every pending order as cancelled. Unrecognized status → skipped and reported, never guessed.
+- `use_yahoo/seller.py` — Yahoo has no seller_id in any payload; it is scraped once from the
+  `/user/{id}` link on `/my` and written back to `mercari_accounts.seller_id`.
+- `web_drive/yahoo_item/` — revise / suspend / delete all live on one page
+  (`/item/{id}/edit`, public domain — the `-sec` host 404s) whose form is identical to the listing
+  form, so `post_to_yahoo._fields` is reused. Buttons: 変更する / 出品を停止する / 商品を削除する.
+- `web_drive/core/yahoo_session.py` — same MITM + cookie-clone session as Mercari, only with
+  `cookie_domains=("yahoo","paypay")`; `export_cookies_full` filters by domain, so without this the
+  Yahoo session is silently logged out.
+- `use_yahoo/todos/todo_sync.py` — the one Yahoo endpoint that is a clean JSON API:
+  `GET /api/v1/notices/todo?result=30&offset=0` (login cookies required). Yahoo todo types map to
+  their own `Yahoo*` kinds (`ooesh` → `YahooShipRequest`) rather than onto Mercari kinds — reusing
+  `WaitShippingCard` etc. would make the todos page offer Mercari-only ship/QR actions on a Yahoo row.
+- `platform` columns on `on_sale_items` / `orders` / `todo_items` drive the 平台 filter + tag on
+  `/#/on-sale-items`, `/#/orders`, `/#/todos`. Mercari writers set `'mercari'` explicitly; legacy
+  rows with no value are treated as Mercari in every filter.
 
 - `web_drive/listing/units/post_to_yahoo/` mirrors `post_to_macket/` and returns the **same result
   keys** (`submitted` / `submit_clicked` / `submit_uncertain` / `*_error`), so the task queue
@@ -196,8 +226,15 @@ Key tables in `backend/src/db_manage/models/`:
   `cookie_domains` so the same MITM + cookie-clone machinery clones Yahoo cookies instead of Mercari's.
 - **Category**: Yahoo's tree is unrelated to Mercari's and must be drilled to a leaf, so
   `product_type_category_mappings.yahoo_category_path` stores the full Japanese path
-  (`本、雑誌、コミック > 医学、薬学、看護 > 医学一般 > 医学一般全般`), edited in 系统管理 → 商品类型映射.
+  (`本、雑誌、コミック > 医学、薬学、看護 > 医学一般 > 医学一般全般`), edited in 系统管理 → 煤炉类型映射.
   Missing path → the listing is rejected up front with a clear 400.
+- **Category catalog**: 系统管理 → 雅虎类型映射 (`/system/yahoo-category-mappings`) is a hand-maintained
+  catalog of Yahoo leaf categories in table `yahoo_category_mappings` (id + 3 levels + leaf name +
+  full path). It is paginated/searchable server-side because the tree is large. The Mercari mapping
+  page's 雅虎分类 field autocompletes from it, so the path that drives the automation is picked rather
+  than typed. (Auto-scraping Yahoo's `/api/v1/categories/{id}/children` was tried and dropped: the
+  endpoint returns intermittent 500s under any sustained crawl, so the collected tree came out
+  badly truncated.)
 - Yahoo has no 送料負担 (always seller) and no auction; those fields are hidden in the listing dialogs
   (`useListingPlatform.js`) and ignored by the backend. Shipping method maps
   `rakuraku`→ヤマト運輸 / `yuuyu`→日本郵便; other values keep the page default (日本郵便).

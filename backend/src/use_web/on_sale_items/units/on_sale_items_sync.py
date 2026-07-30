@@ -91,6 +91,20 @@ def resolve_sync_account_ids(account_id: Optional[int]) -> List[int]:
     return resolve_enabled_account_ids()
 
 
+def _account_platform(account_id: int) -> str:
+    """账号所属市集平台：``mercari``（默认）/ ``yahoo``。"""
+    try:
+        from ....db_manage.models.mercari_accounts.mercari_account import MercariAccountModel
+
+        acc = MercariAccountModel.find_by_id(id=int(account_id))
+        if acc is None:
+            return "mercari"
+        return str(getattr(acc, "platform", "") or "").strip() or "mercari"
+    except Exception:
+        log.warning("[on_sale] 查询账号#%s 平台失败，按煤炉处理", account_id, exc_info=True)
+        return "mercari"
+
+
 async def sync_on_sale_core(
     *,
     account_ids: List[int],
@@ -107,12 +121,21 @@ async def sync_on_sale_core(
     mgr = get_web_drive_manager()
     for aid in account_ids:
         try:
-            stats = await run_mercari_serial_async(
-                queue_key_for_mercari_account(aid),
-                lambda aid=aid: sync_on_sale_items_from_mercari(
+            # 雅虎账号走雅虎的页面解析同步；写库规则与煤炉完全一致（同一 apply_on_sale_list_sync）
+            if _account_platform(aid) == "yahoo":
+                from ....use_yahoo.on_sale import sync_yahoo_on_sale_items
+
+                runner = lambda aid=aid: sync_yahoo_on_sale_items(
+                    account_id=aid, progress_job_id=progress_job_id
+                )
+            else:
+                runner = lambda aid=aid: sync_on_sale_items_from_mercari(
                     account_id=aid,
                     progress_job_id=progress_job_id,
-                ),
+                )
+            stats = await run_mercari_serial_async(
+                queue_key_for_mercari_account(aid),
+                runner,
             )
         except Exception as exc:  # noqa: BLE001 单个账号失败不影响其余账号
             fail_count += 1

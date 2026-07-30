@@ -53,6 +53,15 @@
           >{{ t('todos.categoryOther') }}</div>
         </div>
         <div class="search-actions">
+          <el-select
+            v-model="filters.platform"
+            :placeholder="t('todos.platformFilterPlaceholder')"
+            clearable
+            class="todos-platform-filter"
+            @change="onFilterChange"
+          >
+            <el-option v-for="p in platformFilterOptions" :key="p.value" :label="p.label" :value="p.value" />
+          </el-select>
           <!-- 已改为提交任务队列：提交即返回，不再受全局同步锁阻挡 -->
           <el-button type="primary" :loading="syncLoading" @click="runSync">
             {{ t('todos.syncFromMercari') }}
@@ -69,6 +78,11 @@
 
     <el-card shadow="never" class="table-card">
       <el-table :data="list" v-loading="loading" stripe row-key="id">
+        <el-table-column :label="t('todos.platformColumn')" width="86" align="center" header-align="center">
+          <template #default="{ row }">
+            <el-tag :type="platformTagType(row)" size="small" effect="plain">{{ platformLabel(row) }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column :label="t('todos.colImage')" width="80" align="center" header-align="center">
           <template #default="{ row }">
             <el-image

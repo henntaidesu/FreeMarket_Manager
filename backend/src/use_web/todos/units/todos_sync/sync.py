@@ -16,6 +16,19 @@ from .detail import _SYNC_JOB_ID_RE
 log = logging.getLogger(__name__)
 
 
+def _account_platform_for_todos(account_id: int) -> str:
+    """账号所属市集平台：``mercari``（默认）/ ``yahoo``。"""
+    try:
+        from .....db_manage.models.mercari_accounts.mercari_account import MercariAccountModel
+
+        acc = MercariAccountModel.find_by_id(id=int(account_id))
+        if acc is None:
+            return "mercari"
+        return str(getattr(acc, "platform", "") or "").strip() or "mercari"
+    except Exception:
+        return "mercari"
+
+
 async def sync_todos(req: SyncTodosRequest) -> Dict[str, Any]:
     """从煤炉同步所有启用账号（status=active；不要求自动获取开启）的待办事项；按账号串行避免浏览器抢占。
 
@@ -72,12 +85,19 @@ async def sync_todos_core(
     # 整账号作为一个队列任务（suppress_idle_close=True：列表/详情/联动复用同一浏览器会话）。
     for aid in account_ids:
         try:
-            stats = await run_mercari_serial_async(
-                queue_key_for_mercari_account(aid),
-                lambda aid=aid: sync_todos_with_details(
+            # 雅虎账号走雅虎的待办接口（/api/v1/notices/todo），写库仍是同一张 todo_items
+            if _account_platform_for_todos(aid) == "yahoo":
+                from .....use_yahoo.todos import sync_yahoo_todos
+
+                runner = lambda aid=aid: sync_yahoo_todos(account_id=aid)
+            else:
+                runner = lambda aid=aid: sync_todos_with_details(
                     account_id=aid,
                     progress_job_id=jid,
-                ),
+                )
+            stats = await run_mercari_serial_async(
+                queue_key_for_mercari_account(aid),
+                runner,
                 suppress_idle_close=True,
             )
         except Exception as exc:  # noqa: BLE001 单个账号失败不影响其余账号

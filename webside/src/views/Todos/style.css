@@ -1010,3 +1010,8 @@
   display: flex;
   justify-content: flex-end;
 }
+
+/* 平台筛选下拉（与同步按钮同排） */
+.todos-platform-filter {
+  width: 140px;
+}

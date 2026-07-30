@@ -15,6 +15,7 @@ _ON_SALE_ITEM_LIST_KEYS: Tuple[str, ...] = (
     "id",
     "item_id",
     "seller_id",
+    "platform",
     "status",
     "name",
     "price",
@@ -87,6 +88,13 @@ class OnSaleItemModel(BaseModel):
                 "type": "TEXT",
                 "not_null": True,
                 "default": None,
+            },
+            # 所属市集平台：'mercari'（煤炉，默认）/ 'yahoo'（Yahoo!フリマ）。
+            # 同步时按来源写入，在售页据此筛选。历史行没有该值时按煤炉处理。
+            "platform": {
+                "type": "TEXT",
+                "not_null": False,
+                "default": "mercari",
             },
             "status": {
                 "type": "TEXT",
@@ -290,6 +298,7 @@ class OnSaleItemModel(BaseModel):
             {"name": "idx_on_sale_items_seller", "columns": ["seller_id"]},
             {"name": "idx_on_sale_items_updated", "columns": ["updated"]},
             {"name": "idx_on_sale_items_status", "columns": ["status"]},
+            {"name": "idx_on_sale_items_platform", "columns": ["platform"]},
         ]
 
     @classmethod
@@ -299,6 +308,7 @@ class OnSaleItemModel(BaseModel):
         seller_id: Optional[str] = None,
         status: Optional[str] = None,
         include_deleted: bool = False,
+        platform: Optional[str] = None,
     ) -> Tuple[str, List[Any]]:
         sql = " FROM [on_sale_items] t WHERE 1=1 "
         params: List[Any] = []
@@ -314,6 +324,14 @@ class OnSaleItemModel(BaseModel):
         if status is not None and str(status).strip():
             sql += " AND t.status = ?"
             params.append(str(status).strip())
+        if platform is not None and str(platform).strip():
+            # 历史行（平台字段上线前同步的）没有值，按煤炉处理
+            plat = str(platform).strip()
+            if plat == "mercari":
+                sql += " AND COALESCE(NULLIF(TRIM(t.platform), ''), 'mercari') = 'mercari'"
+            else:
+                sql += " AND TRIM(t.platform) = TRIM(?)"
+                params.append(plat)
         return sql, params
 
     @classmethod
@@ -359,6 +377,7 @@ class OnSaleItemModel(BaseModel):
         seller_id: Optional[str] = None,
         status: Optional[str] = None,
         include_deleted: bool = False,
+        platform: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """按筛选条件一次性取回全部匹配行（无分页），供需全表排序的在售列表使用。
 
@@ -367,7 +386,8 @@ class OnSaleItemModel(BaseModel):
         """
         db = cls().db
         base_sql, params = cls._build_filter(
-            keyword=keyword, seller_id=seller_id, status=status, include_deleted=include_deleted
+            keyword=keyword, seller_id=seller_id, status=status,
+            include_deleted=include_deleted, platform=platform,
         )
         keys = list(_ON_SALE_ITEM_LIST_KEYS)
         sel = f"""
@@ -387,10 +407,12 @@ class OnSaleItemModel(BaseModel):
         include_deleted: bool = False,
         page: int = 1,
         page_size: int = 20,
+        platform: Optional[str] = None,
     ) -> Dict[str, Any]:
         db = cls().db
         base_sql, params = cls._build_filter(
-            keyword=keyword, seller_id=seller_id, status=status, include_deleted=include_deleted
+            keyword=keyword, seller_id=seller_id, status=status,
+            include_deleted=include_deleted, platform=platform,
         )
         total = db.execute_query(f"SELECT COUNT(*) {base_sql}", tuple(params))[0][0]
         offset = (page - 1) * page_size

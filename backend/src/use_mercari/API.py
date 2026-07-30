@@ -53,6 +53,19 @@ class SyncOrdersRequest(PydanticModel):
     progress_job_id: Optional[str] = None
 
 
+def _account_platform_for_orders(account_id: int) -> str:
+    """账号所属市集平台：``mercari``（默认）/ ``yahoo``。"""
+    try:
+        from ..db_manage.models.mercari_accounts.mercari_account import MercariAccountModel
+
+        acc = MercariAccountModel.find_by_id(id=int(account_id))
+        if acc is None:
+            return "mercari"
+        return str(getattr(acc, "platform", "") or "").strip() or "mercari"
+    except Exception:
+        return "mercari"
+
+
 async def sync_new_data_core(*, progress_job_id: Optional[str] = None) -> Dict[str, Any]:
     """「更新列表」主体：不含 HTTP 与锁语义，**调用方须自行持有全局同步锁**。
 
@@ -66,9 +79,20 @@ async def sync_new_data_core(*, progress_job_id: Optional[str] = None) -> Dict[s
     mgr = get_web_drive_manager()
     for aid in account_ids:
         try:
+            # 雅虎账号：从「売却済み」列表 + 各自交易页解析订单，写入同一张 orders 表
+            if _account_platform_for_orders(aid) == "yahoo":
+                from ..use_yahoo.orders import sync_yahoo_orders
+
+                runner = lambda aid=aid: sync_yahoo_orders(
+                    account_id=aid, progress_job_id=progress_job_id
+                )
+            else:
+                runner = lambda aid=aid: sync_new_data(
+                    account_id=aid, progress_job_id=progress_job_id
+                )
             stats = await run_mercari_serial_async(
                 queue_key_for_mercari_account(aid),
-                lambda aid=aid: sync_new_data(account_id=aid, progress_job_id=progress_job_id),
+                runner,
             )
         except Exception as exc:  # noqa: BLE001 单个账号失败不影响其余账号
             fail_count += 1
