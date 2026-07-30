@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Tuple
+from typing import Any, AsyncIterator, Sequence, Tuple
 
 from .manager import EdgeWebDriveManager, get_web_drive_manager
 from .mitm_session import (
@@ -39,6 +39,8 @@ async def listing_automation_browser(
     account_id: int,
     *,
     start_url: str,
+    cookie_domains: Sequence[str] = ("mercari",),
+    login_hint: str = "jp.mercari.com",
 ) -> AsyncIterator[Tuple[EdgeWebDriveManager, str]]:
     """进入时初始化一个全新的无头出品浏览器并导航到出品页，退出时强制关闭。
 
@@ -70,7 +72,9 @@ async def listing_automation_browser(
     )
     try:
         # ── 2. 从主 profile 克隆登录态（只读，不影响已开的有头/同步浏览器） ── #
-        injected = await clone_main_profile_cookies(mgr, aid, listing_key)
+        injected = await clone_main_profile_cookies(
+            mgr, aid, listing_key, domains=cookie_domains, login_hint=login_hint
+        )
         log.info(
             "[listing_session] account_id=%d 出品无头会话已就绪，注入 Cookie %d 条",
             aid, injected,

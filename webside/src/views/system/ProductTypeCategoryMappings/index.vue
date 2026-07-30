@@ -19,6 +19,7 @@
         <el-table-column :label="t('system.categoryLevel3Position')" prop="category_level3_position" width="100" />
         <el-table-column :label="t('system.productType')" prop="product_type" min-width="180" />
         <el-table-column :label="t('system.productTypePosition')" prop="product_type_position" width="100" />
+        <el-table-column :label="t('system.yahooCategoryPath')" prop="yahoo_category_path" min-width="200" show-overflow-tooltip />
         <el-table-column :label="t('system.mappingDescription')" prop="description" show-overflow-tooltip />
         <el-table-column :label="t('common.actions')" width="140" fixed="right">
           <template #default="{ row }">
@@ -85,6 +86,15 @@
         </el-form-item>
         <el-form-item :label="t('system.mappingId')" prop="mapping_id">
           <el-input v-model="form.mapping_id" :placeholder="t('system.mappingIdPlaceholder')" />
+        </el-form-item>
+        <el-form-item :label="t('system.yahooCategoryPath')">
+          <el-input
+            v-model="form.yahoo_category_path"
+            type="textarea"
+            :rows="2"
+            :placeholder="t('system.yahooCategoryPathPlaceholder')"
+          />
+          <div class="field-hint">{{ t('system.yahooCategoryPathHint') }}</div>
         </el-form-item>
         <el-form-item :label="t('system.mappingDescription')">
           <el-input v-model="form.description" type="textarea" :rows="3" :placeholder="t('system.descriptionPlaceholder')" />

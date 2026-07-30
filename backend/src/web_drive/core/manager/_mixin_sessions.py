@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 from ..interactive_tab_state import restore_tabs_to_context, save_snapshot_from_context
 from ..paths import profile_dir_for, profiles_root, validate_account_key
 from ._config import log, _DriveThreadState, force_headed_debug_enabled
@@ -199,11 +199,18 @@ class _SessionsMixin:
         return ctx is not None and self._is_context_alive(ctx)
 
 
-    async def export_cookies_full(self, account_key: str) -> List[Dict[str, Any]]:
-        """导出账号 profile 当前登录态的煤炉 Cookie（Playwright 完整字段）。
+    async def export_cookies_full(
+        self,
+        account_key: str,
+        *,
+        domains: Sequence[str] = ("mercari",),
+    ) -> List[Dict[str, Any]]:
+        """导出账号 profile 当前登录态的 Cookie（Playwright 完整字段）。
 
         复用已开会话（含用户手动有头），既不关闭也不抢占；未开时临时开无头会话读取，
         **读完即关闭**，不残留后台进程。返回值可直接传给 ``import_cookies`` 克隆登录态。
+
+        ``domains``：只导出域名含这些子串的 Cookie。默认煤炉；雅虎账号传 ``("yahoo",)``。
         """
         key = validate_account_key(account_key)
         was_alive = self.has_alive_session(key)
@@ -229,7 +236,7 @@ class _SessionsMixin:
         out: List[Dict[str, Any]] = []
         for c in raw:
             domain = (c.get("domain") or "").lower()
-            if "mercari" not in domain:
+            if not any(d.lower() in domain for d in domains):
                 continue
             if not c.get("name") or c.get("value") is None:
                 continue

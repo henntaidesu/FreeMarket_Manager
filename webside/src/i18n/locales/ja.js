@@ -121,6 +121,10 @@ export default {
     cancelBtn: "キャンセル",
   },
   dialogs: {
+    listingPlatform: {
+      yahooShippingYamato: "おてがる配送（ヤマト運輸）",
+      yahooShippingJapanPost: "おてがる配送（日本郵便）",
+    },
     desiredPrice: {
       dialogTitle: "値下げ交渉の詳細",
       loadingCapture: "ブラウザを開いて値下げ交渉の詳細を取得中...",

@@ -121,6 +121,10 @@ export default {
     cancelBtn: "取消",
   },
   dialogs: {
+    listingPlatform: {
+      yahooShippingYamato: "おてがる配送（雅玛多运输）",
+      yahooShippingJapanPost: "おてがる配送（日本邮便）",
+    },
     desiredPrice: {
       dialogTitle: "降价请求详情",
       loadingCapture: "正在打开浏览器并捕获降价请求详情...",

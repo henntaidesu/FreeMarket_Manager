@@ -23,7 +23,8 @@ export default defineComponent({
       product_type_position: '',
       product_type: '',
       mapping_id: '',
-      description: ''
+      description: '',
+      yahoo_category_path: ''
     })
     const rules = {
       product_type: [{ required: true, message: t('system.productTypeRequired'), trigger: 'blur' }],
@@ -75,7 +76,8 @@ export default defineComponent({
             product_type_position: positionFromRow(row.product_type_position),
             product_type: row.product_type || '',
             mapping_id: row.mapping_id || '',
-            description: row.description || ''
+            description: row.description || '',
+            yahoo_category_path: row.yahoo_category_path || ''
           }
         : {
             original_mapping_id: null,
@@ -88,7 +90,8 @@ export default defineComponent({
             product_type_position: '',
             product_type: '',
             mapping_id: '',
-            description: ''
+            description: '',
+            yahoo_category_path: ''
           }
       dialogVisible.value = true
     }
@@ -107,7 +110,8 @@ export default defineComponent({
           product_type_position: parseNullableInt(form.value.product_type_position),
           product_type: String(form.value.product_type || '').trim(),
           mapping_id: String(form.value.mapping_id || '').trim(),
-          description: form.value.description
+          description: form.value.description,
+          yahoo_category_path: String(form.value.yahoo_category_path || '').trim() || null
         }
         if (form.value.original_mapping_id) await productTypeCategoryMappingApi.update(form.value.original_mapping_id, payload)
         else await productTypeCategoryMappingApi.create(payload)

@@ -134,7 +134,8 @@
           />
         </el-select>
       </el-form-item>
-      <el-form-item :label="t('dialogs.combinedListing.shippingPayer')" prop="shipping_payer" required>
+      <!-- 雅虎恒为出品者負担（送料込み），无此选项 -->
+      <el-form-item v-if="!isYahoo" :label="t('dialogs.combinedListing.shippingPayer')" prop="shipping_payer" required>
         <el-select v-model="form.shipping_payer" :placeholder="t('dialogs.combinedListing.shippingPayerPlaceholder')" style="width: 100%">
           <el-option v-for="s in shippingPayerOptions" :key="s.value" :label="s.label" :value="s.value" />
         </el-select>
@@ -162,7 +163,8 @@
           <el-option v-for="s in shippingDaysOptions" :key="s.value" :label="s.label" :value="s.value" />
         </el-select>
       </el-form-item>
-      <el-form-item :label="t('dialogs.combinedListing.saleType')" prop="sale_type" required>
+      <!-- 雅虎只有定价即购，没有拍卖 -->
+      <el-form-item v-if="!isYahoo" :label="t('dialogs.combinedListing.saleType')" prop="sale_type" required>
         <div class="listing-compact-row">
           <el-select
             v-model="form.sale_type"
@@ -211,6 +213,7 @@ import { ref, watch, computed, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { mercariAccountApi } from '@/api/index.js'
 import { encodeMgmtIds, stripTrailingMgmtBlock } from '@/utils/mgmtIdCipher.js'
+import { useListingPlatform } from '@/composables/useListingPlatform.js'
 import {
   MERCARI_AREAS,
   JP_REGION_OPTIONS,
@@ -490,12 +493,16 @@ const shippingPayerOptions = computed(() => [
   { label: t('dialogs.combinedListing.payerSeller'), value: 'seller' },
   { label: t('dialogs.combinedListing.payerBuyer'), value: 'buyer' }
 ])
-const shippingMethodOptions = computed(() => [
-  { label: t('dialogs.combinedListing.methodUndecided'), value: 'undecided' },
-  { label: t('dialogs.combinedListing.methodRakuraku'), value: 'rakuraku' },
-  { label: t('dialogs.combinedListing.methodYuuyu'), value: 'yuuyu' },
-  { label: t('dialogs.combinedListing.methodRegularMail'), value: 'regular_mail' }
-])
+// 雅虎账号：只有おてがる配送两家承运商，且没有快递费负担/販売形式（见 useListingPlatform）
+const { isYahoo, yahooShippingMethodOptions } = useListingPlatform(mercariAccountOptions, form)
+const shippingMethodOptions = computed(() => isYahoo.value
+  ? yahooShippingMethodOptions.value
+  : [
+      { label: t('dialogs.combinedListing.methodUndecided'), value: 'undecided' },
+      { label: t('dialogs.combinedListing.methodRakuraku'), value: 'rakuraku' },
+      { label: t('dialogs.combinedListing.methodYuuyu'), value: 'yuuyu' },
+      { label: t('dialogs.combinedListing.methodRegularMail'), value: 'regular_mail' }
+    ])
 const shippingDaysOptions = computed(() => [
   { label: t('dialogs.combinedListing.days1to2'), value: '1_2_days' },
   { label: t('dialogs.combinedListing.days2to3'), value: '2_3_days' },

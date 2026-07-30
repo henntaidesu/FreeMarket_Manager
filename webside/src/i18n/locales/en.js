@@ -121,6 +121,10 @@ export default {
     cancelBtn: "Cancel",
   },
   dialogs: {
+    listingPlatform: {
+      yahooShippingYamato: "Otegaru Shipping (Yamato)",
+      yahooShippingJapanPost: "Otegaru Shipping (Japan Post)",
+    },
     desiredPrice: {
       dialogTitle: "Price Offer Details",
       loadingCapture: "Opening browser and capturing price offer details...",

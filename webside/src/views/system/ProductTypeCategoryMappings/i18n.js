@@ -26,6 +26,9 @@ export default {
       productTypeRequired: "请输入商品类型",
       positionPlaceholder: "位置",
       descriptionPlaceholder: "可选说明",
+      yahooCategoryPath: "雅虎分类",
+      yahooCategoryPathPlaceholder: "本、雑誌、コミック > 医学、薬学、看護 > 医学一般 > 医学一般全般",
+      yahooCategoryPathHint: "雅虎出品用：按雅虎分类弹层的日文名逐级填写，必须写到最末级；留空则该类型无法出品到雅虎。",
     },
   },
   ja: {
@@ -55,6 +58,9 @@ export default {
       productTypeRequired: "商品タイプを入力してください",
       positionPlaceholder: "位置",
       descriptionPlaceholder: "任意の説明",
+      yahooCategoryPath: "Yahoo!フリマ カテゴリ",
+      yahooCategoryPathPlaceholder: "本、雑誌、コミック > 医学、薬学、看護 > 医学一般 > 医学一般全般",
+      yahooCategoryPathHint: "Yahoo!フリマ出品用：カテゴリ選択の日本語名を末端まで「>」区切りで入力してください。空欄の場合はYahoo!フリマに出品できません。",
     },
   },
   en: {
@@ -84,6 +90,9 @@ export default {
       productTypeRequired: "Please enter product type",
       positionPlaceholder: "Position",
       descriptionPlaceholder: "Optional description",
+      yahooCategoryPath: "Yahoo Category",
+      yahooCategoryPathPlaceholder: "本、雑誌、コミック > 医学、薬学、看護 > 医学一般 > 医学一般全般",
+      yahooCategoryPathHint: "For Yahoo!Flea Market listings: enter the Japanese category names down to the leaf, separated by '>'. Leave empty if this type cannot be listed on Yahoo.",
     },
   },
 }

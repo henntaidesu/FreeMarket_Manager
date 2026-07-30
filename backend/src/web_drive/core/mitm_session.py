@@ -22,7 +22,7 @@ import os
 import re
 import time
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Callable, Dict, Optional, Tuple
+from typing import Any, AsyncIterator, Callable, Dict, Optional, Sequence, Tuple
 
 from ...ssl_mitm_proxy.runner import default_mitm_proxy_url, start_mitm_proxy
 from .manager import (
@@ -279,21 +279,26 @@ async def clone_main_profile_cookies(
     mgr: EdgeWebDriveManager,
     account_id: int,
     target_key: str,
+    *,
+    domains: Sequence[str] = ("mercari",),
+    login_hint: str = "jp.mercari.com",
 ) -> int:
-    """把主 profile（``mercari_{id}``，「打开浏览器」手动登录维护）的煤炉登录 Cookie 克隆到目标会话。
+    """把主 profile（``mercari_{id}``，「打开浏览器」手动登录维护）的登录 Cookie 克隆到目标会话。
 
     只读主 profile：已开的会话（含用户手动有头浏览器）直接复用、绝不关闭；
     未开时由 ``export_cookies_full`` 临时无头打开读取、读完即关，不残留后台进程。
     同账号并发克隆经 ``_clone_cookie_lock_for`` 串行，避免临时主会话的读/关竞态。
     ``target_key`` 会话须已打开。返回注入条数。
+
+    ``domains``：要克隆哪些域名的 Cookie（雅虎账号传 ``("yahoo",)``）。
     """
     aid = int(account_id)
     lock = await _clone_cookie_lock_for(aid)
     async with lock:
-        cookies = await mgr.export_cookies_full(mercari_account_key(aid))
+        cookies = await mgr.export_cookies_full(mercari_account_key(aid), domains=domains)
     if not cookies:
         raise RuntimeError(
-            "未读取到该账号的登录 Cookie，请先在「煤炉账号」页面打开浏览器登录 jp.mercari.com"
+            f"未读取到该账号的登录 Cookie，请先在「煤炉账号」页面打开浏览器登录 {login_hint}"
         )
     return await mgr.import_cookies(target_key, cookies)
 

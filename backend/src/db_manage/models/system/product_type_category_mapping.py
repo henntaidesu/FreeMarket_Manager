@@ -62,6 +62,15 @@ class ProductTypeCategoryMappingModel(BaseModel):
                 'not_null': True,
                 'default': None,
             },
+            # 雅虎（Yahoo!フリマ）出品用的分类路径，形如
+            # 「本、雑誌、コミック > 医学、薬学、看護 > 医学一般 > 医学一般全般」。
+            # 雅虎分类树与煤炉完全不同、且必须点到最末级，故按日文全路径存文本，
+            # 出品时在弹层里逐级按文案点击（比位置索引稳）。
+            'yahoo_category_path': {
+                'type': 'TEXT',
+                'not_null': False,
+                'default': None,
+            },
             'description': {
                 'type': 'TEXT',
                 'not_null': False,

@@ -72,6 +72,39 @@ def _get_category_positions(mapping_id: Optional[str]) -> dict:
         log.warning("查询 category positions 失败: %s", exc)
         return {}
 
+def _get_yahoo_category_path(mapping_id: Optional[str]) -> str:
+    """雅虎出品用的分类全路径（与煤炉的 position 并存于同一张映射表）。"""
+    if not mapping_id:
+        return ""
+    try:
+        from .....db_manage.models.system.product_type_category_mapping import (
+            ProductTypeCategoryMappingModel,
+        )
+        rows = ProductTypeCategoryMappingModel.find_all(
+            where="mapping_id = ?",
+            params=(str(mapping_id),),
+            limit=1,
+        )
+        if not rows:
+            return ""
+        return str(rows[0].to_dict().get("yahoo_category_path") or "").strip()
+    except Exception as exc:
+        log.warning("查询 yahoo_category_path 失败: %s", exc)
+        return ""
+
+
+def _account_platform(account_id: int) -> str:
+    """账号所属市集平台：``mercari``（默认）/ ``yahoo``。"""
+    try:
+        from .....db_manage.models.mercari_accounts.mercari_account import MercariAccountModel
+
+        acc = MercariAccountModel.find_by_id(id=int(account_id))
+        return (str(getattr(acc, "platform", "") or "").strip() or "mercari") if acc else "mercari"
+    except Exception as exc:
+        log.warning("查询账号平台失败（按煤炉处理）: %s", exc)
+        return "mercari"
+
+
 def listing_post_progress(job_id: str):
     """出品自动化执行过程中轮询当前步骤（与 POST body.progress_job_id 对应）。"""
     from .....web_drive.listing.units.listing_progress import get_listing_progress
@@ -98,6 +131,9 @@ async def post_to_market(
     登录态进入时从主 profile 克隆 Cookie，不占用 ``mercari_{id}``——与自动同步、
     /#/mercari-accounts「打开浏览器」互不冲突；流程结束后无头会话立即关闭。
 
+    **按账号平台分派**：``mercari_accounts.platform`` 为 ``yahoo`` 时改跑 Yahoo!フリマ
+    出品（``post_to_yahoo``，分类取映射表的 ``yahoo_category_path``），返回值字段与煤炉一致。
+
     全局出品锁：同一时刻只允许一个出品在执行（跨账号、跨用户）。
     - HTTP 手动出品（默认）：锁被占用时直接 409，前端提示稍候再试；
     - ``background_caller=True``（自动补挂等后台任务）：排队等待锁，不丢任务，
@@ -117,6 +153,7 @@ async def post_to_market(
     )
     from .....web_drive.listing.units.listing_progress import clear_listing_progress
     from .....web_drive.listing.units.post_to_macket import post_to_market as _do_post
+    from .....web_drive.listing.units.post_to_yahoo import post_to_yahoo as _do_post_yahoo
     from .....ssl_mitm_proxy.runner import default_mitm_proxy_url
 
     jid = (body.progress_job_id or "").strip() or None
@@ -136,8 +173,33 @@ async def post_to_market(
         cat_pos = _get_category_positions(body.category_mapping_id)
 
         mgr = get_web_drive_manager()
+        platform = _account_platform(account_id)
 
-        async def _run() -> Dict[str, Any]:
+        async def _run_yahoo() -> Dict[str, Any]:
+            """雅虎出品：分类走映射表里的日文全路径；送料負担/販売形式 雅虎没有，忽略。"""
+            category_path = _get_yahoo_category_path(body.category_mapping_id)
+            if not category_path:
+                raise HTTPException(
+                    status_code=400,
+                    detail="该商品类型未配置雅虎分类路径，请到「系统管理 → 商品类型映射」补充后再出品",
+                )
+            return await _do_post_yahoo(
+                mgr,
+                body.account_key,
+                name=body.name,
+                description=body.description,
+                image_urls=body.image_urls,
+                watermark=body.watermark,
+                category_path=category_path,
+                status=body.status,
+                shipping_method=body.shipping_method,
+                price=body.price,
+                shipping_days=body.shipping_days,
+                shipping_from_area_id=body.shipping_from_area_id,
+                progress_job_id=jid,
+            )
+
+        async def _run_mercari() -> Dict[str, Any]:
             return await _do_post(
                 mgr,
                 body.account_key,
@@ -160,6 +222,8 @@ async def post_to_market(
                 proxy_server=proxy,
                 progress_job_id=jid,
             )
+
+        _run = _run_yahoo if platform == "yahoo" else _run_mercari
 
         # 全局出品锁：手动入口冲突即 409；后台补挂 / 任务队列排队等待
         label = "自动出品（售出补挂）进行中" if background_caller else "其他用户正在出品"

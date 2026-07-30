@@ -183,6 +183,28 @@ Key tables in `backend/src/db_manage/models/`:
 6. Browser automation (`web_drive/`): Playwright for listing operations
 7. SSL MITM proxy: Captures HTTP traffic for debugging/inspection
 
+### Yahoo!フリマ (PayPayフリマ) Listing
+
+`mercari_accounts.platform` (`mercari` default / `yahoo`) selects the marketplace. **Only listing
+(出品) is implemented for Yahoo** — orders, on-sale sync and todos remain Mercari-only.
+
+- `web_drive/listing/units/post_to_yahoo/` mirrors `post_to_macket/` and returns the **same result
+  keys** (`submitted` / `submit_clicked` / `submit_uncertain` / `*_error`), so the task queue
+  handler and frontend need no platform branches. Form URL: `paypayfleamarket-sec.yahoo.co.jp/item/add`.
+- Dispatch happens in `use_web/web_drive/units/web_drive_handler/listing.py::post_to_market`, which
+  looks up the account platform. Session reuse is total: `listing_automation_browser` gained
+  `cookie_domains` so the same MITM + cookie-clone machinery clones Yahoo cookies instead of Mercari's.
+- **Category**: Yahoo's tree is unrelated to Mercari's and must be drilled to a leaf, so
+  `product_type_category_mappings.yahoo_category_path` stores the full Japanese path
+  (`本、雑誌、コミック > 医学、薬学、看護 > 医学一般 > 医学一般全般`), edited in 系统管理 → 商品类型映射.
+  Missing path → the listing is rejected up front with a clear 400.
+- Yahoo has no 送料負担 (always seller) and no auction; those fields are hidden in the listing dialogs
+  (`useListingPlatform.js`) and ignored by the backend. Shipping method maps
+  `rakuraku`→ヤマト運輸 / `yuuyu`→日本郵便; other values keep the page default (日本郵便).
+- The page is React-controlled: values must be typed (not set via DOM setters) and **committed on
+  blur** — the price only reaches state after blur. Selection sheets are detected by the inline
+  style `bottom: 0px` (closed sheets stay in the DOM with nonzero size).
+
 ### Task Queue (`src/task_queue/`)
 
 All **heavy Mercari automations** run as background tasks instead of blocking the HTTP request.
