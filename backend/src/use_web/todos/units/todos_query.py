@@ -11,9 +11,11 @@ from ....db_manage.database import DatabaseManager
 
 
 # 「待发货」类判定：标题「発送をしてください」或 kind 属于待发货系列。
+# 雅虎侧标题是「発送依頼」、kind 为 YahooShipRequest，语义同样是「已售出待发货」。
 _WAIT_SHIPPING_COND = (
-    "(IFNULL(t.[title], '') = '発送をしてください'"
-    " OR IFNULL(t.[kind], '') IN ('WaitShippingCard', 'WaitShippingPoint', 'WaitShippingCarrier', 'TransactionWaitShippingFunds'))"
+    "(IFNULL(t.[title], '') IN ('発送をしてください', '発送依頼')"
+    " OR IFNULL(t.[kind], '') IN ('WaitShippingCard', 'WaitShippingPoint', 'WaitShippingCarrier',"
+    " 'TransactionWaitShippingFunds', 'YahooShipRequest'))"
 )
 # 「待回复」类判定：买家来信（IncomingMessage）。
 _WAIT_REPLY_COND = "IFNULL(t.[kind], '') = 'IncomingMessage'"

@@ -213,7 +213,9 @@
 
         <el-table-column :label="t('common.operate')" width="110" align="center" header-align="center" fixed="right">
           <template #default="{ row }">
-            <el-button type="primary" plain @click="onProcess(row)">{{ t('todos.process') }}</el-button>
+            <el-button type="primary" plain @click="onProcess(row)">
+              {{ platformOf(row) === 'yahoo' ? t('todos.openYahooTrade') : t('todos.process') }}
+            </el-button>
           </template>
         </el-table-column>
       </el-table>

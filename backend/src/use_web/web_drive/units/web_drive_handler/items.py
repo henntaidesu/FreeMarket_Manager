@@ -239,13 +239,6 @@ async def resume_on_sale_item(body: ResumeMercariItemBody):
     if account_id is None:
         raise HTTPException(status_code=400, detail="无效的 account_key")
 
-    if _account_platform(account_id) == "yahoo":
-        # 雅虎编辑页只有「出品を停止する」，重新公开的入口尚未接入
-        raise HTTPException(
-            status_code=400,
-            detail="雅虎商品暂不支持「重新上架」，请到雅虎 App/网页端手动重新公开",
-        )
-
     # 新计数模型下，恢复出售（stop → on_sale）不消耗库存（暂停期间该件仍占用「在售」名额），
     # 故不再做「绑定库存数量是否充足」的前置校验。
     try:
@@ -255,14 +248,20 @@ async def resume_on_sale_item(body: ResumeMercariItemBody):
 
         mgr = get_web_drive_manager()
 
-        async def _run() -> Dict[str, Any]:
-            return await _do_resume(
-                mgr,
-                body.account_key,
-                item_id=item_id,
-                proxy_server=proxy,
-                progress_job_id=jid,
-            )
+        if _account_platform(account_id) == "yahoo":
+            from .....web_drive.yahoo_item import resume_yahoo_item
+
+            async def _run() -> Dict[str, Any]:
+                return await resume_yahoo_item(account_id, item_id=item_id)
+        else:
+            async def _run() -> Dict[str, Any]:
+                return await _do_resume(
+                    mgr,
+                    body.account_key,
+                    item_id=item_id,
+                    proxy_server=proxy,
+                    progress_job_id=jid,
+                )
 
         data = await run_mercari_serial_async(
             queue_key_for_mercari_account(account_id),

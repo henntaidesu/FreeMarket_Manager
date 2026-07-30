@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
-"""雅虎在售商品的三个动作：修改 / 暂停出售 / 下架删除。
+"""雅虎在售商品的四个动作：修改 / 暂停出售 / 重新上架 / 下架删除。
 
-三者都在同一个页面 ``paypayfleamarket.yahoo.co.jp/item/{id}/edit`` 上完成——页面底部依次是
-「変更する」「出品を停止する」「商品を削除する」，表单结构与出品页完全一致，
-所以字段填写直接复用 ``post_to_yahoo._fields``。
+四者都在同一个页面 ``paypayfleamarket.yahoo.co.jp/item/{id}/edit`` 上完成，表单结构与出品页
+完全一致，所以字段填写直接复用 ``post_to_yahoo._fields``。底部按钮随商品状态变化：
+在售时是「変更する / 出品を停止する / 商品を削除する」，
+停止中则第二个按钮变成「出品を再開する」。
 
 提交成功后**直接回写本地** ``on_sale_items``（与煤炉侧同口径）：
-改价改说明 → 更新对应列；暂停 → ``status='stop'``；删除 → ``is_delete=1``。
+改价改说明 → 更新对应列；暂停 → ``status='stop'``；重新上架 → ``status='on_sale'``；
+删除 → ``is_delete=1``。
 """
 from __future__ import annotations
 
@@ -30,10 +32,12 @@ log = logging.getLogger(__name__)
 
 SUBMIT_BUTTON_TEXT = "変更する"
 SUSPEND_BUTTON_TEXT = "出品を停止する"
+#: 停止中的商品，编辑页底部的按钮会从「出品を停止する」换成这个
+RESUME_BUTTON_TEXT = "出品を再開する"
 DELETE_BUTTON_TEXT = "商品を削除する"
 
 #: 点了停止/删除后可能弹二次确认，按钮文案取这些之一
-_CONFIRM_TEXTS = ("停止する", "削除する", "はい", "OK", "実行する")
+_CONFIRM_TEXTS = ("停止する", "再開する", "削除する", "はい", "OK", "実行する")
 
 
 def yahoo_item_edit_url(item_id: str) -> str:
@@ -247,6 +251,26 @@ async def suspend_yahoo_item(
     )
     if result.get("done"):
         result["local_updated"] = _mark_local_status(item_id, "stop")
+    return result
+
+
+async def resume_yahoo_item(
+    account_id: int,
+    *,
+    item_id: str,
+    page_load_timeout_ms: int = DEFAULT_PAGE_LOAD_TIMEOUT_MS,
+    element_timeout_ms: int = DEFAULT_ELEMENT_TIMEOUT_MS,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """点「出品を再開する」重新公开，并把本地状态改回 ``on_sale``。"""
+    result = await _click_and_confirm_action(
+        account_id, item_id, RESUME_BUTTON_TEXT,
+        page_load_timeout_ms=page_load_timeout_ms,
+        element_timeout_ms=element_timeout_ms,
+        dry_run=dry_run,
+    )
+    if result.get("done"):
+        result["local_updated"] = _mark_local_status(item_id, "on_sale")
     return result
 
 

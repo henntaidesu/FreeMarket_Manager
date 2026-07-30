@@ -9,6 +9,15 @@
             @change="onFilterChange"
           />
           <el-select
+            v-model="filters.platform"
+            :placeholder="t('notifications.platformFilterPlaceholder')"
+            clearable
+            style="min-width: 140px"
+            @change="onFilterChange"
+          >
+            <el-option v-for="p in platformFilterOptions" :key="p.value" :label="p.label" :value="p.value" />
+          </el-select>
+          <el-select
             v-model="filters.kind"
             :placeholder="t('common.type')"
             clearable
@@ -72,6 +81,11 @@
 
     <el-card shadow="never" class="table-card">
       <el-table :data="list" v-loading="loading" stripe row-key="id">
+        <el-table-column :label="t('notifications.platformColumn')" width="86" align="center" header-align="center">
+          <template #default="{ row }">
+            <el-tag :type="platformTagType(row)" size="small" effect="plain">{{ platformLabel(row) }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column :label="t('notifications.colImage')" width="80" align="center" header-align="center">
           <template #default="{ row }">
             <el-image

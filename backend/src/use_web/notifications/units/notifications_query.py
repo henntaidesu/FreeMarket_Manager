@@ -11,6 +11,7 @@ from ....db_manage.database import DatabaseManager
 _LIST_COLS = (
     "id",
     "account_id",
+    "platform",
     "uuid",
     "kind",
     "message",
@@ -64,6 +65,7 @@ def list_notifications(
     exclude_kinds: Optional[str] = None,
     page: int = 1,
     page_size: int = 20,
+    platform: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     分页列出本地 ``notifications``，附 ``account_name``。
@@ -86,6 +88,14 @@ def list_notifications(
     if account_id is not None:
         where.append("n.[account_id] = ?")
         params.append(int(account_id))
+    if platform is not None and str(platform).strip():
+        # 历史行（平台字段上线前同步的）没有值，按煤炉处理
+        plat = str(platform).strip()
+        if plat == "mercari":
+            where.append("COALESCE(NULLIF(TRIM(n.[platform]), ''), 'mercari') = 'mercari'")
+        else:
+            where.append("TRIM(n.[platform]) = TRIM(?)")
+            params.append(plat)
     selected_kind = str(kind).strip() if kind else ""
     if selected_kind == _PRIVATE_MESSAGE_KIND:
         # 事务局消息分组：精确 PrivateMessage 或 kind 含 merpay 的都算

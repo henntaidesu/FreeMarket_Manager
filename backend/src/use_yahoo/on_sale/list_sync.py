@@ -67,6 +67,15 @@ _CARDS_JS = r"""
 """
 
 
+def _auto_detail_enabled() -> bool:
+    """在售同步后是否自动补抓新增商品详情（默认开；与煤炉同名开关同义）。"""
+    import os
+
+    return (os.environ.get("WEB_DRIVE_ON_SALE_SYNC_AUTO_DETAIL") or "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
+
 def _int_or_zero(value: Any) -> int:
     try:
         return int(str(value).strip() or 0)
@@ -182,4 +191,17 @@ async def sync_yahoo_on_sale_items(
     stats["account_id"] = aid
     stats["platform"] = "yahoo"
     stats["total_item_count"] = fetched["meta"].get("total_item_count")
+
+    # 本次新增的挂牌逐件补抓详情：说明里的管理番号暗号要在这一步才会绑回库存，
+    # 出品预扣减（pending_listing_qty）也靠这一步核销。可用环境变量关掉。
+    new_ids = [str(i).strip() for i in (stats.get("inserted_item_ids") or []) if str(i or "").strip()]
+    if new_ids and _auto_detail_enabled():
+        from .detail_sync import sync_yahoo_item_details
+
+        report("detail", f"正在补抓新增商品详情（{len(new_ids)} 件）…")
+        try:
+            stats["detail"] = await sync_yahoo_item_details(aid, new_ids, seller_id=key)
+        except Exception as exc:  # noqa: BLE001 详情失败不该让整次同步失败
+            log.warning("[yahoo_on_sale] 新增商品详情补抓失败：%s", exc)
+            stats["detail"] = {"error": str(exc)[:200]}
     return stats

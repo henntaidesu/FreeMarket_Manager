@@ -35,6 +35,12 @@ class NotificationModel(BaseModel):
                 "not_null": True,
                 "default": None,
             },
+            # 所属市集平台：'mercari'（煤炉，默认）/ 'yahoo'（Yahoo!フリマ）
+            "platform": {
+                "type": "TEXT",
+                "not_null": False,
+                "default": "mercari",
+            },
             "uuid": {
                 "type": "TEXT",
                 "not_null": True,

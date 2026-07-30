@@ -13,6 +13,18 @@ from ..orders_models import RefreshOrderInfoBody
 
 _REFRESH_JOB_ID_RE = re.compile(r"^[a-zA-Z0-9_.-]{1,128}$")
 
+def _is_yahoo_account(account_id: int) -> bool:
+    try:
+        from .....db_manage.models.mercari_accounts.mercari_account import MercariAccountModel
+
+        acc = MercariAccountModel.find_by_id(id=int(account_id))
+        if acc is None:
+            return False
+        return (str(getattr(acc, "platform", "") or "").strip() or "mercari") == "yahoo"
+    except Exception:
+        return False
+
+
 async def refresh_order_info(data: RefreshOrderInfoBody):
     """WebDriver 打开 jp.mercari.com/transaction/m{订单号}，MITM 截获 transaction_evidences/get 后更新状态、金额等字段。
 
@@ -35,6 +47,18 @@ async def refresh_order_info(data: RefreshOrderInfoBody):
             status_code=400,
             detail="未找到与该卖家ID绑定的 active 煤炉账号，请在账号管理中配置 seller_id",
         )
+
+    if _is_yahoo_account(aid):
+        # 雅虎没有 transaction_evidences 这类接口，改为重读卖家交易页
+        from .....use_yahoo.orders import refresh_yahoo_order
+
+        try:
+            data_out = await refresh_yahoo_order(int(aid), order_no)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=500, detail=f"刷新失败: {exc}") from exc
+        return {"success": True, "data": data_out}
 
     async def _do_refresh() -> dict:
         err = await apply_item_info_to_order(

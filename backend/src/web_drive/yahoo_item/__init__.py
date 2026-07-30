@@ -3,6 +3,7 @@
 
 from .units.item_edit import (
     delete_yahoo_item,
+    resume_yahoo_item,
     revise_yahoo_item,
     suspend_yahoo_item,
     yahoo_item_edit_url,
@@ -11,6 +12,7 @@ from .units.item_edit import (
 __all__ = [
     "revise_yahoo_item",
     "suspend_yahoo_item",
+    "resume_yahoo_item",
     "delete_yahoo_item",
     "yahoo_item_edit_url",
 ]

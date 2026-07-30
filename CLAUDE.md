@@ -186,9 +186,16 @@ Key tables in `backend/src/db_manage/models/`:
 ### Yahoo!フリマ (PayPayフリマ) Listing
 
 `mercari_accounts.platform` (`mercari` default / `yahoo`) selects the marketplace. Implemented for
-Yahoo: **listing (出品), on-sale sync, revise/suspend/delete, sold-order sync, todo sync**.
-Still Mercari-only: relist/resume, notifications, and every todo *action* (发货/QR/批量) — Yahoo
-todos are display-only for now.
+Yahoo: **listing, on-sale list+detail sync, revise/suspend/resume/delete, sold-order sync +
+single-order refresh + fee backfill, auto-relist, todo sync, notification sync**. Still
+Mercari-only: order-status batch refresh, and every todo/notification *action* (发货/QR/批量/回复
+评论/同意降价) — Yahoo todos and notices are display-only.
+
+**Every account-driven entry point dispatches on `mercari_accounts.platform`** — the auto-fetch
+loop, the account page's 同步数据, on-sale sync / full-update / fetch-detail (single + batch),
+order sync + single-row refresh, todo sync, and listing/revise/suspend/delete. Unsupported
+combinations skip with a note or return a clear 400; nothing falls through to a Mercari
+implementation with a Yahoo account.
 
 Yahoo has no usable list/detail API — every page is server-rendered, so `use_yahoo/` parses pages
 with the automation browser. Two things make that tolerable: item cards carry a structured
@@ -198,6 +205,11 @@ soft-delete, inventory counters and order upsert semantics stay identical across
 
 - `use_yahoo/on_sale/list_sync.py` — `/my/item/selling` → `on_sale_items` (`platform='yahoo'`).
   Soft-delete only fires when the crawl is provably complete (`出品数: N/100` vs collected count).
+- `use_yahoo/on_sale/detail_sync.py` — reads the **edit page**'s form fields (textarea gives the
+  description verbatim, so the `-=~<>` mgmt cipher survives) and feeds a Mercari-shaped pseudo
+  `items/get` response into `detail_sync_inventory_from_item_get_response`. This is what binds a
+  Yahoo listing to inventory and consumes the listing reservation; it runs automatically for newly
+  inserted items after each list sync (`WEB_DRIVE_ON_SALE_SYNC_AUTO_DETAIL=0` disables it).
 - `use_yahoo/orders/sold_sync.py` — `/my/item/sold` + each `/item/{id}/trade/seller` → `orders`
   (`order_no` = Yahoo item id). Status is matched **only in the page's first 400 chars**: the
   trade page keeps a hidden 取引キャンセル dialog in the DOM that makes whole-body matching report
@@ -213,10 +225,17 @@ soft-delete, inventory counters and order upsert semantics stay identical across
 - `use_yahoo/todos/todo_sync.py` — the one Yahoo endpoint that is a clean JSON API:
   `GET /api/v1/notices/todo?result=30&offset=0` (login cookies required). Yahoo todo types map to
   their own `Yahoo*` kinds (`ooesh` → `YahooShipRequest`) rather than onto Mercari kinds — reusing
-  `WaitShippingCard` etc. would make the todos page offer Mercari-only ship/QR actions on a Yahoo row.
-- `platform` columns on `on_sale_items` / `orders` / `todo_items` drive the 平台 filter + tag on
-  `/#/on-sale-items`, `/#/orders`, `/#/todos`. Mercari writers set `'mercari'` explicitly; legacy
-  rows with no value are treated as Mercari in every filter.
+  `WaitShippingCard` etc. would make the todos page run Mercari-only ship/QR automation on a Yahoo
+  row. The kind *is* listed in `_WAIT_SHIPPING_COND` so 発送依頼 lands in the 待发货 chip, and the
+  row's 処理 button opens the Yahoo trade page (`/item/{id}/trade/seller`) in a new tab instead.
+- `use_yahoo/notifications/notice_sync.py` — `GET /api/v1/notices/personal`, same JSON shape and
+  same `Yahoo*` kind policy as todos.
+- `use_yahoo/orders/sales_history.py` — 販売手数料/送料/到手金額 live on a **different domain**,
+  `salesmanagement.yahoo.co.jp/list` (shared Yahoo sales ledger, same login cookies). The 内訳
+  `dl/dt/dd` is in the DOM even while collapsed, so no clicking. Runs at the end of order sync.
+- `platform` columns on `on_sale_items` / `orders` / `todo_items` / `notifications` drive the 平台
+  filter + tag on `/#/on-sale-items`, `/#/orders`, `/#/todos`, `/#/notifications`. Mercari writers
+  set `'mercari'` explicitly; legacy rows with no value are treated as Mercari in every filter.
 
 - `web_drive/listing/units/post_to_yahoo/` mirrors `post_to_macket/` and returns the **same result
   keys** (`submitted` / `submit_clicked` / `submit_uncertain` / `*_error`), so the task queue

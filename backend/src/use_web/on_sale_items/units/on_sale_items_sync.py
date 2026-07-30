@@ -211,12 +211,18 @@ async def full_update_on_sale_core(
     mgr = get_web_drive_manager()
     for aid in account_ids:
         try:
-            stats = await run_mercari_serial_async(
-                queue_key_for_mercari_account(aid),
-                lambda aid=aid: full_update_on_sale_details_from_mercari(
+            if _account_platform(aid) == "yahoo":
+                from ....use_yahoo.on_sale import full_update_yahoo_details
+
+                runner = lambda aid=aid: full_update_yahoo_details(account_id=aid)
+            else:
+                runner = lambda aid=aid: full_update_on_sale_details_from_mercari(
                     account_id=aid,
                     progress_job_id=progress_job_id,
-                ),
+                )
+            stats = await run_mercari_serial_async(
+                queue_key_for_mercari_account(aid),
+                runner,
             )
         except Exception as exc:  # noqa: BLE001 单个账号失败不影响其余账号
             fail_count += 1
@@ -296,14 +302,18 @@ async def fetch_on_sale_item_detail(data: FetchOnSaleDetailRequest):
 
     try:
         qk = queue_key_for_mercari_account(int(account_id))
-        payload = await run_mercari_serial_async(
-            qk,
-            lambda: fetch_detail_and_sync_inventory(
+        if _account_platform(int(account_id)) == "yahoo":
+            # 雅虎从商品编辑页读说明（没有 items/get 这种接口），写库仍复用煤炉那套绑定逻辑
+            from ....use_yahoo.on_sale import sync_yahoo_item_details
+
+            runner = lambda: sync_yahoo_item_details(int(account_id), [item_id])
+        else:
+            runner = lambda: fetch_detail_and_sync_inventory(
                 item_id,
                 account_id=account_id,
                 progress_job_id=jid,
-            ),
-        )
+            )
+        payload = await run_mercari_serial_async(qk, runner)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except TimeoutError as exc:
@@ -344,13 +354,26 @@ async def fetch_on_sale_item_details_batch(data: FetchOnSaleDetailsBatchRequest)
         aid = resolve_mercari_account_id(data.account_id)
         qk = queue_key_for_mercari_account(int(aid))
 
+        is_yahoo = _account_platform(int(aid)) == "yahoo"
+
+        async def _fetch_one(iid: str) -> Dict[str, Any]:
+            """雅虎从编辑页读说明，煤炉走 MITM 截 items/get；返回结构一致。"""
+            if not is_yahoo:
+                return await fetch_detail_and_sync_inventory(iid, account_id=aid)
+            from ....use_yahoo.on_sale import sync_yahoo_item_details
+
+            st = await sync_yahoo_item_details(int(aid), [iid])
+            if st.get("errors"):
+                raise RuntimeError(st["errors"][0].get("error") or "详情同步失败")
+            return {"sync": {"updated": bool(st.get("bound"))}}
+
         async def _run_batch() -> Dict[str, Any]:
             results: List[Dict[str, Any]] = []
             ok_synced = 0
             not_ok = 0
             for iid in cleaned:
                 try:
-                    payload = await fetch_detail_and_sync_inventory(iid, account_id=aid)
+                    payload = await _fetch_one(iid)
                     sync = payload.get("sync") if isinstance(payload.get("sync"), dict) else {}
                     if sync.get("updated"):
                         ok_synced += 1

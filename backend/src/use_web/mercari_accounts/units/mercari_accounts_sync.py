@@ -76,14 +76,35 @@ async def sync_account_all_data(aid: int, req: SyncAccountDataRequest) -> Dict[s
         raise HTTPException(status_code=400, detail="未选择任何要同步的数据")
 
     # (key, 中文名, 构造协程的工厂)；每步都接入该账号的进度上报
-    all_steps = [
-        ("todos", "待办事项", lambda: sync_todos_with_details(account_id=account_id, progress_job_id=jid)),
-        ("notifications", "通知", lambda: sync_notifications_from_mercari(account_id=account_id, progress_job_id=jid)),
-        ("on_sale", "在售商品", lambda: sync_on_sale_items_from_mercari(account_id=account_id, progress_job_id=jid)),
-        ("orders_list", "订单列表", lambda: sync_new_data(account_id=account_id, progress_job_id=jid)),
-        ("orders_status", "订单状态", lambda: batch_refresh_orders_info(account_id=account_id, progress_job_id=jid)),
-    ]
+    platform = (str(getattr(account, "platform", "") or "").strip() or "mercari")
+    if platform == "yahoo":
+        # 雅虎没有「订单状态」这一步（煤炉的 transaction_evidences 批量回填），
+        # 勾了也直接跳过，避免整批同步被必失败的步骤带崩。
+        from .....use_yahoo.notifications import sync_yahoo_notifications
+        from .....use_yahoo.on_sale import sync_yahoo_on_sale_items
+        from .....use_yahoo.orders import sync_yahoo_orders
+        from .....use_yahoo.todos import sync_yahoo_todos
+
+        all_steps = [
+            ("todos", "待办事项", lambda: sync_yahoo_todos(account_id=account_id)),
+            ("notifications", "通知", lambda: sync_yahoo_notifications(account_id=account_id)),
+            ("on_sale", "在售商品", lambda: sync_yahoo_on_sale_items(account_id=account_id, progress_job_id=jid)),
+            ("orders_list", "订单列表", lambda: sync_yahoo_orders(account_id=account_id, progress_job_id=jid)),
+        ]
+    else:
+        all_steps = [
+            ("todos", "待办事项", lambda: sync_todos_with_details(account_id=account_id, progress_job_id=jid)),
+            ("notifications", "通知", lambda: sync_notifications_from_mercari(account_id=account_id, progress_job_id=jid)),
+            ("on_sale", "在售商品", lambda: sync_on_sale_items_from_mercari(account_id=account_id, progress_job_id=jid)),
+            ("orders_list", "订单列表", lambda: sync_new_data(account_id=account_id, progress_job_id=jid)),
+            ("orders_status", "订单状态", lambda: batch_refresh_orders_info(account_id=account_id, progress_job_id=jid)),
+        ]
     steps = [s for s in all_steps if s[0] in selected]
+    if not steps:
+        raise HTTPException(
+            status_code=400,
+            detail="所选同步项在该平台暂不支持（雅虎目前支持：待办 / 通知 / 在售商品 / 订单列表）",
+        )
 
     # 获取全局同步锁：与自动同步、各页「从煤炉同步」互斥；占用中则抛 409
     lock_token = sync_lock_begin("account", LABEL_FULL)

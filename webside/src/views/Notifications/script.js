@@ -96,6 +96,8 @@ export default defineComponent({
       show_likes: false,
       // 默认不显示「事务局消息」类型；用户勾选后或主动按 kind=PrivateMessage 过滤时才显示
       show_private_messages: false,
+      // 平台筛选：煤炉 / 雅虎（空=全部）
+      platform: '',
       // 默认不显示「关注商品留言」类型；用户勾选后或主动按 kind=LikedItemReceiveComment 过滤时才显示
       show_liked_item_comments: false,
     })
@@ -112,12 +114,33 @@ export default defineComponent({
     const syncProgressLabel = ref('')
     let syncProgressTimer = null
 
+    /** 平台筛选/标签：历史数据无值时按煤炉处理 */
+    const platformFilterOptions = computed(() => [
+      { value: 'mercari', label: t('notifications.platformMercari') },
+      { value: 'yahoo', label: t('notifications.platformYahoo') },
+    ])
+
+    function platformOf(row) {
+      return String(row?.platform ?? '').trim() || 'mercari'
+    }
+
+    function platformLabel(row) {
+      return platformOf(row) === 'yahoo'
+        ? t('notifications.platformYahoo')
+        : t('notifications.platformMercari')
+    }
+
+    function platformTagType(row) {
+      return platformOf(row) === 'yahoo' ? 'warning' : 'danger'
+    }
+
     function listParams() {
       const p = { page: page.value, page_size: pageSize.value }
       const kw = filters.value.keyword?.trim()
       if (kw) p.keyword = kw
       if (filters.value.kind) p.kind = filters.value.kind
       if (filters.value.only_unread) p.only_unread = true
+      if (filters.value.platform) p.platform = filters.value.platform
       // 用户没显式按对应 kind 过滤且未勾选「显示」时，默认排除 Like / PrivateMessage
       const excludeKinds = []
       if (!filters.value.show_likes && filters.value.kind !== 'Like') {
@@ -527,6 +550,9 @@ export default defineComponent({
       page,
       pageSize,
       filters,
+      platformFilterOptions,
+      platformLabel,
+      platformTagType,
       kindOptions,
       syncLoading,
       markReadLoadingIds,

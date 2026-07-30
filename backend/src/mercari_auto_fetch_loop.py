@@ -105,8 +105,44 @@ def _account_in_pause_window(item: MercariAccountModel, now_local: datetime) -> 
     return cur >= start or cur < end
 
 
+def _account_platform(account_id: int) -> str:
+    """账号所属市集平台：``mercari``（默认）/ ``yahoo``。"""
+    try:
+        acc = MercariAccountModel.find_by_id(id=int(account_id))
+        if acc is None:
+            return "mercari"
+        return str(getattr(acc, "platform", "") or "").strip() or "mercari"
+    except Exception:
+        log.warning("[auto_fetch] 查询账号#%s 平台失败，按煤炉处理", account_id, exc_info=True)
+        return "mercari"
+
+
+#: 雅虎尚未实现的同步项：到期也跳过，避免拿煤炉实现去跑雅虎账号（必失败）
+_YAHOO_UNSUPPORTED_TASKS: frozenset = frozenset()
+
+
+def _yahoo_task_callable(key: str, aid: int):
+    """雅虎账号的同步项实现（与页面上的手动同步入口同一套函数）。"""
+    from .use_yahoo.notifications import sync_yahoo_notifications
+    from .use_yahoo.on_sale import sync_yahoo_on_sale_items
+    from .use_yahoo.orders import sync_yahoo_orders
+    from .use_yahoo.todos import sync_yahoo_todos
+
+    if key == "notifications":
+        return lambda: sync_yahoo_notifications(account_id=aid)
+    if key == "order_list":
+        return lambda: sync_yahoo_orders(account_id=aid)
+    if key == "on_sale":
+        return lambda: sync_yahoo_on_sale_items(account_id=aid)
+    if key == "todos":
+        return lambda: sync_yahoo_todos(account_id=aid)
+    raise KeyError(key)
+
+
 # 各同步项的实际调用（键与 AUTO_FETCH_TASK_KEYS 一致；按此顺序串行执行）
-def _task_callable(key: str, aid: int):
+def _task_callable(key: str, aid: int, platform: str = "mercari"):
+    if platform == "yahoo":
+        return _yahoo_task_callable(key, aid)
     if key == "order_list":
         return lambda: sync_new_data(account_id=aid)
     if key == "on_sale":
@@ -137,9 +173,14 @@ async def _run_auto_fetch_for_account(
 ) -> None:
     """串行执行到期的同步项，成功结果写入 results；失败时携带子任务键抛出便于日志定位。"""
 
+    platform = _account_platform(aid)
+
     async def _body():
         for key in due_keys:
-            call = _task_callable(key, aid)
+            if platform == "yahoo" and key in _YAHOO_UNSUPPORTED_TASKS:
+                log.info("[auto_fetch] 账号#%s（雅虎）暂不支持同步项「%s」，跳过", aid, key)
+                continue
+            call = _task_callable(key, aid, platform)
             try:
                 results[key] = await call()
             except Exception as exc:

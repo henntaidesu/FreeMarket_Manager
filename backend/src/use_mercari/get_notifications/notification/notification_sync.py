@@ -125,6 +125,7 @@ def _normalize_notification_row(
 
     return {
         "account_id": int(account_id),
+        "platform": "mercari",
         "uuid": str(item.get("uuid") or "").strip(),
         "kind": kind_val,
         "message": message_val,
@@ -149,6 +150,7 @@ def _normalize_notification_row(
 # 不在 UPSERT 中重置 is_read（本地维护的已读状态）
 _UPSERT_COLS = (
     "account_id",
+    "platform",
     "uuid",
     "kind",
     "message",

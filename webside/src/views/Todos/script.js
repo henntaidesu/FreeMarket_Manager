@@ -33,6 +33,8 @@ export default defineComponent({
       WaitShippingPoint: 'todos.kind.waitShipping',
       WaitShippingCarrier: 'todos.kind.waitShipping',
       TransactionWaitShippingFunds: 'todos.kind.waitShipping',
+      // 雅虎「発送依頼」＝已售出待发货，与煤炉待发货同类展示
+      YahooShipRequest: 'todos.kind.waitShipping',
       MerpayRealcardWaitActivation: 'todos.kind.merpayActivation',
       ReviewedSeller: 'todos.kind.waitReview',
       IncomingMessage: 'todos.kind.waitReply',
@@ -186,6 +188,7 @@ export default defineComponent({
 
     const KIND_TAG_TYPES = {
       WaitShippingCard: 'warning',
+      YahooShipRequest: 'warning',
       WaitShippingPoint: 'warning',
       WaitShippingCarrier: 'warning',
       TransactionWaitShippingFunds: 'warning',
@@ -1204,7 +1207,24 @@ export default defineComponent({
       }
     }
 
+    /** 雅虎交易页（卖家视角）：发货、改配送、留言都在这一页 */
+    function yahooTradeUrl(row) {
+      const iid = String(row?.item_id || '').trim()
+      return iid ? `https://paypayfleamarket-sec.yahoo.co.jp/item/${iid}/trade/seller` : ''
+    }
+
     function onProcess(row) {
+      // 雅虎待办：本系统还没有对应的自动化流程，套用煤炉的处理弹窗只会跑错流程。
+      // 直接打开雅虎交易页（发货/留言都在那），比给一个点了会出错的按钮诚实。
+      if (platformOf(row) === 'yahoo') {
+        const url = yahooTradeUrl(row)
+        if (!url) {
+          ElMessage.warning(t('todos.yahooNoItemId'))
+          return
+        }
+        window.open(url, '_blank', 'noopener')
+        return
+      }
       currentRow.value = row
       msgOriginalKeys.clear()
       msgTranslatingKeys.clear()
@@ -1944,6 +1964,8 @@ export default defineComponent({
       platformFilterOptions,
       platformLabel,
       platformTagType,
+      platformOf,
+      yahooTradeUrl,
       syncLoading,
       bulkReviewLoading,
       bulkConfirmShipLoading,

@@ -35,6 +35,19 @@ log = logging.getLogger(__name__)
 _SYNC_JOB_ID_RE = re.compile(r"^[a-zA-Z0-9_.-]{1,128}$")
 
 
+def _is_yahoo_account(account_id: int) -> bool:
+    """雅虎账号：本模块的煤炉自动化对它无效，调用方须跳过。"""
+    try:
+        from ....db_manage.models.mercari_accounts.mercari_account import MercariAccountModel
+
+        acc = MercariAccountModel.find_by_id(id=int(account_id))
+        if acc is None:
+            return False
+        return (str(getattr(acc, "platform", "") or "").strip() or "mercari") == "yahoo"
+    except Exception:
+        return False
+
+
 async def sync_notifications(req: SyncNotificationsRequest) -> Dict[str, Any]:
     """从煤炉同步所有启用账号（status=active；不要求自动获取开启）的お知らせ通知；按账号串行避免浏览器抢占。
 
@@ -62,12 +75,18 @@ async def sync_notifications(req: SyncNotificationsRequest) -> Dict[str, Any]:
         # 无法区分账号），若两个账号的通知页同时在线会导致响应串台。
         for aid in account_ids:
             try:
-                stats = await run_mercari_serial_async(
-                    queue_key_for_mercari_account(aid),
-                    lambda aid=aid: sync_notifications_from_mercari(
+                if _is_yahoo_account(aid):
+                    from ....use_yahoo.notifications import sync_yahoo_notifications
+
+                    runner = lambda aid=aid: sync_yahoo_notifications(account_id=aid)
+                else:
+                    runner = lambda aid=aid: sync_notifications_from_mercari(
                         account_id=aid,
                         progress_job_id=jid,
-                    ),
+                    )
+                stats = await run_mercari_serial_async(
+                    queue_key_for_mercari_account(aid),
+                    runner,
                 )
             except Exception as exc:  # noqa: BLE001 单个账号失败不影响其余账号
                 fail_count += 1
