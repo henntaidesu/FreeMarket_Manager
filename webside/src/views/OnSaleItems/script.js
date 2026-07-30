@@ -541,6 +541,8 @@ export default defineComponent({
     // 批量修改表单：价格 / 发货地区 / 发货天数（留空=不修改该项）
     const batchForm = reactive({ price: null, shipping_from_area_id: '', shipping_duration: '' })
     const batchSaving = ref(false)
+    /** 批量「暂停出售 / 恢复出售 / 下架」提交中 */
+    const batchActionLoading = ref(false)
 
     const batchSelectedCount = computed(() => batchSelectedIds.value.size)
 
@@ -666,6 +668,90 @@ export default defineComponent({
       if (skipped > 0) {
         ElMessage.warning(t('onSaleItems.batchReviseDone', { ok: tasks.length, fail: skipped }))
       }
+    }
+
+    /**
+     * 批量「暂停出售 / 恢复出售 / 下架」的配置：任务类型 + 允许的商品状态 + 确认框文案。
+     * 状态限制与详情页单件按钮一致（暂停仅出售中、恢复仅暂停出售），下架两种状态都可。
+     */
+    const BATCH_STATUS_ACTIONS = {
+      suspend: {
+        taskType: TASK_TYPES.ON_SALE_SUSPEND,
+        statuses: ['on_sale'],
+        titleKey: 'onSaleItems.batchSuspend',
+        confirmKey: 'onSaleItems.batchSuspendConfirmMsg',
+        confirmBtnKey: 'onSaleItems.confirmSuspend',
+        boxType: 'warning',
+      },
+      resume: {
+        taskType: TASK_TYPES.ON_SALE_RESUME,
+        statuses: ['stop'],
+        titleKey: 'onSaleItems.batchResume',
+        confirmKey: 'onSaleItems.batchResumeConfirmMsg',
+        confirmBtnKey: 'onSaleItems.confirmResume',
+        boxType: 'info',
+      },
+      delist: {
+        taskType: TASK_TYPES.ON_SALE_DELIST,
+        statuses: ['on_sale', 'stop'],
+        titleKey: 'onSaleItems.batchDelist',
+        confirmKey: 'onSaleItems.batchDelistConfirmMsg',
+        confirmBtnKey: 'onSaleItems.confirmDelete',
+        boxType: 'warning',
+      },
+    }
+
+    /**
+     * 提交批量暂停 / 恢复 / 下架：每件排一条对应任务（与「批量修改」一样一次 N 条），
+     * 由后端 worker 逐条执行——关掉页面也能跑完，每件成败在任务页逐条可见。
+     * 状态不符或找不到可用账号的商品直接跳过，跳过条数在确认框里先告知。
+     */
+    async function runBatchStatusAction(kind) {
+      const cfg = BATCH_STATUS_ACTIONS[kind]
+      if (!cfg || batchActionLoading.value) return
+      if (!batchSelectedIds.value.size) {
+        ElMessage.warning(t('onSaleItems.batchNoSelection'))
+        return
+      }
+
+      const payloads = []
+      let skipped = 0
+      for (const row of batchSelectedRows.value) {
+        const iid = String(row?.item_id || '').trim()
+        const resolved = resolveAccountKeyForRow(row)
+        const status = String(row?.status ?? '').trim()
+        if (!iid || !resolved || !cfg.statuses.includes(status)) {
+          skipped += 1
+          continue
+        }
+        payloads.push({ account_key: resolved.accountKey, item_id: iid, use_mitm_proxy: true })
+      }
+      if (!payloads.length) {
+        ElMessage.warning(t('onSaleItems.batchNoEligibleItems'))
+        return
+      }
+
+      try {
+        await ElMessageBox.confirm(
+          t(cfg.confirmKey, { count: payloads.length, skipped }),
+          t(cfg.titleKey),
+          {
+            type: cfg.boxType,
+            confirmButtonText: t(cfg.confirmBtnKey),
+            cancelButtonText: t('common.cancel'),
+          }
+        )
+      } catch {
+        return
+      }
+
+      batchActionLoading.value = true
+      try {
+        await submitTasks(cfg.taskType, payloads, { t })
+      } finally {
+        batchActionLoading.value = false
+      }
+      exitBatchMode()
     }
 
     /**
@@ -1241,6 +1327,7 @@ export default defineComponent({
       batchPriceDialogVisible,
       batchForm,
       batchSaving,
+      batchActionLoading,
       batchSelectable,
       toggleBatchRow,
       onTableRowClick,
@@ -1248,6 +1335,7 @@ export default defineComponent({
       exitBatchMode,
       openBatchPriceDialog,
       submitBatchPrice,
+      runBatchStatusAction,
     }
   },
 })

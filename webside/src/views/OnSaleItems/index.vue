@@ -85,6 +85,32 @@
             <el-button type="primary" :disabled="!batchSelectedCount" @click="openBatchPriceDialog">
               {{ t('onSaleItems.batchConfirmPrice') }}
             </el-button>
+            <!-- 暂停 / 恢复 / 下架同样每件排一条任务，状态不符的选中项会被跳过 -->
+            <el-button
+              type="warning"
+              :disabled="!batchSelectedCount"
+              :loading="batchActionLoading"
+              @click="runBatchStatusAction('suspend')"
+            >
+              {{ t('onSaleItems.batchSuspend') }}
+            </el-button>
+            <el-button
+              type="success"
+              :disabled="!batchSelectedCount"
+              :loading="batchActionLoading"
+              @click="runBatchStatusAction('resume')"
+            >
+              {{ t('onSaleItems.batchResume') }}
+            </el-button>
+            <el-button
+              type="danger"
+              plain
+              :disabled="!batchSelectedCount"
+              :loading="batchActionLoading"
+              @click="runBatchStatusAction('delist')"
+            >
+              {{ t('onSaleItems.batchDelist') }}
+            </el-button>
             <el-button @click="exitBatchMode">{{ t('common.cancel') }}</el-button>
           </template>
         </el-col>

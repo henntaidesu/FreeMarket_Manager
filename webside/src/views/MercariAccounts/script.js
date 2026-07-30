@@ -24,6 +24,8 @@ export default defineComponent({
     // 雅虎（Yahoo!フリマ）新增账号预登录会话键 + 登录页 URL（复用通用 /sessions/open）
     const YAHOO_PREPARE_KEY = 'yahoo_prepare'
     const YAHOO_FLEA_LOGIN_URL = 'https://paypayfleamarket.yahoo.co.jp/'
+    // 雅虎账号「打开浏览器」的落地页（不指定时后端会回落到煤炉首页）
+    const YAHOO_FLEA_HOME_URL = 'https://paypayfleamarket.yahoo.co.jp/my'
 
     // 支持的市集平台（与后端 ALLOWED_PLATFORMS 一致）
     const PLATFORM_OPTIONS = [
@@ -418,7 +420,12 @@ export default defineComponent({
     }
 
     function openBrowserForSavedAccount(row) {
-      openBrowserByKey(browserKeyFor(row.id), row.account_name || t('mercariAccounts.accountFallbackLabel', { id: row.id }))
+      // 雅虎账号打开雅虎主页；煤炉账号沿用原行为（恢复该 profile 的历史标签，回落煤炉首页）
+      openBrowserByKey(
+        browserKeyFor(row.id),
+        row.account_name || t('mercariAccounts.accountFallbackLabel', { id: row.id }),
+        row.platform === 'yahoo' ? { startUrl: YAHOO_FLEA_HOME_URL } : {},
+      )
     }
 
     /**
