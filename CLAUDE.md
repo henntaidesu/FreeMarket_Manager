@@ -187,13 +187,16 @@ Key tables in `backend/src/db_manage/models/`:
 
 `mercari_accounts.platform` (`mercari` default / `yahoo`) selects the marketplace. Implemented for
 Yahoo: **listing, on-sale list+detail sync, revise/suspend/resume/delete, sold-order sync +
-single-order refresh + fee backfill, auto-relist, todo sync, notification sync**. Still
-Mercari-only: order-status batch refresh, and every todo/notification *action* (发货/QR/批量/回复
-评论/同意降价) — Yahoo todos and notices are display-only.
+single-order refresh + order-status batch refresh + fee backfill, auto-relist, todo sync,
+notification sync, and the todo 处理 flow (trade detail / 发货 / 交易留言)**. Still Mercari-only:
+受取評価, the bulk todo operations (一键好评 / 一键确认发送), QR/扫码 (Yahoo has no equivalent —
+its 配送コード is issued server-side, nothing to scan), and every *notification* action
+(回复评论/同意降价) — Yahoo notices remain display-only.
 
 **Every account-driven entry point dispatches on `mercari_accounts.platform`** — the auto-fetch
 loop, the account page's 同步数据, on-sale sync / full-update / fetch-detail (single + batch),
-order sync + single-row refresh, todo sync, and listing/revise/suspend/delete. Unsupported
+order sync + single-row refresh + batch status refresh, todo sync, todo 处理, and
+listing/revise/suspend/delete. Unsupported
 combinations skip with a note or return a clear 400; nothing falls through to a Mercari
 implementation with a Yahoo account.
 
@@ -226,8 +229,34 @@ soft-delete, inventory counters and order upsert semantics stay identical across
   `GET /api/v1/notices/todo?result=30&offset=0` (login cookies required). Yahoo todo types map to
   their own `Yahoo*` kinds (`ooesh` → `YahooShipRequest`) rather than onto Mercari kinds — reusing
   `WaitShippingCard` etc. would make the todos page run Mercari-only ship/QR automation on a Yahoo
-  row. The kind *is* listed in `_WAIT_SHIPPING_COND` so 発送依頼 lands in the 待发货 chip, and the
-  row's 処理 button opens the Yahoo trade page (`/item/{id}/trade/seller`) in a new tab instead.
+  row. The kind *is* listed in `_WAIT_SHIPPING_COND` so 発送依頼 lands in the 待发货 chip. This
+  naming is also what keeps 一键好评 / 一键确认发送 / 详情预抓 off Yahoo rows for free — they all
+  filter on Mercari `kind`/`title` constants that no `Yahoo*` value matches.
+- `web_drive/yahoo_trade/` + `use_yahoo/todos/trade_actions.py` — the todo 処理 flow. The whole
+  Yahoo transaction lives on one page, so this package splits by *action* (`_page` sheet/row
+  primitives, `detail`, `ship`, `message`) rather than by page.
+  - **发货 is one form, not a wizard**: 品名 (maxlength 17) + サイズ + 発送場所, then one button.
+    That button is the state machine — it reads 「発送情報を入力してください」 and is disabled until
+    all three are set, then flips to 「配送コードを表示する」. `ship.py` **verifies the flip before
+    clicking** and aborts otherwise; a half-filled submit issues a 配送コード for the wrong size and
+    the postage difference gets billed later. `dry_run=True` stops exactly at that check.
+  - **Size/location options are read from the live page, never hard-coded** — the list changes with
+    the 配送会社 (日本郵便 → ゆうパケット/プラス/ゆうパック; ヤマト has its own). They're read off the
+    sheet's `input[type=radio]` → first text leaf of its `<label>`, which is the same string
+    `_SHEET_CLICK_JS` matches, so enumerate and click can't drift apart. Scanning `li/p/label` text
+    instead returns the same option at several nesting depths (`ゆうパケットプラス` *and*
+    `ゆうパケットプラス24cm×17cm以内`).
+  - `発送場所` is an `h3` row, not a `<button>` like `サイズ` — hence the unified "click the element
+    whose first line is X and let React bubble it" helper instead of `get_by_role`.
+  - The page has no trade API at all: `__NEXT_DATA__` carries only an empty Redux state and no XHR
+    fetches trade data — it is server-rendered HTML. Messages are parsed as `sender / text / stamp`
+    from the row containing a relative-time leaf.
+  - Endpoints are a separate `/{todo_id}/yahoo/*` group; the Mercari `transaction-detail` endpoints
+    now **400 on a Yahoo todo** rather than opening `jp.mercari.com/transaction/z…`.
+- `use_yahoo/orders/batch_refresh.py` — 订单「更新状态」的雅虎实现（逐条重读交易页）。
+  `OrderModel.find_for_batch_info_refresh` now takes `platform`; without it the Mercari
+  `transaction_evidences` batch would pick up `z…` orders and open Mercari transaction pages that
+  don't exist. With no account specified the endpoint runs **both** platforms and merges the stats.
 - `use_yahoo/notifications/notice_sync.py` — `GET /api/v1/notices/personal`, same JSON shape and
   same `Yahoo*` kind policy as todos.
 - `use_yahoo/orders/sales_history.py` — 販売手数料/送料/到手金額 live on a **different domain**,

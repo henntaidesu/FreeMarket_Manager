@@ -68,5 +68,19 @@ export const todosApi = {
     http.post(`/use_web/todos/${encodeURIComponent(todoId)}/shipping/confirm-change-method`, body || {}, { timeout: 60000, ...axiosConfig }),
   /** 已发行二维码后修改发货方式：点「商品サイズや発送方法を修正する」+ 二次确认，清除二维码 */
   reviseShippingAfterQr: (todoId, body = {}, axiosConfig = {}) =>
-    http.post(`/use_web/todos/${encodeURIComponent(todoId)}/shipping/revise-after-qr`, body || {}, { timeout: 60000, ...axiosConfig })
+    http.post(`/use_web/todos/${encodeURIComponent(todoId)}/shipping/revise-after-qr`, body || {}, { timeout: 60000, ...axiosConfig }),
+
+  // ── 雅虎待办：交易页上一张三项发货表单 + 留言框，与煤炉的多步流程各走各的端点 ──
+  /** 读上次抓到的雅虎交易详情（不开浏览器） */
+  yahooTradeDetailCache: (todoId, axiosConfig = {}) =>
+    http.get(`/use_web/todos/${encodeURIComponent(todoId)}/yahoo/trade-detail-cache`, { timeout: 20000, ...axiosConfig }),
+  /** 打开雅虎交易页抓详情（含发货表单当前可选的尺寸/发货场所） */
+  yahooTradeDetail: (todoId, axiosConfig = {}) =>
+    http.post(`/use_web/todos/${encodeURIComponent(todoId)}/yahoo/trade-detail`, {}, { timeout: 0, ...axiosConfig }),
+  /** 提交发货信息并发行配送コード（dry_run 只校验不提交） */
+  yahooShip: (todoId, body = {}, axiosConfig = {}) =>
+    http.post(`/use_web/todos/${encodeURIComponent(todoId)}/yahoo/ship`, body || {}, { timeout: 0, ...axiosConfig }),
+  /** 给买家发一条雅虎取引メッセージ */
+  yahooSendMessage: (todoId, body = {}, axiosConfig = {}) =>
+    http.post(`/use_web/todos/${encodeURIComponent(todoId)}/yahoo/send-message`, body || {}, { timeout: 0, ...axiosConfig })
 }

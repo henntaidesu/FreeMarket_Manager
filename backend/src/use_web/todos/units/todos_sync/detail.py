@@ -30,11 +30,25 @@ def _validate_job_id(raw: Optional[str]) -> Optional[str]:
         raise HTTPException(status_code=400, detail="invalid progress_job_id")
     return jid
 
+def _reject_yahoo(todo: Any) -> None:
+    """雅虎待办不能走煤炉的交易详情流程——那会打开 jp.mercari.com 的交易页。
+
+    雅虎侧有自己的一组端点（``/{todo_id}/yahoo/...``），这里直接给出明确指引，
+    而不是让请求悄悄跑进煤炉自动化然后超时。
+    """
+    if (getattr(todo, "platform", "") or "mercari").strip().lower() == "yahoo":
+        raise HTTPException(
+            status_code=400,
+            detail="雅虎待办请使用 /yahoo/trade-detail 接口处理（煤炉交易详情流程不适用）",
+        )
+
+
 async def get_cached_todo_transaction_detail(todo_id: int) -> Dict[str, Any]:
     """读取交易详情缓存（无浏览器）。点开「处理」面板时优先用本地缓存，避免每次都开浏览器。"""
     todo = TodoItemModel.find_by_id(id=int(todo_id))
     if not todo:
         raise HTTPException(status_code=404, detail="待办事项不存在")
+    _reject_yahoo(todo)
     return get_cached_transaction_detail(int(todo_id))
 
 async def fetch_todo_transaction_detail(
@@ -45,6 +59,7 @@ async def fetch_todo_transaction_detail(
     todo = TodoItemModel.find_by_id(id=int(todo_id))
     if not todo:
         raise HTTPException(status_code=404, detail="待办事项不存在")
+    _reject_yahoo(todo)
     aid = int(getattr(todo, "account_id", 0) or 0)
     if not aid:
         raise HTTPException(status_code=400, detail="待办事项缺少 account_id")

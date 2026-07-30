@@ -18,10 +18,15 @@ class _QueryMixin:
     def find_for_batch_info_refresh(
         cls,
         seller_id_filter: Optional[str] = None,
+        platform: str = "mercari",
     ) -> List[Tuple[str, str]]:
         """
-        从库中取得待用 transaction_evidences/get 刷新的 (order_no, data_user)。
-        仅含 data_user 非空且状态非「已完成」集合中的行；可选只限某一卖家（与煤炉账号 seller_id 一致）。
+        从库中取得待批量刷新状态的 (order_no, data_user)。
+        仅含 data_user 非空且状态非「已完成」集合中的行；可选只限某一卖家（与账号 seller_id 一致）。
+
+        ``platform`` 必须显式区分：两个平台的刷新实现完全不同（煤炉截 transaction_evidences，
+        雅虎逐条解析交易页），把雅虎订单喂进煤炉那条路会去开 jp.mercari.com 上不存在的交易页。
+        历史行 ``platform`` 为空按煤炉处理。
         """
         skip = cls._STATUSES_SKIP_BATCH_INFO
         placeholders = ",".join("?" * len(skip))
@@ -31,6 +36,10 @@ class _QueryMixin:
             f"AND status NOT IN ({placeholders}) "
         )
         params: List[Any] = list(skip)
+        if (platform or "mercari").strip().lower() == "yahoo":
+            sql += "AND TRIM(IFNULL(platform, '')) = 'yahoo' "
+        else:
+            sql += "AND TRIM(IFNULL(platform, '')) IN ('mercari', '') "
         if seller_id_filter is not None and str(seller_id_filter).strip():
             sql += "AND TRIM(data_user) = TRIM(?) "
             params.append(str(seller_id_filter).strip())

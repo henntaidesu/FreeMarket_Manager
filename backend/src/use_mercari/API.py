@@ -162,9 +162,21 @@ async def batch_refresh_info_core(
     """「更新状态」主体：不含 HTTP 与锁语义，**调用方须自行持有全局同步锁**。
 
     HTTP 入口 ``api_batch_refresh_info`` 与任务队列处理器共用本函数。
+
+    按平台分派：指定雅虎账号时走雅虎那套逐条解析交易页的实现；不指定账号时**两个平台都跑**，
+    因为「更新状态」按钮对用户是一个动作，不该因为账号平台不同就漏掉一半订单。
     """
+    from ..use_yahoo.orders.batch_refresh import batch_refresh_yahoo_orders
+
     if account_id is not None:
         qk = queue_key_for_mercari_account(int(account_id))
+        if _account_platform_for_orders(int(account_id)) == "yahoo":
+            return await run_mercari_serial_async(
+                qk,
+                lambda: batch_refresh_yahoo_orders(
+                    account_id=int(account_id), progress_job_id=progress_job_id
+                ),
+            )
         return await run_mercari_serial_async(
             qk,
             lambda: batch_refresh_orders_info(
@@ -172,13 +184,30 @@ async def batch_refresh_info_core(
                 progress_job_id=progress_job_id,
             ),
         )
-    return await run_mercari_serial_async(
+    mercari = await run_mercari_serial_async(
         GLOBAL_QUEUE_KEY,
         lambda: batch_refresh_orders_info(
             account_id=None,
             progress_job_id=progress_job_id,
         ),
     )
+    yahoo = await run_mercari_serial_async(
+        GLOBAL_QUEUE_KEY,
+        lambda: batch_refresh_yahoo_orders(
+            account_id=None, progress_job_id=progress_job_id
+        ),
+    )
+    # 汇总成与单平台同形状的统计，前端不必区分
+    return {
+        "total": int(mercari.get("total", 0)) + int(yahoo.get("total", 0)),
+        "ok": int(mercari.get("ok", 0)) + int(yahoo.get("ok", 0)),
+        "skipped_no_account": (
+            int(mercari.get("skipped_no_account", 0)) + int(yahoo.get("skipped_no_account", 0))
+        ),
+        "failed": list(mercari.get("failed") or []) + list(yahoo.get("failed") or []),
+        "mercari": mercari,
+        "yahoo": yahoo,
+    }
 
 
 @router.post("/batch-refresh-info")

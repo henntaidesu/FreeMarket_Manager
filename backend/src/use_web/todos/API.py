@@ -38,6 +38,10 @@ from .units.todos_sync import (
     submit_transaction_review_endpoint,
     sync_todos,
     todos_sync_progress,
+    yahoo_ship_endpoint,
+    yahoo_trade_detail_cache_endpoint,
+    yahoo_trade_detail_endpoint,
+    yahoo_trade_message_endpoint,
 )
 
 router = APIRouter()
@@ -110,3 +114,8 @@ router.add_api_route("/{todo_id}/scan-qr-photo", _scan_qr_photo_endpoint, method
 router.add_api_route("/{todo_id}/post-shipping-info", post_shipping_info_endpoint, methods=["GET"])
 router.add_api_route("/{todo_id}/finalize-post-shipping", finalize_post_shipping_endpoint, methods=["POST"])
 router.add_api_route("/close-detail-browser/{account_id}", close_detail_browser, methods=["POST"])
+# 雅虎待办的处理：交易页是一张三项发货表单 + 留言框，与煤炉的多步流程无法共用端点
+router.add_api_route("/{todo_id}/yahoo/trade-detail", yahoo_trade_detail_endpoint, methods=["POST"])
+router.add_api_route("/{todo_id}/yahoo/trade-detail-cache", yahoo_trade_detail_cache_endpoint, methods=["GET"])
+router.add_api_route("/{todo_id}/yahoo/ship", yahoo_ship_endpoint, methods=["POST"])
+router.add_api_route("/{todo_id}/yahoo/send-message", yahoo_trade_message_endpoint, methods=["POST"])

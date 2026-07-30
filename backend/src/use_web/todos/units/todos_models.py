@@ -106,6 +106,28 @@ class TransactionActionRequest(PydanticModel):
     force: bool = False
 
 
+class YahooShipRequest(PydanticModel):
+    """雅虎发货：交易页上的三个必填项。
+
+    ``size`` / ``location`` 必须是**该交易页当前真实提供的选项名**（由
+    ``/yahoo/ship-state`` 返回），不做本地枚举——可选尺寸随配送会社变化。
+    """
+
+    # 品名：雅虎 maxlength=17，超出由后端截断
+    item_name: str = Field(..., min_length=1, max_length=17)
+    size: str = Field(..., min_length=1, max_length=60)
+    location: str = Field(..., min_length=1, max_length=60)
+    # 只填表校验、不点「配送コードを表示する」
+    dry_run: bool = False
+
+
+class YahooTradeMessageRequest(PydanticModel):
+    """雅虎取引メッセージ（页面上限 1024 字）。"""
+
+    text: str = Field(..., min_length=1, max_length=1024)
+    dry_run: bool = False
+
+
 class SendMessageReactionRequest(PydanticModel):
     """对买家某条消息发送 emoji 反应。
 

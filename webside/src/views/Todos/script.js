@@ -8,6 +8,7 @@ import { submitTask } from '@/utils/taskSubmit.js'
 import { useMercariAccountStore } from '@/stores/mercariAccount.js'
 import { useSyncOverlay } from '@/composables/useSyncOverlay'
 import SyncOverlay from '@/components/SyncOverlay.vue'
+import YahooTradeDialog from './YahooTradeDialog.vue'
 import { mercariImageUrl, mercariImageUrlList } from '@/utils/mercariImage.js'
 import { useRouter } from 'vue-router'
 import { printLabelImage, isBluetoothSupported } from '@/utils/btPrinter/index.js'
@@ -15,6 +16,7 @@ import { printLabelImage, isBluetoothSupported } from '@/utils/btPrinter/index.j
 export default defineComponent({
   components: {
     SyncOverlay,
+    YahooTradeDialog,
     Loading,
     Plus,
     Minus,
@@ -1207,22 +1209,20 @@ export default defineComponent({
       }
     }
 
-    /** 雅虎交易页（卖家视角）：发货、改配送、留言都在这一页 */
-    function yahooTradeUrl(row) {
-      const iid = String(row?.item_id || '').trim()
-      return iid ? `https://paypayfleamarket-sec.yahoo.co.jp/item/${iid}/trade/seller` : ''
-    }
+    // 雅虎处理面板（发货 / 交易留言）——与煤炉的处理弹窗完全分开，流程不同
+    const yahooDialogVisible = ref(false)
+    const yahooRow = ref(null)
 
     function onProcess(row) {
-      // 雅虎待办：本系统还没有对应的自动化流程，套用煤炉的处理弹窗只会跑错流程。
-      // 直接打开雅虎交易页（发货/留言都在那），比给一个点了会出错的按钮诚实。
+      // 雅虎待办：交易页是一张三项发货表单，走雅虎自己的面板；
+      // 套用煤炉的处理弹窗会跑到 jp.mercari.com 上不存在的交易页。
       if (platformOf(row) === 'yahoo') {
-        const url = yahooTradeUrl(row)
-        if (!url) {
+        if (!String(row?.item_id || '').trim()) {
           ElMessage.warning(t('todos.yahooNoItemId'))
           return
         }
-        window.open(url, '_blank', 'noopener')
+        yahooRow.value = row
+        yahooDialogVisible.value = true
         return
       }
       currentRow.value = row
@@ -1965,7 +1965,8 @@ export default defineComponent({
       platformLabel,
       platformTagType,
       platformOf,
-      yahooTradeUrl,
+      yahooDialogVisible,
+      yahooRow,
       syncLoading,
       bulkReviewLoading,
       bulkConfirmShipLoading,

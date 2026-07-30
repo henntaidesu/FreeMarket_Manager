@@ -214,7 +214,7 @@
         <el-table-column :label="t('common.operate')" width="110" align="center" header-align="center" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" plain @click="onProcess(row)">
-              {{ platformOf(row) === 'yahoo' ? t('todos.openYahooTrade') : t('todos.process') }}
+              {{ t('todos.process') }}
             </el-button>
           </template>
         </el-table-column>
@@ -938,6 +938,9 @@
         <div class="qr-viewer-close" @click="qrViewer.visible = false">×</div>
       </div>
     </teleport>
+
+    <!-- 雅虎待办的处理面板：发货表单 + 交易留言（煤炉走上面的 detailDialog） -->
+    <YahooTradeDialog v-model="yahooDialogVisible" :row="yahooRow" @done="load" />
 
     <SyncOverlay :state="txOverlay.state" />
   </div>
