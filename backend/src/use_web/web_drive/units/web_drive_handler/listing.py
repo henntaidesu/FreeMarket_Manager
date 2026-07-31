@@ -46,51 +46,18 @@ class PostToMarketBody(PydanticModel):
     # 可选：与 GET /listing/post-progress/{job_id} 配合展示当前步骤
     progress_job_id: Optional[str] = Field(default=None, max_length=128)
 
-def _get_category_positions(mapping_id: Optional[str]) -> dict:
-    """根据 mapping_id 查询类别各级 position，找不到时返回全 None。"""
+def _get_category_positions(mapping_id: Optional[str], platform: str) -> List[int]:
+    """该商品类型在指定平台的分类点选路径（逐级点第 N 项）；查不到返回空数组。"""
     if not mapping_id:
-        return {}
+        return []
     try:
         from .....db_manage.models.system.product_type_category_mapping import (
             ProductTypeCategoryMappingModel,
         )
-        rows = ProductTypeCategoryMappingModel.find_all(
-            where="mapping_id = ?",
-            params=(str(mapping_id),),
-            limit=1,
-        )
-        if not rows:
-            return {}
-        row = rows[0].to_dict()
-        return {
-            "category_level1_pos": row.get("category_level1_position"),
-            "category_level2_pos": row.get("category_level2_position"),
-            "category_level3_pos": row.get("category_level3_position"),
-            "product_type_pos":    row.get("product_type_position"),
-        }
+        return ProductTypeCategoryMappingModel.positions_for(mapping_id, platform)
     except Exception as exc:
-        log.warning("查询 category positions 失败: %s", exc)
-        return {}
-
-def _get_yahoo_category_path(mapping_id: Optional[str]) -> str:
-    """雅虎出品用的分类全路径（与煤炉的 position 并存于同一张映射表）。"""
-    if not mapping_id:
-        return ""
-    try:
-        from .....db_manage.models.system.product_type_category_mapping import (
-            ProductTypeCategoryMappingModel,
-        )
-        rows = ProductTypeCategoryMappingModel.find_all(
-            where="mapping_id = ?",
-            params=(str(mapping_id),),
-            limit=1,
-        )
-        if not rows:
-            return ""
-        return str(rows[0].to_dict().get("yahoo_category_path") or "").strip()
-    except Exception as exc:
-        log.warning("查询 yahoo_category_path 失败: %s", exc)
-        return ""
+        log.warning("查询 %s 分类位置失败: %s", platform, exc)
+        return []
 
 
 def _account_platform(account_id: int) -> str:
@@ -132,7 +99,7 @@ async def post_to_market(
     /#/mercari-accounts「打开浏览器」互不冲突；流程结束后无头会话立即关闭。
 
     **按账号平台分派**：``mercari_accounts.platform`` 为 ``yahoo`` 时改跑 Yahoo!フリマ
-    出品（``post_to_yahoo``，分类取映射表的 ``yahoo_category_path``），返回值字段与煤炉一致。
+    出品（``post_to_yahoo``，分类取映射表的 ``yahoo_category_positions``），返回值字段与煤炉一致。
 
     全局出品锁：同一时刻只允许一个出品在执行（跨账号、跨用户）。
     - HTTP 手动出品（默认）：锁被占用时直接 409，前端提示稍候再试；
@@ -169,19 +136,18 @@ async def post_to_market(
         if body.use_mitm_proxy:
             proxy = (body.proxy_server or "").strip() or default_mitm_proxy_url()
 
-        # 从 DB 查询 category position 字段
-        cat_pos = _get_category_positions(body.category_mapping_id)
-
         mgr = get_web_drive_manager()
         platform = _account_platform(account_id)
 
+        # 从 DB 查询该商品类型在当前平台的分类点选路径
+        cat_pos = _get_category_positions(body.category_mapping_id, platform)
+
         async def _run_yahoo() -> Dict[str, Any]:
-            """雅虎出品：分类走映射表里的日文全路径；送料負担/販売形式 雅虎没有，忽略。"""
-            category_path = _get_yahoo_category_path(body.category_mapping_id)
-            if not category_path:
+            """雅虎出品：分类按映射表里的位置数组逐级点选；送料負担/販売形式 雅虎没有，忽略。"""
+            if not cat_pos:
                 raise HTTPException(
                     status_code=400,
-                    detail="该商品类型未配置雅虎分类路径，请到「系统管理 → 商品类型映射」补充后再出品",
+                    detail="该商品类型未配置雅虎分类位置，请到「系统管理 → 商品类型映射」补充后再出品",
                 )
             return await _do_post_yahoo(
                 mgr,
@@ -190,7 +156,7 @@ async def post_to_market(
                 description=body.description,
                 image_urls=body.image_urls,
                 watermark=body.watermark,
-                category_path=category_path,
+                category_positions=cat_pos,
                 status=body.status,
                 shipping_method=body.shipping_method,
                 price=body.price,
@@ -207,10 +173,7 @@ async def post_to_market(
                 description=body.description,
                 image_urls=body.image_urls,
                 watermark=body.watermark,
-                category_level1_pos=cat_pos.get("category_level1_pos"),
-                category_level2_pos=cat_pos.get("category_level2_pos"),
-                category_level3_pos=cat_pos.get("category_level3_pos"),
-                product_type_pos=cat_pos.get("product_type_pos"),
+                category_positions=cat_pos,
                 status=body.status,
                 shipping_payer=body.shipping_payer,
                 shipping_method=body.shipping_method,

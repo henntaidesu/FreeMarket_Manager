@@ -16,7 +16,6 @@ import { useMercariAccountStore } from '@/stores/mercariAccount.js'
 import {
   useInventoryListApiFilters,
   warehouseCascaderProps,
-  productTypeCascaderProps,
 } from '@/composables/useInventoryListApiFilters.js'
 import {
   localYmdToDayStartTs,
@@ -109,14 +108,12 @@ export default defineComponent({
     }
     const manualInvFilters = useInventoryListApiFilters(scheduleManualInvReload)
     const manualInvWarehouseCascaderProps = warehouseCascaderProps
-    const manualInvProductTypeCascaderProps = productTypeCascaderProps
 
     function scheduleBindInvReload() {
       void reloadBindInventoryList()
     }
     const bindInvFilters = useInventoryListApiFilters(scheduleBindInvReload)
     const bindInvWarehouseCascaderProps = warehouseCascaderProps
-    const bindInvProductTypeCascaderProps = productTypeCascaderProps
 
     async function reloadManualInventoryList() {
       if (!manualOutboundDialogVisible.value) return
@@ -1545,7 +1542,6 @@ export default defineComponent({
       useMercariAccountStore,
       useInventoryListApiFilters,
       warehouseCascaderProps,
-      productTypeCascaderProps,
       localYmdToDayStartTs,
       localYmdToDayEndTs,
       decodeMgmtIdCipher,
@@ -1583,11 +1579,9 @@ export default defineComponent({
       scheduleManualInvReload,
       manualInvFilters,
       manualInvWarehouseCascaderProps,
-      manualInvProductTypeCascaderProps,
       scheduleBindInvReload,
       bindInvFilters,
       bindInvWarehouseCascaderProps,
-      bindInvProductTypeCascaderProps,
       reloadManualInventoryList,
       reloadBindInventoryList,
       stats,

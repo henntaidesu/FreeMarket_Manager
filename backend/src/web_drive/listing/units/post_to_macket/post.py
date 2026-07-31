@@ -22,11 +22,8 @@ async def post_to_market(
     name: str = "",
     description: str = "",
     image_urls: Sequence[str] = (),
-    # 类别（来自 product_type_category_mappings 表的 position 字段）
-    category_level1_pos: Optional[int] = None,
-    category_level2_pos: Optional[int] = None,
-    category_level3_pos: Optional[int] = None,
-    product_type_pos: Optional[int] = None,
+    # 类别：逐级点第 N 个条目（来自 product_type_category_mappings.mercari_category_positions）
+    category_positions: Optional[Sequence[int]] = None,
     # 商品状態：new_unused / almost_unused / good / fair / used
     status: str = "",
     # 快递費負担：seller(出品者負担) / buyer(購入者負担)
@@ -239,17 +236,11 @@ async def post_to_market(
                     )
 
             # ── 步骤 3：选择商品类型 ──────────────────────────────────────────────── #
-            if any(p is not None for p in [
-                category_level1_pos, category_level2_pos,
-                category_level3_pos, product_type_pos,
-            ]):
+            if category_positions:
                 try:
                     wizard_back = await _select_category(
                         page,
-                        category_level1_pos,
-                        category_level2_pos,
-                        category_level3_pos,
-                        product_type_pos,
+                        category_positions,
                         element_timeout_ms=element_timeout_ms,
                         page_load_timeout_ms=page_load_timeout_ms,
                         report=report,

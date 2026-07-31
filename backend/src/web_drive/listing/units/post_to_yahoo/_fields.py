@@ -13,7 +13,6 @@ from typing import Any, List, Optional, Sequence, Tuple
 from ._constants import (
     ADD_IMAGE_BUTTON_TEXT,
     CATEGORY_MORE_BUTTON_TEXT,
-    CATEGORY_PATH_SEPARATORS,
     CONDITION_ITEM_JA,
     DESCRIPTION_MAX_LEN,
     DESCRIPTION_PLACEHOLDER_MARK,
@@ -65,6 +64,27 @@ _SHEET_ITEMS_JS = (
       if (t) seen.add(t);
     });
     return [...seen];
+}"""
+)
+
+#: 在弹层内按**位置**点第 pos 个条目（1 起）。分类条目是 li，只扫 li：
+#: 沿用 _SHEET_ITEMS_JS 的 'li, p' 会把同一选项在多层嵌套上重复计入，下标语义就乱了。
+#: 返回实际点到的文案 + 当前层总条数——位置点选本身不自校验，全靠这个回读留痕。
+_SHEET_CLICK_NTH_JS = (
+    "(pos) => {"
+    + _SHEET_PRELUDE
+    + """
+    const sheet = openSheet();
+    if (!sheet) return null;
+    const items = [...sheet.querySelectorAll('li')];
+    if (!items.length) return { total: 0, label: null, clicked: false };
+    if (pos < 1 || pos > items.length) {
+      return { total: items.length, label: null, clicked: false };
+    }
+    const el = items[pos - 1];
+    const label = firstLine(el);
+    el.click();
+    return { total: items.length, label, clicked: true };
 }"""
 )
 
@@ -140,6 +160,11 @@ async def _sheet_items(page: Any) -> List[str]:
 
 async def _sheet_click(page: Any, name: str) -> bool:
     return bool(await page.evaluate(_SHEET_CLICK_JS, name))
+
+
+async def _sheet_click_nth(page: Any, pos: int) -> Optional[dict]:
+    """点弹层里第 pos 个条目；返回 ``{total, label, clicked}``，弹层没开则 None。"""
+    return await page.evaluate(_SHEET_CLICK_NTH_JS, int(pos))
 
 
 async def _sheet_is_open(page: Any) -> bool:
@@ -274,54 +299,52 @@ async def set_price(page: Any, price: int, *, element_timeout_ms: int) -> None:
 
 # ── 分类（逐级下钻弹层） ──────────────────────────────────────────────── #
 
-def parse_category_path(path: str) -> List[str]:
-    """``本、雑誌、コミック > 医学、薬学、看護 > 医学一般`` → 逐级名称列表。"""
-    text = (path or "").strip()
-    if not text:
-        return []
-    for sep in CATEGORY_PATH_SEPARATORS:
-        text = text.replace(sep, "\n")
-    return [seg.strip() for seg in text.split("\n") if seg.strip()]
-
-
 async def select_category(
     page: Any,
-    category_path: str,
+    positions: Sequence[int],
     *,
     element_timeout_ms: int,
     report: Any = None,
 ) -> List[str]:
-    """按配置的路径逐级点开分类，直到弹层关闭（选到叶子）。返回实际点过的层级。"""
-    names = parse_category_path(category_path)
-    if not names:
-        raise ValueError("未配置雅虎分类路径（商品类型映射里的「雅虎分类」）")
+    """按配置的位置数组逐级点开分类，直到弹层关闭（选到叶子）。返回实际点到的各级文案。"""
+    positions = [int(p) for p in (positions or [])]
+    if not positions:
+        raise ValueError("未配置雅虎分类位置（商品类型映射里的「雅虎分类」）")
 
     await _open_field_sheet(page, LABEL_CATEGORY, element_timeout_ms=element_timeout_ms)
 
     # 商品名填过之后，弹层先给「カテゴリはこちらですか」推荐列表（没有分类树）。
-    # 不赌推荐命中，一律点「他のカテゴリから選ぶ」回到全量树，按配置路径逐级走。
+    # 不赌推荐命中，一律点「他のカテゴリから選ぶ」回到全量树——**位置下标以全量树为准**，
+    # 推荐列表的条目数会随商品名变化，不点这一下下标就没有稳定含义。
     if await _sheet_click(page, CATEGORY_MORE_BUTTON_TEXT):
         await page.wait_for_timeout(1200)
 
     walked: List[str] = []
-    for name in names:
+    for depth, pos in enumerate(positions, start=1):
         if report:
-            report("category", f"正在选择雅虎分类：{' > '.join(walked + [name])}")
-        if not await _sheet_click(page, name):
-            options = [x for x in await _sheet_items(page) if x not in walked]
+            report("category", f"正在选择雅虎分类第 {depth} 级（第 {pos} 项）…")
+        hit = await _sheet_click_nth(page, pos)
+        if not hit or not hit.get("clicked"):
+            total = (hit or {}).get("total") or 0
+            options = await _sheet_items(page)
             raise ValueError(
-                f"雅虎分类「{name}」在当前层级不存在；当前可选：{'、'.join(options[:25])}"
+                f"雅虎分类第 {depth} 级的位置 {pos} 超出范围（当前层共 {total} 项）；"
+                f"已走：{' > '.join(walked) or '（无）'}；当前可选：{'、'.join(options[:25])}"
             )
-        walked.append(name)
+        label = hit.get("label") or f"第{pos}项"
+        walked.append(label)
+        log.info("[yahoo][category] 第 %s 级 pos=%s → 「%s」（共 %s 项）",
+                 depth, pos, label, hit.get("total"))
         await page.wait_for_timeout(1200)
         if await _field_selected(page, LABEL_CATEGORY):
             await _wait_sheet_closed(page, timeout_ms=5000)
             return walked
 
-    # 路径走完弹层还开着 → 没到叶子，把下一层可选项报给用户便于补全配置
+    # 位置走完弹层还开着 → 没到叶子，把下一层可选项报给用户便于补全配置
     options = [x for x in await _sheet_items(page) if x not in walked]
     raise ValueError(
-        f"雅虎分类路径「{' > '.join(names)}」未到最末级，还需继续选择：{'、'.join(options[:25])}"
+        f"雅虎分类位置 {positions}（已走：{' > '.join(walked)}）未到最末级，"
+        f"还需继续选择：{'、'.join(options[:25])}"
     )
 
 

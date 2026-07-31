@@ -364,6 +364,70 @@ class DBManager:
             print(f"[错误] product_type_category_mappings 字段迁移失败: {e}")
             return False
 
+    def _migrate_ptcm_positions_to_json_array(self) -> bool:
+        """
+        product_type_category_mappings 的煤炉四级 position 列 → 单列 JSON 位置数组。
+
+        **必须在 ensure_table_exists() 之前跑**：模型里已经不再声明那些旧列，
+        _check_and_update_table_structure() 一执行就会把它们删掉，回填就没数据源了。
+
+        雅虎侧回填不了——旧的 yahoo_category_path 存的是日文名，反推不出下标，
+        这批只能到页面上重新录入。
+        """
+        import json as _json
+
+        db = self.db
+        tn = "product_type_category_mappings"
+        if not db.table_exists(tn):
+            return True
+        cols = [c["name"] for c in db.get_table_columns(tn)]
+        if "mercari_category_positions" in cols:
+            return True
+
+        legacy = [
+            "category_level1_position",
+            "category_level2_position",
+            "category_level3_position",
+            "product_type_position",
+        ]
+        try:
+            for name in ("mercari_category_positions", "yahoo_category_positions"):
+                if name not in cols:
+                    db.add_column(tn, {"name": name, "type": "TEXT"})
+
+            present = [c for c in legacy if c in cols]
+            if not present:
+                print("[OK] product_type_category_mappings 已建位置数组列（无旧 position 可回填）")
+                return True
+
+            select_cols = ", ".join(f"[{c}]" for c in present)
+            rows = db.execute_query(
+                f"SELECT [mapping_id], {select_cols} FROM [{tn}]"
+            ) or []
+            filled = 0
+            for row in rows:
+                # 顺序拼接、跳过 NULL —— 与旧 _select_category 里 `if pos is None: continue` 同义
+                positions = [int(v) for v in row[1:] if v is not None]
+                if not positions:
+                    continue
+                db.execute_update(
+                    f"UPDATE [{tn}] SET [mercari_category_positions] = ? WHERE [mapping_id] = ?",
+                    (_json.dumps(positions), row[0]),
+                )
+                filled += 1
+
+            pending_yahoo = len(rows) - filled if len(rows) >= filled else 0
+            print(f"[OK] product_type_category_mappings 煤炉位置已迁移为数组: {filled} 行")
+            if rows:
+                print(
+                    f"[提示] 雅虎位置无法从日文路径反推，{len(rows)} 个商品类型需在"
+                    f"「系统管理 → 商品类型映射」重新录入（当前煤炉未配置 {pending_yahoo} 行）"
+                )
+            return True
+        except Exception as e:
+            print(f"[错误] product_type_category_mappings 位置数组迁移失败: {e}")
+            return False
+
     def _migrate_ptcm_mapping_id_as_primary_key(self) -> bool:
         """
         将 product_type_category_mappings 的主键改为 mapping_id（TEXT）。
@@ -650,6 +714,10 @@ class DBManager:
         if not self._migrate_ptcm_category_field_to_mapping_id():
             return False
         if not self._migrate_ptcm_mapping_id_as_primary_key():
+            return False
+        # 必须在下面的 ensure_table_exists() 之前：模型已不再声明旧 position 列，
+        # 表结构同步一跑就会删掉它们，回填得赶在那之前取数
+        if not self._migrate_ptcm_positions_to_json_array():
             return False
 
         defined_tables = {m.get_table_name() for m in self.models}

@@ -88,7 +88,6 @@ export default defineComponent({
     const filterWarehouseUnassigned = ref(false)
     const filterWarehousePath = ref([])
     const filterProductType = ref(null)
-    const filterProductTypePath = ref([])
     const filterOwnerUserId = ref(null)
     /** localStorage：是否隐藏「库存数量为 0」的条目（与「隐藏无在库」勾选一致） */
     const HIDE_NO_WAREHOUSE_SLOT_STORAGE_KEY = 'mercari.inventory.hideNoWarehouseSlot'
@@ -483,7 +482,6 @@ export default defineComponent({
     /** 库存表单图片上传上限（与后端 save_upload_image 默认一致） */
     const MAX_UPLOAD_IMAGE_BYTES = 25 * 1024 * 1024
     /** WebDriver 出品自动化：全屏等待与步骤文案（与 progress_job_id 轮询同步） */
-    const productTypeCascaderPath = ref([])
     const warehouseCascaderPath = ref([])
     const inventoryExpandById = ref({})
     const scanVisible = ref(false)
@@ -994,15 +992,7 @@ export default defineComponent({
       ],
     }))
 
-    const productTypeCascaderProps = {
-      value: 'value',
-      label: 'label',
-      children: 'children',
-      emitPath: true,
-      checkStrictly: false,
-    }
-
-    /** 与 productTypeCascaderProps 一致：点击展开子级，悬停不跳转 */
+    /** 点击展开子级，悬停不跳转 */
     const warehouseCascaderProps = {
       value: 'value',
       label: 'label',
@@ -1333,10 +1323,8 @@ export default defineComponent({
     }
 
     async function saveProductTypeInline(row, productTypeId) {
-      const picked = Array.isArray(productTypeId) ? productTypeId[productTypeId.length - 1] : null
-      const normalized = (picked && String(picked).startsWith('PT:'))
-        ? Number(String(picked).slice(3))
-        : null
+      const parsed = Number(productTypeId)
+      const normalized = Number.isFinite(parsed) ? parsed : null
       if ((row.product_type_id || null) === normalized) {
         editingProductTypeRowId.value = null
         return
@@ -1350,13 +1338,6 @@ export default defineComponent({
       } finally {
         editingProductTypeRowId.value = null
       }
-    }
-
-    function getInlineProductTypePath(row) {
-      const typeId = Number(row?.product_type_id)
-      if (!Number.isFinite(typeId)) return []
-      const path = productTypeTreeMeta.value.idToPath.get(typeId)
-      return path ? [...path] : []
     }
 
     function getInlineWarehousePath(row) {
@@ -1439,20 +1420,10 @@ export default defineComponent({
       return out
     }
 
-    function ensureNode(children, value, label) {
-      let node = children.find((item) => item.value === value)
-      if (!node) {
-        node = { value, label, children: [] }
-        children.push(node)
-      }
-      return node
-    }
-
+    /** 商品类型是扁平列表（映射表一行一个类型），下拉直接用类型名 */
     const productTypeTreeMeta = computed(() => {
-      const roots = []
-      const idToPath = new Map()
-      // 该商品类型在雅虎侧是否配好了分类路径——只在 PT: 叶子上有值，
-      // 中间层是 undefined，所以模板里用 `=== false` 天然只命中叶子。
+      const options = []
+      // 该商品类型在雅虎侧是否配好了分类点选位置
       const yahooReadyById = new Map()
       for (const m of (listingCategoryMappings.value || [])) {
         const idRaw = String(m?.mapping_id ?? '').trim()
@@ -1460,46 +1431,22 @@ export default defineComponent({
         if (!idRaw || !typeName) continue
         const id = Number(idRaw)
         if (!Number.isFinite(id)) continue
-        const yahooReady = !!String(m?.yahoo_category_path ?? '').trim()
+        const yahooReady = Array.isArray(m?.yahoo_category_positions) && m.yahoo_category_positions.length > 0
         yahooReadyById.set(id, yahooReady)
-        const l1 = String(m?.category_level1 ?? '').trim() || t('inventory.uncategorized')
-        const l2 = String(m?.category_level2 ?? '').trim()
-        const l3 = String(m?.category_level3 ?? '').trim()
-
-        const l1Node = ensureNode(roots, `L1:${l1}`, l1)
-        const l1Path = [`L1:${l1}`]
-        if (!l2) {
-          l1Node.children.push({ value: `PT:${id}`, label: typeName, yahooReady, children: [] })
-          idToPath.set(id, [...l1Path, `PT:${id}`])
-          continue
-        }
-
-        const l2Val = `L2:${l1}__${l2}`
-        const l2Node = ensureNode(l1Node.children, l2Val, l2)
-        const l2Path = [...l1Path, l2Val]
-        if (!l3) {
-          l2Node.children.push({ value: `PT:${id}`, label: typeName, yahooReady, children: [] })
-          idToPath.set(id, [...l2Path, `PT:${id}`])
-          continue
-        }
-
-        const l3Val = `L3:${l1}__${l2}__${l3}`
-        const l3Node = ensureNode(l2Node.children, l3Val, l3)
-        const l3Path = [...l2Path, l3Val]
-        l3Node.children.push({ value: `PT:${id}`, label: typeName, yahooReady, children: [] })
-        idToPath.set(id, [...l3Path, `PT:${id}`])
+        options.push({ value: id, label: typeName, yahooReady })
       }
-      return { roots, idToPath, yahooReadyById }
+      options.sort((a, b) => a.label.localeCompare(b.label, 'zh-Hans-CN'))
+      return { options, yahooReadyById }
     })
 
-    /** 该商品类型是否可出品到雅虎（映射表里配了 yahoo_category_path） */
+    /** 该商品类型是否可出品到雅虎（映射表里配了 yahoo_category_positions） */
     function yahooReadyForMapping(mappingId) {
       const id = Number(mappingId)
       if (!Number.isFinite(id)) return false
       return productTypeTreeMeta.value.yahooReadyById.get(id) === true
     }
 
-    const productTypeCascaderOptions = computed(() => productTypeTreeMeta.value.roots)
+    const productTypeCascaderOptions = computed(() => productTypeTreeMeta.value.options)
 
     const DEFAULT_WH_LABEL = t('inventory.defaultWarehouse')
     /** 与后端 WarehouseModel.normalize_warehouse_key 一致 */
@@ -1638,34 +1585,8 @@ export default defineComponent({
       load()
     }
 
-    function syncCascaderPathByProductTypeId(typeId) {
-      const normalized = typeId == null ? null : Number(typeId)
-      if (!Number.isFinite(normalized)) {
-        productTypeCascaderPath.value = []
-        return
-      }
-      const path = productTypeTreeMeta.value.idToPath.get(normalized)
-      productTypeCascaderPath.value = path ? [...path] : []
-    }
-
-    function handleProductTypeCascaderChange(path) {
-      const picked = Array.isArray(path) ? path[path.length - 1] : null
-      if (!picked || !String(picked).startsWith('PT:')) {
-        form.value.product_type_id = null
-        return
-      }
-      const id = Number(String(picked).slice(3))
-      form.value.product_type_id = Number.isFinite(id) ? id : null
-    }
-
-    function handleFilterProductTypeChange(path) {
-      const picked = Array.isArray(path) ? path[path.length - 1] : null
-      if (!picked || !String(picked).startsWith('PT:')) {
-        filterProductType.value = null
-        load()
-        return
-      }
-      const id = Number(String(picked).slice(3))
+    function handleFilterProductTypeChange(typeId) {
+      const id = Number(typeId)
       filterProductType.value = Number.isFinite(id) ? id : null
       load()
     }
@@ -2615,7 +2536,6 @@ export default defineComponent({
       syncQuantityEditFromForm()
       syncPriceEditFromForm()
       syncMercariIdListFromForm()
-      syncCascaderPathByProductTypeId(form.value.product_type_id)
       syncWarehouseCascaderPathByWarehouseId(form.value.warehouse_id)
       applyListingDefaultsToForm()
       if (mercariAccountOptions.value.length === 0) fetchMercariAccounts()
@@ -2676,8 +2596,7 @@ export default defineComponent({
         form.value.product_type_id = cached.product_type_id
         form.value.owner_user_id = cached.owner_user_id
         form.value.warehouse_id = cached.warehouse_id
-        syncCascaderPathByProductTypeId(form.value.product_type_id)
-        syncWarehouseCascaderPathByWarehouseId(form.value.warehouse_id)
+          syncWarehouseCascaderPathByWarehouseId(form.value.warehouse_id)
       }
       const selfUid = getCurrentAuthUserId()
       if (selfUid != null) {
@@ -4045,7 +3964,6 @@ export default defineComponent({
       productTypes.value = buildProductTypeOptionsFromMappings(mappings)
       ownerUsers.value = users
       listingCategoryMappings.value = mappings
-      syncCascaderPathByProductTypeId(form.value.product_type_id)
       await Promise.all([load(), loadInventoryStats()])
     })
 
@@ -4100,7 +4018,6 @@ export default defineComponent({
       filterWarehouse,
       filterWarehousePath,
       filterProductType,
-      filterProductTypePath,
       filterOwnerUserId,
       HIDE_NO_WAREHOUSE_SLOT_STORAGE_KEY,
       readHideNoWarehouseSlotPreference,
@@ -4186,7 +4103,6 @@ export default defineComponent({
       nbCameraUploadPercent,
       noBarcodeUploadAbortByIndex,
       MAX_UPLOAD_IMAGE_BYTES,
-      productTypeCascaderPath,
       warehouseCascaderPath,
       inventoryExpandById,
       scanVisible,
@@ -4283,7 +4199,6 @@ export default defineComponent({
       COMBINED_EDIT_LAYOUT_GAP,
       productEditDialogWidth,
       rules,
-      productTypeCascaderProps,
       warehouseCascaderProps,
       updateViewportState,
       getOcrSrc,
@@ -4308,14 +4223,12 @@ export default defineComponent({
       saveInlineEdit,
       saveCategoryInline,
       saveProductTypeInline,
-      getInlineProductTypePath,
       saveWarehouseInline,
       getInlineWarehousePath,
       saveOwnerInline,
       startCreateCategory,
       cancelCreateCategory,
       buildProductTypeOptionsFromMappings,
-      ensureNode,
       productTypeTreeMeta,
       productTypeCascaderOptions,
       DEFAULT_WH_LABEL,
@@ -4330,8 +4243,6 @@ export default defineComponent({
       syncFilterWarehousePathByWarehouseId,
       handleWarehouseCascaderChange,
       handleFilterWarehouseChange,
-      syncCascaderPathByProductTypeId,
-      handleProductTypeCascaderChange,
       handleFilterProductTypeChange,
       confirmCreateCategory,
       captureFrame,

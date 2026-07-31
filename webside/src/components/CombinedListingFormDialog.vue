@@ -100,17 +100,20 @@
         </div>
       </el-form-item>
       <el-form-item :label="t('dialogs.combinedListing.productType')" prop="category_mapping_id" required>
-        <el-cascader
-          v-model="form.category_mapping_path"
-          :options="categoryTypeCascaderOptions"
-          :props="categoryTypeCascaderProps"
-          :show-all-levels="false"
+        <el-select
+          v-model="form.category_mapping_id"
           filterable
+          clearable
           :placeholder="t('dialogs.combinedListing.productTypePlaceholder')"
           style="width: 100%"
-          popper-class="product-type-cascader-popper"
-          @change="handleCategoryTypeChange"
-        />
+        >
+          <el-option
+            v-for="opt in categoryTypeCascaderOptions"
+            :key="opt.value"
+            :label="opt.label"
+            :value="opt.value"
+          />
+        </el-select>
       </el-form-item>
       <el-form-item :label="t('dialogs.combinedListing.productStatus')" prop="status" required>
         <el-select v-model="form.status" :placeholder="t('dialogs.combinedListing.productStatusPlaceholder')" style="width: 100%">
@@ -393,14 +396,6 @@ const descriptionBodyMaxLength = computed(() => {
 const mercariAccountOptions = ref([])
 const mercariAccountsLoading = ref(false)
 
-const categoryTypeCascaderProps = {
-  value: 'value',
-  label: 'label',
-  children: 'children',
-  emitPath: true,
-  checkStrictly: false,
-}
-
 const shippingFromCascaderProps = {
   value: 'value',
   label: 'label',
@@ -435,52 +430,18 @@ function buildShippingFromPath(areaId) {
   ]
 }
 
-function ensureNode(children, value, label) {
-  let node = children.find((item) => item.value === value)
-  if (!node) {
-    node = { value, label, children: [] }
-    children.push(node)
-  }
-  return node
-}
-
-const categoryTypeTreeMeta = computed(() => {
-  const roots = []
-  const idToPath = new Map()
+/** 商品类型是扁平列表（映射表一行一个类型），下拉直接用类型名 */
+const categoryTypeCascaderOptions = computed(() => {
+  const options = []
   for (const m of (props.categoryMappings || [])) {
     const mappingId = String(m?.mapping_id ?? '').trim()
     const typeName = String(m?.product_type ?? '').trim()
     if (!mappingId || !typeName) continue
-    const l1 = String(m?.category_level1 ?? '').trim() || t('dialogs.combinedListing.uncategorized')
-    const l2 = String(m?.category_level2 ?? '').trim()
-    const l3 = String(m?.category_level3 ?? '').trim()
-    const l1Val = `L1:${l1}`
-    const l1Node = ensureNode(roots, l1Val, l1)
-    const l1Path = [l1Val]
-
-    if (!l2) {
-      l1Node.children.push({ value: `PT:${mappingId}`, label: typeName, children: [] })
-      idToPath.set(mappingId, [...l1Path, `PT:${mappingId}`])
-      continue
-    }
-    const l2Val = `L2:${l1}__${l2}`
-    const l2Node = ensureNode(l1Node.children, l2Val, l2)
-    const l2Path = [...l1Path, l2Val]
-    if (!l3) {
-      l2Node.children.push({ value: `PT:${mappingId}`, label: typeName, children: [] })
-      idToPath.set(mappingId, [...l2Path, `PT:${mappingId}`])
-      continue
-    }
-    const l3Val = `L3:${l1}__${l2}__${l3}`
-    const l3Node = ensureNode(l2Node.children, l3Val, l3)
-    const l3Path = [...l2Path, l3Val]
-    l3Node.children.push({ value: `PT:${mappingId}`, label: typeName, children: [] })
-    idToPath.set(mappingId, [...l3Path, `PT:${mappingId}`])
+    options.push({ value: mappingId, label: typeName })
   }
-  return { roots, idToPath }
+  options.sort((a, b) => a.label.localeCompare(b.label, 'zh-Hans-CN'))
+  return options
 })
-
-const categoryTypeCascaderOptions = computed(() => categoryTypeTreeMeta.value.roots)
 
 const listingStatusOptions = computed(() => [
   { label: t('dialogs.combinedListing.statusNewUnused'), value: 'new_unused' },
@@ -557,9 +518,6 @@ watch(
     const seed = props.initialData || {}
     const cfg = props.listingDefaults || {}
     const seedMappingId = seed.category_mapping_id != null ? String(seed.category_mapping_id) : null
-    const seedPath = seedMappingId
-      ? (categoryTypeTreeMeta.value.idToPath.get(seedMappingId) || [])
-      : []
     const areaFromSeed = normalizeShippingFromSeed(seed.shipping_from)
     const areaFromCfg = normalizeShippingFromSeed(cfg.shipping_from_area_id)
     const areaId = areaFromSeed || areaFromCfg || ''
@@ -574,7 +532,6 @@ watch(
       image_back: '',
       listing_title: seed.listing_title || seed.name || '',
       category_mapping_id: seedMappingId,
-      category_mapping_path: seedPath,
       description: '',
       price: priceVal,
       shipping_from: areaId,
@@ -604,7 +561,6 @@ function getDefaultForm() {
     image_back: '',
     listing_title: '',
     category_mapping_id: null,
-    category_mapping_path: [],
     status: 'new_unused',
     description: '',
     shipping_payer: 'seller',
@@ -621,15 +577,6 @@ function getDefaultForm() {
     /** 仅占位，供「商品图片」表单项校验（实际读 combinedPreviewImages） */
     combined_listing_images: ''
   }
-}
-
-function handleCategoryTypeChange(path) {
-  const picked = Array.isArray(path) ? path[path.length - 1] : null
-  if (!picked || !String(picked).startsWith('PT:')) {
-    form.value.category_mapping_id = null
-    return
-  }
-  form.value.category_mapping_id = String(picked).slice(3)
 }
 
 function handleShippingFromChange(path) {

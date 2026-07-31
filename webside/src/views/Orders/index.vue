@@ -759,17 +759,21 @@
               />
             </div>
             <div class="manual-ob-filter-cell">
-              <el-cascader
-                v-model="manualInvFilters.filterProductTypePath"
-                :options="manualInvFilters.productTypeCascaderOptions"
-                :props="manualInvProductTypeCascaderProps"
-                :show-all-levels="false"
+              <el-select
+                v-model="manualInvFilters.filterProductType"
                 style="width: 100%"
                 :placeholder="t('orders.productType')"
-                popper-class="product-type-cascader-popper"
+                filterable
                 clearable
                 @change="manualInvFilters.handleFilterProductTypeChange"
-              />
+              >
+                <el-option
+                  v-for="opt in manualInvFilters.productTypeCascaderOptions"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                />
+              </el-select>
             </div>
             <div class="manual-ob-filter-cell">
               <el-select
@@ -934,17 +938,21 @@
               />
             </div>
             <div class="manual-ob-filter-cell">
-              <el-cascader
-                v-model="bindInvFilters.filterProductTypePath"
-                :options="bindInvFilters.productTypeCascaderOptions"
-                :props="bindInvProductTypeCascaderProps"
-                :show-all-levels="false"
+              <el-select
+                v-model="bindInvFilters.filterProductType"
                 style="width: 100%"
                 :placeholder="t('orders.productType')"
-                popper-class="product-type-cascader-popper"
+                filterable
                 clearable
                 @change="bindInvFilters.handleFilterProductTypeChange"
-              />
+              >
+                <el-option
+                  v-for="opt in bindInvFilters.productTypeCascaderOptions"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                />
+              </el-select>
             </div>
             <div class="manual-ob-filter-cell">
               <el-select

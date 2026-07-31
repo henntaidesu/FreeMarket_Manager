@@ -33,14 +33,6 @@ function ensureNode(children, value, label) {
   return node
 }
 
-export const productTypeCascaderProps = {
-  value: 'value',
-  label: 'label',
-  children: 'children',
-  emitPath: true,
-  checkStrictly: false,
-}
-
 export const warehouseCascaderProps = {
   value: 'value',
   label: 'label',
@@ -83,47 +75,22 @@ export function useInventoryListApiFilters(scheduleReload) {
   const filterWarehouse = ref(null)
   const filterWarehousePath = ref([])
   const filterProductType = ref(null)
-  const filterProductTypePath = ref([])
   const filterOwnerUserId = ref(null)
   const hideNoWarehouseSlot = ref(readHideNoWarehouseSlotPreference())
 
-  const productTypeTreeMeta = computed(() => {
-    const roots = []
-    const idToPath = new Map()
+  /** 商品类型是扁平列表（映射表一行一个类型），下拉直接用类型名 */
+  const productTypeOptions = computed(() => {
+    const options = []
     for (const m of listingCategoryMappings.value || []) {
       const idRaw = String(m?.mapping_id ?? '').trim()
       const typeName = String(m?.product_type ?? '').trim()
       if (!idRaw || !typeName) continue
       const id = Number(idRaw)
       if (!Number.isFinite(id)) continue
-      const l1 = String(m?.category_level1 ?? '').trim() || '未分类'
-      const l2 = String(m?.category_level2 ?? '').trim()
-      const l3 = String(m?.category_level3 ?? '').trim()
-
-      const l1Node = ensureNode(roots, `L1:${l1}`, l1)
-      const l1Path = [`L1:${l1}`]
-      if (!l2) {
-        l1Node.children.push({ value: `PT:${id}`, label: typeName, children: [] })
-        idToPath.set(id, [...l1Path, `PT:${id}`])
-        continue
-      }
-
-      const l2Val = `L2:${l1}__${l2}`
-      const l2Node = ensureNode(l1Node.children, l2Val, l2)
-      const l2Path = [...l1Path, l2Val]
-      if (!l3) {
-        l2Node.children.push({ value: `PT:${id}`, label: typeName, children: [] })
-        idToPath.set(id, [...l2Path, `PT:${id}`])
-        continue
-      }
-
-      const l3Val = `L3:${l1}__${l2}__${l3}`
-      const l3Node = ensureNode(l2Node.children, l3Val, l3)
-      const l3Path = [...l2Path, l3Val]
-      l3Node.children.push({ value: `PT:${id}`, label: typeName, children: [] })
-      idToPath.set(id, [...l3Path, `PT:${id}`])
+      options.push({ value: id, label: typeName })
     }
-    return { roots, idToPath }
+    options.sort((a, b) => a.label.localeCompare(b.label, 'zh-Hans-CN'))
+    return options
   })
 
   const warehouseTreeMeta = computed(() => {
@@ -178,7 +145,7 @@ export function useInventoryListApiFilters(scheduleReload) {
     return { roots, idToPath }
   })
 
-  const productTypeCascaderOptions = computed(() => productTypeTreeMeta.value.roots)
+  const productTypeCascaderOptions = productTypeOptions
   const warehouseCascaderOptions = computed(() => warehouseTreeMeta.value.roots)
 
   const fireReload = () => {
@@ -196,14 +163,9 @@ export function useInventoryListApiFilters(scheduleReload) {
     fireReload()
   }
 
-  function handleFilterProductTypeChange(path) {
-    const picked = Array.isArray(path) ? path[path.length - 1] : null
-    if (!picked || !String(picked).startsWith('PT:')) {
-      filterProductType.value = null
-    } else {
-      const id = Number(String(picked).slice(3))
-      filterProductType.value = Number.isFinite(id) ? id : null
-    }
+  function handleFilterProductTypeChange(typeId) {
+    const id = Number(typeId)
+    filterProductType.value = Number.isFinite(id) ? id : null
     fireReload()
   }
 
@@ -239,7 +201,6 @@ export function useInventoryListApiFilters(scheduleReload) {
     filterWarehouse.value = null
     filterWarehousePath.value = []
     filterProductType.value = null
-    filterProductTypePath.value = []
     filterOwnerUserId.value = null
   }
 
@@ -260,7 +221,6 @@ export function useInventoryListApiFilters(scheduleReload) {
     keyword,
     filterCat,
     filterWarehousePath,
-    filterProductTypePath,
     filterOwnerUserId,
     hideNoWarehouseSlot,
     productTypeCascaderOptions,

@@ -6,7 +6,7 @@ import asyncio
 import logging
 import re
 import urllib.request
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, List, Optional, Sequence
 from ._constants import CATEGORY_ENTRY_TEXTS, CATEGORY_ITEM_XPATH_TPL, CONDITION_ENTRY_TEXTS, CONDITION_ITEM_JA, DEFAULT_ELEMENT_TIMEOUT_MS, SALE_AUCTION_DURATION_3H_XPATH, SALE_AUCTION_DURATION_NORMAL_XPATH, SALE_AUCTION_PRICE_XPATH, SALE_AUCTION_RADIO_LABELS, SALE_AUCTION_RADIO_XPATH, SALE_ELEMENT_TIMEOUT_MS, SALE_INSTANT_PRICE_XPATH, SALE_INSTANT_RADIO_LABELS, SALE_INSTANT_RADIO_XPATH
 from ._helpers import _click_by_texts, _js_click_radio_by_label, _react_fill_input_locator, _react_set_input
 from ._sell_wizard import _leave_sell_wizard_if_present
@@ -18,17 +18,15 @@ log = logging.getLogger(__name__)
 
 async def _select_category(
     page: Any,
-    level1_pos: Optional[int],
-    level2_pos: Optional[int],
-    level3_pos: Optional[int],
-    product_type_pos: Optional[int],
+    positions: Sequence[int],
     *,
     element_timeout_ms: int,
     page_load_timeout_ms: int,
     report: Optional[Callable[[str, str], None]] = None,
 ) -> bool:
     """
-    点击商品类型入口 → 依次按各级 position（1-based a[x]）在类别页面中导航并点击。
+    点击商品类型入口 → 按位置数组（1-based a[x]）逐级在类别页面中导航并点击。
+    层级数由数组长度决定（商品类型映射表的 ``mercari_category_positions``）。
     Mercari 类别选择页面每次点击都会刷新列表，需等待新内容出现。
     若进入 sell/wizard，模拟浏览器后退；返回是否检测到向导页并已尝试返回。
     """
@@ -45,26 +43,18 @@ async def _select_category(
     )
     await page.wait_for_load_state("domcontentloaded", timeout=page_load_timeout_ms)
 
-    # 按层级依次点击
-    levels = [
-        ("level1", level1_pos),
-        ("level2", level2_pos),
-        ("level3", level3_pos),
-        ("product_type", product_type_pos),
-    ]
-    for level_name, pos in levels:
-        if pos is None:
-            continue
+    # 按位置数组逐级点击
+    for depth, pos in enumerate(positions or [], start=1):
         xpath = CATEGORY_ITEM_XPATH_TPL.format(pos=pos)
         loc = page.locator(f"xpath={xpath}")
         try:
             await loc.first.wait_for(state="visible", timeout=element_timeout_ms)
         except Exception:
-            # 该层级可能不存在（如只有2级），跳过
-            log.info("[category] %s pos=%s 元素未出现，跳过", level_name, pos)
+            # 该层级可能不存在（配置比实际层级深），跳过
+            log.info("[category] 第 %s 级 pos=%s 元素未出现，跳过", depth, pos)
             continue
         await loc.first.click()
-        log.info("[category] 已点击 %s pos=%s", level_name, pos)
+        log.info("[category] 已点击第 %s 级 pos=%s", depth, pos)
         # 等待页面更新（下一级列表或返回表单）
         await asyncio.sleep(0.5)
         try:

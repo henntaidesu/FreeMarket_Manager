@@ -1,14 +1,11 @@
 .search-card { margin-bottom: 16px; border-radius: 8px; }
 .table-card { border-radius: 8px; }
-.inline-fields { display: flex; gap: 8px; width: 100%; }
-.field-main { flex: 7; }
-.field-pos { flex: 3; min-width: 0; }
 .mapping-summary { font-size: 13px; color: var(--el-text-color-secondary); }
-.summary-warn { color: var(--el-color-warning); }
 .mapping-actions { display: flex; gap: 8px; align-items: center; }
-.yahoo-filter { width: 130px; }
+.missing-filter { width: 150px; }
+.pos-cell { font-variant-numeric: tabular-nums; }
 
-/* 编辑弹层：煤炉 / 雅虎 各一张卡片，1/2/3 级分类横排 */
+/* 编辑弹层：煤炉 / 雅虎 各一张卡片，每张卡片一条点选路径 */
 .platform-card { margin-bottom: 14px; border-radius: 8px; }
 .platform-card__title { font-weight: 600; }
-.mapping-id-item { max-width: 220px; }
+.product-type-item { max-width: 320px; }

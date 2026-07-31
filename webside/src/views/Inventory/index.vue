@@ -37,17 +37,21 @@
               clearable
               @change="handleFilterWarehouseChange"
             />
-            <el-cascader
-              v-model="filterProductTypePath"
-              :options="productTypeCascaderOptions"
-              :props="productTypeCascaderProps"
-              :show-all-levels="false"
+            <el-select
+              v-model="filterProductType"
               class="search-select-control"
               :placeholder="t('inventory.productType')"
-              popper-class="product-type-cascader-popper"
+              filterable
               clearable
               @change="handleFilterProductTypeChange"
-            />
+            >
+              <el-option
+                v-for="opt in productTypeCascaderOptions"
+                :key="opt.value"
+                :label="opt.label"
+                :value="opt.value"
+              />
+            </el-select>
             <el-select v-model="filterOwnerUserId" class="search-select-control" :placeholder="t('inventory.allOwners')" clearable @change="load">
               <el-option v-for="u in ownerUsers" :key="u.id" :label="u.display_name || u.username" :value="u.id" />
             </el-select>
@@ -316,19 +320,26 @@
               <template #reference>
                 <div class="editable-cell">{{ displayProductTypeName(row) || '-' }}</div>
               </template>
-              <el-cascader-panel
-                :model-value="getInlineProductTypePath(row)"
-                :options="productTypeCascaderOptions"
-                :props="productTypeCascaderProps"
+              <el-select
+                :model-value="row.product_type_id"
+                filterable
+                clearable
+                class="inline-product-type-select"
+                :placeholder="t('inventory.pleaseSelectProductType')"
                 @change="saveProductTypeInline(row, $event)"
               >
-                <template #default="{ data }">
-                  <span>{{ data.label }}</span>
-                  <el-tag v-if="data.yahooReady === false" size="small" type="info" class="pt-yahoo-flag">
+                <el-option
+                  v-for="opt in productTypeCascaderOptions"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                >
+                  <span>{{ opt.label }}</span>
+                  <el-tag v-if="opt.yahooReady === false" size="small" type="info" class="pt-yahoo-flag">
                     {{ t('inventory.yahooUnmapped') }}
                   </el-tag>
-                </template>
-              </el-cascader-panel>
+                </el-option>
+              </el-select>
             </el-popover>
           </template>
         </el-table-column>
@@ -528,24 +539,25 @@
           </el-col>
           <el-col :xs="24" :sm="12">
             <el-form-item :label="t('inventory.productType')" prop="product_type_id">
-              <el-cascader
-                v-model="productTypeCascaderPath"
-                :options="productTypeCascaderOptions"
-                :props="productTypeCascaderProps"
-                :show-all-levels="false"
+              <el-select
+                v-model="form.product_type_id"
+                filterable
                 clearable
                 :placeholder="t('inventory.pleaseSelectProductType')"
                 style="width: 100%"
-                popper-class="product-type-cascader-popper"
-                @change="handleProductTypeCascaderChange"
               >
-                <template #default="{ data }">
-                  <span>{{ data.label }}</span>
-                  <el-tag v-if="data.yahooReady === false" size="small" type="info" class="pt-yahoo-flag">
+                <el-option
+                  v-for="opt in productTypeCascaderOptions"
+                  :key="opt.value"
+                  :label="opt.label"
+                  :value="opt.value"
+                >
+                  <span>{{ opt.label }}</span>
+                  <el-tag v-if="opt.yahooReady === false" size="small" type="info" class="pt-yahoo-flag">
                     {{ t('inventory.yahooUnmapped') }}
                   </el-tag>
-                </template>
-              </el-cascader>
+                </el-option>
+              </el-select>
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">

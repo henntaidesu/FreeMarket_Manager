@@ -147,6 +147,7 @@ Key tables in `backend/src/db_manage/models/`:
 - **users**: User accounts with bcrypt passwords
 - **inventory**: Products with barcode, SKU, price, quantity, images (filesystem paths in `images_json`; images saved under `backend/imges/`)
 - **warehouses**: Storage locations (shelf names duplicable per warehouse)
+- **product_type_category_mappings**: 商品类型主表 (one row = one 商品类型). `inventory.product_type_id` → `mapping_id` (TEXT PK, numeric, auto-incremented on create, never user-visible). See 商品类型映射 below.
 - **mercari_accounts**: Mercari account config (headers in value JSON field)
 - **on_sale_items**: Mercari listing records synced from API
 - **orders**: Mercari orders synced from API
@@ -163,6 +164,31 @@ Key tables in `backend/src/db_manage/models/`:
 2. **DatabaseManager** (singleton): Manages SQLite connection pooling with WAL mode
 3. **DBManager** (`db_manager.py`): Coordinates all model registration, table creation, migrations
 4. Migrations handled in `db_manager.py` (e.g., warehouses composite unique constraint)
+
+**`_check_and_update_table_structure()` (`base_model.py`) auto-adds columns declared in `get_fields()`
+and auto-DROPS columns that are not** (both dialects implement `drop_column`). So removing a field
+from a model deletes its data on the next startup — any migration that needs to read a column being
+removed **must be registered in the pre-model block of `init_database()`**, above the
+`ensure_table_exists()` loop, not below it.
+
+### 商品类型映射 (`product_type_category_mappings`)
+
+One row = one 商品类型. Each platform gets **one column holding a JSON array of button positions** —
+`mercari_category_positions` / `yahoo_category_positions`, e.g. `"[2,7,1]"` — and the automation
+clicks the N-th item at each level. Array length *is* the depth, so there are no fixed 1/2/3-level
+columns and no per-platform cap on nesting. Adding a third marketplace = one more column + one entry
+in `PLATFORM_POSITION_COLUMNS`; `ProductTypeCategoryMappingModel.positions_for(mapping_id, platform)`
+is the single lookup used by the listing dispatcher.
+
+- Mercari clicks `//*[@id="main"]/a[{pos}]` per level; Yahoo clicks the *pos*-th `li` in the bottom
+  sheet. Yahoo's helper returns the label it actually hit and the level's item count — position
+  clicking cannot self-validate, so that read-back is what makes a misconfiguration diagnosable
+  (`位置 N 超出范围（当前层共 M 项）`).
+- Empty array = not configured. Yahoo 400s up front; **Mercari silently skips category selection**
+  (pre-existing asymmetry, not fixed).
+- Positions have no upper bound; only ≥1 is enforced. A wrong value fails at listing time, loudly.
+- `product_type` must be unique — the 库存/出品 pickers are flat single-level selects keyed on the
+  name. Enforced by a save-time 400, **not** a DB unique index (legacy rows may already collide).
 
 ### Authentication Flow
 
@@ -309,15 +335,16 @@ soft-delete, inventory counters and order upsert semantics stay identical across
 - Dispatch happens in `use_web/web_drive/units/web_drive_handler/listing.py::post_to_market`, which
   looks up the account platform. Session reuse is total: `listing_automation_browser` gained
   `cookie_domains` so the same MITM + cookie-clone machinery clones Yahoo cookies instead of Mercari's.
-- **Category**: Yahoo's tree is unrelated to Mercari's and must be drilled to a leaf, so
-  `product_type_category_mappings.yahoo_category_path` stores the full Japanese path
-  (`本、雑誌、コミック > 医学、薬学、看護 > 医学一般 > 医学一般全般`), edited in 系统管理 → 煤炉类型映射.
-  Missing path → the listing is rejected up front with a clear 400.
+- **Category**: both platforms are driven by a **button-position array** — see 商品类型映射 below.
+  Yahoo's tree is unrelated to Mercari's and must be drilled to a leaf; positions are relative to the
+  **full tree**, so `select_category` always clicks 「他のカテゴリから選ぶ」 first (the sheet opens on a
+  「カテゴリはこちらですか」 recommendation list whose length varies with the 商品名). Missing positions →
+  the listing is rejected up front with a clear 400.
 - **Category catalog**: 系统管理 → 雅虎类型映射 (`/system/yahoo-category-mappings`) is a hand-maintained
   catalog of Yahoo leaf categories in table `yahoo_category_mappings` (id + 3 levels + leaf name +
-  full path). It is paginated/searchable server-side because the tree is large. The Mercari mapping
-  page's 雅虎分类 field autocompletes from it, so the path that drives the automation is picked rather
-  than typed. (Auto-scraping Yahoo's `/api/v1/categories/{id}/children` was tried and dropped: the
+  full path). It is paginated/searchable server-side because the tree is large. It is now a
+  standalone reference only — the 商品类型映射 page no longer reads from it, since positions (not
+  names) drive the automation. (Auto-scraping Yahoo's `/api/v1/categories/{id}/children` was tried and dropped: the
   endpoint returns intermittent 500s under any sustained crawl, so the collected tree came out
   badly truncated.)
 - Yahoo has no 送料負担 (always seller) and no auction; those fields are hidden in the listing dialogs

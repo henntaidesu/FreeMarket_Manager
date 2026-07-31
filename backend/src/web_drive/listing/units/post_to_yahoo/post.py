@@ -67,7 +67,7 @@ async def _run_form(
     name: str,
     description: str,
     local_images: Sequence[str],
-    category_path: str,
+    category_positions: Sequence[int],
     status: str,
     shipping_method: str,
     shipping_days: str,
@@ -109,7 +109,7 @@ async def _run_form(
     report("category", "正在选择雅虎分类…")
     try:
         result["category_walked"] = await select_category(
-            page, category_path, element_timeout_ms=element_timeout_ms, report=report
+            page, category_positions, element_timeout_ms=element_timeout_ms, report=report
         )
         result["category_selected"] = True
     except ListingAborted:
@@ -259,7 +259,7 @@ async def post_to_yahoo(
     name: str = "",
     description: str = "",
     image_urls: Sequence[str] = (),
-    category_path: str = "",
+    category_positions: Sequence[int] = (),
     status: str = "",
     shipping_method: str = "undecided",
     price: int = 0,
@@ -375,7 +375,7 @@ async def post_to_yahoo(
                 name=name,
                 description=description,
                 local_images=local_images,
-                category_path=category_path,
+                category_positions=category_positions,
                 status=status,
                 shipping_method=shipping_method,
                 shipping_days=shipping_days,
