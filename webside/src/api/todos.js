@@ -4,6 +4,8 @@ import http from './http'
 export const todosApi = {
   list: (params) => http.get('/use_web/todos', { params }),
   kinds: () => http.get('/use_web/todos/kinds'),
+  /** 顶部筛选各 chip 的条数（与列表同一套过滤条件） */
+  chipCounts: (params) => http.get('/use_web/todos/chip-counts', { params }),
   /** 「発送をしてください」处理：按商品 ID 反查本地库存（图片）与关联订单号 */
   matchInventory: (itemId, axiosConfig = {}) =>
     http.get('/use_web/todos/inventory-match', { params: { item_id: itemId }, ...axiosConfig }),

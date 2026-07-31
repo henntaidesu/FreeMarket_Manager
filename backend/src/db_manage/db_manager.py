@@ -17,7 +17,7 @@ from .models import (
     SettlementRecordModel,
     OrderModel,
     OrderOutboundLineModel,
-    MercariAccountModel,
+    ShopAccountModel,
     OnSaleItemModel,
     ProductTypeCategoryMappingModel,
     YahooCategoryMappingModel,
@@ -580,7 +580,7 @@ class DBManager:
             SettlementRecordModel,  # 结算记录（结算快照 + 已结区间）
             OrderModel,       # 订单管理
             OrderOutboundLineModel,  # 订单解析出的待出库明细（依赖 orders / inventory 逻辑）
-            MercariAccountModel,  # 煤炉账号
+            ShopAccountModel,  # 店铺账号（煤炉 / 雅虎）
             OnSaleItemModel,  # 在售商品缓存
             TodoItemModel,  # 待办事项缓存（依赖 mercari_accounts，仅顺序习惯）
             TransactionMessageModel,  # 交易消息/交流缓存（按订单ID关联，与 todo_items 解耦）
@@ -599,6 +599,25 @@ class DBManager:
             ImageEmbeddingModel,  # 商品图片特征向量（图片搜索索引，依赖 inventory，仅顺序习惯）
         ]
 
+    def _assert_accounts_table_renamed(self) -> None:
+        """账号表改名（``mercari_accounts`` → ``shop_accounts``）的启动自检。
+
+        本次改名**不自动执行**，由使用者手动 RENAME。但下面的 ``to_drop`` 会把「代码里
+        没定义的表」直接 DROP —— 若尚未改名就启动，旧表会被当成废弃表删掉，账号数据全没。
+        故这里在 to_drop 之前直接中止启动并给出改名语句，绝不放行。
+        """
+        current = ShopAccountModel.get_table_name()
+        legacy = getattr(ShopAccountModel, "LEGACY_TABLE_NAME", "mercari_accounts")
+        if current == legacy or self.db.table_exists(current):
+            return
+        if not self.db.table_exists(legacy):
+            return  # 全新库：没有旧表，正常建新表即可
+        raise RuntimeError(
+            f"账号表尚未改名：库里还是 [{legacy}]，代码已改用 [{current}]。\n"
+            f"继续启动会把 [{legacy}] 当成废弃表删除（数据丢失），已中止。\n"
+            f"请先手动执行：ALTER TABLE {legacy} RENAME TO {current};"
+        )
+
     def initialize_database(self) -> bool:
         """初始化数据库：按顺序检查/创建所有表，删除代码中不存在的表"""
         print("正在初始化数据库...")
@@ -607,11 +626,12 @@ class DBManager:
         if self.db.table_exists("products") and not self.db.table_exists("inventory"):
             print("检测到旧表 products，正在迁移为 inventory ...")
             self.db.execute_update("ALTER TABLE [products] RENAME TO [inventory]")
-        # 表重命名迁移：meilu_accounts -> mercari_accounts
+        # 表重命名迁移：meilu_accounts -> 账号表当前名
         # 必须在 to_drop 阶段之前执行，否则 meilu_accounts 会被当成"废弃表"删除而丢失数据
-        if self.db.table_exists("meilu_accounts") and not self.db.table_exists("mercari_accounts"):
-            print("检测到旧表 meilu_accounts，正在迁移为 mercari_accounts ...")
-            self.db.execute_update("ALTER TABLE [meilu_accounts] RENAME TO [mercari_accounts]")
+        _accounts_table = ShopAccountModel.get_table_name()
+        if self.db.table_exists("meilu_accounts") and not self.db.table_exists(_accounts_table):
+            print(f"检测到旧表 meilu_accounts，正在迁移为 {_accounts_table} ...")
+            self.db.execute_update(f"ALTER TABLE [meilu_accounts] RENAME TO [{_accounts_table}]")
             for legacy_idx in (
                 "idx_meilu_accounts_name",
                 "idx_meilu_accounts_login",
@@ -622,6 +642,7 @@ class DBManager:
                     self.db.execute_update(f"DROP INDEX IF EXISTS [{legacy_idx}]")
                 except Exception:
                     pass
+        self._assert_accounts_table_renamed()
         if not self._migrate_transactions_product_id_to_inventory_id():
             return False
         if not self._migrate_ptcm_to_independent_module():

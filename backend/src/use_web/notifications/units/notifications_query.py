@@ -145,7 +145,7 @@ def list_notifications(
         f"""
         SELECT {sel_cols}
         FROM [notifications] n
-        LEFT JOIN [mercari_accounts] a ON a.[id] = n.[account_id]
+        LEFT JOIN [shop_accounts] a ON a.[id] = n.[account_id]
         WHERE {where_sql}
         ORDER BY {pin_case} ASC,
                  COALESCE(n.[mercari_created], 0) DESC,

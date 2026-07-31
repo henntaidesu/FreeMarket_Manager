@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 async def handle_sync_account_data(task: Dict[str, Any]) -> Dict[str, Any]:
     """单账号一键同步。单步失败不影响其余步骤，全失败才把任务判为失败。"""
     from ...use_mercari.sync.sync_lock import LABEL_FULL, begin_waiting, end as lock_end
-    from ...use_web.mercari_accounts.units.mercari_accounts_sync import (
+    from ...use_web.shop_accounts.units.shop_accounts_sync import (
         sync_account_all_data_core,
     )
 

@@ -5,7 +5,7 @@
 
 import json
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from ....db_manage.database import DatabaseManager
 
@@ -21,6 +21,12 @@ _WAIT_SHIPPING_COND = (
 _WAIT_REPLY_COND = "IFNULL(t.[kind], '') = 'IncomingMessage'"
 # 「待评价」类判定：卖家待评价（ReviewedSeller）。
 _WAIT_REVIEW_COND = "IFNULL(t.[kind], '') = 'ReviewedSeller'"
+# 「申请退货」类判定：买家发起取消/退货申请（キャンセル申請），以及卖家同意后
+# 需要填退货信息并确认退回商品（返品に必要な情報の入力と、返品された商品の確認）。
+# 这两步是同一件事的前后段，合成一个筛选；它们从「其他」里摘出来单列。
+_CANCELLATION_COND = (
+    "IFNULL(t.[kind], '') IN ('CancellationRequested', 'CancellationRequestApprovedSeller')"
+)
 
 # 「发货中」判定：已提交扫码照片、后台任务进行中。这类行不再算作「待发货」——
 # 用户已经拍完码交给系统了，再列在待发货里会让人以为还没处理。失败后 state 变 'failed'，
@@ -34,10 +40,12 @@ _CATEGORY_CONDS = {
     "wait_shipping": f"{_WAIT_SHIPPING_COND} AND NOT ({_SHIPPING_IN_PROGRESS_COND})",
     "wait_reply": _WAIT_REPLY_COND,
     "wait_review": _WAIT_REVIEW_COND,
+    "cancellation": _CANCELLATION_COND,
     "other": (
         f"NOT {_WAIT_SHIPPING_COND}"
         f" AND NOT ({_WAIT_REPLY_COND})"
         f" AND NOT ({_WAIT_REVIEW_COND})"
+        f" AND NOT ({_CANCELLATION_COND})"
     ),
 }
 
@@ -142,7 +150,8 @@ def _ship_deadline_sort_key(item: Dict[str, Any]):
     return (1, 0) if dl is None else (0, dl)
 
 
-def list_todos(
+def _build_todo_where(
+    *,
     account_id: Optional[int] = None,
     kind: Optional[str] = None,
     keyword: Optional[str] = None,
@@ -150,28 +159,12 @@ def list_todos(
     packed_only: bool = False,
     scanned_only: bool = False,
     categories: Optional[str] = None,
-    page: int = 1,
-    page_size: int = 20,
     platform: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-    分页列出本地 ``todo_items``，附 ``account_name``。
+) -> Tuple[str, List[Any]]:
+    """拼 ``todo_items t`` 的 WHERE（含参数）。
 
-    - ``include_deleted=False``（默认）只显示未完成（``is_delete=0``）
-    - ``packed_only=False``（默认）隐藏「已打包」行（见 ``_PACKED_COND``），
-      只显示待发货/待回复等；``packed_only=True`` 则只显示「已打包」行
-    - ``scanned_only=True`` 只显示**尚未完成**的扫码行（``ship_qr_state`` 为
-      ``shipping`` 排队/执行中 或 ``failed`` 出错）。已成功发出発送通知的不再显示——
-      那些单子已经办完了，留在这里只会干扰判断「还有哪些要我管」。
-      此筛选下不套用 is_delete 与「已打包」两个默认条件，否则中间态的行一条都看不到。
-    - ``categories`` 逗号分隔的分类筛选（``wait_shipping`` / ``wait_reply`` / ``other``），
-      多个取并集；为空（默认）不做分类过滤，全部显示
-    - ``keyword`` 匹配 title / message / item_id / item_name
+    列表与顶部筛选计数共用这一处：计数若另写一套条件，数字和点进去看到的行数迟早对不上。
     """
-    db = DatabaseManager()
-    page = max(1, int(page or 1))
-    page_size = max(1, min(int(page_size or 20), 200))
-
     where = ["1=1"]
     params: List[Any] = []
     if scanned_only:
@@ -212,8 +205,92 @@ def list_todos(
             "OR IFNULL(t.[item_name], '') LIKE ?)"
         )
         params.extend([kw, kw, kw, kw])
+    return " AND ".join(where), params
 
-    where_sql = " AND ".join(where)
+
+#: 顶部筛选 chip → 该 chip 单独选中时的筛选参数（与前端 selectFilterChip 一一对应）。
+#: 「已打包」「已扫码」不是分类而是各自的基础条件，故不能塞进 categories。
+_CHIP_FILTERS: Dict[str, Dict[str, Any]] = {
+    "wait_shipping": {"categories": "wait_shipping"},
+    "wait_reply": {"categories": "wait_reply"},
+    "wait_review": {"categories": "wait_review"},
+    "cancellation": {"categories": "cancellation"},
+    "packed": {"packed_only": True},
+    "scanned": {"scanned_only": True},
+    "other": {"categories": "other"},
+}
+
+
+def count_todos_by_chip(
+    account_id: Optional[int] = None,
+    kind: Optional[str] = None,
+    keyword: Optional[str] = None,
+    include_deleted: bool = False,
+    platform: Optional[str] = None,
+) -> Dict[str, int]:
+    """每个顶部筛选 chip 各自的条数。
+
+    只套用**非分类**的筛选（账号 / 平台 / 关键字 / kind / 是否含已完成）——
+    当前选中了哪个 chip 不影响其余 chip 的计数，否则选中一个后其他全变 0，就没法据此切换了。
+    """
+    db = DatabaseManager()
+    out: Dict[str, int] = {}
+    for chip, extra in _CHIP_FILTERS.items():
+        where_sql, params = _build_todo_where(
+            account_id=account_id,
+            kind=kind,
+            keyword=keyword,
+            include_deleted=include_deleted,
+            platform=platform,
+            **extra,
+        )
+        rows = db.execute_query(
+            f"SELECT COUNT(*) FROM [todo_items] t WHERE {where_sql}", tuple(params)
+        )
+        out[chip] = int(rows[0][0]) if rows and rows[0] else 0
+    return out
+
+
+def list_todos(
+    account_id: Optional[int] = None,
+    kind: Optional[str] = None,
+    keyword: Optional[str] = None,
+    include_deleted: bool = False,
+    packed_only: bool = False,
+    scanned_only: bool = False,
+    categories: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 20,
+    platform: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    分页列出本地 ``todo_items``，附 ``account_name``。
+
+    - ``include_deleted=False``（默认）只显示未完成（``is_delete=0``）
+    - ``packed_only=False``（默认）隐藏「已打包」行（见 ``_PACKED_COND``），
+      只显示待发货/待回复等；``packed_only=True`` 则只显示「已打包」行
+    - ``scanned_only=True`` 只显示**尚未完成**的扫码行（``ship_qr_state`` 为
+      ``shipping`` 排队/执行中 或 ``failed`` 出错）。已成功发出発送通知的不再显示——
+      那些单子已经办完了，留在这里只会干扰判断「还有哪些要我管」。
+      此筛选下不套用 is_delete 与「已打包」两个默认条件，否则中间态的行一条都看不到。
+    - ``categories`` 逗号分隔的分类筛选（``wait_shipping`` / ``wait_reply`` / ``other``），
+      多个取并集；为空（默认）不做分类过滤，全部显示
+    - ``keyword`` 匹配 title / message / item_id / item_name
+    """
+    db = DatabaseManager()
+    page = max(1, int(page or 1))
+    page_size = max(1, min(int(page_size or 20), 200))
+
+    where_sql, params = _build_todo_where(
+        account_id=account_id,
+        kind=kind,
+        keyword=keyword,
+        include_deleted=include_deleted,
+        packed_only=packed_only,
+        scanned_only=scanned_only,
+        categories=categories,
+        platform=platform,
+    )
 
     sel_cols = ", ".join(f"t.[{c}]" for c in _LIST_COLS) + ", a.[account_name] AS account_name"
     # 按「发货期限剩余时间」升序（越紧急越前）排序。截止时刻要由 shipping_duration
@@ -223,7 +300,7 @@ def list_todos(
         f"""
         SELECT {sel_cols}
         FROM [todo_items] t
-        LEFT JOIN [mercari_accounts] a ON a.[id] = t.[account_id]
+        LEFT JOIN [shop_accounts] a ON a.[id] = t.[account_id]
         WHERE {where_sql}
         ORDER BY t.[id] ASC
         """,

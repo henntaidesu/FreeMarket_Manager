@@ -115,9 +115,9 @@ def _disable_mercari_account_by_id(account_id: int) -> str:
     aid = int(account_id)
     account_name = ""
     try:
-        from ...db_manage.models.mercari_accounts.mercari_account import MercariAccountModel
+        from ...db_manage.models.shop_accounts.shop_account import ShopAccountModel
 
-        acc = MercariAccountModel.find_by_id(id=aid)
+        acc = ShopAccountModel.find_by_id(id=aid)
         if acc is None:
             return ""
         account_name = str(getattr(acc, "account_name", "") or "").strip()

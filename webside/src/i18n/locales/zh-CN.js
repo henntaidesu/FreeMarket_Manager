@@ -95,7 +95,7 @@ export default {
       todos: "待办事项",
       tasks: "任务队列",
       notifications: "煤炉通知",
-      mercariAccounts: "煤炉账号",
+      shopAccounts: "店铺账号",
       talkScripts: "话术表",
       memos: "备忘录",
       system: "系统管理",

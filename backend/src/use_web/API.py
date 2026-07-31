@@ -13,7 +13,7 @@ use_web V2 API 聚合模块（按前端页面归类）
 - orders          前端 /orders 页
 - on_sale_items   前端 /on-sale-items 页
 - transactions    前端 /transactions 页
-- mercari_accounts  前端 /mercari-accounts 页
+- mercari_accounts  前端 /shop-accounts 页（店铺账号）
 - product_type_category_mappings  前端 /product-type-category-mappings 页
 - system          前端 /system 页（一级 + 二级：cost_records/cost_expenses/warehouses/categories）
 - web_drive       跨页面共享的浏览器自动化基础设施
@@ -31,7 +31,7 @@ from .on_sale_items.API import router as on_sale_items_router
 from .orders.API import router as orders_router
 from .inventory.API import router as inventory_router
 from .inventory.API import public_router as inventory_public_router
-from .mercari_accounts.API import router as mercari_accounts_router
+from .shop_accounts.API import router as shop_accounts_router
 from .todos.API import router as todos_router
 from .tasks.API import router as tasks_router
 from .notifications.API import router as notifications_router
@@ -60,7 +60,7 @@ router.include_router(web_drive_router, prefix="/web-drive", tags=["web-drive"],
 router.include_router(on_sale_items_router, prefix="/on-sale-items", tags=["on-sale-items"], dependencies=_AUTH)
 router.include_router(orders_router, prefix="/orders", tags=["orders"], dependencies=_AUTH)
 router.include_router(inventory_router, prefix="/inventory", tags=["inventory"], dependencies=_AUTH)
-router.include_router(mercari_accounts_router, prefix="/mercari-accounts", tags=["mercari-accounts"], dependencies=_AUTH)
+router.include_router(shop_accounts_router, prefix="/shop-accounts", tags=["shop-accounts"], dependencies=_AUTH)
 router.include_router(todos_router, prefix="/todos", tags=["todos"], dependencies=_AUTH)
 # 任务队列：出品/同步/改价等重型操作的统一提交入口与状态查询
 router.include_router(tasks_router, prefix="/tasks", tags=["tasks"], dependencies=_AUTH)

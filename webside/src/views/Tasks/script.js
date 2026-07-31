@@ -3,7 +3,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
 import { ElMessage } from '@/utils/notify'
-import { tasksApi, mercariAccountApi } from '@/api/index.js'
+import { tasksApi, shopAccountApi } from '@/api/index.js'
 import { formatUnixSecLocal } from '@/utils/timeDisplay.js'
 
 /** 有任务在跑时刷得勤一些，全空闲时放慢，避免无谓请求 */
@@ -155,7 +155,7 @@ export default defineComponent({
 
     onMounted(async () => {
       try {
-        const res = await mercariAccountApi.list({ page: 1, page_size: 500 })
+        const res = await shopAccountApi.list({ page: 1, page_size: 500 })
         accounts.value = Array.isArray(res?.items) ? res.items : []
       } catch {
         accounts.value = []

@@ -8,9 +8,9 @@ from fastapi import Depends, HTTPException
 
 from ....auth import require_auth
 
-from ....db_manage.models.mercari_accounts.mercari_account import MercariAccountModel
+from ....db_manage.models.shop_accounts.shop_account import ShopAccountModel
 from ...image_storage import delete_image_file
-from .mercari_accounts_helpers import (
+from .shop_accounts_helpers import (
     _ensure_seller_id_unique,
     _item_api_dict,
     _norm_headers_dict,
@@ -22,7 +22,7 @@ from .mercari_accounts_helpers import (
     _validate_platform,
     _validate_status,
 )
-from .mercari_accounts_models import (
+from .shop_accounts_models import (
     AUTO_FETCH_TASK_KEYS,
     MercariAccountCreate,
     MercariAccountUpdate,
@@ -68,7 +68,7 @@ async def _adopt_prepare_login(account_id: int, user_id) -> None:
         )
 
 
-def list_mercari_accounts(
+def list_shop_accounts(
     keyword: Optional[str] = None,
     status: Optional[str] = None,
     page: int = 1,
@@ -82,7 +82,7 @@ def list_mercari_accounts(
         page = max(1, int(page or 1))
     except (TypeError, ValueError):
         page_size, page = 20, 1
-    return MercariAccountModel.find_detail_list(
+    return ShopAccountModel.find_detail_list(
         keyword=keyword,
         status=status,
         page=page,
@@ -100,7 +100,7 @@ def _value_json_for_create(data: MercariAccountCreate) -> str:
     return json.dumps(headers, ensure_ascii=False)
 
 
-async def create_mercari_account(
+async def create_shop_account(
     data: MercariAccountCreate,
     user: dict = Depends(require_auth),
 ):
@@ -141,7 +141,7 @@ async def create_mercari_account(
         iv = intervals[k]
         kwargs[f"auto_fetch_{k}"] = 1 if iv else 0
         kwargs[f"auto_fetch_{k}_interval"] = iv
-    item = MercariAccountModel(**kwargs)
+    item = ShopAccountModel(**kwargs)
     if not item.save():
         raise HTTPException(status_code=500, detail="保存失败")
     # 把该用户预登录 profile 的登录态归属到新账号主 profile，避免创建后需二次登录
@@ -149,8 +149,8 @@ async def create_mercari_account(
     return _item_api_dict(item)
 
 
-def update_mercari_account(aid: int, data: MercariAccountUpdate):
-    item = MercariAccountModel.find_by_id(id=aid)
+def update_shop_account(aid: int, data: MercariAccountUpdate):
+    item = ShopAccountModel.find_by_id(id=aid)
     if not item:
         raise HTTPException(status_code=404, detail="账号不存在")
 
@@ -229,8 +229,8 @@ def update_mercari_account(aid: int, data: MercariAccountUpdate):
     return _item_api_dict(item)
 
 
-def delete_mercari_account(aid: int):
-    item = MercariAccountModel.find_by_id(id=aid)
+def delete_shop_account(aid: int):
+    item = ShopAccountModel.find_by_id(id=aid)
     if not item:
         raise HTTPException(status_code=404, detail="账号不存在")
     avatar = (getattr(item, "avatar", None) or "").strip() or None

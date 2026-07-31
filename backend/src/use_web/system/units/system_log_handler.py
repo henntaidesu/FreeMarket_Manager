@@ -38,8 +38,8 @@ def _account_name_for_log(account_id: Optional[int]) -> Optional[str]:
     if account_id is None:
         return None
     try:
-        from ....db_manage.models.mercari_accounts.mercari_account import MercariAccountModel
-        acc = MercariAccountModel.find_by_id(id=int(account_id))
+        from ....db_manage.models.shop_accounts.shop_account import ShopAccountModel
+        acc = ShopAccountModel.find_by_id(id=int(account_id))
         if acc is None:
             return None
         name = str(getattr(acc, "account_name", "") or "").strip()

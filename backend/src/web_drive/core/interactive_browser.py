@@ -74,7 +74,7 @@ async def startup_interactive_browsers_for_all_active_accounts() -> None:
 
         db = DatabaseManager()
         rows = db.execute_query(
-            "SELECT [id] FROM [mercari_accounts] WHERE LOWER(TRIM([status])) = 'active' ORDER BY [id]"
+            "SELECT [id] FROM [shop_accounts] WHERE LOWER(TRIM([status])) = 'active' ORDER BY [id]"
         )
         account_ids = [int(r[0]) for r in rows]
     except Exception as exc:

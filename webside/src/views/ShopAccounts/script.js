@@ -3,7 +3,7 @@ import { useI18n } from 'vue-i18n'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessageBox } from 'element-plus'
 import { ElMessage } from '@/utils/notify'
-import { mercariAccountApi, mercariApi, webDriveApi, TASK_TYPES } from '@/api/index.js'
+import { shopAccountApi, mercariApi, webDriveApi, TASK_TYPES } from '@/api/index.js'
 import { submitTask } from '@/utils/taskSubmit.js'
 import { mercariImageUrl } from '@/utils/mercariImage.js'
 
@@ -203,7 +203,7 @@ export default defineComponent({
     async function load() {
       loading.value = true
       const params = { page: page.value, page_size: pageSize.value }
-      const res = await mercariAccountApi.list(params).finally(() => {
+      const res = await shopAccountApi.list(params).finally(() => {
         loading.value = false
       })
       list.value = res.items || []
@@ -276,7 +276,7 @@ export default defineComponent({
       fetchSellerIdLoading.value = true
       try {
         ElMessage.info(t('mercariAccounts.tipOpeningEdge', { label }))
-        const res = await mercariAccountApi.fetchYahooBasicInfo({ account_key: accountKey })
+        const res = await shopAccountApi.fetchYahooBasicInfo({ account_key: accountKey })
         const sid = String(res?.data?.seller_id || '').trim()
         if (!sid) {
           ElMessage.warning(t('mercariAccounts.warnNoSellerIdParsed'))
@@ -306,7 +306,7 @@ export default defineComponent({
       fetchSellerIdLoading.value = true
       try {
         ElMessage.info(t('mercariAccounts.tipOpeningEdge', { label }))
-        const res = await mercariAccountApi.fetchSellerIdViaMitm({
+        const res = await shopAccountApi.fetchSellerIdViaMitm({
           account_key: accountKey,
           headless: false,
           close_browser_after: false,
@@ -397,12 +397,12 @@ export default defineComponent({
       const payload = buildPayload()
       try {
         if (form.value.id) {
-          await mercariAccountApi.update(form.value.id, payload)
+          await shopAccountApi.update(form.value.id, payload)
           ElMessage.success(t('mercariAccounts.msgUpdateSuccess'))
           dialogVisible.value = false
           load()
         } else {
-          await mercariAccountApi.create(payload)
+          await shopAccountApi.create(payload)
           ElMessage.success(t('mercariAccounts.msgCreateSuccess'))
           dialogVisible.value = false
           await load()
@@ -413,7 +413,7 @@ export default defineComponent({
     }
 
     async function remove(id) {
-      await mercariAccountApi.remove(id)
+      await shopAccountApi.remove(id)
       ElMessage.success(t('mercariAccounts.msgDeleteSuccess'))
       if (list.value.length === 1 && page.value > 1) page.value -= 1
       load()
@@ -641,7 +641,7 @@ export default defineComponent({
       Plus,
       ElMessage,
       ElMessageBox,
-      mercariAccountApi,
+      shopAccountApi,
       mercariApi,
       webDriveApi,
       t,

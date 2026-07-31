@@ -15,7 +15,12 @@ from fastapi import APIRouter, Depends
 
 from ...auth import require_auth
 from .units.todos_models import ShippingQrPhotoRequest
-from .units.todos_query import list_kinds, list_todos, match_inventory_for_item
+from .units.todos_query import (
+    count_todos_by_chip,
+    list_kinds,
+    list_todos,
+    match_inventory_for_item,
+)
 from .units.todos_translate import translate_message_endpoint
 from .units.todos_sync import (
     bulk_submit_reviews_endpoint,
@@ -57,6 +62,7 @@ def _list_todos_endpoint(
     categories: Optional[str] = None,
     page: int = 1,
     page_size: int = 20,
+    platform: Optional[str] = None,
 ):
     return list_todos(
         account_id=account_id,
@@ -68,7 +74,27 @@ def _list_todos_endpoint(
         categories=categories,
         page=page,
         page_size=page_size,
+        platform=platform,
     )
+
+
+def _chip_counts_endpoint(
+    account_id: Optional[int] = None,
+    kind: Optional[str] = None,
+    keyword: Optional[str] = None,
+    include_deleted: bool = False,
+    platform: Optional[str] = None,
+):
+    """顶部筛选各 chip 的条数（与列表共用同一套 WHERE，数字必与点进去的行数一致）。"""
+    return {
+        "counts": count_todos_by_chip(
+            account_id=account_id,
+            kind=kind,
+            keyword=keyword,
+            include_deleted=include_deleted,
+            platform=platform,
+        )
+    }
 
 
 def _list_kinds_endpoint():
@@ -91,6 +117,7 @@ async def _scan_qr_photo_endpoint(
 
 router.add_api_route("", _list_todos_endpoint, methods=["GET"])
 router.add_api_route("/kinds", _list_kinds_endpoint, methods=["GET"])
+router.add_api_route("/chip-counts", _chip_counts_endpoint, methods=["GET"])
 router.add_api_route("/inventory-match", _inventory_match_endpoint, methods=["GET"])
 router.add_api_route("/translate-message", translate_message_endpoint, methods=["POST"])
 router.add_api_route("/sync", sync_todos, methods=["POST"])

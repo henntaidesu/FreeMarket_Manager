@@ -15,9 +15,9 @@ _REFRESH_JOB_ID_RE = re.compile(r"^[a-zA-Z0-9_.-]{1,128}$")
 
 def _is_yahoo_account(account_id: int) -> bool:
     try:
-        from .....db_manage.models.mercari_accounts.mercari_account import MercariAccountModel
+        from .....db_manage.models.shop_accounts.shop_account import ShopAccountModel
 
-        acc = MercariAccountModel.find_by_id(id=int(account_id))
+        acc = ShopAccountModel.find_by_id(id=int(account_id))
         if acc is None:
             return False
         return (str(getattr(acc, "platform", "") or "").strip() or "mercari") == "yahoo"

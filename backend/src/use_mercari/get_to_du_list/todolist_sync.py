@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from ...db_manage.database import DatabaseManager
-from ...db_manage.models.mercari_accounts.mercari_account import MercariAccountModel
+from ...db_manage.models.shop_accounts.shop_account import ShopAccountModel
 from ...ssl_mitm_proxy.capture_config import clear_todolist_response_file
 from ...web_drive.core.mitm_session import mitm_automation_browser
 from ..sync.sync_progress import make_sync_reporter
@@ -293,11 +293,11 @@ def apply_todolist_sync(
 def _resolve_account_id(account_id: Optional[int]) -> int:
     """显式 account_id 优先；否则取第一个 status=active 的账号（不要求自动获取开启）。"""
     if account_id is not None:
-        acc = MercariAccountModel.find_by_id(id=int(account_id))
+        acc = ShopAccountModel.find_by_id(id=int(account_id))
         if acc is None:
             raise ValueError(f"煤炉账号 id={account_id} 不存在")
         return int(account_id)
-    rows = MercariAccountModel.find_all(
+    rows = ShopAccountModel.find_all(
         where="[status] = ?",
         params=("active",),
         order_by="[id] ASC",
@@ -310,7 +310,7 @@ def _resolve_account_id(account_id: Optional[int]) -> int:
 
 def resolve_enabled_account_ids() -> List[int]:
     """取所有 status=active 的账号 id（用于「从煤炉同步」一键同步全部启用账号；不要求自动获取开启）。"""
-    rows = MercariAccountModel.find_all(
+    rows = ShopAccountModel.find_all(
         where="[status] = ?",
         params=("active",),
         order_by="[id] ASC",

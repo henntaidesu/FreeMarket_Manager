@@ -55,18 +55,18 @@ _PROFILE_JS = """
 
 def yahoo_account_seller_id(account_id: int) -> Optional[str]:
     """读账号已存的卖家 ID（没有返回 None）。"""
-    from ..db_manage.models.mercari_accounts.mercari_account import MercariAccountModel
+    from ..db_manage.models.shop_accounts.shop_account import ShopAccountModel
 
-    acc = MercariAccountModel.find_by_id(id=int(account_id))
+    acc = ShopAccountModel.find_by_id(id=int(account_id))
     if acc is None:
         return None
     return str(getattr(acc, "seller_id", "") or "").strip() or None
 
 
 def _persist_seller_id(account_id: int, seller_id: str) -> None:
-    from ..db_manage.models.mercari_accounts.mercari_account import MercariAccountModel
+    from ..db_manage.models.shop_accounts.shop_account import ShopAccountModel
 
-    acc = MercariAccountModel.find_by_id(id=int(account_id))
+    acc = ShopAccountModel.find_by_id(id=int(account_id))
     if acc is None:
         return
     acc.seller_id = seller_id
@@ -95,7 +95,7 @@ async def _read_my_page_profile(page: Any) -> Dict[str, str]:
     avatar_url = str(data.get("avatar") or "").strip()
     if avatar_url and _DEFAULT_AVATAR_MARK not in avatar_url:
         # 只写本地路径：下载成功才回填，失败就不同步本次头像（保留账号原有的），绝不落远程 URL
-        from ..use_web.mercari_accounts.units.mercari_accounts_mitm import (
+        from ..use_web.shop_accounts.units.shop_accounts_mitm import (
             _download_avatar_local,
         )
 

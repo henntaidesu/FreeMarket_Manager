@@ -3,7 +3,7 @@ import { ElMessageBox } from 'element-plus'
 import { ElMessage } from '@/utils/notify'
 import { Download, Refresh, Loading, WarningFilled, Check } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
-import { onSaleItemApi, mercariAccountApi, inventoryApi, TASK_TYPES } from '@/api/index.js'
+import { onSaleItemApi, shopAccountApi, inventoryApi, TASK_TYPES } from '@/api/index.js'
 import { submitTask, submitTasks } from '@/utils/taskSubmit.js'
 import { parseMgmtIdsFromDescription, isCipherMgmtLine } from '@/utils/mgmtIdCipher.js'
 import { mercariImageUrlList } from '@/utils/mercariImage.js'
@@ -1204,7 +1204,7 @@ export default defineComponent({
 
     async function loadSellerAccounts() {
       try {
-        const res = await mercariAccountApi.list({ page: 1, page_size: 200 })
+        const res = await shopAccountApi.list({ page: 1, page_size: 200 })
         sellerFromAccounts.value = (res.items || [])
           .filter((a) => a.status === 'active' && (a.seller_id || '').toString().trim())
           .map((a) => ({
@@ -1247,7 +1247,7 @@ export default defineComponent({
       WarningFilled,
       useI18n,
       onSaleItemApi,
-      mercariAccountApi,
+      shopAccountApi,
       parseMgmtIdsFromDescription,
       mercariImageUrlList,
       useMercariAccountStore,

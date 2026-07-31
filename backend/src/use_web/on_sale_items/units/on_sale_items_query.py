@@ -42,7 +42,7 @@ def _seller_name_by_seller_id(seller_ids: Set[str]) -> Dict[str, str]:
     ph = ",".join(["?"] * len(lst))
     sql = f"""
         SELECT TRIM(COALESCE([seller_id], '')), [account_name], [status], [id]
-        FROM [mercari_accounts]
+        FROM [shop_accounts]
         WHERE TRIM(COALESCE([seller_id], '')) IN ({ph})
         ORDER BY CASE WHEN [status] = 'active' THEN 0 ELSE 1 END, [id] ASC
     """

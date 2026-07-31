@@ -19,7 +19,9 @@ const routes = [
       { path: 'todos', name: 'Todos', component: () => import('@/views/Todos/index.vue'), meta: { title: '待办事项', icon: 'BellFilled' } },
       { path: 'tasks', name: 'Tasks', component: () => import('@/views/Tasks/index.vue'), meta: { title: '任务队列', icon: 'Loading' } },
       { path: 'notifications', name: 'Notifications', component: () => import('@/views/Notifications/index.vue'), meta: { title: '煤炉通知', icon: 'Bell' } },
-      { path: 'mercari-accounts', name: 'MercariAccounts', component: () => import('@/views/MercariAccounts/index.vue'), meta: { title: '煤炉账号', icon: 'User' } },
+      { path: 'shop-accounts', name: 'ShopAccounts', component: () => import('@/views/ShopAccounts/index.vue'), meta: { title: '店铺账号', icon: 'User' } },
+      // 旧路径（页面还叫「煤炉账号」时的）：留一条重定向，别让已存的书签 404
+      { path: 'mercari-accounts', redirect: '/shop-accounts' },
       { path: 'memos', name: 'Memos', component: () => import('@/views/Memos/index.vue'), meta: { title: '备忘录', icon: 'ChatDotRound' } },
       // 系统管理（一级，二级菜单由 Layout 侧边栏右侧弹出，URL 嵌套到 /system/*）
       { path: 'system', name: 'System', component: () => import('@/views/system/System/index.vue'), meta: { title: '系统总览', icon: 'Setting' } },

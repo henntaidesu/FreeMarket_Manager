@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""煤炉账号页相关表模型。"""
+"""店铺账号页相关表模型。"""
 
-from .mercari_account import MercariAccountModel
+from .shop_account import ShopAccountModel
 
-__all__ = ["MercariAccountModel"]
+__all__ = ["ShopAccountModel"]

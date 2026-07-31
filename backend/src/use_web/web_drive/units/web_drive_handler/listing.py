@@ -96,9 +96,9 @@ def _get_yahoo_category_path(mapping_id: Optional[str]) -> str:
 def _account_platform(account_id: int) -> str:
     """账号所属市集平台：``mercari``（默认）/ ``yahoo``。"""
     try:
-        from .....db_manage.models.mercari_accounts.mercari_account import MercariAccountModel
+        from .....db_manage.models.shop_accounts.shop_account import ShopAccountModel
 
-        acc = MercariAccountModel.find_by_id(id=int(account_id))
+        acc = ShopAccountModel.find_by_id(id=int(account_id))
         return (str(getattr(acc, "platform", "") or "").strip() or "mercari") if acc else "mercari"
     except Exception as exc:
         log.warning("查询账号平台失败（按煤炉处理）: %s", exc)

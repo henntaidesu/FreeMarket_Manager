@@ -10,7 +10,10 @@
             tabindex="0"
             @click="selectFilterChip('wait_shipping')"
             @keyup.enter="selectFilterChip('wait_shipping')"
-          >{{ t('todos.kind.waitShipping') }}</div>
+          >{{ t('todos.kind.waitShipping') }}<span
+            class="search-filter-chip__count"
+            :class="{ 'search-filter-chip__count--zero': !chipCount('wait_shipping') }"
+          >{{ chipCount('wait_shipping') }}</span></div>
           <div
             class="search-filter-chip"
             :class="{ 'search-filter-chip--active': filters.categories.includes('wait_reply') }"
@@ -18,7 +21,10 @@
             tabindex="0"
             @click="selectFilterChip('wait_reply')"
             @keyup.enter="selectFilterChip('wait_reply')"
-          >{{ t('todos.kind.waitReply') }}</div>
+          >{{ t('todos.kind.waitReply') }}<span
+            class="search-filter-chip__count"
+            :class="{ 'search-filter-chip__count--zero': !chipCount('wait_reply') }"
+          >{{ chipCount('wait_reply') }}</span></div>
           <div
             class="search-filter-chip"
             :class="{ 'search-filter-chip--active': filters.categories.includes('wait_review') }"
@@ -26,7 +32,21 @@
             tabindex="0"
             @click="selectFilterChip('wait_review')"
             @keyup.enter="selectFilterChip('wait_review')"
-          >{{ t('todos.kind.waitReview') }}</div>
+          >{{ t('todos.kind.waitReview') }}<span
+            class="search-filter-chip__count"
+            :class="{ 'search-filter-chip__count--zero': !chipCount('wait_review') }"
+          >{{ chipCount('wait_review') }}</span></div>
+          <div
+            class="search-filter-chip"
+            :class="{ 'search-filter-chip--active': filters.categories.includes('cancellation') }"
+            role="button"
+            tabindex="0"
+            @click="selectFilterChip('cancellation')"
+            @keyup.enter="selectFilterChip('cancellation')"
+          >{{ t('todos.categoryCancellation') }}<span
+            class="search-filter-chip__count"
+            :class="{ 'search-filter-chip__count--zero': !chipCount('cancellation') }"
+          >{{ chipCount('cancellation') }}</span></div>
           <div
             class="search-filter-chip"
             :class="{ 'search-filter-chip--active': filters.packed_only }"
@@ -34,7 +54,10 @@
             tabindex="0"
             @click="selectFilterChip('packed')"
             @keyup.enter="selectFilterChip('packed')"
-          >{{ t('todos.packedOnly') }}</div>
+          >{{ t('todos.packedOnly') }}<span
+            class="search-filter-chip__count"
+            :class="{ 'search-filter-chip__count--zero': !chipCount('packed') }"
+          >{{ chipCount('packed') }}</span></div>
           <div
             class="search-filter-chip"
             :class="{ 'search-filter-chip--active': filters.scanned_only }"
@@ -42,7 +65,10 @@
             tabindex="0"
             @click="selectFilterChip('scanned')"
             @keyup.enter="selectFilterChip('scanned')"
-          >{{ t('todos.scannedOnly') }}</div>
+          >{{ t('todos.scannedOnly') }}<span
+            class="search-filter-chip__count"
+            :class="{ 'search-filter-chip__count--zero': !chipCount('scanned') }"
+          >{{ chipCount('scanned') }}</span></div>
           <div
             class="search-filter-chip"
             :class="{ 'search-filter-chip--active': filters.categories.includes('other') }"
@@ -50,7 +76,10 @@
             tabindex="0"
             @click="selectFilterChip('other')"
             @keyup.enter="selectFilterChip('other')"
-          >{{ t('todos.categoryOther') }}</div>
+          >{{ t('todos.categoryOther') }}<span
+            class="search-filter-chip__count"
+            :class="{ 'search-filter-chip__count--zero': !chipCount('other') }"
+          >{{ chipCount('other') }}</span></div>
         </div>
         <div class="search-actions">
           <el-select
@@ -120,10 +149,10 @@
           </template>
         </el-table-column>
 
-        <!-- 扫码照片：仅「发货中 / 发货失败」期间存在（成功后已删除）。
-             待发货筛选下展示，方便失败时核对当时扫的是哪个码。 -->
+        <!-- 扫码照片：仅「发货中 / 发货失败」期间存在（成功后已删除），
+             只在「已扫码」筛选下展示——待发货列表里绝大多数行没有这张图，白占一列。 -->
         <el-table-column
-          v-if="filters.categories.includes('wait_shipping') || filters.scanned_only"
+          v-if="filters.scanned_only"
           :label="t('todos.colShipQrPhoto')"
           width="150"
           align="center"

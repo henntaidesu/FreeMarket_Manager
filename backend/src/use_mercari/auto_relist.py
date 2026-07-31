@@ -31,7 +31,7 @@ from typing import Dict, Iterable, List, Optional, Set
 
 from ..db_manage.database import DatabaseManager
 from ..db_manage.models.inventory.inventory import InventoryModel
-from ..db_manage.models.mercari_accounts.mercari_account import MercariAccountModel
+from ..db_manage.models.shop_accounts.shop_account import ShopAccountModel
 from ..db_manage.models.orders.order import OrderModel
 from ..db_manage.models.orders.order_outbound_line import OrderOutboundLineModel
 from ..db_manage.models.system.system_log import SystemLogModel
@@ -83,7 +83,7 @@ def _account_relist_enabled(account_id: Optional[int]) -> bool:
     if account_id is None:
         return False
     try:
-        acc = MercariAccountModel.find_by_id(id=int(account_id))
+        acc = ShopAccountModel.find_by_id(id=int(account_id))
         return acc is not None and int(getattr(acc, "auto_fetch_relist", 0) or 0) == 1
     except Exception:
         return False
@@ -134,7 +134,7 @@ def _resolve_account_id(seller_id: Optional[str], account_id: Optional[int]) -> 
     sid = str(seller_id or "").strip()
     if not sid:
         return None
-    rows = MercariAccountModel.find_all(
+    rows = ShopAccountModel.find_all(
         where="TRIM(IFNULL([seller_id], '')) = TRIM(?)",
         params=(sid,),
         limit=1,
@@ -152,7 +152,7 @@ def _account_name(account_id: Optional[int]) -> Optional[str]:
     if account_id is None:
         return None
     try:
-        acc = MercariAccountModel.find_by_id(id=int(account_id))
+        acc = ShopAccountModel.find_by_id(id=int(account_id))
         if acc is None:
             return None
         name = str(getattr(acc, "account_name", "") or "").strip()

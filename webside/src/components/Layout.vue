@@ -236,10 +236,10 @@ const menuItems = [
   { path: '/orders', titleKey: 'layout.menu.orders', icon: 'Tickets' },
   { path: '/on-sale-items', titleKey: 'layout.menu.onSaleItems', icon: 'ShoppingBag' },
   { path: '/todos', titleKey: 'layout.menu.todos', icon: 'Check' },
-  { path: '/tasks', titleKey: 'layout.menu.tasks', icon: 'Loading' },
   { path: '/notifications', titleKey: 'layout.menu.notifications', icon: 'Bell' },
-  { path: '/mercari-accounts', titleKey: 'layout.menu.mercariAccounts', icon: 'User' },
+  { path: '/shop-accounts', titleKey: 'layout.menu.shopAccounts', icon: 'User' },
   { path: '/memos', titleKey: 'layout.menu.memos', icon: 'ChatDotRound' },
+  { path: '/tasks', titleKey: 'layout.menu.tasks', icon: 'Loading' },
   {
     path: '/system',
     titleKey: 'layout.menu.system',

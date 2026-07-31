@@ -161,7 +161,7 @@ class _QueryMixin:
             FROM (
                 SELECT o.id, o.order_no, o.order_date, o.order_updated_at, o.purchase_time,
                        o.packed_at, o.shipped_at, o.completed_at, o.customer_name, o.data_user,
-                       (SELECT ma.account_name FROM [mercari_accounts] ma
+                       (SELECT ma.account_name FROM [shop_accounts] ma
                         WHERE IFNULL(TRIM(o.data_user), '') != ''
                           AND TRIM(ma.seller_id) = TRIM(o.data_user)
                         LIMIT 1) AS account_name,

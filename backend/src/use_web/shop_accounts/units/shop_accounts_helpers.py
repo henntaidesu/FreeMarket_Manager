@@ -5,8 +5,8 @@ from typing import Any, Optional
 
 from fastapi import HTTPException
 
-from ....db_manage.models.mercari_accounts.mercari_account import MercariAccountModel
-from .mercari_accounts_models import (
+from ....db_manage.models.shop_accounts.shop_account import ShopAccountModel
+from .shop_accounts_models import (
     ALLOWED_PLATFORMS,
     ALLOWED_STATUS,
     DEFAULT_PLATFORM,
@@ -78,7 +78,7 @@ def _ensure_seller_id_unique(
     if not sid:
         return
     p = (platform or "").strip() or DEFAULT_PLATFORM
-    rows = MercariAccountModel.find_all(
+    rows = ShopAccountModel.find_all(
         where="[seller_id] = ? AND [platform] = ?", params=(sid, p)
     )
     for r in rows:
@@ -169,14 +169,14 @@ def _norm_headers_dict(d: Optional[dict]) -> dict:
     return out
 
 
-def _item_api_dict(item: MercariAccountModel) -> dict:
+def _item_api_dict(item: ShopAccountModel) -> dict:
     d = item.to_dict()
     d.pop('login_password', None)
     raw = d.pop('value', None)
     # 不再向客户端返回请求头/令牌明文（Authorization、DPoP、Cookie 等敏感凭证）——
     # 任意已认证用户读取即可在本应用外冒充卖家。仅返回「是否已配置」的布尔标记；
     # 前端编辑表单并不消费这些字段，请求头由 MITM/浏览器自动化在后端侧写入。
-    _hv = MercariAccountModel._parse_value_json(raw if isinstance(raw, str) else None) or {}
+    _hv = ShopAccountModel._parse_value_json(raw if isinstance(raw, str) else None) or {}
     d['value_set'] = bool(_hv)
     d['authorization_set'] = bool(str(_hv.get('authorization') or '').strip())
     d['dpop_set'] = bool(str(_hv.get('dpop_list') or _hv.get('dpop') or '').strip())

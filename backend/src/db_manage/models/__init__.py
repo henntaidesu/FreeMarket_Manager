@@ -26,7 +26,7 @@ from .todos.transaction_message import TransactionMessageModel
 from .notifications.notification import NotificationModel
 from .notifications.bundle_purchase_request import BundlePurchaseRequestModel
 from .notifications.desired_price_offer import DesiredPriceOfferModel
-from .mercari_accounts.mercari_account import MercariAccountModel
+from .shop_accounts.shop_account import ShopAccountModel
 from .memos.memo import MemoModel
 from .gotion.gotion_table import GotionTableModel
 from .gotion.gotion_column import GotionColumnModel
@@ -43,7 +43,7 @@ __all__ = [
     'CostExpenseModel',
     'SettlementRecordModel',
     'OrderModel',
-    'MercariAccountModel',
+    'ShopAccountModel',
     'OnSaleItemModel',
     'OrderOutboundLineModel',
     'ProductTypeCategoryMappingModel',

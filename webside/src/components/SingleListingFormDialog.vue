@@ -217,7 +217,7 @@
 import { ref, watch, computed, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Rank } from '@element-plus/icons-vue'
-import { mercariAccountApi } from '@/api/index.js'
+import { shopAccountApi } from '@/api/index.js'
 import { encodeMgmtIds, stripTrailingMgmtBlock } from '@/utils/mgmtIdCipher.js'
 import { useListingPlatform } from '@/composables/useListingPlatform.js'
 import {
@@ -605,7 +605,7 @@ function mercariAccountOptionLabel(a) {
 async function fetchMercariAccounts() {
   mercariAccountsLoading.value = true
   try {
-    const res = await mercariAccountApi.list({ page: 1, page_size: 500 })
+    const res = await shopAccountApi.list({ page: 1, page_size: 500 })
     mercariAccountOptions.value = Array.isArray(res?.items) ? res.items : []
   } catch {
     mercariAccountOptions.value = []

@@ -24,9 +24,9 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from .db_manage.models.mercari_accounts.mercari_account import MercariAccountModel
+from .db_manage.models.shop_accounts.shop_account import ShopAccountModel
 from .db_manage.models.system.system_log import SystemLogModel
-from .use_web.mercari_accounts.units.mercari_accounts_models import (
+from .use_web.shop_accounts.units.shop_accounts_models import (
     AUTO_FETCH_TASK_KEYS,
     interval_to_seconds,
 )
@@ -87,7 +87,7 @@ def _parse_hhmm_to_minutes(raw: Optional[str]) -> Optional[int]:
     return h * 60 + m
 
 
-def _account_in_pause_window(item: MercariAccountModel, now_local: datetime) -> bool:
+def _account_in_pause_window(item: ShopAccountModel, now_local: datetime) -> bool:
     """根据账号 pause_start_time / pause_end_time（本地时间 HH:MM）判断当前是否处于暂停期。
 
     - 两个字段任一为空：不暂停
@@ -108,7 +108,7 @@ def _account_in_pause_window(item: MercariAccountModel, now_local: datetime) -> 
 def _account_platform(account_id: int) -> str:
     """账号所属市集平台：``mercari``（默认）/ ``yahoo``。"""
     try:
-        acc = MercariAccountModel.find_by_id(id=int(account_id))
+        acc = ShopAccountModel.find_by_id(id=int(account_id))
         if acc is None:
             return "mercari"
         return str(getattr(acc, "platform", "") or "").strip() or "mercari"
@@ -155,7 +155,7 @@ def _task_callable(key: str, aid: int, platform: str = "mercari"):
     raise KeyError(key)
 
 
-def _due_tasks(item: MercariAccountModel, now: datetime) -> List[str]:
+def _due_tasks(item: ShopAccountModel, now: datetime) -> List[str]:
     """返回本轮到期（已开启且距上次成功已超过各自间隔）的同步项键，保持执行顺序。"""
     due: List[str] = []
     for key in AUTO_FETCH_TASK_KEYS:
@@ -234,7 +234,7 @@ def _mark_task_last_at(aid: int, keys: List[str]) -> None:
     """把给定同步项的上次成功时间标记为现在（仅标记真正执行成功的项）。"""
     if not keys:
         return
-    item = MercariAccountModel.find_by_id(id=aid)
+    item = ShopAccountModel.find_by_id(id=aid)
     if not item:
         return
     now = _now_iso()
@@ -295,7 +295,7 @@ async def run_mercari_auto_fetch_tick() -> None:
 
     now = datetime.now(timezone.utc)
     now_local = datetime.now()
-    rows = MercariAccountModel.find_all(
+    rows = ShopAccountModel.find_all(
         where="[is_open] = 1 AND [status] = ?",
         params=("active",),
     )

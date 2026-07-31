@@ -56,9 +56,9 @@ class SyncOrdersRequest(PydanticModel):
 def _account_platform_for_orders(account_id: int) -> str:
     """账号所属市集平台：``mercari``（默认）/ ``yahoo``。"""
     try:
-        from ..db_manage.models.mercari_accounts.mercari_account import MercariAccountModel
+        from ..db_manage.models.shop_accounts.shop_account import ShopAccountModel
 
-        acc = MercariAccountModel.find_by_id(id=int(account_id))
+        acc = ShopAccountModel.find_by_id(id=int(account_id))
         if acc is None:
             return "mercari"
         return str(getattr(acc, "platform", "") or "").strip() or "mercari"

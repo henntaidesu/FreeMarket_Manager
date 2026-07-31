@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { mercariAccountApi } from '@/api'
+import { shopAccountApi } from '@/api'
 
 const STORAGE_KEY = 'mercari.selected_account_id'
 
@@ -52,7 +52,7 @@ export const useMercariAccountStore = defineStore('mercariAccount', () => {
     if (loading.value) return accounts.value
     loading.value = true
     try {
-      const res = await mercariAccountApi.list({ page: 1, page_size: 200 })
+      const res = await shopAccountApi.list({ page: 1, page_size: 200 })
       accounts.value = Array.isArray(res?.items) ? res.items : []
       loaded.value = true
       // 若 localStorage 中的 selectedId 引用了已删除/禁用的账号，则回退到首个 active

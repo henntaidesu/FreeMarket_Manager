@@ -14,7 +14,7 @@ import {
   productTypeCategoryMappingApi,
   onSaleItemApi,
   configApi,
-  mercariAccountApi,
+  shopAccountApi,
   TASK_TYPES
 } from '@/api/index.js'
 import { submitTask } from '@/utils/taskSubmit.js'
@@ -282,7 +282,7 @@ export default defineComponent({
     async function fetchMercariAccounts() {
       mercariAccountsLoading.value = true
       try {
-        const res = await mercariAccountApi.list({ page: 1, page_size: 500 })
+        const res = await shopAccountApi.list({ page: 1, page_size: 500 })
         mercariAccountOptions.value = Array.isArray(res?.items) ? res.items : []
       } catch {
         mercariAccountOptions.value = []
@@ -4052,7 +4052,7 @@ export default defineComponent({
       productTypeCategoryMappingApi,
       onSaleItemApi,
       configApi,
-      mercariAccountApi,
+      shopAccountApi,
       encodeMgmtId,
       warehouseShelfLeafLabel,
       t,

@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from ...db_manage.models.mercari_accounts.mercari_account import MercariAccountModel
+from ...db_manage.models.shop_accounts.shop_account import ShopAccountModel
 from ...db_manage.models.orders.order.model import OrderModel
 from ...use_mercari.sync.sync_progress import make_sync_reporter
 
@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 def _yahoo_accounts(account_id: Optional[int]) -> List[Tuple[int, str]]:
     """要处理的 (账号 ID, seller_id)。不指定账号时取所有配好 seller_id 的雅虎账号。"""
     if account_id is not None:
-        acc = MercariAccountModel.find_by_id(id=int(account_id))
+        acc = ShopAccountModel.find_by_id(id=int(account_id))
         if not acc:
             raise RuntimeError(f"未找到 ID={account_id} 的账号")
         if (getattr(acc, "platform", "") or "mercari").strip().lower() != "yahoo":
@@ -34,7 +34,7 @@ def _yahoo_accounts(account_id: Optional[int]) -> List[Tuple[int, str]]:
         return [(int(acc.id), sid)]
 
     out: List[Tuple[int, str]] = []
-    for acc in MercariAccountModel.find_all() or []:
+    for acc in ShopAccountModel.find_all() or []:
         if (getattr(acc, "platform", "") or "mercari").strip().lower() != "yahoo":
             continue
         sid = str(getattr(acc, "seller_id", "") or "").strip()

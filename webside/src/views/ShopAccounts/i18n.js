@@ -1,7 +1,7 @@
 export default {
   'zh-CN': {
     mercariAccounts: {
-      title: "煤炉账号",
+      title: "店铺账号",
       addAccount: "添加账号",
       editAccount: "编辑账号",
       accountName: "账号名",
@@ -44,8 +44,6 @@ export default {
       syncTaskOnSale: "在售商品：从{platform}同步",
       syncTaskOrdersList: "订单管理：订单列表",
       syncTaskOrdersStatus: "订单管理：订单状态",
-      addDialogTitle: "新增煤炉账号",
-      editDialogTitle: "编辑煤炉账号",
       addDialogTitleGeneric: "新增{platform}账号",
       editDialogTitleGeneric: "编辑{platform}账号",
       pickPlatformTitle: "选择账号平台",
@@ -133,7 +131,7 @@ export default {
   },
   ja: {
     mercariAccounts: {
-      title: "メルカリアカウント",
+      title: "店舗アカウント",
       addAccount: "アカウントを追加",
       editAccount: "アカウントを編集",
       accountName: "アカウント名",
@@ -176,8 +174,6 @@ export default {
       syncTaskOnSale: "出品中：{platform}から同期",
       syncTaskOrdersList: "注文管理：注文リスト",
       syncTaskOrdersStatus: "注文管理：注文ステータス",
-      addDialogTitle: "メルカリアカウントを追加",
-      editDialogTitle: "メルカリアカウントを編集",
       addDialogTitleGeneric: "{platform}アカウントを追加",
       editDialogTitleGeneric: "{platform}アカウントを編集",
       pickPlatformTitle: "アカウントのプラットフォームを選択",
@@ -265,7 +261,7 @@ export default {
   },
   en: {
     mercariAccounts: {
-      title: "Mercari Accounts",
+      title: "Shop Accounts",
       addAccount: "Add Account",
       editAccount: "Edit Account",
       accountName: "Account Name",
@@ -308,8 +304,6 @@ export default {
       syncTaskOnSale: "On Sale: sync from {platform}",
       syncTaskOrdersList: "Orders: order list",
       syncTaskOrdersStatus: "Orders: order status",
-      addDialogTitle: "Add Mercari Account",
-      editDialogTitle: "Edit Mercari Account",
       addDialogTitleGeneric: "Add {platform} Account",
       editDialogTitleGeneric: "Edit {platform} Account",
       pickPlatformTitle: "Select Account Platform",

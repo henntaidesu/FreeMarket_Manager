@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
-from ....db_manage.models.mercari_accounts.mercari_account import MercariAccountModel
+from ....db_manage.models.shop_accounts.shop_account import ShopAccountModel
 from ....web_drive.core.manager import get_web_drive_manager
 from ....web_drive.core.paths import mercari_automation_key
 
@@ -20,11 +20,11 @@ log = logging.getLogger(__name__)
 
 def _resolve_account_id(account_id: Optional[int]) -> int:
     if account_id is not None:
-        acc = MercariAccountModel.find_by_id(id=int(account_id))
+        acc = ShopAccountModel.find_by_id(id=int(account_id))
         if acc is None:
             raise ValueError(f"煤炉账号 id={account_id} 不存在")
         return int(account_id)
-    rows = MercariAccountModel.find_all(
+    rows = ShopAccountModel.find_all(
         where="[status] = ?",
         params=("active",),
         order_by="[id] ASC",

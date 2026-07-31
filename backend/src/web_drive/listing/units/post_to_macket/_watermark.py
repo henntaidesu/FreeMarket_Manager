@@ -48,9 +48,9 @@ def _account_name(account_id: Optional[int]) -> Optional[str]:
     if account_id is None:
         return None
     try:
-        from src.db_manage.models.mercari_accounts.mercari_account import MercariAccountModel
+        from src.db_manage.models.shop_accounts.shop_account import ShopAccountModel
 
-        acc = MercariAccountModel.find_by_id(id=int(account_id))
+        acc = ShopAccountModel.find_by_id(id=int(account_id))
         if acc is None:
             return None
         name = str(getattr(acc, "account_name", "") or "").strip()
@@ -64,9 +64,9 @@ def account_avatar_path(account_id: Optional[int]) -> Optional[str]:
     if account_id is None:
         return None
     try:
-        from src.db_manage.models.mercari_accounts.mercari_account import MercariAccountModel
+        from src.db_manage.models.shop_accounts.shop_account import ShopAccountModel
 
-        acc = MercariAccountModel.find_by_id(id=int(account_id))
+        acc = ShopAccountModel.find_by_id(id=int(account_id))
         if acc is None:
             return None
         val = str(getattr(acc, "avatar", "") or "").strip()

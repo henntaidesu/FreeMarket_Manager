@@ -2,7 +2,7 @@ import { defineComponent, ref, onMounted, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
 import { ElMessage } from '@/utils/notify'
-import { systemLogApi, mercariAccountApi } from '@/api/index.js'
+import { systemLogApi, shopAccountApi } from '@/api/index.js'
 import { formatUnixSecLocal } from '@/utils/timeDisplay.js'
 
 export default defineComponent({
@@ -79,7 +79,7 @@ export default defineComponent({
 
     onMounted(async () => {
       try {
-        const res = await mercariAccountApi.list({ page: 1, page_size: 500 })
+        const res = await shopAccountApi.list({ page: 1, page_size: 500 })
         accounts.value = Array.isArray(res?.items) ? res.items : []
       } catch {
         accounts.value = []

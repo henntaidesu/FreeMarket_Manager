@@ -41,6 +41,9 @@ export default defineComponent({
       ReviewedSeller: 'todos.kind.waitReview',
       IncomingMessage: 'todos.kind.waitReply',
       Shipped: 'todos.kind.waitReceipt',
+      // 取消/退货申请：买家发起 → 卖家同意后填退货信息，同属「申请退货」
+      CancellationRequested: 'todos.kind.cancellation',
+      CancellationRequestApprovedSeller: 'todos.kind.cancellation',
     }
 
     // 待回复（IncomingMessage）默认回复：分两种状态
@@ -198,6 +201,8 @@ export default defineComponent({
       ReviewedSeller: 'success',
       IncomingMessage: 'primary',
       Shipped: 'success',
+      CancellationRequested: 'danger',
+      CancellationRequestApprovedSeller: 'danger',
     }
 
     const list = ref([])
@@ -769,6 +774,30 @@ export default defineComponent({
       return p
     }
 
+    /** 顶部筛选各 chip 的条数：只随账号/平台/关键字变化，与当前选中哪个 chip 无关 */
+    const chipCounts = ref({})
+
+    function chipCount(chip) {
+      const n = chipCounts.value?.[chip]
+      return Number.isFinite(Number(n)) ? Number(n) : 0
+    }
+
+    /** 计数只吃非分类筛选——带上 categories 会让未选中的 chip 全变 0 */
+    function countParams() {
+      const p = {}
+      if (filters.value.platform) p.platform = filters.value.platform
+      return p
+    }
+
+    async function loadChipCounts() {
+      try {
+        const res = await todosApi.chipCounts(countParams())
+        chipCounts.value = res?.counts || {}
+      } catch {
+        /* 计数失败不影响列表，保留上一次的数字 */
+      }
+    }
+
     async function load() {
       loading.value = true
       try {
@@ -780,6 +809,7 @@ export default defineComponent({
       } finally {
         loading.value = false
       }
+      loadChipCounts()
     }
 
     function onFilterChange() {
@@ -787,20 +817,20 @@ export default defineComponent({
       load()
     }
 
-    // 筛选 chip 单选（待发货 / 待回复 / 已打包 / 已扫码 / 其他，互斥）：点某项只显示该项；
-    // 再次点当前项则取消，回到默认全部显示。
+    // 筛选 chip 单选（待发货 / 待回复 / 待评价 / 申请退货 / 已打包 / 已扫码 / 其他，互斥）：
+    // 点某项只显示该项。**始终有且只有一项选中**——再点当前项不取消（否则会落到「无筛选」
+    // 这个没有对应 chip 的状态，界面上看不出正在看什么）。
     // 已打包用 packed_only、已扫码用 scanned_only，其余用 categories。
     const CHIP_FLAGS = { packed: 'packed_only', scanned: 'scanned_only' }
     function selectFilterChip(chip) {
       const flag = CHIP_FLAGS[chip]
       const active = flag ? filters.value[flag] : filters.value.categories.includes(chip)
+      if (active) return
       filters.value.packed_only = false
       filters.value.scanned_only = false
       filters.value.categories = []
-      if (!active) {
-        if (flag) filters.value[flag] = true
-        else filters.value = { ...filters.value, categories: [chip] }
-      }
+      if (flag) filters.value[flag] = true
+      else filters.value = { ...filters.value, categories: [chip] }
       onFilterChange()
     }
 
@@ -1962,6 +1992,8 @@ export default defineComponent({
       pageSize,
       filters,
       platformFilterOptions,
+      chipCounts,
+      chipCount,
       platformLabel,
       platformTagType,
       platformOf,

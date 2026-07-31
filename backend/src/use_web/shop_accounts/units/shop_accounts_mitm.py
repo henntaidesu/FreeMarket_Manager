@@ -20,11 +20,11 @@ from ....web_drive.core.account_serial_queue import (
     run_mercari_serial_async,
 )
 from ....web_drive.core.manager import automation_headless_enabled
-from .mercari_accounts_helpers import (
+from .shop_accounts_helpers import (
     _item_api_dict,
     _norm_seller_id,
 )
-from .mercari_accounts_models import (
+from .shop_accounts_models import (
     FetchSellerIdViaMitmBody,
     MERCARI_LISTINGS_URL,
 )

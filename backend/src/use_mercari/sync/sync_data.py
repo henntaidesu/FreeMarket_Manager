@@ -19,7 +19,7 @@ from ..get_order.get_in_progress_order.get_order_list import (
 )
 from ..get_order.get_in_progress_order.get_order_info import apply_item_info_to_order
 from .sync_progress import make_sync_reporter
-from ...db_manage.models.mercari_accounts.mercari_account import MercariAccountModel
+from ...db_manage.models.shop_accounts.shop_account import ShopAccountModel
 from ...db_manage.models.orders.order import OrderModel
 
 
@@ -31,7 +31,7 @@ def resolve_account_id_by_seller_id(seller_id_str: Optional[str]) -> Optional[in
     sid = (seller_id_str or "").strip()
     if not sid:
         return None
-    rows = MercariAccountModel.find_all(
+    rows = ShopAccountModel.find_all(
         where="[seller_id] = ? AND [status] = ?",
         params=(sid, "active"),
         limit=1,
@@ -41,7 +41,7 @@ def resolve_account_id_by_seller_id(seller_id_str: Optional[str]) -> Optional[in
 
 def resolve_enabled_account_ids() -> List[int]:
     """取所有 status=active 的账号 id（用于「从煤炉同步」一键同步全部启用账号；不要求自动获取开启）。"""
-    rows = MercariAccountModel.find_all(
+    rows = ShopAccountModel.find_all(
         where="[status] = ?",
         params=("active",),
         order_by="[id] ASC",
@@ -58,11 +58,11 @@ def _resolve_account_and_seller(account_id: Optional[int]) -> Tuple[int, int]:
     :return: (account_id, seller_id)
     """
     if account_id is not None:
-        account = MercariAccountModel.find_by_id(id=account_id)
+        account = ShopAccountModel.find_by_id(id=account_id)
         if not account:
             raise RuntimeError(f"未找到 ID={account_id} 的煤炉账号")
     else:
-        records = MercariAccountModel.find_all(
+        records = ShopAccountModel.find_all(
             where="[status] = ?",
             params=("active",),
             order_by="id ASC",
@@ -305,7 +305,7 @@ async def batch_refresh_orders_info(
     report("resolve_account", "正在准备煤炉账号…")
     seller_filter: Optional[str] = None
     if account_id is not None:
-        acc = MercariAccountModel.find_by_id(id=account_id)
+        acc = ShopAccountModel.find_by_id(id=account_id)
         if not acc:
             raise RuntimeError(f"未找到 ID={account_id} 的煤炉账号")
         seller_filter = (str(acc.seller_id or "")).strip()

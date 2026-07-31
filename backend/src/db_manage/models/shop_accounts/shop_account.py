@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-煤炉账号表模型
+店铺账号表模型（煤炉 / 雅虎共用一张表，按 platform 列区分）。
 HTTP 请求头以 JSON 形式存放在 value 列。
 """
 
@@ -9,12 +9,17 @@ from typing import Dict, Any, List, Optional
 from ...base_model import BaseModel
 
 
-class MercariAccountModel(BaseModel):
-    """煤炉账号"""
+class ShopAccountModel(BaseModel):
+    """店铺账号"""
+
+    #: 改名前的表名。页面从「煤炉账号」改叫「店铺账号」后表也跟着改，
+    #: 但**不自动改**（由使用者手动 RENAME），这里只留作启动自检的比对基准，
+    #: 见 db_manager.initialize_database 里的 _assert_shop_accounts_renamed。
+    LEGACY_TABLE_NAME = "mercari_accounts"
 
     @classmethod
     def get_table_name(cls) -> str:
-        return "mercari_accounts"
+        return "shop_accounts"
 
     @classmethod
     def get_fields(cls) -> Dict[str, Dict[str, Any]]:
@@ -115,7 +120,7 @@ class MercariAccountModel(BaseModel):
                 'default': 0,
             },
             # 每个同步项独立的抓取间隔（非空即视为开启该项；为空=关闭）。
-            # 取值见 mercari_accounts_models.normalize_interval：预设 15/30/60/3h/6h，或自定义 "<分钟>" / "<小时>h"。
+            # 取值见 shop_accounts_models.normalize_interval：预设 15/30/60/3h/6h，或自定义 "<分钟>" / "<小时>h"。
             'auto_fetch_order_list_interval': {
                 'type': 'TEXT',
                 'not_null': False,
@@ -327,7 +332,7 @@ class MercariAccountModel(BaseModel):
         page_size: int = 20,
     ) -> Dict[str, Any]:
         db = cls().db
-        base_sql = "FROM [mercari_accounts] m WHERE 1=1"
+        base_sql = f"FROM [{cls.get_table_name()}] m WHERE 1=1"
         params = []
         if keyword:
             base_sql += " AND (m.account_name LIKE ? OR m.login_id LIKE ?)"

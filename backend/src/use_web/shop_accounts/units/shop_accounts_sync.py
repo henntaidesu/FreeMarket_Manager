@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import HTTPException
 from pydantic import BaseModel
 
-from ....db_manage.models.mercari_accounts.mercari_account import MercariAccountModel
+from ....db_manage.models.shop_accounts.shop_account import ShopAccountModel
 from ....web_drive.core.account_serial_queue import (
     queue_key_for_mercari_account,
     run_mercari_serial_async,
@@ -53,13 +53,13 @@ class SyncAccountDataRequest(BaseModel):
 
 def validate_sync_account_request(
     aid: int, tasks: Optional[List[str]]
-) -> Tuple[MercariAccountModel, List[str]]:
+) -> Tuple[ShopAccountModel, List[str]]:
     """入队前的前置校验：账号存在且启用、勾选项非空。
 
     放在**提交时**而不是执行时校验，是为了让「账号不存在 / 已停用 / 没勾任何项」这类
     一眼可知的错误当场以 4xx 返回，而不是排进队列几分钟后才失败。
     """
-    account = MercariAccountModel.find_by_id(id=int(aid))
+    account = ShopAccountModel.find_by_id(id=int(aid))
     if account is None:
         raise HTTPException(status_code=404, detail=f"煤炉账号 id={int(aid)} 不存在")
     if getattr(account, "status", None) != "active":
