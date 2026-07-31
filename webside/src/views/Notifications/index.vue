@@ -1,70 +1,23 @@
 <template>
   <div>
     <el-card shadow="never" class="search-card">
-      <el-row :gutter="0" align="middle" class="search-row">
-        <el-col :xs="24" :md="16" class="search-left-group">
-          <el-input
-            v-model="filters.keyword"
-            clearable
-            @change="onFilterChange"
-          />
-          <el-select
-            v-model="filters.platform"
-            :placeholder="t('notifications.platformFilterPlaceholder')"
-            clearable
-            style="min-width: 140px"
-            @change="onFilterChange"
-          >
-            <el-option v-for="p in platformFilterOptions" :key="p.value" :label="p.label" :value="p.value" />
-          </el-select>
-          <el-select
-            v-model="filters.kind"
-            :placeholder="t('common.type')"
-            clearable
-            style="min-width: 200px"
-            @change="onFilterChange"
-          >
-            <el-option
-              v-for="k in kindOptions"
-              :key="k"
-              :label="kindLabel(k)"
-              :value="k"
-            />
-          </el-select>
+      <div class="search-row">
+        <div class="search-left-group">
           <div
+            v-for="c in categoryChips"
+            :key="c.key"
             class="search-filter-chip"
-            :class="{ 'search-filter-chip--active': filters.only_unread }"
+            :class="{ 'search-filter-chip--active': filters.categories.includes(c.key) }"
             role="button"
             tabindex="0"
-            @click="toggleFilterChip('only_unread')"
-            @keyup.enter="toggleFilterChip('only_unread')"
-          >{{ t('notifications.onlyUnread') }}</div>
-          <div
-            class="search-filter-chip"
-            :class="{ 'search-filter-chip--active': filters.show_likes }"
-            role="button"
-            tabindex="0"
-            @click="toggleFilterChip('show_likes')"
-            @keyup.enter="toggleFilterChip('show_likes')"
-          >{{ t('notifications.showLikes') }}</div>
-          <div
-            class="search-filter-chip"
-            :class="{ 'search-filter-chip--active': filters.show_private_messages }"
-            role="button"
-            tabindex="0"
-            @click="toggleFilterChip('show_private_messages')"
-            @keyup.enter="toggleFilterChip('show_private_messages')"
-          >{{ t('notifications.showPrivateMessages') }}</div>
-          <div
-            class="search-filter-chip"
-            :class="{ 'search-filter-chip--active': filters.show_liked_item_comments }"
-            role="button"
-            tabindex="0"
-            @click="toggleFilterChip('show_liked_item_comments')"
-            @keyup.enter="toggleFilterChip('show_liked_item_comments')"
-          >{{ t('notifications.showLikedItemComments') }}</div>
-        </el-col>
-        <el-col :xs="24" :md="8" class="search-actions">
+            @click="selectFilterChip(c.key)"
+            @keyup.enter="selectFilterChip(c.key)"
+          >{{ c.label }}<span
+            class="search-filter-chip__count"
+            :class="{ 'search-filter-chip__count--zero': !chipCount(c.key) }"
+          >{{ chipCount(c.key) }}</span></div>
+        </div>
+        <div class="search-actions">
           <el-button type="success" plain :loading="markAllReadLoading" :disabled="!list.length" @click="onMarkAllRead">
             {{ t('notifications.markAllRead') }}
           </el-button>
@@ -75,8 +28,8 @@
               </el-button>
             </span>
           </el-tooltip>
-        </el-col>
-      </el-row>
+        </div>
+      </div>
     </el-card>
 
     <el-card shadow="never" class="table-card">
@@ -116,7 +69,7 @@
 
         <el-table-column :label="t('notifications.colMessage')" min-width="360" align="left" header-align="center">
           <template #default="{ row }">
-            <div :class="['cell-message', !row.is_read ? 'cell-message-unread' : '']">
+            <div class="cell-message cell-message-unread">
               {{ row.message || '-' }}
             </div>
             <div v-if="row.item_id" class="cell-itemid">
@@ -174,23 +127,14 @@
             >
               {{ t('notifications.viewDetail') }}
             </el-button>
+            <!-- 列表恒只含未读，标已读后该行即从视图移除，故没有「取消已读」的入口 -->
             <el-button
-              v-if="!row.is_read"
               type="success"
               plain
               :loading="markReadLoadingIds.has(row.id)"
               @click="onMarkRead(row)"
             >
               {{ t('notifications.read') }}
-            </el-button>
-            <el-button
-              v-else
-              type="info"
-              plain
-              :loading="markReadLoadingIds.has(row.id)"
-              @click="onMarkUnread(row)"
-            >
-              {{ t('notifications.markUnread') }}
             </el-button>
           </template>
         </el-table-column>

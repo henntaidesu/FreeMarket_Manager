@@ -122,8 +122,21 @@
       >
         <div class="secondary-header">
           <span class="secondary-title">{{ activePrimaryTitle }}</span>
-          <el-button text class="secondary-close" @click="closeSecondary">
-            <el-icon :size="16"><Close /></el-icon>
+          <el-button
+            text
+            class="secondary-pin"
+            :class="{ 'secondary-pin--on': secondaryPinned }"
+            :title="secondaryPinned ? t('layout.unpinSecondary') : t('layout.pinSecondary')"
+            @click="secondaryPinned = !secondaryPinned"
+          >
+            <el-icon :size="16">
+              <svg viewBox="0 0 24 24">
+                <path
+                  fill="currentColor"
+                  d="M16 9V4h1c.55 0 1-.45 1-1s-.45-1-1-1H7c-.55 0-1 .45-1 1s.45 1 1 1h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z"
+                />
+              </svg>
+            </el-icon>
           </el-button>
         </div>
         <div class="secondary-menu-wrap">
@@ -198,6 +211,8 @@ const mobileDrawerOpen = ref(false)
 const secondaryOpen = ref(false)
 /** 当前正在展开二级面板的一级菜单 path（仅对带 children 的一级有意义） */
 const activeWithChildren = ref(null)
+/** 二级菜单是否被图钉固定：固定后选中二级项不再自动收缩 */
+const secondaryPinned = ref(false)
 
 /** 备忘录未处理数量（接收方=当前用户且未读），用于一级菜单红色徽标 */
 const memoUnread = ref(0)
@@ -340,13 +355,9 @@ function onPrimarySelect(path) {
 
 function onSecondarySelect(path) {
   if (route.path !== path) router.push(path)
-  // 选中二级后自动收缩
-  secondaryOpen.value = false
+  // 选中二级后自动收缩；被图钉固定时保持展开
+  if (!secondaryPinned.value) secondaryOpen.value = false
   if (isMobile.value) mobileDrawerOpen.value = false
-}
-
-function closeSecondary() {
-  secondaryOpen.value = false
 }
 
 /** 直接通过 URL 进入二级页时：高亮一级 + 初始化 activeWithChildren（但不展开二级面板） */
@@ -420,10 +431,24 @@ const handleLogout = async () => {
   white-space: nowrap;
 }
 
-.secondary-close {
+/* 图钉：未固定时斜放且灰，固定后立起并高亮 */
+.secondary-pin {
   color: #a6adb4 !important;
   padding: 4px !important;
   flex-shrink: 0;
+}
+
+.secondary-pin .el-icon {
+  transform: rotate(45deg);
+  transition: transform 0.2s ease;
+}
+
+.secondary-pin--on {
+  color: #1890ff !important;
+}
+
+.secondary-pin--on .el-icon {
+  transform: rotate(0deg);
 }
 
 .secondary-menu-wrap {

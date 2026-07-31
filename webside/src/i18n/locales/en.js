@@ -120,6 +120,8 @@ export default {
     logoutBtn: "Logout",
     user: "User",
     openMenu: "Open menu",
+    pinSecondary: "Pin submenu",
+    unpinSecondary: "Unpin submenu",
   },
   dialog: {
     confirmTitle: "Please confirm",

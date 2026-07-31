@@ -120,6 +120,8 @@ export default {
     logoutBtn: "退出",
     user: "用户",
     openMenu: "打开菜单",
+    pinSecondary: "固定二级菜单",
+    unpinSecondary: "取消固定",
   },
   dialog: {
     confirmTitle: "请确认",

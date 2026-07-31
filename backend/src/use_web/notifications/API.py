@@ -7,6 +7,7 @@
     GET   /mercariV2/src/use_web/notifications
     POST  /mercariV2/src/use_web/notifications/sync
     GET   /mercariV2/src/use_web/notifications/kinds
+    GET   /mercariV2/src/use_web/notifications/chip-counts
     POST  /mercariV2/src/use_web/notifications/mark-read
     POST  /mercariV2/src/use_web/notifications/mark-all-read
 
@@ -67,6 +68,7 @@ from .units.item_comment_models import (
 )
 from .units.notifications_models import MarkReadRequest, SyncNotificationsRequest
 from .units.notifications_query import (
+    count_notifications_by_chip,
     list_kinds,
     list_notifications,
     mark_all_read,
@@ -91,19 +93,40 @@ def _list_notifications_endpoint(
     kind: Optional[str] = None,
     keyword: Optional[str] = None,
     only_unread: bool = False,
-    exclude_kinds: Optional[str] = None,
+    categories: Optional[str] = None,
     page: int = 1,
     page_size: int = 20,
+    platform: Optional[str] = None,
 ) -> Dict[str, Any]:
     return list_notifications(
         account_id=account_id,
         kind=kind,
         keyword=keyword,
         only_unread=only_unread,
-        exclude_kinds=exclude_kinds,
+        categories=categories,
         page=page,
         page_size=page_size,
+        platform=platform,
     )
+
+
+def _chip_counts_endpoint(
+    account_id: Optional[int] = None,
+    kind: Optional[str] = None,
+    keyword: Optional[str] = None,
+    only_unread: bool = False,
+    platform: Optional[str] = None,
+) -> Dict[str, Any]:
+    """顶部筛选各 chip 的条数（与列表共用同一套 WHERE，数字必与点进去的行数一致）。"""
+    return {
+        "counts": count_notifications_by_chip(
+            account_id=account_id,
+            kind=kind,
+            keyword=keyword,
+            only_unread=only_unread,
+            platform=platform,
+        )
+    }
 
 
 def _list_kinds_endpoint() -> Dict[str, Any]:
@@ -114,8 +137,34 @@ def _mark_read_endpoint(req: MarkReadRequest) -> Dict[str, Any]:
     return mark_read(req.ids, is_read=req.is_read)
 
 
-def _mark_all_read_endpoint(account_id: Optional[int] = None) -> Dict[str, Any]:
-    return mark_all_read(account_id=account_id)
+def _mark_all_read_endpoint(
+    account_id: Optional[int] = None,
+    kind: Optional[str] = None,
+    keyword: Optional[str] = None,
+    categories: Optional[str] = None,
+    platform: Optional[str] = None,
+) -> Dict[str, Any]:
+    """一键已读：读掉**当前筛选命中**的全部未读，而不只是前端那一页。
+
+    必须带至少一个筛选条件。通知页永远只列未读，读掉就再也看不到，等于不可逆；
+    若允许「不带筛选 = 全部」，一次参数丢失就会把全站未读一次性读光且无法还原。
+    """
+    scoped = any(
+        v is not None and str(v).strip()
+        for v in (account_id, kind, keyword, categories, platform)
+    )
+    if not scoped:
+        raise HTTPException(
+            status_code=400,
+            detail="一键已读必须带筛选条件（categories / platform / account_id 等），拒绝无差别标记全部已读",
+        )
+    return mark_all_read(
+        account_id=account_id,
+        kind=kind,
+        keyword=keyword,
+        categories=categories,
+        platform=platform,
+    )
 
 
 async def _sync_endpoint(req: SyncNotificationsRequest) -> Dict[str, Any]:
@@ -298,6 +347,7 @@ def _item_comment_translate_endpoint(req: ItemCommentTranslateRequest) -> Dict[s
 
 router.add_api_route("", _list_notifications_endpoint, methods=["GET"])
 router.add_api_route("/kinds", _list_kinds_endpoint, methods=["GET"])
+router.add_api_route("/chip-counts", _chip_counts_endpoint, methods=["GET"])
 router.add_api_route("/sync", _sync_endpoint, methods=["POST"])
 router.add_api_route(
     "/sync-progress/{job_id}", notifications_sync_progress, methods=["GET"]

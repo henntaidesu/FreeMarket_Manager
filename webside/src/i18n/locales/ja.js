@@ -120,6 +120,8 @@ export default {
     logoutBtn: "ログアウト",
     user: "ユーザー",
     openMenu: "メニューを開く",
+    pinSecondary: "サブメニューを固定",
+    unpinSecondary: "固定を解除",
   },
   dialog: {
     confirmTitle: "確認",

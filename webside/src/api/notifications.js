@@ -4,6 +4,8 @@ import http from './http'
 export const notificationsApi = {
   list: (params) => http.get('/use_web/notifications', { params }),
   kinds: () => http.get('/use_web/notifications/kinds'),
+  /** 顶部筛选各 chip 的条数（与列表同一套过滤条件） */
+  chipCounts: (params) => http.get('/use_web/notifications/chip-counts', { params }),
   sync: (data, axiosConfig = {}) =>
     http.post('/use_web/notifications/sync', data, { timeout: 0, ...axiosConfig }),
   /** 与 sync 的 progress_job_id 配合，轮询当前同步步骤 */
@@ -11,12 +13,9 @@ export const notificationsApi = {
     http.get(`/use_web/notifications/sync-progress/${encodeURIComponent(jobId)}`, axiosConfig),
   markRead: (ids, is_read = true) =>
     http.post('/use_web/notifications/mark-read', { ids, is_read }),
-  markAllRead: (account_id) =>
-    http.post(
-      '/use_web/notifications/mark-all-read',
-      null,
-      account_id ? { params: { account_id } } : undefined,
-    ),
+  /** 一键已读：读掉筛选（categories / platform / account_id …）命中的全部未读，不限于当前页 */
+  markAllRead: (params) =>
+    http.post('/use_web/notifications/mark-all-read', null, { params }),
   // 合并购买请求（BundleRequestCreated）详情
   bundlePurchaseSync: (data, axiosConfig = {}) =>
     http.post('/use_web/notifications/bundle-purchase/sync', data, {

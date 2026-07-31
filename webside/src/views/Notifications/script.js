@@ -88,21 +88,23 @@ export default defineComponent({
     const pageSize = ref(20)
 
     const filters = ref({
-      keyword: '',
-      kind: '',
-      // 默认仅显示未读，已读的需要勾掉才能看到
-      only_unread: true,
-      // 默认不显示「点赞」类型；用户勾选后或主动按 kind=Like 过滤时才显示
-      show_likes: false,
-      // 默认不显示「事务局消息」类型；用户勾选后或主动按 kind=PrivateMessage 过滤时才显示
-      show_private_messages: false,
-      // 平台筛选：煤炉 / 雅虎（空=全部）
-      platform: '',
-      // 默认不显示「关注商品留言」类型；用户勾选后或主动按 kind=LikedItemReceiveComment 过滤时才显示
-      show_liked_item_comments: false,
+      // 分类筛选 chip（单选，互斥）；默认选中「留言」
+      categories: ['comment'],
     })
 
-    const kindOptions = ref([])
+    // 顶部分类 chip：key 与后端 _CATEGORY_CONDS 一一对应
+    const categoryChips = computed(() => [
+      { key: 'comment', label: t('notifications.categoryComment') },
+      { key: 'bundle', label: t('notifications.categoryBundle') },
+      { key: 'desired_price', label: t('notifications.categoryDesiredPrice') },
+      { key: 'auction', label: t('notifications.categoryAuction') },
+      { key: 'wait_payment', label: t('notifications.categoryWaitPayment') },
+      { key: 'like', label: t('notifications.categoryLike') },
+      { key: 'liked_item', label: t('notifications.categoryLikedItem') },
+      { key: 'bureau', label: t('notifications.categoryBureau') },
+      { key: 'other', label: t('notifications.categoryOther') },
+    ])
+
     const syncLoading = ref(false)
     const markReadLoadingIds = ref(new Set())
     const markAllReadLoading = ref(false)
@@ -114,12 +116,7 @@ export default defineComponent({
     const syncProgressLabel = ref('')
     let syncProgressTimer = null
 
-    /** 平台筛选/标签：历史数据无值时按煤炉处理 */
-    const platformFilterOptions = computed(() => [
-      { value: 'mercari', label: t('notifications.platformMercari') },
-      { value: 'yahoo', label: t('notifications.platformYahoo') },
-    ])
-
+    /** 平台标签：历史数据无值时按煤炉处理 */
     function platformOf(row) {
       return String(row?.platform ?? '').trim() || 'mercari'
     }
@@ -134,26 +131,34 @@ export default defineComponent({
       return platformOf(row) === 'yahoo' ? 'warning' : 'danger'
     }
 
+    // 本页恒只看未读：已读的行不再出现，故 only_unread 不是可切换的筛选而是固定条件。
+    // 列表、chip 计数、一键已读三处口径必须一致，否则徽标数字会与列表对不上。
     function listParams() {
-      const p = { page: page.value, page_size: pageSize.value }
-      const kw = filters.value.keyword?.trim()
-      if (kw) p.keyword = kw
-      if (filters.value.kind) p.kind = filters.value.kind
-      if (filters.value.only_unread) p.only_unread = true
-      if (filters.value.platform) p.platform = filters.value.platform
-      // 用户没显式按对应 kind 过滤且未勾选「显示」时，默认排除 Like / PrivateMessage
-      const excludeKinds = []
-      if (!filters.value.show_likes && filters.value.kind !== 'Like') {
-        excludeKinds.push('Like')
-      }
-      if (!filters.value.show_private_messages && filters.value.kind !== 'PrivateMessage') {
-        excludeKinds.push('PrivateMessage')
-      }
-      if (!filters.value.show_liked_item_comments && filters.value.kind !== 'LikedItemReceiveComment') {
-        excludeKinds.push('LikedItemReceiveComment')
-      }
-      if (excludeKinds.length) p.exclude_kinds = excludeKinds.join(',')
+      const p = { page: page.value, page_size: pageSize.value, only_unread: true }
+      if (filters.value.categories.length) p.categories = filters.value.categories.join(',')
       return p
+    }
+
+    /** 顶部筛选各 chip 的未读条数，与当前选中哪个 chip 无关 */
+    const chipCounts = ref({})
+
+    function chipCount(chip) {
+      const n = chipCounts.value?.[chip]
+      return Number.isFinite(Number(n)) ? Number(n) : 0
+    }
+
+    /** 计数不带 categories——带上会让未选中的 chip 全变 0 */
+    function countParams() {
+      return { only_unread: true }
+    }
+
+    async function loadChipCounts() {
+      try {
+        const res = await notificationsApi.chipCounts(countParams())
+        chipCounts.value = res?.counts || {}
+      } catch {
+        /* 计数失败不影响列表，保留上一次的数字 */
+      }
     }
 
     async function load() {
@@ -167,26 +172,23 @@ export default defineComponent({
       } finally {
         loading.value = false
       }
-    }
-
-    async function loadKindOptions() {
-      try {
-        const res = await notificationsApi.kinds()
-        const arr = res?.kinds
-        kindOptions.value = Array.isArray(arr) ? arr : []
-      } catch {
-        kindOptions.value = []
-      }
+      loadChipCounts()
     }
 
     function onFilterChange() {
       page.value = 1
       load()
     }
-    function toggleFilterChip(key) {
-      filters.value[key] = !filters.value[key]
+
+    // 分类 chip 单选（留言 / 合并购买 / 降价请求 / 拍卖 / 点赞 / 关注商品 / 事务局 / 其他，互斥）：
+    // **始终有且只有一项选中**——再点当前项不取消，否则会落到「无筛选」这个没有对应 chip
+    // 的状态，界面上看不出正在看什么。
+    function selectFilterChip(chip) {
+      if (filters.value.categories.includes(chip)) return
+      filters.value = { ...filters.value, categories: [chip] }
       onFilterChange()
     }
+
     function onPageChange(p) {
       page.value = p
       load()
@@ -254,7 +256,7 @@ export default defineComponent({
           t('notifications.syncResultTitle'),
           { type: 'success', confirmButtonText: t('dialog.confirmBtn') },
         )
-        await Promise.all([load(), loadKindOptions()])
+        await load()
       } catch (e) {
         syncHadError = true
         syncOverlayTitle.value = t('notifications.syncFailed')
@@ -333,11 +335,19 @@ export default defineComponent({
       return ''
     }
 
+    /** 打开详情/跳转即视为已读：读掉并把该行从视图移除（本页只列未读） */
+    function dropRowAsRead(row) {
+      row.is_read = 1
+      list.value = list.value.filter((r) => r.id !== row.id)
+      total.value = Math.max(0, total.value - 1)
+      loadChipCounts()
+    }
+
     function autoMarkRead(row) {
       if (row?.id && !row.is_read) {
-        notificationsApi.markRead([row.id], true).then(() => {
-          row.is_read = 1
-        }).catch(() => {})
+        notificationsApi.markRead([row.id], true)
+          .then(() => dropRowAsRead(row))
+          .catch(() => {})
       }
     }
 
@@ -393,12 +403,7 @@ export default defineComponent({
       markReadLoadingIds.value = next
       try {
         await notificationsApi.markRead([row.id], true)
-        row.is_read = 1
-        // 默认筛选「仅未读」时，该行需从列表中移除以保持视图一致
-        if (filters.value.only_unread) {
-          list.value = list.value.filter((r) => r.id !== row.id)
-          total.value = Math.max(0, total.value - 1)
-        }
+        dropRowAsRead(row)
       } catch (e) {
         ElMessage.error(e?.message || t('notifications.markReadFailed'))
       } finally {
@@ -408,49 +413,34 @@ export default defineComponent({
       }
     }
 
+    // 一键已读：读掉**当前分类下的全部未读**（后端按同一套筛选 UPDATE），
+    // 不只是当前这一页。读完已读行不再出现，等于不可逆，故先确认条数。
     async function onMarkAllRead() {
       if (markAllReadLoading.value) return
-      const ids = list.value.filter((r) => r?.id && !r.is_read).map((r) => r.id)
-      if (!ids.length) {
+      if (!total.value) {
         ElMessage.info(t('notifications.markAllReadEmpty'))
+        return
+      }
+      try {
+        await ElMessageBox.confirm(
+          t('notifications.markAllReadConfirmContent', { count: total.value }),
+          t('notifications.markAllReadConfirmTitle'),
+          { type: 'warning', confirmButtonText: t('dialog.confirmBtn'), cancelButtonText: t('common.cancel') },
+        )
+      } catch {
         return
       }
       markAllReadLoading.value = true
       try {
-        await notificationsApi.markRead(ids, true)
-        // 仅未读筛选时本页整体移除已读项;否则就地更新已读状态
-        if (filters.value.only_unread) {
-          const idSet = new Set(ids)
-          list.value = list.value.filter((r) => !idSet.has(r.id))
-          total.value = Math.max(0, total.value - ids.length)
-        } else {
-          list.value.forEach((r) => {
-            if (ids.includes(r.id)) r.is_read = 1
-          })
-        }
-        ElMessage.success(t('notifications.markAllReadDone', { count: ids.length }))
+        const res = await notificationsApi.markAllRead({
+          categories: filters.value.categories.join(',') || undefined,
+        })
+        ElMessage.success(t('notifications.markAllReadDone', { count: Number(res?.updated || 0) }))
+        await load()
       } catch (e) {
         ElMessage.error(e?.message || t('notifications.markReadFailed'))
       } finally {
         markAllReadLoading.value = false
-      }
-    }
-
-    async function onMarkUnread(row) {
-      if (!row?.id || !row.is_read) return
-      if (markReadLoadingIds.value.has(row.id)) return
-      const next = new Set(markReadLoadingIds.value)
-      next.add(row.id)
-      markReadLoadingIds.value = next
-      try {
-        await notificationsApi.markRead([row.id], false)
-        row.is_read = 0
-      } catch (e) {
-        ElMessage.error(e?.message || t('notifications.markUnreadFailed'))
-      } finally {
-        const after = new Set(markReadLoadingIds.value)
-        after.delete(row.id)
-        markReadLoadingIds.value = after
       }
     }
 
@@ -472,7 +462,7 @@ export default defineComponent({
       if (!row.is_read) {
         try {
           await notificationsApi.markRead([row.id], true)
-          row.is_read = 1
+          dropRowAsRead(row)
         } catch { /* 忽略 */ }
       }
     }
@@ -510,7 +500,6 @@ export default defineComponent({
     onMounted(() => {
       mercariAccountStore.ensureLoaded()
       syncLockStore.subscribe()
-      loadKindOptions()
       load()
     })
 
@@ -550,10 +539,11 @@ export default defineComponent({
       page,
       pageSize,
       filters,
-      platformFilterOptions,
+      categoryChips,
+      chipCounts,
+      chipCount,
       platformLabel,
       platformTagType,
-      kindOptions,
       syncLoading,
       markReadLoadingIds,
       markAllReadLoading,
@@ -563,10 +553,11 @@ export default defineComponent({
       syncProgressLabel,
       syncProgressTimer,
       listParams,
+      countParams,
+      loadChipCounts,
       load,
-      loadKindOptions,
       onFilterChange,
-      toggleFilterChip,
+      selectFilterChip,
       onPageChange,
       onPageSizeChange,
       runSync,
@@ -587,11 +578,11 @@ export default defineComponent({
       desiredPriceDialogNotificationId,
       extractBundleId,
       resolveItemId,
+      dropRowAsRead,
       autoMarkRead,
       onViewDetail,
       onMarkRead,
       onMarkAllRead,
-      onMarkUnread,
       onOpenTarget,
       kindLabel,
       kindTagType,

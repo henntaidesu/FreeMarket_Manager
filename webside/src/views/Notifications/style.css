@@ -3,14 +3,18 @@
   border-radius: 8px;
 }
 .search-row {
-  justify-content: space-between;
-  row-gap: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
 }
 .search-left-group {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .search-actions {
   display: flex;
@@ -18,8 +22,9 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+  margin-left: auto;
 }
-.search-left-group .search-filter-chip {
+.search-filter-chip {
   flex: 0 0 auto;
   white-space: nowrap;
   cursor: pointer;
@@ -40,17 +45,50 @@
   font-size: 13px;
   transition: all 0.2s ease;
 }
-.search-left-group .search-filter-chip:hover {
+.search-filter-chip:hover {
   border-color: var(--el-color-primary, #409eff);
   color: var(--el-color-primary, #409eff);
 }
-.search-left-group .search-filter-chip--active {
+.search-filter-chip--active {
   border-color: var(--el-color-primary, #409eff);
   background: var(--el-color-primary, #409eff);
   color: #fff;
 }
-.search-left-group .search-filter-chip--active:hover {
+.search-filter-chip--active:hover {
   color: #fff;
+}
+/* chip 上的条数：圆形徽标。
+   两位数以上时靠 min-width + 胶囊圆角自然撑成药丸，不会把数字裁掉。 */
+.search-filter-chip__count {
+  margin-left: 6px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--el-color-primary, #409eff);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+/* 0 条：压成灰色，避免一排「0」抢注意力 */
+.search-filter-chip__count--zero {
+  background: var(--el-text-color-disabled, #c0c4cc);
+  color: #fff;
+}
+/* 选中态 chip 本身是实心主色，徽标反色才看得清 */
+.search-filter-chip--active .search-filter-chip__count {
+  background: #fff;
+  color: var(--el-color-primary, #409eff);
+}
+.search-filter-chip--active .search-filter-chip__count--zero {
+  background: rgba(255, 255, 255, 0.55);
+  color: var(--el-color-primary, #409eff);
 }
 .table-card {
   border-radius: 8px;

@@ -3,7 +3,7 @@
 お知らせ通知查询：分页 + 多条件过滤；联表 mercari_accounts 取 account_name。
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from ....db_manage.database import DatabaseManager
 
@@ -37,54 +37,84 @@ _LIST_COLS = (
 # 顶置类型：合并购买请求 / 留言 永远排在列表最前
 _PINNED_KINDS = ("BundleRequestCreated", "Comment")
 
-# 事务局消息分组：kind 含 merpay 的通知（如 merpay-egp-ian-promotion）
-# 视同 PrivateMessage，随「事務局メッセージを表示」一起显示/隐藏。
+# 事务局消息分组：kind 含 merpay 的通知（如 merpay-egp-ian-promotion）视同 PrivateMessage。
 _PRIVATE_MESSAGE_KIND = "PrivateMessage"
-_MERPAY_LIKE = "%merpay%"
+
+# 前端顶部筛选 chip（互斥单选）的分类条件，与 /todos 的 _CATEGORY_CONDS 同构。
+#
+# 同一件事煤炉会派生出一串 kind 变体（Like / LikeV2、AuctionBidCreated /
+# AuctionDeadlineReminderXRemainingTime / AuctionCreatedLikerReminder …），只列举当前
+# 见过的值会让新变体默默掉进「其他」。故按 kind 前缀归族，只在前缀会误伤时才逐个列举：
+#   · ``Like%`` 会连 ``LikedItemReceiveComment`` 一起吃掉 → 点赞只认 Like / LikeV*（雅虎的
+#     いいね 是 YahooLike）
+#   · 字面量 ``%`` 由方言层转义（见 db_manage/dialects/_translate.py），无需拆成参数
+_COMMENT_COND = "IFNULL(n.[kind], '') LIKE 'Comment%'"
+_BUNDLE_COND = "IFNULL(n.[kind], '') LIKE 'Bundle%'"
+_DESIRED_PRICE_COND = "IFNULL(n.[kind], '') LIKE 'DesiredPrice%'"
+_AUCTION_COND = (
+    "(IFNULL(n.[kind], '') LIKE 'Auction%'"
+    " OR IFNULL(n.[kind], '') = 'FlashAuctionStartNotification')"
+)
+# 待支付：买家已下单未付款。注意不含 PaymentDone* / BillDone / TransactionPaymentDoneFunds，
+# 那些是「已支付完成」的事后通知，语义相反，留在「其他」。
+_WAIT_PAYMENT_COND = "IFNULL(n.[kind], '') LIKE 'WaitPayment%'"
+_LIKE_COND = (
+    "(IFNULL(n.[kind], '') IN ('Like', 'YahooLike')"
+    " OR IFNULL(n.[kind], '') LIKE 'LikeV%')"
+)
+_LIKED_ITEM_COND = (
+    "IFNULL(n.[kind], '') IN ('LikedItemReceiveComment', 'PriceDropMessageV2')"
+)
+# 事务局：PrivateMessage 系（含 PrivateMessageCustomTitle）、所有 kind 含 merpay 的
+# 推广/Merpay 通知，以及事務局からの一斉連絡与客服回复。
+_BUREAU_COND = (
+    f"(IFNULL(n.[kind], '') LIKE '{_PRIVATE_MESSAGE_KIND}%'"
+    " OR LOWER(IFNULL(n.[kind], '')) LIKE '%merpay%'"
+    " OR IFNULL(n.[kind], '') IN ('AdminBulkContact', 'AgentReplied'))"
+)
+
+#: chip → WHERE 条件。「其他」= 以上八类都不是（如支付完成、未知的 Yahoo:* 类型）。
+_NAMED_CATEGORY_CONDS = {
+    "comment": _COMMENT_COND,
+    "bundle": _BUNDLE_COND,
+    "desired_price": _DESIRED_PRICE_COND,
+    "auction": _AUCTION_COND,
+    "wait_payment": _WAIT_PAYMENT_COND,
+    "like": _LIKE_COND,
+    "liked_item": _LIKED_ITEM_COND,
+    "bureau": _BUREAU_COND,
+}
+
+_CATEGORY_CONDS = {
+    **_NAMED_CATEGORY_CONDS,
+    # 由具名分类取反生成：新增一个 chip 只需往上面加一行，「其他」自动收窄，
+    # 不会出现漏改导致某类同时出现在两个 chip 里。
+    "other": " AND ".join(f"NOT ({c})" for c in _NAMED_CATEGORY_CONDS.values()),
+}
 
 
-def _split_kinds(raw: Optional[str]) -> List[str]:
-    """逗号分隔的 kind 串 → 去重去空白后的 list（顺序保留）。"""
-    if not raw:
-        return []
-    out: List[str] = []
-    seen = set()
-    for part in str(raw).split(","):
-        s = part.strip()
-        if s and s not in seen:
-            seen.add(s)
-            out.append(s)
-    return out
-
-
-def list_notifications(
+def _build_notification_where(
+    *,
     account_id: Optional[int] = None,
     kind: Optional[str] = None,
     keyword: Optional[str] = None,
     only_unread: bool = False,
-    exclude_kinds: Optional[str] = None,
-    page: int = 1,
-    page_size: int = 20,
+    categories: Optional[str] = None,
     platform: Optional[str] = None,
-) -> Dict[str, Any]:
-    """
-    分页列出本地 ``notifications``，附 ``account_name``。
+) -> Tuple[str, List[Any]]:
+    """拼 ``notifications n`` 的 WHERE（含参数）。
 
-    - ``only_unread=True`` 仅显示未读（``is_read=0``）
-    - ``keyword`` 匹配 message / item_id / item_name
-    - ``exclude_kinds`` 逗号分隔串，排除指定 kind（默认不应用，前端控制；
-      若与 ``kind`` 过滤的值重叠，``kind`` 优先生效）
-    - 排序：顶置 ``BundleRequestCreated`` / ``Comment`` → mercari_created DESC → id DESC
+    列表与顶部筛选计数共用这一处：计数若另写一套条件，数字和点进去看到的行数迟早对不上。
     """
-    db = DatabaseManager()
-    page = max(1, int(page or 1))
-    page_size = max(1, min(int(page_size or 20), 200))
-
     where = ["1=1"]
     params: List[Any] = []
     if only_unread:
         # is_read 为 NOT NULL DEFAULT 0，等价于 COALESCE(...,0)=0，但裸列比较可命中索引
         where.append("n.[is_read] = 0")
+    if categories:
+        cats = [c.strip() for c in str(categories).split(",") if c.strip() in _CATEGORY_CONDS]
+        if cats:
+            where.append("(" + " OR ".join(f"({_CATEGORY_CONDS[c]})" for c in cats) + ")")
     if account_id is not None:
         where.append("n.[account_id] = ?")
         params.append(int(account_id))
@@ -96,28 +126,9 @@ def list_notifications(
         else:
             where.append("TRIM(n.[platform]) = TRIM(?)")
             params.append(plat)
-    selected_kind = str(kind).strip() if kind else ""
-    if selected_kind == _PRIVATE_MESSAGE_KIND:
-        # 事务局消息分组：精确 PrivateMessage 或 kind 含 merpay 的都算
-        where.append("(n.[kind] = ? OR LOWER(IFNULL(n.[kind], '')) LIKE ?)")
-        params.extend([selected_kind, _MERPAY_LIKE])
-    elif selected_kind:
+    if kind and str(kind).strip():
         where.append("n.[kind] = ?")
-        params.append(selected_kind)
-    else:
-        ex_list = _split_kinds(exclude_kinds)
-        if ex_list:
-            placeholders = ",".join(["?"] * len(ex_list))
-            where.append(
-                f"(n.[kind] IS NULL OR n.[kind] NOT IN ({placeholders}))"
-            )
-            params.extend(ex_list)
-            if _PRIVATE_MESSAGE_KIND in ex_list:
-                # 排除事务局消息时，kind 含 merpay 的一并排除
-                where.append(
-                    "(n.[kind] IS NULL OR LOWER(n.[kind]) NOT LIKE ?)"
-                )
-                params.append(_MERPAY_LIKE)
+        params.append(str(kind).strip())
     if keyword:
         kw = f"%{str(keyword).strip()}%"
         where.append(
@@ -126,8 +137,70 @@ def list_notifications(
             "OR IFNULL(n.[item_name], '') LIKE ?)"
         )
         params.extend([kw, kw, kw])
+    return " AND ".join(where), params
 
-    where_sql = " AND ".join(where)
+
+def count_notifications_by_chip(
+    account_id: Optional[int] = None,
+    kind: Optional[str] = None,
+    keyword: Optional[str] = None,
+    only_unread: bool = False,
+    platform: Optional[str] = None,
+) -> Dict[str, int]:
+    """每个顶部筛选 chip 各自的条数。
+
+    只套用**非分类**的筛选（账号 / 平台 / 关键字 / kind / 仅未读）——当前选中了哪个
+    chip 不影响其余 chip 的计数，否则选中一个后其他全变 0，就没法据此切换了。
+    """
+    db = DatabaseManager()
+    out: Dict[str, int] = {}
+    for chip in _CATEGORY_CONDS:
+        where_sql, params = _build_notification_where(
+            account_id=account_id,
+            kind=kind,
+            keyword=keyword,
+            only_unread=only_unread,
+            categories=chip,
+            platform=platform,
+        )
+        rows = db.execute_query(
+            f"SELECT COUNT(*) FROM [notifications] n WHERE {where_sql}", tuple(params)
+        )
+        out[chip] = int(rows[0][0]) if rows and rows[0] else 0
+    return out
+
+
+def list_notifications(
+    account_id: Optional[int] = None,
+    kind: Optional[str] = None,
+    keyword: Optional[str] = None,
+    only_unread: bool = False,
+    categories: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 20,
+    platform: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    分页列出本地 ``notifications``，附 ``account_name``。
+
+    - ``only_unread=True`` 仅显示未读（``is_read=0``）
+    - ``keyword`` 匹配 message / item_id / item_name
+    - ``categories`` 逗号分隔的分类筛选（见 ``_CATEGORY_CONDS``），多个取并集；
+      为空（默认）不做分类过滤，全部显示
+    - 排序：顶置 ``BundleRequestCreated`` / ``Comment`` → mercari_created DESC → id DESC
+    """
+    db = DatabaseManager()
+    page = max(1, int(page or 1))
+    page_size = max(1, min(int(page_size or 20), 200))
+
+    where_sql, params = _build_notification_where(
+        account_id=account_id,
+        kind=kind,
+        keyword=keyword,
+        only_unread=only_unread,
+        categories=categories,
+        platform=platform,
+    )
     total = db.execute_query(
         f"SELECT COUNT(*) FROM [notifications] n WHERE {where_sql}",
         tuple(params),
@@ -199,17 +272,33 @@ def mark_read(ids: List[int], is_read: bool = True) -> Dict[str, Any]:
     return {"updated": int(affected or 0)}
 
 
-def mark_all_read(account_id: Optional[int] = None) -> Dict[str, Any]:
-    """把某账号（或全部）未读通知标记为已读。"""
+def mark_all_read(
+    account_id: Optional[int] = None,
+    kind: Optional[str] = None,
+    keyword: Optional[str] = None,
+    categories: Optional[str] = None,
+    platform: Optional[str] = None,
+) -> Dict[str, Any]:
+    """把**当前筛选命中**的所有未读通知标记为已读，返回受影响行数。
+
+    与列表共用 ``_build_notification_where``：按钮的作用范围必须等于用户眼前那个筛选，
+    翻到第几页、每页多少条只是显示细节，不该改变「一键已读」读掉哪些行。
+    ``only_unread`` 在这里恒为 True——已读的行不必再写一次，行数也才等于真正被改的条数。
+
+    不传任何筛选（全 None）时即「全部未读」，与改动前的行为一致。
+    """
+    where_sql, params = _build_notification_where(
+        account_id=account_id,
+        kind=kind,
+        keyword=keyword,
+        only_unread=True,
+        categories=categories,
+        platform=platform,
+    )
+    # 别名 n 供 WHERE 引用；SET 左侧必须是未限定列名（SQLite 不接受 n.[is_read]）
     db = DatabaseManager()
-    if account_id is not None:
-        affected = db.execute_update(
-            "UPDATE [notifications] SET [is_read] = 1 "
-            "WHERE [account_id] = ? AND COALESCE([is_read], 0) = 0",
-            (int(account_id),),
-        )
-    else:
-        affected = db.execute_update(
-            "UPDATE [notifications] SET [is_read] = 1 WHERE COALESCE([is_read], 0) = 0"
-        )
+    affected = db.execute_update(
+        f"UPDATE [notifications] AS n SET [is_read] = 1 WHERE {where_sql}",
+        tuple(params),
+    )
     return {"updated": int(affected or 0)}
