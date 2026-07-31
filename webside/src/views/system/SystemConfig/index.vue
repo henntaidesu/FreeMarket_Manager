@@ -1,6 +1,58 @@
 <template>
   <div class="sysconf-page">
     <div class="sysconf-grid">
+    <!-- 账号管理 + 修改我的密码：并排一行（用户表列多，占 2/3 宽） -->
+    <div class="account-row">
+    <el-card shadow="never" class="sysconf-card account-card">
+      <template #header>
+        <div class="card-head">
+          <span class="card-title">{{ t('system.accountManagement') }}</span>
+          <el-button type="primary" size="small" @click="openUserDialog">
+            <el-icon><Plus /></el-icon> {{ t('system.addUser') }}
+          </el-button>
+        </div>
+      </template>
+      <el-table :data="users" v-loading="usersLoading" stripe>
+        <el-table-column prop="id" label="ID" width="70" />
+        <el-table-column prop="username" :label="t('system.username')" min-width="120" />
+        <el-table-column prop="display_name" :label="t('system.displayName')" min-width="140" />
+        <el-table-column :label="t('common.status')" width="90" align="center">
+          <template #default="{ row }">
+            <el-tag :type="row.is_active ? 'success' : 'danger'" size="small">
+              {{ row.is_active ? t('common.enabled') : t('common.disabled') }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="last_login_at" :label="t('system.lastLoginAt')" min-width="160" />
+        <el-table-column prop="created_at" :label="t('common.createdAt')" min-width="160" />
+      </el-table>
+    </el-card>
+
+    <!-- 修改我的密码 -->
+    <el-card shadow="never" class="sysconf-card">
+      <template #header>
+        <div class="card-title">{{ t('system.changeMyPassword') }}</div>
+      </template>
+      <el-form ref="pwdFormRef" :model="pwdForm" :rules="pwdRules" label-width="90px">
+        <el-form-item :label="t('system.oldPassword')" prop="old_password">
+          <el-input v-model="pwdForm.old_password" type="password" show-password />
+        </el-form-item>
+        <el-form-item :label="t('system.newPassword')" prop="new_password">
+          <el-input v-model="pwdForm.new_password" type="password" show-password />
+        </el-form-item>
+        <el-form-item :label="t('system.confirmPassword')" prop="confirm_password">
+          <el-input v-model="pwdForm.confirm_password" type="password" show-password />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="pwdSubmitting" @click="submitPassword">
+            {{ t('system.changePassword') }}
+          </el-button>
+        </el-form-item>
+      </el-form>
+      <div class="hint-tip">{{ t('system.pwdTip') }}</div>
+    </el-card>
+    </div>
+
     <!-- DeepSeek AI 配置 -->
     <el-card shadow="never" class="sysconf-card" v-loading="loading">
       <template #header>
@@ -74,7 +126,7 @@
       </el-form>
     </el-card>
 
-    <!-- 数据库管理 -->
+    <!-- 数据库管理（连接 / 切换 + 备份） -->
     <el-card shadow="never" class="sysconf-card db-card">
       <template #header>
         <div class="card-head">
@@ -85,7 +137,15 @@
         </div>
       </template>
 
-      <el-form label-width="110px" class="mt" @submit.prevent>
+      <div class="db-tabs">
+        <el-radio-group v-model="dbPane" size="small">
+          <el-radio-button label="connect">连接 / 切换</el-radio-button>
+          <el-radio-button label="backup">备份</el-radio-button>
+        </el-radio-group>
+      </div>
+
+      <!-- v-show 而非 v-if：来回切换时两边已填的表单不丢 -->
+      <el-form v-show="dbPane === 'connect'" label-width="110px" @submit.prevent>
         <el-form-item label="使用数据库">
           <el-radio-group v-model="dbForm.backend">
             <el-radio-button label="sqlite">SQLite（默认）</el-radio-button>
@@ -155,14 +215,8 @@
           </span>
         </el-form-item>
       </el-form>
-    </el-card>
 
-    <!-- 数据库备份 -->
-    <el-card shadow="never" class="sysconf-card db-card">
-      <template #header>
-        <div class="card-title">数据库备份</div>
-      </template>
-      <el-form label-width="110px" class="mt" @submit.prevent>
+      <el-form v-show="dbPane === 'backup'" label-width="110px" @submit.prevent>
         <el-form-item label="主机">
           <el-input v-model="backup.host" style="max-width:360px" />
         </el-form-item>
@@ -191,6 +245,81 @@
         </el-form-item>
       </el-form>
     </el-card>
+
+    <!-- 二维码打印参数：存 localStorage（跟随浏览器，蓝牙配对本身也是按浏览器授权的） -->
+    <el-card shadow="never" class="sysconf-card">
+      <template #header>
+        <div class="card-title">{{ t('qrPrint.paramsSection') }}</div>
+      </template>
+      <el-form label-width="120px" class="qrprint-form" @submit.prevent>
+        <el-form-item :label="t('qrPrint.labelSize')">
+          <el-input-number v-model="printerCfg.labelWmm" :min="10" :max="100" :controls="false" class="qrprint-num" @change="savePrinterCfg" />
+          <span class="qrprint-sep">×</span>
+          <el-input-number v-model="printerCfg.labelHmm" :min="10" :max="100" :controls="false" class="qrprint-num" @change="savePrinterCfg" />
+          <span class="qrprint-unit">mm</span>
+        </el-form-item>
+        <el-form-item :label="t('qrPrint.headWidth')">
+          <el-input-number v-model="printerCfg.headMm" :min="20" :max="110" :controls="false" class="qrprint-num" @change="savePrinterCfg" />
+          <span class="qrprint-unit">mm</span>
+        </el-form-item>
+        <el-form-item label="DPI">
+          <el-input-number v-model="printerCfg.dpi" :min="100" :max="600" :controls="false" class="qrprint-num" @change="savePrinterCfg" />
+        </el-form-item>
+        <el-form-item :label="t('qrPrint.chunk')">
+          <el-input-number v-model="printerCfg.chunk" :min="20" :max="512" :controls="false" class="qrprint-num" @change="savePrinterCfg" />
+          <span class="qrprint-unit">{{ t('qrPrint.chunkUnit') }}</span>
+        </el-form-item>
+        <el-form-item :label="t('qrPrint.feed')">
+          <el-input-number v-model="printerCfg.feedMm" :min="0" :max="60" :controls="false" class="qrprint-num" @change="savePrinterCfg" />
+          <span class="qrprint-unit">mm</span>
+        </el-form-item>
+        <el-form-item :label="t('qrPrint.density')">
+          <el-input-number v-model="printerCfg.density" :min="1" :max="31" :controls="false" class="qrprint-num" @change="savePrinterCfg" />
+        </el-form-item>
+        <el-form-item :label="t('qrPrint.threshold')">
+          <el-input-number v-model="printerCfg.threshold" :min="10" :max="245" :controls="false" class="qrprint-num" @change="savePrinterCfg" />
+        </el-form-item>
+      </el-form>
+    </el-card>
+
+    <!-- 打印机连接：连接 / 测试打印 / 忘记设备 -->
+    <el-card shadow="never" class="sysconf-card">
+      <template #header>
+        <div class="card-head">
+          <span class="card-title">{{ t('qrPrint.connSection') }}</span>
+          <el-tag :type="printerState.connected ? 'success' : 'info'" effect="dark">
+            {{ printerState.connected ? t('qrPrint.connected') : t('qrPrint.disconnected') }}
+          </el-tag>
+        </div>
+      </template>
+      <el-form label-width="120px" @submit.prevent>
+        <el-form-item :label="t('qrPrint.device')">
+          <span>{{ printerState.deviceName || t('qrPrint.noDevice') }}</span>
+        </el-form-item>
+        <!-- 免弹框自动重连：需浏览器支持 getDevices（Chrome/Edge 持久化蓝牙授权） -->
+        <el-form-item :label="t('qrPrint.autoReconnect')">
+          <span :class="autoReconnectOk ? 'qrprint-ok' : 'qrprint-warn'">
+            {{ autoReconnectOk ? t('qrPrint.autoReconnectOk') : t('qrPrint.autoReconnectNo') }}
+          </span>
+        </el-form-item>
+        <!-- 整表发现出多个可写特征时才显示，默认自动选第一个并持久化 -->
+        <el-form-item v-if="printerState.writableChars.length > 1" :label="t('qrPrint.writeChar')">
+          <el-select :model-value="printerState.charUuid" style="width: 100%; max-width: 480px" @change="onPickChar">
+            <el-option
+              v-for="c in printerState.writableChars"
+              :key="c.uuid"
+              :label="c.uuid + '  [' + c.flags + ']'"
+              :value="c.uuid"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label=" ">
+          <el-button type="primary" :loading="connecting" @click="onConnect">{{ t('qrPrint.connect') }}</el-button>
+          <el-button :loading="qrTesting" @click="onQrTest">{{ t('qrPrint.testPrint') }}</el-button>
+          <el-button type="danger" plain @click="onForget">{{ t('qrPrint.forget') }}</el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
     </div>
 
     <el-card v-if="migrateSummary.length" shadow="never" class="sysconf-card summary-card">
@@ -210,6 +339,24 @@
         </el-table-column>
       </el-table>
     </el-card>
+
+    <el-dialog v-model="userDialogVisible" :title="t('system.addUser')" width="420px" destroy-on-close>
+      <el-form ref="userFormRef" :model="userForm" :rules="userRules" label-width="90px">
+        <el-form-item :label="t('system.username')" prop="username">
+          <el-input v-model="userForm.username" />
+        </el-form-item>
+        <el-form-item :label="t('system.displayName')">
+          <el-input v-model="userForm.display_name" />
+        </el-form-item>
+        <el-form-item :label="t('system.password')" prop="password">
+          <el-input v-model="userForm.password" type="password" show-password />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="userDialogVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="userSubmitting" @click="submitUser">{{ t('common.create') }}</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -217,9 +364,21 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
+import { Plus } from '@element-plus/icons-vue'
 import { ElMessage } from '@/utils/notify'
-import { configApi } from '@/api/index.js'
+import { authApi, configApi } from '@/api/index.js'
 import { databaseApi } from '@/api/database'
+import {
+  printTestLabel,
+  loadPrinterConfig,
+  savePrinterConfig,
+  isBluetoothSupported,
+  supportsAutoReconnect,
+  getPrinterState,
+  connectPrinter,
+  pickWriteChar,
+  forgetPrinter,
+} from '@/utils/btPrinter/index.js'
 import {
   MERCARI_AREAS,
   JP_REGION_OPTIONS,
@@ -228,6 +387,91 @@ import {
 } from '@/constants/mercariJapanAreas.js'
 
 const { t } = useI18n()
+
+// ===== 账号管理（用户列表 / 新建用户 / 改密码，原「系统总览」页并入）=====
+const users = ref([])
+const usersLoading = ref(false)
+
+const userDialogVisible = ref(false)
+const userSubmitting = ref(false)
+const userFormRef = ref()
+const userForm = reactive({
+  username: '',
+  display_name: '',
+  password: ''
+})
+const userRules = {
+  username: [{ required: true, message: t('login.usernameRequired'), trigger: 'blur' }],
+  password: [{ required: true, message: t('login.passwordRequired'), trigger: 'blur' }, { min: 6, message: t('system.passwordMin6'), trigger: 'blur' }]
+}
+
+const pwdSubmitting = ref(false)
+const pwdFormRef = ref()
+const pwdForm = reactive({
+  old_password: '',
+  new_password: '',
+  confirm_password: ''
+})
+const pwdRules = {
+  old_password: [{ required: true, message: t('system.oldPasswordRequired'), trigger: 'blur' }],
+  new_password: [{ required: true, message: t('system.newPasswordRequired'), trigger: 'blur' }, { min: 6, message: t('system.newPasswordMin6'), trigger: 'blur' }],
+  confirm_password: [
+    { required: true, message: t('system.confirmPasswordRequired'), trigger: 'blur' },
+    {
+      validator: (rule, value, callback) => {
+        if (value !== pwdForm.new_password) callback(new Error(t('validation.passwordMismatch')))
+        else callback()
+      },
+      trigger: 'blur'
+    }
+  ]
+}
+
+async function loadUsers() {
+  usersLoading.value = true
+  try {
+    users.value = await authApi.listUsers()
+  } finally {
+    usersLoading.value = false
+  }
+}
+
+function openUserDialog() {
+  userForm.username = ''
+  userForm.display_name = ''
+  userForm.password = ''
+  userDialogVisible.value = true
+}
+
+async function submitUser() {
+  await userFormRef.value.validate()
+  userSubmitting.value = true
+  try {
+    await authApi.createUser(userForm)
+    ElMessage.success(t('system.userCreatedSuccess'))
+    userDialogVisible.value = false
+    await loadUsers()
+  } finally {
+    userSubmitting.value = false
+  }
+}
+
+async function submitPassword() {
+  await pwdFormRef.value.validate()
+  pwdSubmitting.value = true
+  try {
+    await authApi.changePassword({
+      old_password: pwdForm.old_password,
+      new_password: pwdForm.new_password
+    })
+    ElMessage.success(t('system.passwordChangedSuccess'))
+    localStorage.removeItem('auth_token')
+    localStorage.removeItem('auth_user')
+    window.location.hash = '#/login'
+  } finally {
+    pwdSubmitting.value = false
+  }
+}
 
 // ===== DeepSeek AI 配置 =====
 const loading = ref(false)
@@ -300,9 +544,8 @@ const shippingPayerOptions = computed(() => [
 ])
 const shippingMethodOptions = computed(() => [
   { label: t('system.shippingMethodUndecided'), value: 'undecided' },
-  { label: 'らくらくメルカリ便', value: 'rakuraku' },
-  { label: 'ゆうゆうメルカリ便', value: 'yuuyu' },
-  { label: t('system.shippingMethodRegularMail'), value: 'regular_mail' }
+  { label: t('system.shippingMethodRakuraku'), value: 'rakuraku' },
+  { label: t('system.shippingMethodYuuyu'), value: 'yuuyu' }
 ])
 const shippingDaysOptions = computed(() => [
   { label: t('system.shippingDays12'), value: '1_2_days' },
@@ -381,6 +624,8 @@ async function saveListingDefaults() {
 }
 
 // ===== 数据库管理 =====
+/** 数据库卡片内的分栏：connect = 连接/切换，backup = 备份 */
+const dbPane = ref('connect')
 const activeBackend = ref('sqlite')
 const passwordSet = ref(false)
 const testing = ref(false)
@@ -544,7 +789,81 @@ async function onSwitch() {
   }
 }
 
+// ===== 二维码打印（参数存 localStorage，无后端；原「二维码设置」页并入）=====
+// testing / onTest 已被上面的数据库测试连接占用，这里一律加 qr 前缀
+const printerCfg = reactive(loadPrinterConfig())
+const printerState = ref(getPrinterState())
+const connecting = ref(false)
+const qrTesting = ref(false)
+const autoReconnectOk = supportsAutoReconnect()
+
+function savePrinterCfg() {
+  savePrinterConfig({
+    labelWmm: Number(printerCfg.labelWmm) || 30,
+    labelHmm: Number(printerCfg.labelHmm) || 30,
+    headMm: Number(printerCfg.headMm) || 48,
+    dpi: Number(printerCfg.dpi) || 203,
+    chunk: Number(printerCfg.chunk) || 180,
+    feedMm: Math.max(0, Number(printerCfg.feedMm) || 0),
+    density: Number(printerCfg.density) || 10,
+    threshold: Number(printerCfg.threshold) || 128,
+  })
+  ElMessage.success(t('qrPrint.saved'))
+}
+
+function checkBtSupported() {
+  if (isBluetoothSupported()) return true
+  ElMessage.error(t('qrPrint.notSupported'))
+  return false
+}
+
+async function onConnect() {
+  if (!checkBtSupported()) return
+  connecting.value = true
+  try {
+    printerState.value = await connectPrinter()
+    ElMessage.success(t('qrPrint.connectOk'))
+  } catch (e) {
+    // 仅「用户点了取消」不当作错误；GATT 服务发现失败同为 NotFoundError，须提示
+    const isCancel = e?.name === 'NotFoundError' && /cancel/i.test(String(e?.message || ''))
+    if (!isCancel) {
+      ElMessage.error(t('qrPrint.connectFail') + ': ' + (e?.message || e))
+    }
+  } finally {
+    connecting.value = false
+  }
+}
+
+async function onQrTest() {
+  if (!checkBtSupported()) return
+  qrTesting.value = true
+  try {
+    await printTestLabel()
+    printerState.value = getPrinterState()
+    ElMessage.success(t('qrPrint.testSent'))
+  } catch (e) {
+    const isCancel = e?.name === 'NotFoundError' && /cancel/i.test(String(e?.message || ''))
+    if (!isCancel) {
+      ElMessage.error(t('qrPrint.testFail') + ': ' + (e?.message || e))
+    }
+  } finally {
+    qrTesting.value = false
+  }
+}
+
+function onPickChar(uuid) {
+  pickWriteChar(uuid)
+  printerState.value = getPrinterState()
+}
+
+function onForget() {
+  forgetPrinter()
+  printerState.value = getPrinterState()
+  ElMessage.success(t('qrPrint.forgotten'))
+}
+
 onMounted(() => {
+  loadUsers()
   load()
   loadListingDefaults()
   loadDbConfig()
@@ -553,7 +872,7 @@ onMounted(() => {
 
 <style scoped>
 .sysconf-page {
-  max-width: 1500px;
+  width: 100%;
 }
 .sysconf-grid {
   display: grid;
@@ -571,7 +890,26 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
 }
-.mt {
+/* 账号管理 + 修改我的密码 并排：整行独占，用户表 6 列吃 2/3 宽（挤在 440px 网格列里会串行） */
+.account-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .account-row {
+    grid-template-columns: 1fr;
+  }
+}
+/* 数据库卡片内「连接/切换」与「备份」两套表单的切换按钮 */
+.db-tabs {
+  margin-bottom: 16px;
+}
+.hint-tip {
+  font-size: 12px;
+  color: #94a3b8;
   margin-top: 8px;
 }
 .test-result {
@@ -583,5 +921,28 @@ onMounted(() => {
 }
 .port-input :deep(.el-input__inner) {
   text-align: left;
+}
+.qrprint-form {
+  max-width: 640px;
+}
+.qrprint-num {
+  width: 100px;
+}
+.qrprint-num :deep(.el-input__inner) {
+  text-align: left;
+}
+.qrprint-sep {
+  margin: 0 6px;
+  color: var(--el-text-color-secondary);
+}
+.qrprint-unit {
+  margin-left: 6px;
+  color: var(--el-text-color-secondary);
+}
+.qrprint-ok {
+  color: var(--el-color-success);
+}
+.qrprint-warn {
+  color: var(--el-color-warning);
 }
 </style>

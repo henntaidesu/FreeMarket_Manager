@@ -335,7 +335,10 @@
                   :value="opt.value"
                 >
                   <span>{{ opt.label }}</span>
-                  <el-tag v-if="opt.yahooReady === false" size="small" type="info" class="pt-yahoo-flag">
+                  <el-tag v-if="opt.mercariReady === false" size="small" type="info" class="pt-platform-flag">
+                    {{ t('inventory.mercariUnmapped') }}
+                  </el-tag>
+                  <el-tag v-if="opt.yahooReady === false" size="small" type="info" class="pt-platform-flag">
                     {{ t('inventory.yahooUnmapped') }}
                   </el-tag>
                 </el-option>
@@ -553,7 +556,10 @@
                   :value="opt.value"
                 >
                   <span>{{ opt.label }}</span>
-                  <el-tag v-if="opt.yahooReady === false" size="small" type="info" class="pt-yahoo-flag">
+                  <el-tag v-if="opt.mercariReady === false" size="small" type="info" class="pt-platform-flag">
+                    {{ t('inventory.mercariUnmapped') }}
+                  </el-tag>
+                  <el-tag v-if="opt.yahooReady === false" size="small" type="info" class="pt-platform-flag">
                     {{ t('inventory.yahooUnmapped') }}
                   </el-tag>
                 </el-option>
@@ -1168,7 +1174,7 @@
                     <el-button
                       type="success"
                       :loading="listingSubmitting"
-                      :disabled="inventorySaveBlockedByImageUpload || listableQuantity(form) <= 0 || currentEditRowIsAlert || !hasListingAccountFor('mercari')"
+                      :disabled="inventorySaveBlockedByImageUpload || listableQuantity(form) <= 0 || currentEditRowIsAlert || !hasListingAccountFor('mercari') || !currentTypeMercariReady"
                     >{{ t('inventory.listSubmitMercari') }}</el-button>
                   </template>
                 </el-popconfirm>
@@ -1184,7 +1190,7 @@
                     <el-button
                       type="success"
                       :loading="listingSubmitting"
-                      :disabled="inventorySaveBlockedByImageUpload || listableQuantity(form) <= 0 || currentEditRowIsAlert || !hasListingAccountFor('yahoo')"
+                      :disabled="inventorySaveBlockedByImageUpload || listableQuantity(form) <= 0 || currentEditRowIsAlert || !hasListingAccountFor('yahoo') || !currentTypeYahooReady || shippingFromIsUndecided"
                     >{{ t('inventory.listSubmitYahoo') }}</el-button>
                   </template>
                 </el-popconfirm>

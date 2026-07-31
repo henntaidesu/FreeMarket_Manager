@@ -1088,9 +1088,9 @@ export default defineComponent({
       printQrImage(mercariImageUrl(detail.qr_image_url))
     }
 
-    /** 打印机参数/连接管理统一在 系统管理 → 二维码设置 页调整 */
+    /** 打印机参数/连接管理统一在 系统管理 → 系统配置 页调整 */
     function openPrinterSettings() {
-      router.push('/system/qr-print')
+      router.push('/system/config')
     }
 
     // 是否「已打包」行（待发货 + 已发行发货二维码/条形码）。与 kindLabel 的「已打包」判定一致：

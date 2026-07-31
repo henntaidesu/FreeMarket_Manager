@@ -12,6 +12,7 @@
 export { default as http } from './http'
 
 export { authApi } from './auth'
+export { dashboardApi } from './dashboard'
 export { categoryApi } from './categories'
 export { warehouseApi } from './warehouses'
 export { productTypeApi, productTypeCategoryMappingApi, yahooCategoryMappingApi } from './product_types'

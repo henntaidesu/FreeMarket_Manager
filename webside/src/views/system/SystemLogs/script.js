@@ -1,7 +1,5 @@
 import { defineComponent, ref, onMounted, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessageBox } from 'element-plus'
-import { ElMessage } from '@/utils/notify'
 import { systemLogApi, shopAccountApi } from '@/api/index.js'
 import { formatUnixSecLocal } from '@/utils/timeDisplay.js'
 
@@ -61,22 +59,6 @@ export default defineComponent({
       }
     }
 
-    async function clearLogs() {
-      try {
-        await ElMessageBox.confirm(t('system.logClearConfirm'), t('common.warning'), {
-          type: 'warning',
-          confirmButtonText: t('common.confirm'),
-          cancelButtonText: t('common.cancel')
-        })
-      } catch {
-        return
-      }
-      await systemLogApi.clear()
-      ElMessage.success(t('system.logClearSuccess'))
-      page.value = 1
-      load()
-    }
-
     onMounted(async () => {
       try {
         const res = await shopAccountApi.list({ page: 1, page_size: 500 })
@@ -102,7 +84,6 @@ export default defineComponent({
       load,
       onFilterChange,
       detailText,
-      clearLogs,
     }
   },
 })

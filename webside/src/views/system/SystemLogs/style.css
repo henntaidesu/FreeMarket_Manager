@@ -1,7 +1,6 @@
 .search-card { margin-bottom: 16px; border-radius: 8px; }
 .search-row { justify-content: space-between; }
 .search-left-group { display: flex; align-items: center; gap: 20px; }
-.search-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .table-card { border-radius: 8px; }
 .pagination { margin-top: 16px; display: flex; justify-content: flex-end; }
 .log-detail {

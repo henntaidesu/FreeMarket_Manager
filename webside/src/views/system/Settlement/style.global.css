@@ -1,0 +1,14 @@
+/* 弹窗内部结构（.el-dialog__*）属于 ElDialog 自己的作用域，只能用全局样式命中 */
+.settlement-detail-dialog {
+  max-width: 1440px;
+}
+.settlement-detail-dialog .el-dialog__body {
+  padding: 12px 20px 20px;
+  max-height: 76vh;
+  overflow-y: auto;
+}
+.settlement-detail-dialog .el-dialog__header {
+  margin-right: 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #28354a;
+}

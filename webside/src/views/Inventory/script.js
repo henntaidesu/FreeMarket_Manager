@@ -27,6 +27,7 @@ import {
   getRegionIdForAreaId,
   normalizeShippingFromSeed
 } from '@/constants/mercariJapanAreas.js'
+import { MERCARI_UNDECIDED_AREA_ID } from '@/composables/useListingPlatform.js'
 
 export default defineComponent({
   components: {
@@ -1423,7 +1424,8 @@ export default defineComponent({
     /** 商品类型是扁平列表（映射表一行一个类型），下拉直接用类型名 */
     const productTypeTreeMeta = computed(() => {
       const options = []
-      // 该商品类型在雅虎侧是否配好了分类点选位置
+      // 该商品类型在各平台侧是否配好了分类点选位置
+      const mercariReadyById = new Map()
       const yahooReadyById = new Map()
       for (const m of (listingCategoryMappings.value || [])) {
         const idRaw = String(m?.mapping_id ?? '').trim()
@@ -1431,13 +1433,22 @@ export default defineComponent({
         if (!idRaw || !typeName) continue
         const id = Number(idRaw)
         if (!Number.isFinite(id)) continue
+        const mercariReady = Array.isArray(m?.mercari_category_positions) && m.mercari_category_positions.length > 0
         const yahooReady = Array.isArray(m?.yahoo_category_positions) && m.yahoo_category_positions.length > 0
+        mercariReadyById.set(id, mercariReady)
         yahooReadyById.set(id, yahooReady)
-        options.push({ value: id, label: typeName, yahooReady })
+        options.push({ value: id, label: typeName, mercariReady, yahooReady })
       }
       options.sort((a, b) => a.label.localeCompare(b.label, 'zh-Hans-CN'))
-      return { options, yahooReadyById }
+      return { options, mercariReadyById, yahooReadyById }
     })
+
+    /** 该商品类型是否可出品到煤炉（映射表里配了 mercari_category_positions） */
+    function mercariReadyForMapping(mappingId) {
+      const id = Number(mappingId)
+      if (!Number.isFinite(id)) return false
+      return productTypeTreeMeta.value.mercariReadyById.get(id) === true
+    }
 
     /** 该商品类型是否可出品到雅虎（映射表里配了 yahoo_category_positions） */
     function yahooReadyForMapping(mappingId) {
@@ -1445,6 +1456,15 @@ export default defineComponent({
       if (!Number.isFinite(id)) return false
       return productTypeTreeMeta.value.yahooReadyById.get(id) === true
     }
+
+    /** 当前编辑中商品的类型在各平台是否已配置分类位置（未选类型一律视为未配置） */
+    const currentTypeMercariReady = computed(() => mercariReadyForMapping(form.value?.product_type_id))
+    const currentTypeYahooReady = computed(() => yahooReadyForMapping(form.value?.product_type_id))
+
+    /** 发货地选了「未定」：煤炉允许，雅虎必须指定都道府県（后端 set_shipping_from 会直接报错） */
+    const shippingFromIsUndecided = computed(
+      () => String(form.value?.shipping_from ?? '').trim() === MERCARI_UNDECIDED_AREA_ID
+    )
 
     const productTypeCascaderOptions = computed(() => productTypeTreeMeta.value.options)
 
@@ -2813,15 +2833,34 @@ export default defineComponent({
         return
       }
 
-      // 雅虎出品前拦一道：该商品类型没配雅虎分类路径的话，任务跑起来也只会拿到后端的
-      // 400「该商品类型未配置雅虎分类路径」。所有出品入口都汇到这里，拦一处即可。
+      // 出品前拦一道：该商品类型没配对应平台的分类点选位置就不派发任务
+      //（雅虎后端会 400；煤炉后端只是静默跳过选分类，会挂到默认分类上）。
+      // 所有出品入口都汇到这里，拦一处即可。
       // 位置在写回库存之后 —— 表单里改的标题/价格/出品设置照常保存，只是不派发任务。
       const listingAccount = (mercariAccountOptions.value || []).find(
         (a) => Number(a?.id) === Number(accountId),
       )
       const listingPlatform = String(listingAccount?.platform || 'mercari').trim() || 'mercari'
-      if (listingPlatform === 'yahoo' && !yahooReadyForMapping(data.category_mapping_id)) {
-        ElMessage.warning(t('inventory.yahooCategoryNotConfigured'))
+      const categoryReady = listingPlatform === 'yahoo'
+        ? yahooReadyForMapping(data.category_mapping_id)
+        : mercariReadyForMapping(data.category_mapping_id)
+      if (!categoryReady) {
+        ElMessage.warning(
+          listingPlatform === 'yahoo'
+            ? t('inventory.yahooCategoryNotConfigured')
+            : t('inventory.mercariCategoryNotConfigured')
+        )
+        await load({ resetPage: false })
+        loadInventoryStats()
+        return
+      }
+
+      // 同理：雅虎的发货地必须是具体都道府県，煤炉的「未定」它没有
+      if (
+        listingPlatform === 'yahoo'
+        && String(data.shipping_from ?? '').trim() === MERCARI_UNDECIDED_AREA_ID
+      ) {
+        ElMessage.warning(t('inventory.yahooShippingFromUndecided'))
         await load({ resetPage: false })
         loadInventoryStats()
         return
@@ -4231,6 +4270,9 @@ export default defineComponent({
       buildProductTypeOptionsFromMappings,
       productTypeTreeMeta,
       productTypeCascaderOptions,
+      currentTypeMercariReady,
+      currentTypeYahooReady,
+      shippingFromIsUndecided,
       DEFAULT_WH_LABEL,
       warehouseGroupKey,
       EMPTY_SHELF_NAME_PART,

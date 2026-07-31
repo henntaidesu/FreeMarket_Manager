@@ -251,6 +251,31 @@ def count_todos_by_chip(
     return out
 
 
+def count_overdue_wait_shipping(now_ts: int) -> int:
+    """已过発送期限、仍停在「待发货」的条数（控制台红色提醒用）。
+
+    期限规则见 ``_ship_deadline_ts``——只有这里知道 ``shipping_duration`` 文本怎么解析成
+    截止时刻，所以计数放在同一处，避免控制台自己抄一份日期规则后与待办页对不上。
+    推算不出期限（无 ``shipping_duration``）的行不计入：宁可少报，不误报逾期。
+    """
+    db = DatabaseManager()
+    where_sql, params = _build_todo_where(categories="wait_shipping")
+    rows = db.execute_query(
+        "SELECT t.[shipping_duration], t.[mercari_created], t.[mercari_updated], t.[title], t.[kind] "
+        f"FROM [todo_items] t WHERE {where_sql}",
+        tuple(params),
+    )
+    keys = ("shipping_duration", "mercari_created", "mercari_updated", "title", "kind")
+    limit_ms = int(now_ts) * 1000
+    overdue = 0
+    for row in rows or []:
+        item = dict(zip(keys, row))
+        deadline = _ship_deadline_ts(item)
+        if deadline is not None and deadline < limit_ms:
+            overdue += 1
+    return overdue
+
+
 def list_todos(
     account_id: Optional[int] = None,
     kind: Optional[str] = None,

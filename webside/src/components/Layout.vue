@@ -65,8 +65,9 @@
             >
               <el-icon><component :is="item.icon" /></el-icon>
               <template #title>
+                <!-- 备忘录移到二级后，未处理数量在收起状态下也要看得见，所以徽标挂到「系统管理」上 -->
                 <span
-                  v-if="item.path === '/memos' && memoUnread > 0"
+                  v-if="item.path === '/system' && memoUnread > 0"
                   class="menu-title menu-title--badge"
                 >
                   {{ t(item.titleKey) }}
@@ -133,10 +134,25 @@
             active-text-color="#ffffff"
             @select="onSecondarySelect"
           >
-            <el-menu-item v-for="c in currentSecondaryItems" :key="c.path" :index="c.path">
-              <el-icon><component :is="c.icon" /></el-icon>
-              <template #title>{{ t(c.titleKey) }}</template>
-            </el-menu-item>
+            <el-menu-item-group
+              v-for="g in currentSecondaryGroups"
+              :key="g.key"
+              :title="t(g.key)"
+            >
+              <el-menu-item v-for="c in g.items" :key="c.path" :index="c.path">
+                <el-icon><component :is="c.icon" /></el-icon>
+                <template #title>
+                  <span
+                    v-if="c.path === '/system/memos' && memoUnread > 0"
+                    class="menu-title menu-title--badge"
+                  >
+                    {{ t(c.titleKey) }}
+                    <span class="memo-badge">{{ memoUnread > 99 ? '99+' : memoUnread }}</span>
+                  </span>
+                  <span v-else class="menu-title">{{ t(c.titleKey) }}</span>
+                </template>
+              </el-menu-item>
+            </el-menu-item-group>
           </el-menu>
         </div>
       </el-aside>
@@ -238,25 +254,29 @@ const menuItems = [
   { path: '/todos', titleKey: 'layout.menu.todos', icon: 'Check' },
   { path: '/notifications', titleKey: 'layout.menu.notifications', icon: 'Bell' },
   { path: '/shop-accounts', titleKey: 'layout.menu.shopAccounts', icon: 'User' },
-  { path: '/memos', titleKey: 'layout.menu.memos', icon: 'ChatDotRound' },
   { path: '/tasks', titleKey: 'layout.menu.tasks', icon: 'Loading' },
   {
     path: '/system',
     titleKey: 'layout.menu.system',
     icon: 'Setting',
+    // 保持扁平（activePrimary / watch 都按 path 直接查），分组只靠 group 字段，
+    // 由 currentSecondaryGroups 按相邻同组折叠出分组标题
     children: [
-      { path: '/system', titleKey: 'layout.menu.systemOverview', icon: 'Setting' },
-      { path: '/system/transactions', titleKey: 'layout.menu.transactions', icon: 'List' },
-      { path: '/system/cost-records', titleKey: 'layout.menu.costRecords', icon: 'Money' },
-      { path: '/system/cost-expenses', titleKey: 'layout.menu.costExpenses', icon: 'Wallet' },
-      { path: '/system/settlement', titleKey: 'layout.menu.settlement', icon: 'Coin' },
-      { path: '/system/warehouses', titleKey: 'layout.menu.warehouses', icon: 'OfficeBuilding' },
-      { path: '/system/categories', titleKey: 'layout.menu.categories', icon: 'Collection' },
-      { path: '/system/product-type-category-mappings', titleKey: 'layout.menu.productTypeMappings', icon: 'Connection' },
-      { path: '/system/talk-scripts', titleKey: 'layout.menu.talkScripts', icon: 'ChatLineRound' },
-      { path: '/system/system-logs', titleKey: 'layout.menu.systemLogs', icon: 'Document' },
-      { path: '/system/config', titleKey: 'layout.menu.systemConfig', icon: 'Tools' },
-      { path: '/system/qr-print', titleKey: 'layout.menu.qrPrint', icon: 'Printer' }
+      { path: '/system/transactions', titleKey: 'layout.menu.transactions', icon: 'List', group: 'layout.menuGroup.records' },
+      { path: '/system/settlement', titleKey: 'layout.menu.settlement', icon: 'Coin', group: 'layout.menuGroup.records' },
+
+      { path: '/system/cost-records', titleKey: 'layout.menu.costRecords', icon: 'Money', group: 'layout.menuGroup.packaging' },
+      { path: '/system/cost-expenses', titleKey: 'layout.menu.costExpenses', icon: 'Wallet', group: 'layout.menuGroup.packaging' },
+
+      { path: '/system/warehouses', titleKey: 'layout.menu.warehouses', icon: 'OfficeBuilding', group: 'layout.menuGroup.masterData' },
+      { path: '/system/categories', titleKey: 'layout.menu.categories', icon: 'Collection', group: 'layout.menuGroup.masterData' },
+      { path: '/system/product-type-category-mappings', titleKey: 'layout.menu.productTypeMappings', icon: 'Connection', group: 'layout.menuGroup.masterData' },
+
+      { path: '/system/talk-scripts', titleKey: 'layout.menu.talkScripts', icon: 'ChatLineRound', group: 'layout.menuGroup.collaboration' },
+      { path: '/system/memos', titleKey: 'layout.menu.memos', icon: 'ChatDotRound', group: 'layout.menuGroup.collaboration' },
+
+      { path: '/system/config', titleKey: 'layout.menu.systemConfig', icon: 'Tools', group: 'layout.menuGroup.maintenance' },
+      { path: '/system/system-logs', titleKey: 'layout.menu.systemLogs', icon: 'Document', group: 'layout.menuGroup.maintenance' }
     ]
   }
 ]
@@ -279,6 +299,17 @@ const currentSecondaryItems = computed(() => {
   if (!activeWithChildren.value) return []
   const found = menuItems.find(m => m.path === activeWithChildren.value)
   return found?.children || []
+})
+
+/** 二级菜单按 group 折叠成 [{ key, items }]，相邻同组合并 */
+const currentSecondaryGroups = computed(() => {
+  const groups = []
+  for (const item of currentSecondaryItems.value) {
+    const last = groups[groups.length - 1]
+    if (last && last.key === item.group) last.items.push(item)
+    else groups.push({ key: item.group, items: [item] })
+  }
+  return groups
 })
 
 const activePrimaryTitle = computed(() => {
@@ -326,7 +357,7 @@ watch(
     if (owner) {
       activeWithChildren.value = owner.path
     }
-    // 切换路由时刷新未处理数量（例如在 /memos 处理完返回其它页）
+    // 切换路由时刷新未处理数量（例如在 /system/memos 处理完返回其它页）
     refreshMemoUnread()
   },
   { immediate: true }
@@ -400,6 +431,19 @@ const handleLogout = async () => {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+}
+
+/* 二级菜单分组标题：深色侧栏里 Element 默认的浅灰太浅，且组间需要留白 */
+.secondary-menu-wrap :deep(.el-menu-item-group__title) {
+  padding: 14px 16px 4px;
+  color: #6b7a90;
+  font-size: 12px;
+  line-height: 1.2;
+  letter-spacing: 0.5px;
+}
+
+.secondary-menu-wrap :deep(.el-menu-item-group:first-child .el-menu-item-group__title) {
+  padding-top: 8px;
 }
 
 /* 二级菜单滑入/滑出动画 */
@@ -558,7 +602,7 @@ const handleLogout = async () => {
   min-width: 0;
 }
 
-/* 备忘录未处理徽标：红色圆圈显示在「备忘录」文字右上角 */
+/* 备忘录未处理徽标：红色圆圈显示在菜单文字右侧（一级「系统管理」+ 二级「备忘录」） */
 .menu-title--badge {
   flex: 0 0 auto;
   position: relative;

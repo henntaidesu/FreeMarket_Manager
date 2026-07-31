@@ -169,8 +169,20 @@
 .mercari-dialog-footer__actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   margin-left: auto;
+}
+.auto-save-state {
+  font-size: 12px;
+  color: #7d8da6;
+  margin-right: 4px;
+}
+.auto-save-state.is-saved {
+  color: #67c23a;
+}
+.auto-save-state.is-failed {
+  color: #f56c6c;
 }
 .form-intro-tip {
   margin: 0 0 12px;

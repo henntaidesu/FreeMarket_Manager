@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends
 from ..auth import require_auth
 
 from .login.API import router as login_router
+from .dashboard.API import router as dashboard_router
 from .system.API import router as system_router
 from .product_types.API import router as product_types_router
 from .web_drive.API import router as web_drive_router
@@ -53,6 +54,8 @@ router.include_router(mercari_image_public_router, tags=["mercari-image"])
 # ============ 需要认证的端点 ============
 _AUTH = [Depends(require_auth)]
 
+# 控制台：整页 KPI / 趋势 / 待处理 / 库存健康度 / 平台对比的一次性聚合
+router.include_router(dashboard_router, prefix="/dashboard", tags=["dashboard"], dependencies=_AUTH)
 # 系统管理（含 6 个二级页面：cost-records / cost-expenses / warehouses / categories / transactions / product-type-category-mappings）
 router.include_router(system_router, prefix="/system", tags=["system"], dependencies=_AUTH)
 router.include_router(product_types_router, prefix="/product-types", tags=["product-types"], dependencies=_AUTH)

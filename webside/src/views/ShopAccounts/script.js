@@ -1,4 +1,4 @@
-import { defineComponent, ref, computed, onMounted, nextTick } from 'vue'
+import { defineComponent, ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessageBox } from 'element-plus'
@@ -200,14 +200,19 @@ export default defineComponent({
       ],
     }
 
-    async function load() {
-      loading.value = true
-      const params = { page: page.value, page_size: pageSize.value }
-      const res = await shopAccountApi.list(params).finally(() => {
-        loading.value = false
-      })
+    async function fetchList() {
+      const res = await shopAccountApi.list({ page: page.value, page_size: pageSize.value })
       list.value = res.items || []
       total.value = res.total || 0
+    }
+
+    async function load() {
+      loading.value = true
+      try {
+        await fetchList()
+      } finally {
+        loading.value = false
+      }
     }
 
     function openPrepareLoginBrowser() {
@@ -333,6 +338,9 @@ export default defineComponent({
     }
 
     function openEdit(row) {
+      cancelAutoSave()
+      autoSaveState.value = ''
+      autoSaveSuppressed = true
       form.value = {
         ...createDefaultForm(),
         id: row.id,
@@ -352,6 +360,9 @@ export default defineComponent({
         }, {}),
       }
       dialogVisible.value = true
+      nextTick(() => {
+        autoSaveSuppressed = false
+      })
     }
 
     function buildPayload() {
@@ -375,42 +386,99 @@ export default defineComponent({
       return base
     }
 
-    // 校验自定义间隔范围：分钟 5~1440，小时 1~24
-    function validateCustomIntervals() {
+    // 校验自定义间隔范围：分钟 5~1440，小时 1~24（silent：实时保存时不弹提示）
+    function validateCustomIntervals(silent = false) {
       for (const def of FETCH_TASKS) {
         const tk = form.value.tasks[def.key]
         if (tk.sel !== CUSTOM_INTERVAL) continue
         const n = Math.trunc(Number(tk.num) || 0)
         const ok = tk.unit === 'h' ? (n >= 1 && n <= 24) : (n >= 5 && n <= 1440)
         if (!ok) {
-          ElMessage.warning(t('mercariAccounts.errCustomIntervalRange'))
+          if (!silent) ElMessage.warning(t('mercariAccounts.errCustomIntervalRange'))
           return false
         }
       }
       return true
     }
 
+    // 仅新增用：已有账号在编辑弹框里是实时保存的，没有「保存」按钮
     async function submit() {
       await formRef.value?.validate()
       if (!validateCustomIntervals()) return
       submitting.value = true
-      const payload = buildPayload()
       try {
-        if (form.value.id) {
-          await shopAccountApi.update(form.value.id, payload)
-          ElMessage.success(t('mercariAccounts.msgUpdateSuccess'))
-          dialogVisible.value = false
-          load()
-        } else {
-          await shopAccountApi.create(payload)
-          ElMessage.success(t('mercariAccounts.msgCreateSuccess'))
-          dialogVisible.value = false
-          await load()
-        }
+        await shopAccountApi.create(buildPayload())
+        ElMessage.success(t('mercariAccounts.msgCreateSuccess'))
+        dialogVisible.value = false
+        await load()
       } finally {
         submitting.value = false
       }
     }
+
+    /**
+     * 编辑态实时保存：表单任一字段变动即防抖写库，不依赖「保存」按钮。
+     * 仅对已存在的账号生效（新增态还没有 id，只能走「保存」创建）。
+     */
+    const AUTO_SAVE_DELAY_MS = 600
+    const autoSaveState = ref('') // '' | saving | saved | failed
+    let autoSaveTimer = null
+    let autoSaveSeq = 0
+    // openEdit 整体替换 form 会触发 watch，回显不该被当成用户改动
+    let autoSaveSuppressed = false
+
+    function cancelAutoSave() {
+      if (autoSaveTimer) {
+        clearTimeout(autoSaveTimer)
+        autoSaveTimer = null
+      }
+    }
+
+    async function runAutoSave() {
+      autoSaveTimer = null
+      const id = form.value.id
+      if (!id) return
+      const valid = await formRef.value
+        ?.validate()
+        .then(() => true)
+        .catch(() => false)
+      if (valid === false || !validateCustomIntervals(true)) {
+        autoSaveState.value = 'failed'
+        return
+      }
+      const payload = buildPayload()
+      const seq = ++autoSaveSeq
+      autoSaveState.value = 'saving'
+      try {
+        await shopAccountApi.update(id, payload)
+        if (seq !== autoSaveSeq) return // 已有更新的一次保存在途，别用旧结果覆盖状态
+        autoSaveState.value = 'saved'
+        await fetchList().catch(() => {})
+      } catch {
+        // 错误详情由 axios 拦截器提示
+        if (seq === autoSaveSeq) autoSaveState.value = 'failed'
+      }
+    }
+
+    watch(
+      form,
+      () => {
+        if (autoSaveSuppressed || !dialogVisible.value || !form.value.id) return
+        cancelAutoSave()
+        autoSaveTimer = setTimeout(runAutoSave, AUTO_SAVE_DELAY_MS)
+      },
+      { deep: true },
+    )
+
+    // 关闭弹框时把还在防抖中的改动立即落库，避免「改完就关」丢失
+    watch(dialogVisible, (visible) => {
+      if (visible) return
+      if (autoSaveTimer) {
+        cancelAutoSave()
+        runAutoSave()
+      }
+      autoSaveState.value = ''
+    })
 
     async function remove(id) {
       await shopAccountApi.remove(id)
@@ -421,6 +489,9 @@ export default defineComponent({
 
     async function removeFromDialog() {
       if (!form.value.id) return
+      // 账号即将删除，任何在途的实时保存都会 404
+      cancelAutoSave()
+      autoSaveSuppressed = true
       const id = form.value.id
       await remove(id)
       dialogVisible.value = false
@@ -691,6 +762,7 @@ export default defineComponent({
       openEdit,
       buildPayload,
       submit,
+      autoSaveState,
       remove,
       removeFromDialog,
       syncingIds,

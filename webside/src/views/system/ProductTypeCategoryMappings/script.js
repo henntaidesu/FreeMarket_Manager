@@ -30,9 +30,9 @@ export default defineComponent({
       product_type: [{ required: true, message: t('system.productTypeRequired'), trigger: 'blur' }],
     }
 
-    /** 位置数组 → 「2 › 7 › 1」 */
+    /** 位置数组 → 「2 - 7 - 1」，与编辑弹层的连接符一致 */
     function formatPositions(positions) {
-      return (Array.isArray(positions) ? positions : []).join(' › ')
+      return (Array.isArray(positions) ? positions : []).join(' - ')
     }
 
     function hasPositions(row, key) {

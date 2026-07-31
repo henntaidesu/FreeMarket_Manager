@@ -14,10 +14,6 @@
             <el-option v-for="a in accounts" :key="a.id" :label="a.account_name || `#${a.id}`" :value="a.id" />
           </el-select>
         </el-col>
-        <el-col :xs="24" :md="8" class="search-actions">
-          <el-button @click="load">{{ t('common.refresh') }}</el-button>
-          <el-button type="danger" plain @click="clearLogs">{{ t('system.logClear') }}</el-button>
-        </el-col>
       </el-row>
     </el-card>
 

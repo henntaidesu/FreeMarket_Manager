@@ -6,15 +6,15 @@
 -->
 <template>
   <div class="pos-path">
-    <div v-for="(pos, idx) in levels" :key="idx" class="pos-path__item">
-      <span class="pos-path__idx">{{ idx + 1 }}</span>
+    <template v-for="(pos, idx) in levels" :key="idx">
+      <span v-if="idx > 0" class="pos-path__sep">-</span>
       <el-input
         :model-value="pos"
         inputmode="numeric"
         class="pos-path__input"
         @update:model-value="(v) => setLevel(idx, v)"
       />
-    </div>
+    </template>
     <el-button circle :icon="Plus" class="pos-path__add" @click="addLevel" />
   </div>
 </template>
@@ -67,14 +67,8 @@ function addLevel() {
 </script>
 
 <style scoped>
-.pos-path { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
-.pos-path__item { display: flex; align-items: center; gap: 2px; }
-.pos-path__idx {
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-  min-width: 12px;
-  text-align: right;
-}
+.pos-path { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+.pos-path__sep { color: var(--el-text-color-secondary); user-select: none; }
 /* el-input 自带 width:100%，在 flex 里会被撑开——固定成两位数的宽度。
    字号/高度跟随「商品类型」输入框（Element Plus default size），故不设 size="small" */
 .pos-path__input { flex: 0 0 54px; width: 54px; }

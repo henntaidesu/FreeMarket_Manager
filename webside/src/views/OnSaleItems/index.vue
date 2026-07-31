@@ -265,7 +265,7 @@
         <el-table-column :label="t('onSaleItems.itemId')" prop="item_id" width="150" align="center" header-align="center">
           <template #default="{ row }">
             <el-tooltip
-              v-if="isOnSaleOverListed(row)"
+              v-if="isOnSaleAlertRow(row)"
               effect="dark"
               placement="top"
               :show-after="100"

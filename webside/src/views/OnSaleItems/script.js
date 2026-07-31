@@ -235,13 +235,26 @@ export default defineComponent({
       return onSale + pend > q
     }
 
+    /** 未关联库存预警：出售中的商品没有匹配到任何库存（inventory_match_count = 0）时标红。
+     *  仅限 status=on_sale：已售出/停止/删除等状态在同步时会解除库存绑定，未匹配属正常。 */
+    function isOnSaleUnlinked(row) {
+      if (!row || typeof row !== 'object') return false
+      if (String(row.status ?? '').trim() !== 'on_sale') return false
+      return Number(row.inventory_match_count || 0) === 0
+    }
+
+    /** 行是否标红（任一预警命中） */
+    function isOnSaleAlertRow(row) {
+      return isOnSaleOverListed(row) || isOnSaleUnlinked(row)
+    }
+
     const displayList = computed(() => {
       return Array.isArray(list.value) ? list.value : []
     })
 
     function onSaleRowClassName({ row }) {
       const classes = []
-      if (isOnSaleOverListed(row)) classes.push('on-sale-stock-alert-row')
+      if (isOnSaleAlertRow(row)) classes.push('on-sale-stock-alert-row')
       if (batchMode.value) {
         const iid = String(row?.item_id ?? '').trim()
         if (iid && batchSelectedIds.value.has(iid)) classes.push('batch-pick-row-selected')
@@ -259,6 +272,9 @@ export default defineComponent({
           pending: Number(row.inventory_pending_outbound_qty ?? 0),
           stock: Number(row.inventory_quantity ?? 0),
         }))
+      }
+      if (isOnSaleUnlinked(row)) {
+        reasons.push(t('onSaleItems.alertReasonNoInventory'))
       }
       return reasons
     }
@@ -1297,7 +1313,7 @@ export default defineComponent({
       listingTypeOptions,
       shippingDurationFilterOptions,
       sellerFromAccounts,
-      isOnSaleOverListed,
+      isOnSaleAlertRow,
       onSaleAlertReasons,
       displayList,
       onSaleRowClassName,

@@ -1,51 +1,112 @@
-.search-card { margin-bottom: 16px; border-radius: 8px; }
-.search-left-group { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
-.search-actions { display: flex; justify-content: flex-end; }
+.settlement-page {
+  --settle-line: #28354a;
+  --settle-line-soft: #223049;
+}
+
+/* 数字统一等宽，方便上下对齐比对 */
+.num,
+.stat-val,
+.stat-tile-value,
+.stat-tile-sub {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 工具栏 ─────────────────────────────────────────────── */
+.toolbar-card { margin-bottom: 16px; border-radius: 8px; }
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+}
+.toolbar-field { display: flex; align-items: center; gap: 10px; }
+.toolbar-label { font-size: 13px; color: var(--el-text-color-secondary); white-space: nowrap; }
+.toolbar-actions { display: flex; gap: 8px; margin-left: auto; }
+/* 全局把日期控件压成 180px，区间选择器在这个宽度下几乎读不出日期 */
+.toolbar :deep(.range-picker.el-date-editor) {
+  width: 300px !important;
+  min-width: 300px !important;
+}
+
+/* ── 汇总条 ─────────────────────────────────────────────── */
 .summary-card { margin-bottom: 16px; border-radius: 8px; }
-.summary-grid { display: flex; flex-wrap: wrap; gap: 24px 40px; align-items: flex-end; }
-.summary-item { display: flex; flex-direction: column; gap: 6px; }
-.summary-label { font-size: 12px; color: var(--el-text-color-secondary); }
-.summary-value { font-size: 20px; font-weight: 600; color: var(--el-text-color-primary); }
-.summary-value.strong { color: var(--el-color-primary); }
-.summary-value.warn, .warn { color: var(--el-color-danger); }
-.consumable-item .consumable-input { width: 160px; }
-.summary-sub { font-size: 12px; color: var(--el-color-success); margin-top: 2px; }
+.stat-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 1px;
+  background: var(--settle-line-soft);
+  border: 1px solid var(--settle-line-soft);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.stat-tile {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  min-height: 84px;
+  padding: 14px 18px;
+  background: var(--el-fill-color-blank);
+}
+.stat-tile.is-primary { background: var(--el-color-primary-light-9); }
+.stat-tile-label { font-size: 12px; color: var(--el-text-color-secondary); }
+.stat-tile-value { font-size: 20px; font-weight: 600; color: var(--el-text-color-primary); line-height: 1.2; }
+.stat-tile-value.strong { color: var(--el-color-primary); }
+.stat-tile-sub { font-size: 12px; color: var(--el-color-success); }
+.warn, .stat-tile-value.warn { color: var(--el-color-danger); }
 .rate-input-wrap { display: flex; align-items: center; gap: 6px; }
 .rate-input-wrap .rate-prefix,
 .rate-input-wrap .rate-suffix { font-size: 12px; color: var(--el-text-color-secondary); white-space: nowrap; }
-.rate-input-wrap .rate-input { width: 110px; }
+.rate-input-wrap :deep(.rate-input) { width: 96px; }
+.rate-input-wrap :deep(.rate-input .el-input) { width: 100% !important; }
 .summary-hint { margin-top: 12px; font-size: 12px; color: var(--el-text-color-secondary); }
 
-.cost-card { margin-bottom: 16px; border-radius: 8px; }
+/* ── 成本明细（耗材 / 设备）：宽屏并排，窄屏堆叠 ──────────── */
+.cost-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(640px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.cost-card { border-radius: 8px; }
 .records-card { margin-top: 16px; border-radius: 8px; }
-.detail-desc { margin-bottom: 16px; }
-.detail-section-title { font-size: 14px; font-weight: 600; margin: 16px 0 8px; color: var(--el-text-color-primary); }
-.detail-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-@media (max-width: 900px) { .detail-two-col { grid-template-columns: 1fr; } }
-.cost-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
-.cost-title { font-size: 15px; font-weight: 600; color: var(--el-text-color-primary); }
-.cost-tip { font-size: 12px; color: var(--el-text-color-secondary); margin-right: auto; }
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.panel-title { font-size: 15px; font-weight: 600; color: var(--el-text-color-primary); }
+.panel-tip { font-size: 12px; color: var(--el-text-color-secondary); margin-right: auto; }
 .fixed-name { font-weight: 600; color: var(--el-text-color-primary); }
-.cost-card .currency-select { width: 100%; }
-/* 防止表格单元格把下拉框右侧裁掉 */
-.cost-card :deep(.el-table .cell) { overflow: visible; }
-.cost-card :deep(.currency-select .el-select__wrapper) { min-height: 28px; }
-.cost-foot {
+.panel-foot {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px solid var(--el-border-color-lighter);
+  border-top: 1px solid var(--settle-line);
   font-size: 14px;
+  color: var(--el-text-color-secondary);
 }
-.cost-foot strong { font-size: 16px; color: var(--el-color-primary); font-variant-numeric: tabular-nums; }
-.cost-empty { color: var(--el-text-color-secondary); font-size: 13px; }
+.panel-foot strong { font-size: 16px; color: var(--el-color-primary); font-variant-numeric: tabular-nums; }
 
+/* 全局 .el-input/.el-select 被固定成 180px，表格内的输入框会溢出单元格 */
+.cost-table :deep(.el-input),
+.cost-table :deep(.el-select) { width: 100% !important; }
+.cost-table :deep(.el-input-number) { width: 100%; }
+.cost-table :deep(.el-input-number .el-input__inner) { text-align: right; }
+.cost-table :deep(.currency-select .el-select__wrapper) { min-height: 28px; }
+
+/* ── 归属人分账卡片 ─────────────────────────────────────── */
+.section-head { display: flex; align-items: center; gap: 12px; margin: 4px 0 12px; }
+.section-title { font-size: 15px; font-weight: 600; color: var(--el-text-color-primary); }
 .settlement-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 16px;
   min-height: 120px;
 }
@@ -55,45 +116,101 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   padding: 14px 18px;
-  border-bottom: 1px solid var(--el-border-color-lighter);
+  border-bottom: 1px solid var(--settle-line);
 }
-.owner-name { font-size: 16px; font-weight: 600; color: var(--el-text-color-primary); }
+.owner-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .owner-orders {
+  flex: none;
   font-size: 12px;
   color: var(--el-color-primary);
   background: var(--el-color-primary-light-9);
   padding: 2px 10px;
   border-radius: 12px;
 }
-.owner-card-body { padding: 12px 18px; }
+.owner-card-body { padding: 10px 18px 12px; }
 .stat-line {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 0;
+  gap: 12px;
+  padding: 5px 0;
   font-size: 13px;
 }
-.stat-label { color: var(--el-text-color-secondary); }
-.stat-val { color: var(--el-text-color-primary); font-variant-numeric: tabular-nums; }
+.stat-label { color: var(--el-text-color-secondary); white-space: nowrap; }
+.stat-val { color: var(--el-text-color-primary); }
 .stat-val.minus { color: var(--el-text-color-regular); }
-.net-line { border-top: 1px dashed var(--el-border-color-lighter); margin-top: 2px; padding-top: 8px; }
+.net-line {
+  border-top: 1px dashed var(--settle-line);
+  margin-top: 4px;
+  padding-top: 8px;
+}
 .net-line .stat-label { font-weight: 600; color: var(--el-text-color-primary); }
 .net-line .stat-val { font-weight: 600; }
-.ratio-line { padding: 4px 0; }
-.ratio-line .ratio-input { width: 90px; }
+.ratio-line { padding: 2px 0; }
+.ratio-line :deep(.ratio-input) { width: 96px; }
+.ratio-line :deep(.ratio-input .el-input) { width: 100% !important; }
 .ratio-line :deep(.el-input__inner) { text-align: right; }
 .owner-card-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 18px;
-  border-top: 1px solid var(--el-border-color-lighter);
+  gap: 12px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--settle-line);
   background: var(--el-fill-color-light);
 }
 .foot-label { font-size: 13px; color: var(--el-text-color-secondary); }
 .foot-amounts { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .foot-val { font-size: 20px; font-weight: 700; color: var(--el-color-primary); font-variant-numeric: tabular-nums; }
 .foot-val-cny { font-size: 13px; color: var(--el-color-success); font-variant-numeric: tabular-nums; }
-.warn, .stat-val.warn, .foot-val.warn, .foot-val-cny.warn { color: var(--el-color-danger); }
+.stat-val.warn, .foot-val.warn, .foot-val-cny.warn { color: var(--el-color-danger); }
 .cards-empty { grid-column: 1 / -1; }
+
+.records-card .num.strong { font-weight: 600; color: var(--el-color-primary); }
+
+/* ── 结算明细弹窗 ───────────────────────────────────────── */
+.detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+  padding: 0 0 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--settle-line);
+  font-size: 13px;
+  color: var(--el-text-color-primary);
+}
+.detail-meta-item { display: inline-flex; align-items: center; gap: 8px; }
+.detail-meta-label { font-size: 12px; color: var(--el-text-color-secondary); }
+.detail-strip { margin-bottom: 20px; }
+.detail-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 18px 0 8px;
+  color: var(--el-text-color-primary);
+}
+.detail-section-title:first-of-type { margin-top: 0; }
+.detail-two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; }
+
+/* 分组表头（收入 / 分摊 / 结算）：父级表头做出层级区分 */
+.detail-table :deep(.el-table__header tr:first-child th) {
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  background: var(--el-fill-color-light);
+}
+.detail-table :deep(.el-table__header tr:nth-child(2) th) {
+  font-weight: 400;
+  color: var(--el-text-color-secondary);
+}
+.detail-table .num.minus { color: var(--el-text-color-regular); }
+.detail-table .num.net { font-weight: 600; }
+.detail-table .num.final { font-weight: 700; color: var(--el-color-primary); }
+.detail-table .num.final-cny { color: var(--el-color-success); }

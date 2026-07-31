@@ -247,8 +247,15 @@
               :loading="cookieInjectKeys.has(browserKeyFor(form.id))"
               @click="injectCookieForAccount(form)"
             >{{ t('mercariAccounts.cookieInject') }}</el-button>
-            <el-button @click="dialogVisible = false">{{ t('common.cancel') }}</el-button>
-            <el-button type="primary" :loading="submitting" @click="submit">{{ t('common.save') }}</el-button>
+            <!-- 编辑态实时保存：没有「保存」按钮，改动即写库 -->
+            <span v-if="form.id" class="auto-save-state" :class="`is-${autoSaveState}`">
+              <template v-if="autoSaveState === 'saving'">{{ t('mercariAccounts.autoSaveSaving') }}</template>
+              <template v-else-if="autoSaveState === 'saved'">{{ t('mercariAccounts.autoSaveSaved') }}</template>
+              <template v-else-if="autoSaveState === 'failed'">{{ t('mercariAccounts.autoSaveFailed') }}</template>
+              <template v-else>{{ t('mercariAccounts.autoSaveHint') }}</template>
+            </span>
+            <el-button @click="dialogVisible = false">{{ form.id ? t('common.close') : t('common.cancel') }}</el-button>
+            <el-button v-if="!form.id" type="primary" :loading="submitting" @click="submit">{{ t('common.save') }}</el-button>
           </div>
         </div>
       </template>
