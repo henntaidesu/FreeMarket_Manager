@@ -11,7 +11,7 @@
 
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import HTTPException
 from pydantic import BaseModel
@@ -51,45 +51,64 @@ class SyncAccountDataRequest(BaseModel):
     tasks: Optional[List[str]] = None
 
 
-async def sync_account_all_data(aid: int, req: SyncAccountDataRequest) -> Dict[str, Any]:
-    """同步单个账号在「待办 / 通知 / 在售 / 订单列表 / 订单状态」各页面的数据。
+def validate_sync_account_request(
+    aid: int, tasks: Optional[List[str]]
+) -> Tuple[MercariAccountModel, List[str]]:
+    """入队前的前置校验：账号存在且启用、勾选项非空。
+
+    放在**提交时**而不是执行时校验，是为了让「账号不存在 / 已停用 / 没勾任何项」这类
+    一眼可知的错误当场以 4xx 返回，而不是排进队列几分钟后才失败。
+    """
+    account = MercariAccountModel.find_by_id(id=int(aid))
+    if account is None:
+        raise HTTPException(status_code=404, detail=f"煤炉账号 id={int(aid)} 不存在")
+    if getattr(account, "status", None) != "active":
+        raise HTTPException(status_code=400, detail="账号已停用，无法同步数据")
+    selected = [k for k in _TASK_KEYS if k in (set(tasks) if tasks else set(_TASK_KEYS))]
+    if not selected:
+        raise HTTPException(status_code=400, detail="未选择任何要同步的数据")
+    return account, selected
+
+
+async def sync_account_all_data_core(
+    aid: int,
+    *,
+    tasks: Optional[List[str]] = None,
+    progress_job_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """「同步数据」主体：不含 HTTP 与全局同步锁语义，**调用方须自行持有全局同步锁**。
+
+    HTTP 入口与任务队列处理器（``task_queue/handlers/account.py``，用 ``begin_waiting``
+    排队等锁而不是 409）共用本函数。
 
     ``tasks`` 指定要同步哪些页面（默认全部）。**整批步骤作为一个队列任务执行**：
     在该账号串行队列内只入队一次，浏览器只开启一次并在各步骤间复用（``mitm_automation_browser``
     退出不关闭、下一步复用存活会话），全部完成后统一关闭一次——避免频繁开关浏览器。
     """
     account_id = int(aid)
-    account = MercariAccountModel.find_by_id(id=account_id)
-    if account is None:
-        raise HTTPException(status_code=404, detail=f"煤炉账号 id={account_id} 不存在")
-    if getattr(account, "status", None) != "active":
-        raise HTTPException(status_code=400, detail="账号已停用，无法同步数据")
+    account, selected_list = validate_sync_account_request(account_id, tasks)
 
-    jid = (req.progress_job_id or "").strip() or None
+    jid = (progress_job_id or "").strip() or None
     if jid and not _SYNC_JOB_ID_RE.fullmatch(jid):
         raise HTTPException(status_code=400, detail="invalid progress_job_id")
-
-    # 解析勾选的页面：为空表示全部；否则按 _TASK_KEYS 过滤，保持固定执行顺序
-    selected = set(req.tasks) if req.tasks else set(_TASK_KEYS)
-    selected &= set(_TASK_KEYS)
-    if not selected:
-        raise HTTPException(status_code=400, detail="未选择任何要同步的数据")
+    selected = set(selected_list)
 
     # (key, 中文名, 构造协程的工厂)；每步都接入该账号的进度上报
     platform = (str(getattr(account, "platform", "") or "").strip() or "mercari")
     if platform == "yahoo":
-        # 雅虎没有「订单状态」这一步（煤炉的 transaction_evidences 批量回填），
-        # 勾了也直接跳过，避免整批同步被必失败的步骤带崩。
-        from .....use_yahoo.notifications import sync_yahoo_notifications
-        from .....use_yahoo.on_sale import sync_yahoo_on_sale_items
-        from .....use_yahoo.orders import sync_yahoo_orders
-        from .....use_yahoo.todos import sync_yahoo_todos
+        # 四个步骤雅虎都有对应实现；「订单状态」不是煤炉那种 transaction_evidences
+        # 批量回填，而是逐条重读交易页（雅虎没有对应接口）。
+        from ....use_yahoo.notifications import sync_yahoo_notifications
+        from ....use_yahoo.on_sale import sync_yahoo_on_sale_items
+        from ....use_yahoo.orders import batch_refresh_yahoo_orders, sync_yahoo_orders
+        from ....use_yahoo.todos import sync_yahoo_todos
 
         all_steps = [
             ("todos", "待办事项", lambda: sync_yahoo_todos(account_id=account_id)),
             ("notifications", "通知", lambda: sync_yahoo_notifications(account_id=account_id)),
             ("on_sale", "在售商品", lambda: sync_yahoo_on_sale_items(account_id=account_id, progress_job_id=jid)),
             ("orders_list", "订单列表", lambda: sync_yahoo_orders(account_id=account_id, progress_job_id=jid)),
+            ("orders_status", "订单状态", lambda: batch_refresh_yahoo_orders(account_id=account_id, progress_job_id=jid)),
         ]
     else:
         all_steps = [
@@ -103,11 +122,8 @@ async def sync_account_all_data(aid: int, req: SyncAccountDataRequest) -> Dict[s
     if not steps:
         raise HTTPException(
             status_code=400,
-            detail="所选同步项在该平台暂不支持（雅虎目前支持：待办 / 通知 / 在售商品 / 订单列表）",
+            detail="所选同步项在该平台暂不支持",
         )
-
-    # 获取全局同步锁：与自动同步、各页「从煤炉同步」互斥；占用中则抛 409
-    lock_token = sync_lock_begin("account", LABEL_FULL)
 
     qk = queue_key_for_mercari_account(account_id)
     results: Dict[str, Any] = {}
@@ -138,19 +154,31 @@ async def sync_account_all_data(aid: int, req: SyncAccountDataRequest) -> Dict[s
             log.warning(
                 "[account-sync] 关闭 account_id=%s 浏览器失败: %s", account_id, close_exc
             )
-        sync_lock_end(lock_token)
         if jid:
             # 在售同步用的进度存储与通用 sync_progress 是同一份，clear 一次即可。
             clear_sync_progress(jid)
 
     return {
-        "success": True,
-        "data": {
-            "account_id": account_id,
-            "account_name": account.account_name,
-            "ok_count": len(results),
-            "fail_count": len(errors),
-            "results": results,
-            "errors": errors,
-        },
+        "account_id": account_id,
+        "account_name": account.account_name,
+        "ok_count": len(results),
+        "fail_count": len(errors),
+        "results": results,
+        "errors": errors,
     }
+
+
+async def sync_account_all_data(aid: int, req: SyncAccountDataRequest) -> Dict[str, Any]:
+    """HTTP 直连入口：占全局同步锁执行（被占用则 409）。
+
+    注：前端现已改为提交到任务队列（``POST /use_web/tasks/submit``），本端点保留可直连调用。
+    """
+    # 获取全局同步锁：与自动同步、各页「从煤炉同步」互斥；占用中则抛 409
+    lock_token = sync_lock_begin("account", LABEL_FULL)
+    try:
+        data = await sync_account_all_data_core(
+            int(aid), tasks=req.tasks, progress_job_id=req.progress_job_id
+        )
+    finally:
+        sync_lock_end(lock_token)
+    return {"success": True, "data": data}

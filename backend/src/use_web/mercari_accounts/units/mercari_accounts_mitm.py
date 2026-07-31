@@ -100,7 +100,9 @@ def _avatar_ext_from(url: str, content_type: str) -> str:
     return "jpg"
 
 
-async def _download_avatar_local(page: Any, url: str) -> Optional[str]:
+async def _download_avatar_local(
+    page: Any, url: str, *, prefix: str = "mercari_avatar"
+) -> Optional[str]:
     """经浏览器上下文下载头像并存入 backend/imges，返回 ``/imges/xxx.ext``；失败返回 None。"""
     u = (url or "").strip()
     if not u:
@@ -116,7 +118,7 @@ async def _download_avatar_local(page: Any, url: str) -> Optional[str]:
         if not body:
             return None
         ext = _avatar_ext_from(u, resp.headers.get("content-type", ""))
-        return save_image_bytes(body, ext=ext, prefix="mercari_avatar")
+        return save_image_bytes(body, ext=ext, prefix=prefix)
     except Exception as exc:
         log.info("[MITM] 下载头像异常（忽略）：%s", exc)
         return None

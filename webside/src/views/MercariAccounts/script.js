@@ -1,20 +1,15 @@
-import { defineComponent, ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { defineComponent, ref, computed, onMounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessageBox } from 'element-plus'
 import { ElMessage } from '@/utils/notify'
-import { mercariAccountApi, mercariApi, webDriveApi } from '@/api/index.js'
-import { useSyncOverlay } from '@/composables/useSyncOverlay'
-import SyncOverlay from '@/components/SyncOverlay.vue'
-import { useSyncLockStore } from '@/stores/syncLock.js'
+import { mercariAccountApi, mercariApi, webDriveApi, TASK_TYPES } from '@/api/index.js'
+import { submitTask } from '@/utils/taskSubmit.js'
 import { mercariImageUrl } from '@/utils/mercariImage.js'
 
 export default defineComponent({
-  components: { SyncOverlay },
   setup() {
     const { t } = useI18n()
-    const syncOverlay = useSyncOverlay()
-    const syncLockStore = useSyncLockStore()
 
     const MERCARI_HOME = 'https://jp.mercari.com/'
 
@@ -152,11 +147,27 @@ export default defineComponent({
 
     const form = ref(createDefaultForm())
 
+    // 同步项文案里的平台名跟着账号平台走：雅虎账号上写「从煤炉同步」「煤炉通知」
+    // 是指向一个该账号根本没有的东西。
+    const taskLabel = (def) =>
+      t(def.labelKey, { platform: platformName(form.value.platform || 'mercari') })
+
+    // 卖家ID的格式按平台走：煤炉是纯数字（452042823），
+    // 雅虎是 /user/{id} 里的 p + 数字（p76073178），拿纯数字规则校验会把正确值判成错的。
+    const isYahooForm = computed(() => (form.value.platform || 'mercari') === 'yahoo')
+    const sellerIdPlaceholder = computed(() =>
+      t(isYahooForm.value ? 'mercariAccounts.sellerIdPlaceholderYahoo' : 'mercariAccounts.sellerIdPlaceholder')
+    )
+
     const sellerIdRules = [
       {
         validator(_rule, val, cb) {
           const text = String(val || '').trim()
           if (!text) return cb()
+          if (isYahooForm.value) {
+            if (!/^p\w+$/i.test(text)) return cb(new Error(t('mercariAccounts.errSellerIdYahoo')))
+            return cb()
+          }
           if (!/^\d+$/.test(text)) return cb(new Error(t('mercariAccounts.errSellerIdDigits')))
           cb()
         },
@@ -246,7 +257,44 @@ export default defineComponent({
     }
 
     function sellerIdCaptureAccountKey() {
-      return form.value.id ? browserKeyFor(form.value.id) : MERCARI_PREPARE_KEY
+      if (form.value.id) return browserKeyFor(form.value.id)
+      return isYahooForm.value ? YAHOO_PREPARE_KEY : MERCARI_PREPARE_KEY
+    }
+
+    /** 「获取基础信息」按平台分派：煤炉要 MITM 截包，雅虎读 /my 的 DOM 即可 */
+    function fetchBasicInfo() {
+      return isYahooForm.value ? fetchYahooBasicInfo() : fetchSellerIdViaMitm()
+    }
+
+    /** 雅虎：打开「マイページ」读回卖家ID + 账号名称（雅虎个人页没有头像可取） */
+    async function fetchYahooBasicInfo() {
+      if (fetchSellerIdLoading.value) return
+      const accountKey = sellerIdCaptureAccountKey()
+      const label = form.value.id
+        ? (form.value.account_name || t('mercariAccounts.accountFallbackLabel', { id: form.value.id }))
+        : t('mercariAccounts.preLoginLabel')
+      fetchSellerIdLoading.value = true
+      try {
+        ElMessage.info(t('mercariAccounts.tipOpeningEdge', { label }))
+        const res = await mercariAccountApi.fetchYahooBasicInfo({ account_key: accountKey })
+        const sid = String(res?.data?.seller_id || '').trim()
+        if (!sid) {
+          ElMessage.warning(t('mercariAccounts.warnNoSellerIdParsed'))
+          return
+        }
+        form.value.seller_id = sid
+        const sellerName = String(res?.data?.account_name || '').trim()
+        if (sellerName) form.value.account_name = sellerName
+        const avatar = String(res?.data?.avatar || '').trim()
+        if (avatar) form.value.avatar = avatar
+        await nextTick()
+        formRef.value?.validateField('seller_id').catch(() => {})
+        ElMessage.success(t('mercariAccounts.msgSellerIdFilled', { sid }))
+      } catch {
+        /* 错误由 axios 拦截器提示 */
+      } finally {
+        fetchSellerIdLoading.value = false
+      }
     }
 
     async function fetchSellerIdViaMitm() {
@@ -379,7 +427,6 @@ export default defineComponent({
     }
 
     const syncingIds = ref(new Set())
-    const syncDataIds = ref(new Set())
     const browserLoadingKeys = ref(new Set())
     const cookieInjectKeys = ref(new Set())
     const fetchSellerIdLoading = ref(false)
@@ -483,18 +530,17 @@ export default defineComponent({
 
     const syncDataDialogVisible = ref(false)
     const syncDataRow = ref(null)
+
+    /** 同步弹窗里的文案按被同步账号的平台渲染（不是当前编辑表单的平台） */
+    const syncTaskLabel = (def) =>
+      t(def.labelKey, { platform: platformName(syncDataRow.value?.platform || 'mercari') })
     /** 各页面勾选状态，默认全选；用户按需取消 */
     const syncDataChecked = ref(defaultSyncTasks())
 
     /** 点卡片「同步数据」：打开勾选弹窗（默认全部勾选） */
     function openSyncDataDialog(row) {
-      if (syncDataIds.value.has(row.id)) return
       if (row.status !== 'active') {
         ElMessage.warning(t('mercariAccounts.syncDataDisabledHint'))
-        return
-      }
-      if (syncLockStore.locked) {
-        ElMessage.warning(syncLockStore.label || t('mercariAccounts.syncBusyHint'))
         return
       }
       syncDataRow.value = row
@@ -502,7 +548,7 @@ export default defineComponent({
       syncDataDialogVisible.value = true
     }
 
-    /** 弹窗内确认：取勾选项执行同步 */
+    /** 弹窗内确认：提交到任务队列，进度去 /#/tasks 看（不再占用前台） */
     async function confirmSyncData() {
       const row = syncDataRow.value
       if (!row) return
@@ -512,41 +558,11 @@ export default defineComponent({
         return
       }
       syncDataDialogVisible.value = false
-      await runAccountDataSync(row, tasks)
-    }
-
-    /**
-     * 单账号「同步数据」：同步勾选的业务页面（待办/通知/在售/订单）的数据。
-     * 全屏覆盖层实时显示「正在同步哪个页面的什么数据」（后端按页面标注进度）。
-     */
-    async function runAccountDataSync(row, tasks) {
-      if (syncDataIds.value.has(row.id)) return
-      const name = row.account_name || `#${row.id}`
-      syncDataIds.value = new Set([...syncDataIds.value, row.id])
-      try {
-        const res = await syncOverlay.run({
-          title: t('mercariAccounts.syncingAccountData', { name }),
-          failedTitle: t('mercariAccounts.syncDataFailed'),
-          consoleTag: '[账号同步]',
-          pollFn: (jobId) => mercariApi.getSyncProgress(jobId),
-          actionFn: (jobId) => mercariAccountApi.syncData(row.id, { progress_job_id: jobId, tasks }),
-        })
-        const d = res?.data || {}
-        const msg = t('mercariAccounts.msgSyncDataResult', {
-          name,
-          ok: d.ok_count ?? 0,
-          fail: d.fail_count ?? 0,
-        })
-        if ((d.fail_count ?? 0) > 0) ElMessage.warning(msg)
-        else ElMessage.success(msg)
-      } catch {
-        /* 失败文案已由覆盖层展示 + axios 拦截器提示 */
-      } finally {
-        const next = new Set(syncDataIds.value)
-        next.delete(row.id)
-        syncDataIds.value = next
-        syncLockStore.refresh()
-      }
+      await submitTask(
+        TASK_TYPES.ACCOUNT_SYNC_DATA,
+        { account_id: row.id, account_name: row.account_name || '', tasks },
+        { t, successMessage: t('mercariAccounts.syncDataEnqueued', { name: row.account_name || `#${row.id}` }) }
+      )
     }
 
     /** 编辑表单内「获取历史数据」：复用 fetchHistory，按当前编辑的账号执行 */
@@ -615,21 +631,12 @@ export default defineComponent({
 
     onMounted(() => {
       load()
-      syncLockStore.subscribe()
-    })
-
-    onBeforeUnmount(() => {
-      syncOverlay.dispose()
-      syncLockStore.unsubscribe()
     })
 
     return {
       ref,
       onMounted,
       nextTick,
-      syncOverlay,
-      SyncOverlay,
-      syncLockStore,
       useI18n,
       Plus,
       ElMessage,
@@ -653,6 +660,9 @@ export default defineComponent({
       statusOptions,
       PLATFORM_OPTIONS,
       platformName,
+      sellerIdPlaceholder,
+      taskLabel,
+      syncTaskLabel,
       platformTagType,
       platformPickerVisible,
       pickPlatform,
@@ -677,13 +687,13 @@ export default defineComponent({
       onFetchUserInfoPlaceholder,
       sellerIdCaptureAccountKey,
       fetchSellerIdViaMitm,
+      fetchBasicInfo,
       openEdit,
       buildPayload,
       submit,
       remove,
       removeFromDialog,
       syncingIds,
-      syncDataIds,
       browserLoadingKeys,
       cookieInjectKeys,
       fetchSellerIdLoading,

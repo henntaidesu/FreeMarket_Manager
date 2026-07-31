@@ -26,6 +26,7 @@ TODOS_BULK_REVIEW = "todos.bulk_review"
 TODOS_BULK_CONFIRM_SHIP = "todos.bulk_confirm_ship"
 TODOS_SHIPPING_QR = "todos.shipping_qr"
 TODOS_SYNC = "todos.sync"
+ACCOUNT_SYNC_DATA = "account.sync_data"
 
 
 @dataclass(frozen=True)
@@ -140,6 +141,14 @@ _SPECS: Dict[str, TaskSpec] = {
         dedup_key=lambda p: TODOS_BULK_CONFIRM_SHIP,
         title=lambda p: "待办已打包一键处理（全部启用账号）",
     ),
+    ACCOUNT_SYNC_DATA: TaskSpec(
+        task_type=ACCOUNT_SYNC_DATA,
+        label_zh="账号同步数据",
+        # 按账号去重：同一账号同时只排一条，不同账号可各排一条（worker 仍串行执行）
+        dedup_key=lambda p: f"{ACCOUNT_SYNC_DATA}:{_account_scope(p)}",
+        title=lambda p: "账号同步数据："
+        + (str(p.get("account_name") or "").strip() or f"账号#{p.get('account_id')}"),
+    ),
 }
 
 
@@ -197,4 +206,7 @@ def resolve_handler(task_type: str) -> Callable:
     if tt == TODOS_SYNC:
         from .handlers.todos import handle_sync
         return handle_sync
+    if tt == ACCOUNT_SYNC_DATA:
+        from .handlers.account import handle_sync_account_data
+        return handle_sync_account_data
     raise KeyError(f"未注册的任务类型：{task_type}")

@@ -32,6 +32,9 @@ _FIELD_BY_LABEL = {
     "配送料": "shipping_fee",
 }
 
+#: 内訳里恒有的成交金额行，用作「这一行的明细确实读到了」的判据
+_GROSS_LABEL = "決済金額"
+
 _ROWS_JS = r"""
 () => {
   const out = [];
@@ -71,7 +74,14 @@ def _yen(text: Any) -> Optional[int]:
 
 
 def parse_sales_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """页面行 → ``{order_no, net_income, service_fee, shipping_fee}``（缺项省略）。"""
+    """页面行 → ``{order_no, net_income, service_fee, shipping_fee}``（缺项省略）。
+
+    **手续费为 0 时雅虎不会列出「販売手数料」那一行**（如「販売手数料0円」活动期间），
+    只按「读到才写」处理会让这些订单的手续费一直空着，看上去像没抓到。
+    但也不能一见缺失就写 0——明细没读到时同样是缺失。这里用**账目自洽**来判定：
+    读到了 ``決済金額`` 且 ``到手金額 == 決済金額`` ⇒ 确实没有任何扣款 ⇒ 手续费记 0。
+    对不上账就什么都不写，留空等下次——宁可空着也不填一个错数。
+    """
     out: List[Dict[str, Any]] = []
     for row in rows or []:
         iid = str(row.get("item_id") or "").strip()
@@ -81,8 +91,12 @@ def parse_sales_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         net = _yen(row.get("net"))
         if net is not None:
             rec["net_income"] = net
+        gross: Optional[int] = None
         for pair in row.get("pairs") or []:
             label = str(pair.get("k") or "").strip().rstrip("：:")
+            if label == _GROSS_LABEL:
+                gross = _yen(pair.get("v"))
+                continue
             col = _FIELD_BY_LABEL.get(label)
             if not col:
                 continue
@@ -90,6 +104,9 @@ def parse_sales_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             if val is not None:
                 # 页面上手续费/送料是负数（扣款），本地按正数存（与煤炉同口径）
                 rec[col] = abs(val)
+        # 明细读到了、且到手金额与成交金额相等 → 这单确实零手续费
+        if "service_fee" not in rec and gross is not None and net is not None and net == gross:
+            rec["service_fee"] = 0
         out.append(rec)
     return out
 

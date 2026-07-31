@@ -217,8 +217,37 @@ soft-delete, inventory counters and order upsert semantics stay identical across
   (`order_no` = Yahoo item id). Status is matched **only in the page's first 400 chars**: the
   trade page keeps a hidden 取引キャンセル dialog in the DOM that makes whole-body matching report
   every pending order as cancelled. Unrecognized status → skipped and reported, never guessed.
+  After shipment the page rewrites itself: the status line becomes 「商品の発送を通知しました」
+  (→ `wait_review`), 配送方法 switches from the pre-ship 「おてがる配送（…）」 to the concrete method
+  (e.g. ゆうパケットポスト（専用箱/シール）), and the tracking number appears under
+  「配送のお問い合わせ」 — not 「送り状番号」. All three are parsed; `_upsert_order` writes
+  `carrier_display_name`/`tracking_no` only when non-empty so the two platforms never blank
+  each other's values.
+  **A sold-list card is the `<a>` itself** — the list has no `li`, so `a.parentElement` is the
+  container holding *every* card and reading its `innerText` silently gives all rows the *first*
+  card's title and price. Scope card parsing to the anchor. Item name is also taken from the trade
+  page (the line above the 成交价 / 売上履歴を見る block), so single-row 刷新 can correct it without
+  the list. `thumbnails` must be stored as a **JSON array string** (`["https://…"]`) like Mercari's —
+  the orders table `JSON.parse`s it and renders a bare URL as no image.
+- `use_yahoo/item_page.py` — reads a listing's description from the **public** item page. The order
+  → inventory binding needs the mgmt cipher in the description, normally taken from
+  `on_sale_items.listing_description`; but an item that sold before its first on-sale sync has no
+  such row, and a sold item's **edit page 404s**, so it can never be backfilled from there.
+  `_resolve_description` in `sold_sync.py` therefore falls back: on_sale_items → the order row's
+  stored description → the item page. Two traps on that page: the description is collapsed behind
+  「もっと読む」 and **the cipher is the last line**, so it must be expanded before reading; and once
+  expanded the container also swallows the 購入日時/公開日時/出品日時 block, so parsing must cut at the
+  first metadata line rather than trim trailing blanks (trimming stops at 出品日時 and leaves the
+  cipher stranded mid-text, where `parse_trailing_cipher_mgmt_tokens` won't see it).
 - `use_yahoo/seller.py` — Yahoo has no seller_id in any payload; it is scraped once from the
-  `/user/{id}` link on `/my` and written back to `mercari_accounts.seller_id`.
+  `/user/{id}` link on `/my` and written back to `mercari_accounts.seller_id`. That same link also
+  carries the nickname (first line of its text), which is what the account dialog's 获取基础信息
+  button returns for Yahoo — **no MITM**, unlike Mercari where seller_id only exists in the
+  `items/get_items` query string. Like Mercari's button it does not persist; the form saves.
+  Avatar is deliberately not synced: Yahoo's profile header has no avatar `<img>`, only
+  `_next/static` icons, so there is nothing safe to pick. New-account fetches run against the
+  `yahoo_prepare` pre-login session, which `resolve_prepare_alias` now isolates per user the same
+  way it always did for `mercari_prepare`.
 - `web_drive/yahoo_item/` — revise / suspend / delete all live on one page
   (`/item/{id}/edit`, public domain — the `-sec` host 404s) whose form is identical to the listing
   form, so `post_to_yahoo._fields` is reused. Buttons: 変更する / 出品を停止する / 商品を削除する.
@@ -262,6 +291,14 @@ soft-delete, inventory counters and order upsert semantics stay identical across
 - `use_yahoo/orders/sales_history.py` — 販売手数料/送料/到手金額 live on a **different domain**,
   `salesmanagement.yahoo.co.jp/list` (shared Yahoo sales ledger, same login cookies). The 内訳
   `dl/dt/dd` is in the DOM even while collapsed, so no clicking. Runs at the end of order sync.
+  Fees are **always the ledger's own numbers, never computed** — Yahoo's cut is not a clean
+  percentage (2,850円 → 141円, not 5%'s 142.5). When a fee is zero (e.g. the 販売手数料0円 campaign
+  shown as a banner on `/my`) Yahoo simply **omits the 販売手数料 row**, which is indistinguishable
+  from "breakdown not read" if you only write what you find. The parser resolves that by
+  arithmetic: 決済金額 present and 到手金額 == 決済金額 ⇒ genuinely no deduction ⇒ `service_fee = 0`.
+  Books that don't balance write nothing and stay empty for the next run. `shipping_fee` gets no
+  such zero-fill — a shipped ゆうパケットポスト order still shows no 送料 row and nets exactly
+  amount − fee, i.e. postage is settled elsewhere, not free.
 - `platform` columns on `on_sale_items` / `orders` / `todo_items` / `notifications` drive the 平台
   filter + tag on `/#/on-sale-items`, `/#/orders`, `/#/todos`, `/#/notifications`. Mercari writers
   set `'mercari'` explicitly; legacy rows with no value are treated as Mercari in every filter.
@@ -295,10 +332,17 @@ soft-delete, inventory counters and order upsert semantics stay identical across
 All **heavy Mercari automations** run as background tasks instead of blocking the HTTP request.
 The frontend submits and returns immediately; progress is watched on `/#/tasks`.
 
-Queued operations (9 types, see `registry.py`): inventory listing; orders update-list /
-update-status / single-row refresh; on-sale sync / full-update / revise; todos bulk-review /
-bulk-confirm-ship. **Batch revise is not a separate type** — the frontend submits N `on_sale.revise`
-tasks, so closing the page no longer aborts halfway.
+Queued operations (see `registry.py` for the authoritative list): inventory listing; orders
+update-list / update-status / single-row refresh; on-sale sync / full-update / revise / delist /
+suspend / resume; todos sync / bulk-review / bulk-confirm-ship / shipping-QR; and the account
+card's 同步数据 (`account.sync_data`). **Batch revise is not a separate type** — the frontend
+submits N `on_sale.revise` tasks, so closing the page no longer aborts halfway.
+
+`account.sync_data` dedups **per account** (`account.sync_data:{id}`), so different accounts can
+each hold a queued sync while one account can't be double-queued. Its handler waits on the global
+`sync_lock` via `begin_waiting` rather than 409-ing, and converts the `HTTPException` that the
+shared `*_core()` raises for a disabled/missing account into a plain error so the task row shows
+the message instead of `404: …`.
 
 - **Single global worker, strictly serial** (`worker.py`) — matches the existing global
   `sync_lock` / `listing_lock` semantics. Tasks still descend into `run_mercari_serial_async`,

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """煤炉账号管理共享辅助函数：校验、规范化、序列化输出。"""
+import re
 from typing import Any, Optional
 
 from fastapi import HTTPException
@@ -34,13 +35,32 @@ def _norm_required_text(value: str, field_name: str) -> str:
     return text
 
 
-def _norm_seller_id(value: Optional[str]) -> Optional[str]:
+#: 雅虎卖家 ID 的形状：``/user/{id}`` 链接里的 ``p`` + 数字（如 ``p76073178``），
+#: 与 use_yahoo/seller.py 抓取用的 ``/user/(p\w+)`` 同口径——校验比抓取更严的话，
+#: 系统自己抓回来写库的值会被自己的表单拒掉。
+_YAHOO_SELLER_ID_RE = re.compile(r"^p\w+$", re.IGNORECASE)
+
+
+def _norm_seller_id(
+    value: Optional[str], platform: str = DEFAULT_PLATFORM
+) -> Optional[str]:
+    """按平台校验卖家 ID：煤炉是纯数字，雅虎是 ``p`` + 数字。
+
+    两边一律要求 ASCII：``isdigit`` 会放行全角数字（「１２３」）/上标（「²」），
+    存进去之后与抓包 URL / 页面链接里的半角 ID 比对将永不相等。
+    """
     text = (value or "").strip()
     if not text:
         return None
-    # isascii 防止 isdigit 放行全角数字（「１２３」）/上标（「²」）等非 ASCII 数字：
-    # 存入后与抓包 URL 中的半角 seller_id 比对将永不相等
-    if not (text.isascii() and text.isdigit()):
+    if not text.isascii():
+        raise HTTPException(status_code=400, detail="卖家ID只能是半角字符")
+    if (platform or "").strip().lower() == "yahoo":
+        if not _YAHOO_SELLER_ID_RE.match(text):
+            raise HTTPException(
+                status_code=400, detail="雅虎卖家ID格式错误（形如 p76073178）"
+            )
+        return text
+    if not text.isdigit():
         raise HTTPException(status_code=400, detail="卖家ID必须为数字")
     return text
 

@@ -118,7 +118,7 @@ async def create_mercari_account(
     # 自动上架（售出即补挂）账号级开关：保留用户选择
     rl = 1 if _normalize_is_open(data.auto_fetch_relist) else 0
     pause_s, pause_e = _norm_pause_window(data.pause_start_time, data.pause_end_time)
-    sid = _norm_seller_id(data.seller_id)
+    sid = _norm_seller_id(data.seller_id, platform)
     # 卖家 ID 同平台内唯一：同平台同卖家重复建号会导致重复同步/重复补挂
     _ensure_seller_id_unique(sid, platform=platform)
     kwargs = dict(
@@ -163,7 +163,7 @@ def update_mercari_account(aid: int, data: MercariAccountUpdate):
     if data.login_id is not None:
         item.login_id = (data.login_id or "").strip() or item.account_name
     if data.seller_id is not None:
-        new_sid = _norm_seller_id(data.seller_id)
+        new_sid = _norm_seller_id(data.seller_id, eff_platform)
         # 卖家 ID 同平台内唯一（排除自身）：防止把同平台已有卖家 ID 改到另一条记录上
         _ensure_seller_id_unique(new_sid, exclude_id=aid, platform=eff_platform)
         item.seller_id = new_sid

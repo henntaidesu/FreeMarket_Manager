@@ -3,7 +3,8 @@ import http from './http'
 /**
  * 任务队列 → /mercariV2/src/use_web/tasks/*
  *
- * 出品 / 订单更新列表·更新状态·单行刷新 / 在售同步·全量更新·修改 / 待办一键好评·一键处理，
+ * 出品 / 订单更新列表·更新状态·单行刷新 / 在售同步·全量更新·修改 / 待办一键好评·一键处理 /
+ * 账号同步数据，
  * 统一经 submit 提交后由后端全局单 worker 串行执行，提交即返回，不阻塞前台。
  */
 
@@ -22,7 +23,8 @@ export const TASK_TYPES = {
   TODOS_BULK_REVIEW: 'todos.bulk_review',
   TODOS_BULK_CONFIRM_SHIP: 'todos.bulk_confirm_ship',
   TODOS_SYNC: 'todos.sync',
-  TODOS_SHIPPING_QR: 'todos.shipping_qr'
+  TODOS_SHIPPING_QR: 'todos.shipping_qr',
+  ACCOUNT_SYNC_DATA: 'account.sync_data'
 }
 
 /** 每次点击生成一个 token：双击 / 网络重发时后端凭它幂等，不会重复排队 */

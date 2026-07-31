@@ -88,22 +88,27 @@ def profile_dir_for(account_key: str) -> str:
 
 
 MERCARI_PREPARE_ALIAS = "mercari_prepare"
+YAHOO_PREPARE_ALIAS = "yahoo_prepare"
+
+#: 「新增账号」的预登录会话别名（每个市集一个）
+PREPARE_ALIASES = (MERCARI_PREPARE_ALIAS, YAHOO_PREPARE_ALIAS)
 
 
 def resolve_prepare_alias(account_key: str, user_id) -> str:
-    """「新增账号」预登录会话键按用户隔离：字面量 ``mercari_prepare`` → ``mercari_prepare_{user_id}``。
+    """「新增账号」预登录会话键按用户隔离：``mercari_prepare`` → ``mercari_prepare_{user_id}``。
 
-    前端固定发别名 ``mercari_prepare``；服务端按当前登录用户（JWT ``sub``）解析为
-    独立 profile，避免多用户同时新增账号时互相清空登录态 / 抓错 seller_id / 错绑登录态。
+    前端固定发别名（``mercari_prepare`` / ``yahoo_prepare``）；服务端按当前登录用户
+    （JWT ``sub``）解析为独立 profile，避免多用户同时新增账号时互相清空登录态 /
+    抓错 seller_id / 错绑登录态。
     其他 key（``mercari_{id}`` 等）原样返回；user_id 为空时退回共享别名（与旧行为一致）。
     """
     key = (account_key or "").strip()
-    if key != MERCARI_PREPARE_ALIAS:
+    if key not in PREPARE_ALIASES:
         return key
     uid = str(user_id or "").strip()
     if not uid:
         return key
-    return f"{MERCARI_PREPARE_ALIAS}_{uid}"
+    return f"{key}_{uid}"
 
 
 def mercari_account_key(account_id: int) -> str:

@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 from datetime import datetime
@@ -41,6 +42,9 @@ _STATUS_RULES: Tuple[Tuple[str, str], ...] = (
     ("取引完了しました", "done"),
     ("評価してください", "wait_review"),
     ("受け取り評価をお待ち", "wait_review"),
+    # 已发货、等买家受取评价（页面还会跟一句「購入者からの評価が終わると取引完了となります」）。
+    # 与煤炉的 wait_review 同义：货已出，等买家确认。
+    ("商品の発送を通知しました", "wait_review"),
     ("発送してください", "wait_shipping"),
     ("発送情報を入力", "wait_shipping"),
 )
@@ -52,9 +56,21 @@ _PURCHASE_TIME_RE = re.compile(r"購入日時\s*\n\s*(\d{4})年(\d{1,2})月(\d{1
 _ITEM_ID_RE = re.compile(r"商品ID\s*\n\s*([A-Za-z0-9]+)")
 _BUYER_RE = re.compile(r"購入者\s*\n\s*(.+?)\s*\n")
 _PRICE_RE = re.compile(r"\n([0-9][0-9,]*)円\s*\n\s*売上履歴を見る")
+#: 商品名就在成交价上一行（「商品名 / N円 / 売上履歴を見る」这一块）。
+#: 有了它，单行「刷新」不必依赖已售列表卡片也能修正商品名。
+_ITEM_NAME_RE = re.compile(r"\n([^\n]{2,150}?)\s*\n\s*[0-9][0-9,]*円\s*\n\s*売上履歴を見る")
 #: 配送方法（おてがる配送（日本郵便）/（ヤマト運輸））
 _CARRIER_RE = re.compile(r"(おてがる配送（[^）]+）)")
+#: 发货后页面改写成「配送方法 / ゆうパケットポスト（専用箱/シール）」这种具体方式，
+#: 不再是发货前的「おてがる配送（…）」，所以 _CARRIER_RE 落空时按标签取下一行。
+_SHIP_METHOD_RE = re.compile(r"配送方法\s*\n\s*(\S[^\n]*)")
+#: 运单号：发货后出现。标签有两种——已发货是「配送のお問い合わせ」，
+#: 发行配送码但未发货是「送り状番号」。取紧跟标签的那一行，避免误抓页面上的客服电话。
+_TRACKING_RE = re.compile(r"(?:配送のお問い合わせ|送り状番号)\s*\n\s*([0-9][0-9\-]{7,})")
 
+#: 已售列表的一张卡片**就是那个 <a> 本身**（内含 商品名/价格/缩略图/状态提示三行）。
+#: 千万别往上找容器：这个列表没有 li，``a.parentElement`` 是装着全部卡片的那一层，
+#: 拿它的 innerText 会让每张卡都读到**第一张**的标题与价格。
 _SOLD_CARDS_JS = r"""
 () => {
   const parse = (raw) => { const o={}; (raw||'').split(';').forEach((s)=>{const i=s.indexOf(':'); if(i>0)o[s.slice(0,i).trim()]=s.slice(i+1).trim();}); return o; };
@@ -63,8 +79,7 @@ _SOLD_CARDS_JS = r"""
     const h = a.getAttribute('href') || '';
     const m = h.match(/\/item\/([A-Za-z0-9]+)\/trade\/seller/) || h.match(/^\/item\/([A-Za-z0-9]+)$/);
     if (!m) return;
-    const box = a.closest('li') || a.parentElement;
-    const lines = (box ? box.innerText : '').split('\n').map((s) => s.trim()).filter(Boolean);
+    const lines = (a.innerText || '').split('\n').map((s) => s.trim()).filter(Boolean);
     const priceLine = lines.find((s) => /^[0-9,]+円$/.test(s)) || '';
     const img = a.querySelector('img[alt="商品画像"]');
     out.push({
@@ -97,6 +112,43 @@ def _listing_description_for_item(item_id: str) -> Optional[str]:
     return (rows[0][0] or None) if rows else None
 
 
+def _stored_order_description(order_no: str) -> Optional[str]:
+    """订单行上已经存过的说明（上一次同步兜底抓到的，不必再抓一遍）。"""
+    from ...db_manage.database import DatabaseManager
+
+    rows = DatabaseManager().execute_query(
+        "SELECT [description] FROM [orders] "
+        "WHERE TRIM([order_no]) = TRIM(?) AND IFNULL([description], '') != '' LIMIT 1",
+        (str(order_no).strip(),),
+    ) or []
+    return (rows[0][0] or None) if rows else None
+
+
+async def _resolve_description(page: Any, item_id: str) -> Optional[str]:
+    """商品说明的三级取法，用于把订单绑回库存。
+
+    1. ``on_sale_items`` —— 在售详情同步从编辑页 textarea 原样存下的，最准；
+    2. 订单行上已存的 —— 上次兜底抓过就别再抓；
+    3. 公开商品页 —— 商品在首次在售同步前就卖掉时只剩这条路
+       （已售商品的编辑页 404，补不回来）。
+    """
+    from ..item_page import read_item_description
+
+    desc = _listing_description_for_item(item_id) or _stored_order_description(item_id)
+    if desc:
+        return desc
+    return await read_item_description(page, item_id)
+
+
+def _thumbnails_json(url: Optional[str]) -> Optional[str]:
+    """缩略图按煤炉的口径存成 **JSON 数组字符串**（``["https://…"]``）。
+
+    前端订单表读这一列时是 ``JSON.parse`` 后取首张，存裸 URL 会解析失败当成没有图。
+    """
+    u = str(url or "").strip()
+    return json.dumps([u], ensure_ascii=False) if u else None
+
+
 def _parse_purchase_time(text: str) -> Optional[int]:
     m = _PURCHASE_TIME_RE.search(text or "")
     if not m:
@@ -121,14 +173,18 @@ def parse_trade_page_text(text: str) -> Dict[str, Any]:
     buyer = _BUYER_RE.search(text or "")
     price = _PRICE_RE.search(text or "")
     iid = _ITEM_ID_RE.search(text or "")
-    carrier = _CARRIER_RE.search(text or "")
+    carrier = _CARRIER_RE.search(text or "") or _SHIP_METHOD_RE.search(text or "")
+    tracking = _TRACKING_RE.search(text or "")
+    name = _ITEM_NAME_RE.search(text or "")
     return {
         "item_id": iid.group(1) if iid else None,
+        "item_name": (name.group(1).strip() if name else None) or None,
         "customer_name": (buyer.group(1).strip() if buyer else None) or None,
         "amount": int(price.group(1).replace(",", "")) if price else None,
         "purchase_time": _parse_purchase_time(text),
         "status": _detect_status(text),
-        "carrier_display_name": carrier.group(1) if carrier else None,
+        "carrier_display_name": carrier.group(1).strip() if carrier else None,
+        "tracking_no": tracking.group(1).strip() if tracking else None,
     }
 
 
@@ -207,6 +263,9 @@ async def sync_yahoo_orders(
                 log.warning("[yahoo_orders] %s 交易状态无法识别，跳过", iid)
                 continue
 
+            # 说明要靠它绑库存；取不到就退到公开商品页（会离开交易页，故放在解析之后）
+            description = await _resolve_description(page, iid)
+
             purchase_time = parsed["purchase_time"]
             order = {
                 "order_no": iid,
@@ -220,11 +279,13 @@ async def sync_yahoo_orders(
                 "status": parsed["status"],
                 "amount": parsed["amount"] if parsed["amount"] is not None
                 else int(card.get("price") or 0),
-                "remark": (card.get("title") or "").strip(),
-                "thumbnails": card.get("thumbnail"),
-                # 出库绑定读说明里的管理番号暗号；雅虎交易页不显示说明，从在售表取
-                "description": _listing_description_for_item(iid),
+                # 商品名优先取交易页（一件一页，不可能串行）；列表卡片作兜底
+                "remark": parsed.get("item_name") or (card.get("title") or "").strip(),
+                "thumbnails": _thumbnails_json(card.get("thumbnail")),
+                # 出库绑定读说明里的管理番号暗号；雅虎交易页不显示说明，见 _resolve_description
+                "description": description,
                 "carrier_display_name": parsed.get("carrier_display_name"),
+                "tracking_no": parsed.get("tracking_no"),
                 # 販売手数料 / 送料只在「売上履歴」页且交易完成后才确定，这里不猜，留空
             }
             try:
@@ -300,9 +361,11 @@ async def refresh_yahoo_order(account_id: int, order_no: str) -> Dict[str, Any]:
         await page.wait_for_timeout(2000)
         text = await page.inner_text("body")
 
-    parsed = parse_trade_page_text(text)
-    if not parsed["status"]:
-        raise RuntimeError("交易状态无法识别（页面结构可能已变更），未改动订单")
+        parsed = parse_trade_page_text(text)
+        if not parsed["status"]:
+            raise RuntimeError("交易状态无法识别（页面结构可能已变更），未改动订单")
+        # 兜底可能要跳去商品页，必须在浏览器还开着的时候做
+        description = await _resolve_description(page, iid)
 
     purchase_time = parsed["purchase_time"] or prev.get("purchase_time")
     order = {
@@ -315,10 +378,13 @@ async def refresh_yahoo_order(account_id: int, order_no: str) -> Dict[str, Any]:
         "data_user": await resolve_yahoo_seller_id(aid),
         "status": parsed["status"],
         "amount": parsed["amount"] if parsed["amount"] is not None else prev.get("amount"),
-        "remark": prev.get("remark") or "",
+        # 交易页上就有商品名（成交价上一行），所以单行刷新也能纠正它；
+        # 缩略图交易页没有，沿用已有值
+        "remark": parsed.get("item_name") or prev.get("remark") or "",
         "thumbnails": prev.get("thumbnails"),
-        "description": _listing_description_for_item(iid),
+        "description": description,
         "carrier_display_name": parsed.get("carrier_display_name"),
+        "tracking_no": parsed.get("tracking_no"),
     }
     outcome = _upsert_order(order)
     return {"platform": "yahoo", "order_no": iid, "outcome": outcome, "status": parsed["status"]}

@@ -160,9 +160,9 @@ def _upsert_order(order_data: Dict[str, Any]) -> str:
     existing.order_date        = order_data["order_date"]
     existing.order_updated_at  = order_data.get("order_updated_at")
     existing.thumbnails        = order_data.get("thumbnails")
-    # 仅在调用方确实带了值时覆盖：煤炉的列表同步不传这两项（由订单详情补齐），
+    # 仅在调用方确实带了值时覆盖：煤炉的列表同步不传这几项（由订单详情补齐），
     # 雅虎侧在同步时就能给出，故按「有才写」处理，避免两边互相清空。
-    for opt_col in ("description", "carrier_display_name"):
+    for opt_col in ("description", "carrier_display_name", "tracking_no"):
         val = order_data.get(opt_col)
         if val is not None and str(val).strip():
             setattr(existing, opt_col, val)

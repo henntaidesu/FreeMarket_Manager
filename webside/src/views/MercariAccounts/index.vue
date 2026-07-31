@@ -42,17 +42,17 @@
                 :loading="browserLoadingKeys.has(browserKeyFor(row.id))"
                 @click="openBrowserForSavedAccount(row)"
               >{{ t('mercariAccounts.openBrowser') }}</el-button>
+              <!-- 同步数据走任务队列：提交即返回，同步锁被占用时由队列排队，不再禁用按钮 -->
               <el-tooltip
-                :disabled="row.status === 'active' && !syncLockStore.locked"
-                :content="row.status !== 'active' ? t('mercariAccounts.syncDataDisabledHint') : syncLockStore.label"
+                :disabled="row.status === 'active'"
+                :content="t('mercariAccounts.syncDataDisabledHint')"
                 placement="top"
               >
                 <span>
                   <el-button
                     size="small"
                     type="success"
-                    :loading="syncDataIds.has(row.id) || syncLockStore.locked"
-                    :disabled="row.status !== 'active' || syncLockStore.locked"
+                    :disabled="row.status !== 'active'"
                     @click="openSyncDataDialog(row)"
                   >{{ t('mercariAccounts.syncData') }}</el-button>
                 </span>
@@ -127,7 +127,7 @@
                 v-model="form.seller_id"
                 maxlength="30"
                 clearable
-                :placeholder="t('mercariAccounts.sellerIdPlaceholder')"
+                :placeholder="sellerIdPlaceholder"
               />
             </el-form-item>
             <el-form-item :label="t('mercariAccounts.accountStatus')" prop="status">
@@ -149,19 +149,20 @@
             <div v-else class="avatar-placeholder">{{ t('mercariAccounts.avatarPlaceholder') }}</div>
           </div>
         </div>
-        <el-form-item v-if="form.platform === 'mercari'" label-width="120px">
+        <!-- 两个平台都有：煤炉经 MITM 截包取 seller_id，雅虎读「マイページ」DOM -->
+        <el-form-item label-width="120px">
           <el-button
             type="primary"
             plain
             :loading="fetchSellerIdLoading"
-            @click="fetchSellerIdViaMitm"
+            @click="fetchBasicInfo"
           >{{ t('mercariAccounts.fetchBasicInfo') }}</el-button>
         </el-form-item>
         <el-divider content-position="left">{{ t('mercariAccounts.sectionAutoFetch') }}</el-divider>
         <el-form-item :label="t('mercariAccounts.syncItems')">
           <div class="af-task-list">
             <div class="af-task-row" v-for="def in FETCH_TASKS" :key="def.key">
-              <span class="af-task-name">{{ t(def.labelKey) }}</span>
+              <span class="af-task-name">{{ taskLabel(def) }}</span>
               <el-select
                 v-model="form.tasks[def.key].sel"
                 class="af-task-select"
@@ -271,7 +272,7 @@
           <el-checkbox
             v-model="syncDataChecked[def.key]"
             @click.stop
-          >{{ t(def.labelKey) }}</el-checkbox>
+          >{{ syncTaskLabel(def) }}</el-checkbox>
         </div>
       </div>
       <template #footer>
@@ -280,7 +281,6 @@
       </template>
     </el-dialog>
 
-    <SyncOverlay :state="syncOverlay.state" />
   </div>
 </template>
 
