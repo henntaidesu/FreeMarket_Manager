@@ -86,7 +86,7 @@ export default {
     time: "时间",
   },
   layout: {
-    logoText: "mercari 订单管理",
+    logoText: "FreeMarket 管理",
     menu: {
       dashboard: "控制台",
       inventory: "库存管理",
@@ -106,8 +106,7 @@ export default {
       settlement: "结算",
       warehouses: "仓库管理",
       categories: "游戏分类",
-      productTypeMappings: "煤炉类型映射",
-      yahooTypeMappings: "雅虎类型映射",
+      productTypeMappings: "商品类型映射",
       systemLogs: "系统日志",
     },
     logout: "退出",

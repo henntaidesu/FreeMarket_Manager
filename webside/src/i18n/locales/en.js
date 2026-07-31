@@ -86,7 +86,7 @@ export default {
     time: "Time",
   },
   layout: {
-    logoText: "Mercari Order Manager",
+    logoText: "FreeMarket Manager",
     menu: {
       dashboard: "Dashboard",
       inventory: "Inventory",
@@ -106,8 +106,7 @@ export default {
       settlement: "Settlement",
       warehouses: "Warehouses",
       categories: "Game Categories",
-      productTypeMappings: "Mercari Type Mappings",
-      yahooTypeMappings: "Yahoo Type Mappings",
+      productTypeMappings: "Product Type Mappings",
       systemLogs: "System Logs",
     },
     logout: "Logout",

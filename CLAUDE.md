@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Mercari is a **full-stack inventory and order management system** with deep integration to the Japanese Mercari marketplace. It's built as a Vue 3 frontend (Vite) with a Python FastAPI backend, featuring order synchronization, product listing automation, and local inventory management with support for barcode scanning and OCR.
+FreeMarket Manager is a **full-stack inventory and order management system** with deep integration to the Japanese Mercari and Yahoo!フリマ marketplaces. It's built as a Vue 3 frontend (Vite) with a Python FastAPI backend, featuring order synchronization, product listing automation, and local inventory management with support for barcode scanning and OCR.
 
 ## Database Safety
 

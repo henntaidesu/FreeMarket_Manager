@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>mercari 订单管理 — 启动器</title>
+    <title>FreeMarket Manager — 启动器</title>
     <style>
       :root {
         --bg: #0f1419;
@@ -124,7 +124,7 @@
   </head>
   <body>
     <div class="card">
-      <h1>mercari 订单管理</h1>
+      <h1>FreeMarket Manager</h1>
       <p class="sub">检测本地后端是否就绪；就绪后可进入控制台。前端与 API 同源（默认端口见下方）。</p>
       <div class="status" id="status">
         <span class="dot pulse" id="dot"></span>
@@ -164,7 +164,7 @@
               setOk('服务正常，可以进入控制台')
             })
             .catch(function () {
-              setErr('无法连接后端，请确认 mercari-server 已启动')
+              setErr('无法连接后端，请确认 FreeMarket Manager 已启动')
             })
         }
         ping()

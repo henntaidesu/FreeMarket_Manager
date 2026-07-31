@@ -1,7 +1,7 @@
-import { defineComponent, ref, onMounted } from 'vue'
+import { defineComponent, ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from '@/utils/notify'
-import { productTypeCategoryMappingApi, yahooCategoryMappingApi } from '@/api/index.js'
+import { productTypeCategoryMappingApi } from '@/api/index.js'
 
 export default defineComponent({
   setup() {
@@ -31,6 +31,23 @@ export default defineComponent({
       mapping_id: [{ required: true, message: t('system.mappingIdRequired'), trigger: 'blur' }],
     }
 
+    /** 雅虎配置状态筛选：'' 全部 / 'configured' 已配置 / 'unconfigured' 未配置 */
+    const yahooFilter = ref('')
+
+    function hasYahooPath(row) {
+      return !!String(row?.yahoo_category_path ?? '').trim()
+    }
+
+    const rows = computed(() => (Array.isArray(list.value) ? list.value : []))
+
+    const missingYahooCount = computed(() => rows.value.filter((r) => !hasYahooPath(r)).length)
+
+    const filteredList = computed(() => {
+      if (yahooFilter.value === 'configured') return rows.value.filter(hasYahooPath)
+      if (yahooFilter.value === 'unconfigured') return rows.value.filter((r) => !hasYahooPath(r))
+      return rows.value
+    })
+
     const POSITION_MIN = 1
     const POSITION_MAX = 30
 
@@ -56,21 +73,6 @@ export default defineComponent({
       const num = Number(val)
       if (!Number.isFinite(num) || !Number.isInteger(num)) return ''
       return String(Math.min(POSITION_MAX, Math.max(POSITION_MIN, num)))
-    }
-
-    /** 雅虎分类路径联想：候选取自「雅虎类型映射」表（采集来的分类树） */
-    async function queryYahooCategories(queryString, cb) {
-      const kw = String(queryString || '').trim()
-      if (!kw) {
-        cb([])
-        return
-      }
-      try {
-        const res = await yahooCategoryMappingApi.list({ keyword: kw, page: 1, page_size: 20 })
-        cb((res?.items || []).map((r) => ({ value: r.category_path })).filter((x) => x.value))
-      } catch {
-        cb([])
-      }
     }
 
     async function load() {
@@ -154,6 +156,11 @@ export default defineComponent({
       productTypeCategoryMappingApi,
       t,
       list,
+      rows,
+      filteredList,
+      yahooFilter,
+      hasYahooPath,
+      missingYahooCount,
       loading,
       dialogVisible,
       submitting,
@@ -166,7 +173,6 @@ export default defineComponent({
       parseNullableInt,
       positionFromRow,
       load,
-      queryYahooCategories,
       openDialog,
       submit,
       remove,

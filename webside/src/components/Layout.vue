@@ -35,7 +35,7 @@
         <div class="logo-area">
           <img
             class="logo-image"
-            src="/static/mercari.png"
+            src="/static/logo.svg"
             :alt="t('layout.logoText')"
           />
           <span class="logo-text">{{ t('layout.logoText') }}</span>
@@ -253,7 +253,6 @@ const menuItems = [
       { path: '/system/warehouses', titleKey: 'layout.menu.warehouses', icon: 'OfficeBuilding' },
       { path: '/system/categories', titleKey: 'layout.menu.categories', icon: 'Collection' },
       { path: '/system/product-type-category-mappings', titleKey: 'layout.menu.productTypeMappings', icon: 'Connection' },
-      { path: '/system/yahoo-category-mappings', titleKey: 'layout.menu.yahooTypeMappings', icon: 'Connection' },
       { path: '/system/talk-scripts', titleKey: 'layout.menu.talkScripts', icon: 'ChatLineRound' },
       { path: '/system/system-logs', titleKey: 'layout.menu.systemLogs', icon: 'Document' },
       { path: '/system/config', titleKey: 'layout.menu.systemConfig', icon: 'Tools' },
@@ -519,7 +518,9 @@ const handleLogout = async () => {
   font-weight: 600;
   letter-spacing: 0.5px;
   overflow: hidden;
-  text-overflow: ellipsis;
+  /* 侧栏 220px 放不下一行「FreeMarket Manager」，允许折成两行 */
+  white-space: normal;
+  line-height: 1.15;
 }
 
 .sidebar-close-btn {

@@ -84,7 +84,7 @@ def setup_hidden_console() -> bool:
             _disable_close(hwnd)
             _user32().ShowWindow(hwnd, _SW_HIDE)  # 默认隐藏
         try:
-            k.SetConsoleTitleW("mercariManager - 日志")
+            k.SetConsoleTitleW("FreeMarket Manager - 日志")
         except Exception:  # noqa: BLE001
             pass
         return True

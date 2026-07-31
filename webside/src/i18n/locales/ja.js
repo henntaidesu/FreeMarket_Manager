@@ -86,7 +86,7 @@ export default {
     time: "時刻",
   },
   layout: {
-    logoText: "mercari 注文管理",
+    logoText: "FreeMarket マネージャー",
     menu: {
       dashboard: "ダッシュボード",
       inventory: "在庫管理",
@@ -106,8 +106,7 @@ export default {
       settlement: "精算",
       warehouses: "倉庫管理",
       categories: "ゲームカテゴリ",
-      productTypeMappings: "メルカリ種別マッピング",
-      yahooTypeMappings: "Yahoo!フリマ種別マッピング",
+      productTypeMappings: "商品種別マッピング",
       systemLogs: "システムログ",
     },
     logout: "ログアウト",

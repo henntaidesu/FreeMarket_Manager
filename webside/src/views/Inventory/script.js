@@ -1451,12 +1451,17 @@ export default defineComponent({
     const productTypeTreeMeta = computed(() => {
       const roots = []
       const idToPath = new Map()
+      // 该商品类型在雅虎侧是否配好了分类路径——只在 PT: 叶子上有值，
+      // 中间层是 undefined，所以模板里用 `=== false` 天然只命中叶子。
+      const yahooReadyById = new Map()
       for (const m of (listingCategoryMappings.value || [])) {
         const idRaw = String(m?.mapping_id ?? '').trim()
         const typeName = String(m?.product_type ?? '').trim()
         if (!idRaw || !typeName) continue
         const id = Number(idRaw)
         if (!Number.isFinite(id)) continue
+        const yahooReady = !!String(m?.yahoo_category_path ?? '').trim()
+        yahooReadyById.set(id, yahooReady)
         const l1 = String(m?.category_level1 ?? '').trim() || t('inventory.uncategorized')
         const l2 = String(m?.category_level2 ?? '').trim()
         const l3 = String(m?.category_level3 ?? '').trim()
@@ -1464,7 +1469,7 @@ export default defineComponent({
         const l1Node = ensureNode(roots, `L1:${l1}`, l1)
         const l1Path = [`L1:${l1}`]
         if (!l2) {
-          l1Node.children.push({ value: `PT:${id}`, label: typeName, children: [] })
+          l1Node.children.push({ value: `PT:${id}`, label: typeName, yahooReady, children: [] })
           idToPath.set(id, [...l1Path, `PT:${id}`])
           continue
         }
@@ -1473,7 +1478,7 @@ export default defineComponent({
         const l2Node = ensureNode(l1Node.children, l2Val, l2)
         const l2Path = [...l1Path, l2Val]
         if (!l3) {
-          l2Node.children.push({ value: `PT:${id}`, label: typeName, children: [] })
+          l2Node.children.push({ value: `PT:${id}`, label: typeName, yahooReady, children: [] })
           idToPath.set(id, [...l2Path, `PT:${id}`])
           continue
         }
@@ -1481,11 +1486,18 @@ export default defineComponent({
         const l3Val = `L3:${l1}__${l2}__${l3}`
         const l3Node = ensureNode(l2Node.children, l3Val, l3)
         const l3Path = [...l2Path, l3Val]
-        l3Node.children.push({ value: `PT:${id}`, label: typeName, children: [] })
+        l3Node.children.push({ value: `PT:${id}`, label: typeName, yahooReady, children: [] })
         idToPath.set(id, [...l3Path, `PT:${id}`])
       }
-      return { roots, idToPath }
+      return { roots, idToPath, yahooReadyById }
     })
+
+    /** 该商品类型是否可出品到雅虎（映射表里配了 yahoo_category_path） */
+    function yahooReadyForMapping(mappingId) {
+      const id = Number(mappingId)
+      if (!Number.isFinite(id)) return false
+      return productTypeTreeMeta.value.yahooReadyById.get(id) === true
+    }
 
     const productTypeCascaderOptions = computed(() => productTypeTreeMeta.value.roots)
 
@@ -2877,6 +2889,20 @@ export default defineComponent({
       const accountId = data.mercari_account_id
       if (!accountId) {
         ElMessage.success(t('inventory.listingSavedNoAccount'))
+        await load({ resetPage: false })
+        loadInventoryStats()
+        return
+      }
+
+      // 雅虎出品前拦一道：该商品类型没配雅虎分类路径的话，任务跑起来也只会拿到后端的
+      // 400「该商品类型未配置雅虎分类路径」。所有出品入口都汇到这里，拦一处即可。
+      // 位置在写回库存之后 —— 表单里改的标题/价格/出品设置照常保存，只是不派发任务。
+      const listingAccount = (mercariAccountOptions.value || []).find(
+        (a) => Number(a?.id) === Number(accountId),
+      )
+      const listingPlatform = String(listingAccount?.platform || 'mercari').trim() || 'mercari'
+      if (listingPlatform === 'yahoo' && !yahooReadyForMapping(data.category_mapping_id)) {
+        ElMessage.warning(t('inventory.yahooCategoryNotConfigured'))
         await load({ resetPage: false })
         loadInventoryStats()
         return

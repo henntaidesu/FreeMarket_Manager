@@ -3,15 +3,15 @@ chcp 65001 >nul
 set "ROOT=%~dp0"
 cd /d "%ROOT%"
 
-REM 发布目录：与 mercari-server.exe 同级时走生产重启
-if exist "%ROOT%mercari-server.exe" (
+REM 发布目录：与 FreeMarket Manager.exe 同级时走生产重启
+if exist "%ROOT%FreeMarket Manager.exe" (
   cd /d "%ROOT%"
   goto :prod_inline
 )
 
 REM Releases\版本号\ 等子目录发布包（优先使用该目录下的 restart.bat）
 for /d %%D in ("%ROOT%Releases\*") do (
-  if exist "%%D\mercari-server.exe" (
+  if exist "%%D\FreeMarket Manager.exe" (
     if exist "%%D\restart.bat" (
       call "%%D\restart.bat"
       exit /b %errorlevel%
@@ -78,14 +78,14 @@ if "%PORT%"=="" set "PORT=9601"
 set "MERCARI_PORT=%PORT%"
 
 echo ========================================
-echo   mercari 订单管理 — 重启系统
+echo   FreeMarket Manager — 重启系统
 echo   端口: %PORT%
 echo ========================================
 echo.
 
-echo [1/3] 正在停止 mercari-server...
-taskkill /IM mercari-server.exe /F >nul 2>&1
-taskkill /FI "WINDOWTITLE eq mercari-server*" /F >nul 2>&1
+echo [1/3] 正在停止 FreeMarket Manager...
+taskkill /IM "FreeMarket Manager.exe" /F >nul 2>&1
+taskkill /FI "WINDOWTITLE eq FreeMarket Manager*" /F >nul 2>&1
 
 echo [2/3] 等待服务退出...
 set /a _n=0
@@ -101,8 +101,8 @@ goto wait_down_inline
 timeout /t 2 /nobreak >nul
 
 :start_inline
-echo [3/3] 正在启动 mercari-server...
-start "mercari-server" "%~dp0mercari-server.exe"
+echo [3/3] 正在启动 FreeMarket Manager...
+start "FreeMarket Manager" "%~dp0FreeMarket Manager.exe"
 
 set /a _n=0
 :wait_health_inline

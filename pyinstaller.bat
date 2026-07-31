@@ -70,19 +70,19 @@ if not exist "%ROOT%webside\dist\index.html" (
     exit /b 1
 )
 
-rem ===== Build main program mercariManager.exe =====
+rem ===== Build main program "FreeMarket Manager.exe" =====
 echo.
-echo [3/3] Building mercariManager.exe (windowed, system tray; frontend bundled in) ...
+echo [3/3] Building "FreeMarket Manager.exe" (windowed, system tray; frontend bundled in) ...
 python -m PyInstaller --clean --noconfirm "%ROOT%mercari.spec" ^
     --distpath "%RELEASE%" --workpath "%ROOT%build\backend"
 if %errorlevel% neq 0 (
-    echo ERROR: mercariManager.exe build failed
+    echo ERROR: "FreeMarket Manager.exe" build failed
     pause
     exit /b 1
 )
 
-rem Frontend webside/dist is bundled INTO mercariManager.exe (see mercari.spec); no external webside folder.
-rem (To hot-swap the frontend without rebuilding, drop a "webside" folder next to mercariManager.exe.)
+rem Frontend webside/dist is bundled INTO "FreeMarket Manager.exe" (see mercari.spec); no external webside folder.
+rem (To hot-swap the frontend without rebuilding, drop a "webside" folder next to "FreeMarket Manager.exe".)
 
 rem Note: Playwright uses the system-installed Microsoft Edge (channel=msedge); target machine must have Edge (bundled with Win11).
 rem Note: MITM capture (Scripts\mitmdump.exe) is NOT bundled in this package; other features unaffected.
@@ -96,7 +96,7 @@ echo   Build complete! Output dir: %RELEASE%
 echo ========================================
 dir /b "%RELEASE%"
 echo ----------------------------------------
-echo   Put mercariDB.db next to mercariManager.exe, then run mercariManager.exe
+echo   Put mercariDB.db next to "FreeMarket Manager.exe", then run "FreeMarket Manager.exe"
 echo   A run window with live logs opens on launch. Clicking X asks whether to
 echo   exit or minimize to the tray; the tray icon (bottom-right) restores it.
 echo   Then open https://localhost:9600 in your browser (self-signed cert auto-generated)

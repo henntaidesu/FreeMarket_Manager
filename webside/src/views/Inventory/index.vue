@@ -321,7 +321,14 @@
                 :options="productTypeCascaderOptions"
                 :props="productTypeCascaderProps"
                 @change="saveProductTypeInline(row, $event)"
-              />
+              >
+                <template #default="{ data }">
+                  <span>{{ data.label }}</span>
+                  <el-tag v-if="data.yahooReady === false" size="small" type="info" class="pt-yahoo-flag">
+                    {{ t('inventory.yahooUnmapped') }}
+                  </el-tag>
+                </template>
+              </el-cascader-panel>
             </el-popover>
           </template>
         </el-table-column>
@@ -531,7 +538,14 @@
                 style="width: 100%"
                 popper-class="product-type-cascader-popper"
                 @change="handleProductTypeCascaderChange"
-              />
+              >
+                <template #default="{ data }">
+                  <span>{{ data.label }}</span>
+                  <el-tag v-if="data.yahooReady === false" size="small" type="info" class="pt-yahoo-flag">
+                    {{ t('inventory.yahooUnmapped') }}
+                  </el-tag>
+                </template>
+              </el-cascader>
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">

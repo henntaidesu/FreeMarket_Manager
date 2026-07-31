@@ -18,7 +18,7 @@ def resolve_restart_bat() -> Optional[Path]:
     """
     定位 restart.bat：
     - 环境变量 MERCARI_RESTART_BAT
-    - PyInstaller：与 mercari-server.exe 同目录
+    - PyInstaller：与 FreeMarket Manager.exe 同目录
     - 开发：仓库根目录 restart.bat
     """
     override = (os.environ.get("MERCARI_RESTART_BAT") or "").strip()

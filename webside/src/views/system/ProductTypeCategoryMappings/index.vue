@@ -1,15 +1,29 @@
 <template>
   <div>
     <el-card shadow="never" class="search-card">
-      <el-row justify="end">
-        <el-button type="primary" @click="openDialog()">
-          <el-icon><Plus /></el-icon> {{ t('system.addMapping') }}
-        </el-button>
+      <el-row justify="space-between" align="middle">
+        <div class="mapping-summary">
+          <span :class="{ 'summary-warn': missingYahooCount > 0 }">
+            {{ missingYahooCount > 0
+              ? t('system.mappingSummary', { total: rows.length, missing: missingYahooCount })
+              : t('system.mappingSummaryAllDone', { total: rows.length }) }}
+          </span>
+        </div>
+        <div class="mapping-actions">
+          <el-select v-model="yahooFilter" class="yahoo-filter" :placeholder="t('system.yahooFilterLabel')">
+            <el-option :label="t('system.yahooFilterAll')" value="" />
+            <el-option :label="t('system.yahooFilterConfigured')" value="configured" />
+            <el-option :label="t('system.yahooFilterUnconfigured')" value="unconfigured" />
+          </el-select>
+          <el-button type="primary" @click="openDialog()">
+            <el-icon><Plus /></el-icon> {{ t('system.addMapping') }}
+          </el-button>
+        </div>
       </el-row>
     </el-card>
 
     <el-card shadow="never" class="table-card">
-      <el-table :data="list" v-loading="loading" stripe>
+      <el-table :data="filteredList" v-loading="loading" stripe>
         <el-table-column :label="t('system.mappingId')" prop="mapping_id" width="100" />
         <el-table-column :label="t('system.categoryLevel1')" prop="category_level1" min-width="140" />
         <el-table-column :label="t('system.categoryLevel1Position')" prop="category_level1_position" width="100" />
@@ -19,7 +33,12 @@
         <el-table-column :label="t('system.categoryLevel3Position')" prop="category_level3_position" width="100" />
         <el-table-column :label="t('system.productType')" prop="product_type" min-width="180" />
         <el-table-column :label="t('system.productTypePosition')" prop="product_type_position" width="100" />
-        <el-table-column :label="t('system.yahooCategoryPath')" prop="yahoo_category_path" min-width="200" show-overflow-tooltip />
+        <el-table-column :label="t('system.yahooCategoryPath')" prop="yahoo_category_path" min-width="200" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span v-if="hasYahooPath(row)">{{ row.yahoo_category_path }}</span>
+            <el-tag v-else size="small" type="info">{{ t('system.yahooUnconfigured') }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column :label="t('system.mappingDescription')" prop="description" show-overflow-tooltip />
         <el-table-column :label="t('common.actions')" width="140" fixed="right">
           <template #default="{ row }">
@@ -88,16 +107,10 @@
           <el-input v-model="form.mapping_id" :placeholder="t('system.mappingIdPlaceholder')" />
         </el-form-item>
         <el-form-item :label="t('system.yahooCategoryPath')">
-          <!-- 候选来自「雅虎类型映射」页采集到的分类树，避免手打日文路径打错 -->
-          <el-autocomplete
+          <el-input
             v-model="form.yahoo_category_path"
-            :fetch-suggestions="queryYahooCategories"
             :placeholder="t('system.yahooCategoryPathPlaceholder')"
-            :trigger-on-focus="false"
-            value-key="value"
             clearable
-            style="width: 100%"
-            popper-class="yahoo-category-suggest"
           />
           <div class="field-hint">{{ t('system.yahooCategoryPathHint') }}</div>
         </el-form-item>

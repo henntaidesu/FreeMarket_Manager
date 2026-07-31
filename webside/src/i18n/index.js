@@ -81,14 +81,22 @@ export default i18n
 
 export const currentLocale = ref(initialLocale)
 
+/** 文档语言 + 标签页标题跟随语言（index.html 里的 title 只在应用启动前生效） */
+function syncDocumentMeta(locale) {
+  try {
+    document.documentElement.setAttribute('lang', locale)
+    document.title = i18n.global.t('layout.logoText')
+  } catch {}
+}
+
 export function setLocale(locale) {
   if (!SUPPORTED_LOCALES.includes(locale)) return
   i18n.global.locale.value = locale
   currentLocale.value = locale
   try { localStorage.setItem(LOCALE_STORAGE_KEY, locale) } catch {}
-  try { document.documentElement.setAttribute('lang', locale) } catch {}
+  syncDocumentMeta(locale)
 }
 
 export const elementLocale = computed(() => elementLocales[currentLocale.value] || elZhCn)
 
-try { document.documentElement.setAttribute('lang', initialLocale) } catch {}
+syncDocumentMeta(initialLocale)

@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec —— 主程序 mercariManager.exe（FastAPI + uvicorn，同端口提供 API 与前端）。
+"""PyInstaller spec —— 主程序「FreeMarket Manager.exe」（FastAPI + uvicorn，同端口提供 API 与前端）。
 
-输出单文件 mercariManager.exe（windowed 无控制台；启动即显示运行窗口，点 X 可选「退出程序 /
+输出单文件 FreeMarket Manager.exe（windowed 无控制台；启动即显示运行窗口，点 X 可选「退出程序 /
 收入任务栏」，见 src/log_window.py + src/tray.py）。前端 webside/dist
 打入 exe，main.py 冻结后优先从 exe 同级目录读取，缺失时回退打入的产物。
 
@@ -95,25 +95,23 @@ if os.path.isdir(WEBSIDE_DIST):
 else:
     print("[mercari.spec] 警告：未找到 webside/dist，前端未打入（请先 npm run build）")
 
-# 托盘图标 png 打入 _MEIPASS/static（tray.py 运行时读取）；并由其生成 exe 图标 .ico。
-ICON_PNG = os.path.join(os.path.abspath(os.getcwd()), "webside", "public", "static", "mercari.png")
-icon_arg = None
+# 托盘图标 png 打入 _MEIPASS/static（tray.py 运行时读取）；
+# exe 图标直接用仓库里的多尺寸 favicon.ico（16~256，与浏览器 favicon 同源，无需构建期再生成）。
+STATIC_DIR = os.path.join(os.path.abspath(os.getcwd()), "webside", "public", "static")
+ICON_PNG = os.path.join(STATIC_DIR, "logo.png")
+ICON_ICO = os.path.join(STATIC_DIR, "favicon.ico")
+
 if os.path.isfile(ICON_PNG):
     datas.append((ICON_PNG, "static"))
-    try:
-        from PIL import Image
-        ICON_ICO = os.path.join(os.path.abspath(os.getcwd()), "build", "mercari.ico")
-        os.makedirs(os.path.dirname(ICON_ICO), exist_ok=True)
-        Image.open(ICON_PNG).save(
-            ICON_ICO,
-            sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)],
-        )
-        icon_arg = ICON_ICO
-        print(f"[mercari.spec] 已生成 exe 图标 {ICON_ICO}")
-    except Exception as exc:  # noqa: BLE001
-        print(f"[mercari.spec] exe 图标生成失败（使用默认图标）: {exc}")
 else:
-    print("[mercari.spec] 警告：未找到托盘图标 png，跳过图标打入")
+    print("[mercari.spec] 警告：未找到托盘图标 logo.png，托盘将无图标")
+
+if os.path.isfile(ICON_ICO):
+    icon_arg = ICON_ICO
+    print(f"[mercari.spec] exe 图标 {ICON_ICO}")
+else:
+    icon_arg = None
+    print("[mercari.spec] 警告：未找到 favicon.ico，exe 使用 PyInstaller 默认图标")
 
 # 可选：打入 OCR（torch 体系，约 2GB，启动变慢）
 if os.environ.get("BUNDLE_OCR", "0").strip() == "1":
@@ -145,7 +143,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="mercariManager",
+    name="FreeMarket Manager",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

@@ -2,7 +2,7 @@
   <div class="dfd-page">
     <header>
       <p class="eyebrow">System Design · Data Flow Diagram</p>
-      <h1>MercariManager 数据流图（DFD）</h1>
+      <h1>FreeMarket Manager 数据流图（DFD）</h1>
       <p class="sub">全栈库存与订单管理系统，深度集成日本 Mercari 平台。本文档采用 Gane-Sarson 记法：第 0 层顶层图、第 1 层分解图、核心数据管道图，以及函数级调用链（DFD-3），并附数据存储与代码模块对照。</p>
       <div class="meta">
         <span class="chip">Vue 3 + Element Plus</span>
@@ -67,7 +67,7 @@
           <rect class="proc-box" x="455" y="80" width="270" height="180" rx="16"/>
           <line x1="455" y1="112" x2="725" y2="112" class="proc-divider"/>
           <text class="node-id id-proc" x="470" y="101">P0</text>
-          <text class="node-name" x="590" y="160" text-anchor="middle">MercariManager</text>
+          <text class="node-name" x="590" y="160" text-anchor="middle">FreeMarket Manager</text>
           <text class="node-name" x="590" y="182" text-anchor="middle">库存与订单管理系统</text>
           <text class="node-sub" x="590" y="212" text-anchor="middle">FastAPI · SQLite · Playwright</text>
 
@@ -444,7 +444,7 @@
       </div>
     </section>
 
-    <footer>MercariManager · DFD v2.0（含函数级调用链） · 依据 backend/src 实际代码结构绘制 · 2026-07-05</footer>
+    <footer>FreeMarket Manager · DFD v2.0（含函数级调用链） · 依据 backend/src 实际代码结构绘制 · 2026-07-05</footer>
   </div>
 </template>
 

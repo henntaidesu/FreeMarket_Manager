@@ -23,7 +23,7 @@ async def restart_system() -> RestartOut:
     if bat is None:
         raise HTTPException(
             status_code=503,
-            detail="未找到 restart.bat。请将 restart.bat 放在 mercari-server.exe 同目录或仓库根目录。",
+            detail="未找到 restart.bat。请将 restart.bat 放在 FreeMarket Manager.exe 同目录或仓库根目录。",
         )
     asyncio.create_task(schedule_restart_via_bat(delay_seconds=0.8))
     return RestartOut(message="正在通过 restart.bat 重启，请约 10 秒后刷新页面")

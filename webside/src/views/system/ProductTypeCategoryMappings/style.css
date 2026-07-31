@@ -4,3 +4,7 @@
 .field-main { flex: 7; }
 .field-pos { flex: 3; min-width: 0; }
 .field-hint { margin-top: 4px; font-size: 12px; line-height: 1.5; color: var(--el-text-color-secondary); }
+.mapping-summary { font-size: 13px; color: var(--el-text-color-secondary); }
+.summary-warn { color: var(--el-color-warning); }
+.mapping-actions { display: flex; gap: 8px; align-items: center; }
+.yahoo-filter { width: 130px; }

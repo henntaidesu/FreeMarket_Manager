@@ -7,7 +7,7 @@
   - 退出程序：触发 uvicorn 优雅退出
 运行窗口不可用时（无 tkinter）回退到操作隐藏控制台（console_win.py）。
 
-图标使用 webside/public/static/mercari.png（打包时由 mercari.spec 打入 _MEIPASS/static）。
+图标使用 webside/public/static/logo.png（打包时由 mercari.spec 打入 _MEIPASS/static）。
 依赖 pystray + Pillow；缺失或非 Windows 时 start_tray 返回 False，不影响主程序运行。
 """
 
@@ -24,11 +24,11 @@ def icon_path() -> Path | None:
     candidates = []
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
-        candidates.append(Path(meipass) / "static" / "mercari.png")
-        candidates.append(Path(meipass) / "webside" / "static" / "mercari.png")
-    # 开发：backend/src/tray.py → 仓库根 → webside/public/static/mercari.png
+        candidates.append(Path(meipass) / "static" / "logo.png")
+        candidates.append(Path(meipass) / "webside" / "static" / "logo.png")
+    # 开发：backend/src/tray.py → 仓库根 → webside/public/static/logo.png
     repo_root = Path(__file__).resolve().parents[2]
-    candidates.append(repo_root / "webside" / "public" / "static" / "mercari.png")
+    candidates.append(repo_root / "webside" / "public" / "static" / "logo.png")
     for c in candidates:
         if c.is_file():
             return c
@@ -82,7 +82,7 @@ def start_tray(on_quit) -> bool:
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("退出程序", _on_quit),
     )
-    _icon = pystray.Icon("mercariManager", image, "mercariManager", menu)
+    _icon = pystray.Icon("FreeMarketManager", image, "FreeMarket Manager", menu)
     _icon.run_detached()  # 在自带消息循环的独立线程中运行
     return True
 
@@ -103,7 +103,7 @@ def stop_tray() -> None:
         pass
 
 
-def notify_tray(message: str, title: str = "mercariManager") -> None:
+def notify_tray(message: str, title: str = "FreeMarket Manager") -> None:
     """弹一条托盘气泡提示（如「已收入任务栏」）。托盘未启动时静默忽略。"""
     icon = _icon
     if icon is None:

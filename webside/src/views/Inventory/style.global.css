@@ -105,6 +105,13 @@
   min-height: 300px !important;
 }
 
+/* 商品类型选项上的「雅虎未配置」标记。cascader 弹层 teleport 到 body，
+   scoped 样式够不着，只能放全局。 */
+.pt-yahoo-flag {
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+
 .listing-pick-actions {
   display: flex;
   align-items: center;

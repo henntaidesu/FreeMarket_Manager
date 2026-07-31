@@ -1,8 +1,0 @@
-.search-card { margin-bottom: 16px; border-radius: 8px; }
-.table-card { border-radius: 8px; }
-.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.toolbar-keyword { width: 260px; }
-.toolbar-level1 { width: 200px; }
-.toolbar-spacer { flex: 1 1 auto; }
-.pager { display: flex; justify-content: flex-end; margin-top: 12px; }
-.field-hint { margin-top: 4px; font-size: 12px; line-height: 1.5; color: var(--el-text-color-secondary); }

@@ -21,7 +21,7 @@ import re
 import sys
 import threading
 
-_TITLE = "mercariManager"
+_TITLE = "FreeMarket Manager"
 _MAX_LINES = 5000        # 文本框最多保留的行数，超出从头截断
 _QUEUE_MAX = 5000        # 窗口未就绪/已失败时的日志积压上限，超出直接丢弃
 _DRAIN_CHUNKS = 400      # 单次刷新最多合并的写入块数，避免刷屏卡界面
@@ -264,7 +264,7 @@ def _ask_close_action(root) -> str:  # noqa: ANN001
 
     result = {"value": "cancel"}
     dlg = tk.Toplevel(root)
-    dlg.title("关闭 mercariManager")
+    dlg.title("关闭 FreeMarket Manager")
     dlg.resizable(False, False)
     dlg.transient(root)
 

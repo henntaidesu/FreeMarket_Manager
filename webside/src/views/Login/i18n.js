@@ -1,7 +1,7 @@
 export default {
   'zh-CN': {
     login: {
-      title: 'mercari 订单管理登录',
+      title: 'FreeMarket 管理登录',
       usernamePlaceholder: '请输入用户名',
       passwordPlaceholder: '请输入密码',
       login: '登录',
@@ -13,7 +13,7 @@ export default {
   },
   ja: {
     login: {
-      title: 'mercari 注文管理ログイン',
+      title: 'FreeMarket マネージャー ログイン',
       usernamePlaceholder: 'ユーザー名を入力',
       passwordPlaceholder: 'パスワードを入力',
       login: 'ログイン',
@@ -25,7 +25,7 @@ export default {
   },
   en: {
     login: {
-      title: 'Mercari Order Manager Login',
+      title: 'Sign in to FreeMarket Manager',
       usernamePlaceholder: 'Enter username',
       passwordPlaceholder: 'Enter password',
       login: 'Sign in',

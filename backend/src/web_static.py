@@ -28,9 +28,9 @@ def register_health(app: FastAPI) -> None:
         if not is_ready():
             return JSONResponse(
                 status_code=503,
-                content={"status": "starting", "message": "mercari 系统启动中，请稍候"},
+                content={"status": "starting", "message": "FreeMarket Manager 启动中，请稍候"},
             )
-        return {"status": "ok", "message": "mercari 订单管理运行中"}
+        return {"status": "ok", "message": "FreeMarket Manager 运行中"}
 
 
 def _webside_dist_dir() -> Path:
