@@ -22,6 +22,10 @@ class MappingCreate(PydanticModel):
     description: Optional[str] = None
     #: 雅虎出品用分类全路径（日文，>' 分隔），空表示该类型不支持雅虎出品
     yahoo_category_path: Optional[str] = None
+    yahoo_level1_position: Optional[int] = None
+    yahoo_level2_position: Optional[int] = None
+    yahoo_level3_position: Optional[int] = None
+    yahoo_leaf_position: Optional[int] = None
 
 
 class MappingUpdate(PydanticModel):
@@ -36,6 +40,19 @@ class MappingUpdate(PydanticModel):
     mapping_id: Optional[str] = None
     description: Optional[str] = None
     yahoo_category_path: Optional[str] = None
+    yahoo_level1_position: Optional[int] = None
+    yahoo_level2_position: Optional[int] = None
+    yahoo_level3_position: Optional[int] = None
+    yahoo_leaf_position: Optional[int] = None
+
+
+#: 雅虎各级位置列，创建/更新逻辑与煤炉的 *_position 完全一致
+_YAHOO_POSITION_FIELDS = (
+    "yahoo_level1_position",
+    "yahoo_level2_position",
+    "yahoo_level3_position",
+    "yahoo_leaf_position",
+)
 
 
 def _serialize(mapping: ProductTypeCategoryMappingModel) -> dict:
@@ -68,6 +85,7 @@ def create_mapping(data: MappingCreate):
         mapping_id=mapping_id,
         description=data.description,
         yahoo_category_path=(data.yahoo_category_path or "").strip() or None,
+        **{f: getattr(data, f) for f in _YAHOO_POSITION_FIELDS},
     )
     if not row.save():
         raise HTTPException(status_code=500, detail="保存失败")
@@ -111,6 +129,10 @@ def update_mapping(pk_mapping_id: str, data: MappingUpdate):
         row.description = data.description
     if data.yahoo_category_path is not None:
         row.yahoo_category_path = data.yahoo_category_path.strip() or None
+    for field in _YAHOO_POSITION_FIELDS:
+        value = getattr(data, field)
+        if value is not None:
+            setattr(row, field, value)
     row.save()
     return _serialize(row)
 

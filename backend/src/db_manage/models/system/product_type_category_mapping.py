@@ -71,6 +71,29 @@ class ProductTypeCategoryMappingModel(BaseModel):
                 'not_null': False,
                 'default': None,
             },
+            # 雅虎各级分类的「位置」下标（1 起）。与煤炉的 *_position 同义，
+            # 但出品自动化目前按日文名点击（post_to_yahoo/_fields.select_category），
+            # 并不读这几列——改成按下标点选之前，它们只是录入侧的记录。
+            'yahoo_level1_position': {
+                'type': 'INTEGER',
+                'not_null': False,
+                'default': None,
+            },
+            'yahoo_level2_position': {
+                'type': 'INTEGER',
+                'not_null': False,
+                'default': None,
+            },
+            'yahoo_level3_position': {
+                'type': 'INTEGER',
+                'not_null': False,
+                'default': None,
+            },
+            'yahoo_leaf_position': {
+                'type': 'INTEGER',
+                'not_null': False,
+                'default': None,
+            },
             'description': {
                 'type': 'TEXT',
                 'not_null': False,

@@ -53,69 +53,145 @@
       </el-table>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="form.original_mapping_id ? t('system.editMapping') : t('system.addMapping')" width="460px" destroy-on-close>
-      <el-form :model="form" :rules="rules" ref="formRef" label-width="90px">
-        <el-form-item :label="t('system.categoryLevel1')" prop="category_level1">
-          <div class="inline-fields">
-            <el-input v-model="form.category_level1" :placeholder="t('system.categoryLevel1Placeholder')" class="field-main" />
-            <el-input
-              :model-value="form.category_level1_position"
-              inputmode="numeric"
-              :placeholder="t('system.positionPlaceholder')"
-              class="field-pos"
-              @update:model-value="(v) => { form.category_level1_position = normalizePositionField(v) }"
-            />
-          </div>
-        </el-form-item>
-        <el-form-item :label="t('system.categoryLevel2')" prop="category_level2">
-          <div class="inline-fields">
-            <el-input v-model="form.category_level2" :placeholder="t('system.categoryLevel2Placeholder')" class="field-main" />
-            <el-input
-              :model-value="form.category_level2_position"
-              inputmode="numeric"
-              :placeholder="t('system.positionPlaceholder')"
-              class="field-pos"
-              @update:model-value="(v) => { form.category_level2_position = normalizePositionField(v) }"
-            />
-          </div>
-        </el-form-item>
-        <el-form-item :label="t('system.categoryLevel3')" prop="category_level3">
-          <div class="inline-fields">
-            <el-input v-model="form.category_level3" :placeholder="t('system.categoryLevel3Placeholder')" class="field-main" />
-            <el-input
-              :model-value="form.category_level3_position"
-              inputmode="numeric"
-              :placeholder="t('system.positionPlaceholder')"
-              class="field-pos"
-              @update:model-value="(v) => { form.category_level3_position = normalizePositionField(v) }"
-            />
-          </div>
-        </el-form-item>
-        <el-form-item :label="t('system.productType')" prop="product_type">
-          <div class="inline-fields">
-            <el-input v-model="form.product_type" :placeholder="t('system.productTypePlaceholder')" class="field-main" />
-            <el-input
-              :model-value="form.product_type_position"
-              inputmode="numeric"
-              :placeholder="t('system.positionPlaceholder')"
-              class="field-pos"
-              @update:model-value="(v) => { form.product_type_position = normalizePositionField(v) }"
-            />
-          </div>
-        </el-form-item>
-        <el-form-item :label="t('system.mappingId')" prop="mapping_id">
-          <el-input v-model="form.mapping_id" :placeholder="t('system.mappingIdPlaceholder')" />
-        </el-form-item>
-        <el-form-item :label="t('system.yahooCategoryPath')">
-          <el-input
-            v-model="form.yahoo_category_path"
-            :placeholder="t('system.yahooCategoryPathPlaceholder')"
-            clearable
-          />
-          <div class="field-hint">{{ t('system.yahooCategoryPathHint') }}</div>
-        </el-form-item>
+    <el-dialog
+      v-model="dialogVisible"
+      :title="form.original_mapping_id ? t('system.editMapping') : t('system.addMapping')"
+      width="880px"
+      class="mapping-dialog"
+      destroy-on-close
+    >
+      <el-form :model="form" :rules="rules" ref="formRef" label-position="top">
+        <!-- 煤炉：分类靠 1/2/3 级 + 商品类型的「位置」下标点选，名称仅供人辨认 -->
+        <el-card shadow="never" class="platform-card">
+          <template #header>
+            <span class="platform-card__title">{{ t('system.mercariMappingSection') }}</span>
+          </template>
+          <el-form-item :label="t('system.mappingId')" prop="mapping_id" class="mapping-id-item">
+            <el-input v-model="form.mapping_id" :placeholder="t('system.mappingIdPlaceholder')" />
+          </el-form-item>
+          <el-row :gutter="12">
+            <el-col :xs="24" :sm="12" :md="6">
+              <el-form-item :label="t('system.categoryLevel1')" prop="category_level1">
+                <div class="inline-fields">
+                  <el-input v-model="form.category_level1" :placeholder="t('system.categoryLevel1Placeholder')" class="field-main" />
+                  <el-input
+                    :model-value="form.category_level1_position"
+                    inputmode="numeric"
+                    :placeholder="t('system.positionPlaceholder')"
+                    class="field-pos"
+                    @update:model-value="(v) => { form.category_level1_position = normalizePositionField(v) }"
+                  />
+                </div>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12" :md="6">
+              <el-form-item :label="t('system.categoryLevel2')" prop="category_level2">
+                <div class="inline-fields">
+                  <el-input v-model="form.category_level2" :placeholder="t('system.categoryLevel2Placeholder')" class="field-main" />
+                  <el-input
+                    :model-value="form.category_level2_position"
+                    inputmode="numeric"
+                    :placeholder="t('system.positionPlaceholder')"
+                    class="field-pos"
+                    @update:model-value="(v) => { form.category_level2_position = normalizePositionField(v) }"
+                  />
+                </div>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12" :md="6">
+              <el-form-item :label="t('system.categoryLevel3')" prop="category_level3">
+                <div class="inline-fields">
+                  <el-input v-model="form.category_level3" :placeholder="t('system.categoryLevel3Placeholder')" class="field-main" />
+                  <el-input
+                    :model-value="form.category_level3_position"
+                    inputmode="numeric"
+                    :placeholder="t('system.positionPlaceholder')"
+                    class="field-pos"
+                    @update:model-value="(v) => { form.category_level3_position = normalizePositionField(v) }"
+                  />
+                </div>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12" :md="6">
+              <el-form-item :label="t('system.productType')" prop="product_type">
+                <div class="inline-fields">
+                  <el-input v-model="form.product_type" :placeholder="t('system.productTypePlaceholder')" class="field-main" />
+                  <el-input
+                    :model-value="form.product_type_position"
+                    inputmode="numeric"
+                    :placeholder="t('system.positionPlaceholder')"
+                    class="field-pos"
+                    @update:model-value="(v) => { form.product_type_position = normalizePositionField(v) }"
+                  />
+                </div>
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </el-card>
+
+        <!-- 雅虎：分类树与煤炉无关，出品时按日文名逐级点击，故只存整条路径 -->
+        <el-card shadow="never" class="platform-card">
+          <template #header>
+            <span class="platform-card__title">{{ t('system.yahooMappingSection') }}</span>
+          </template>
+          <el-row :gutter="12">
+            <el-col :xs="24" :sm="12" :md="6">
+              <el-form-item :label="t('system.categoryLevel1')">
+                <div class="inline-fields">
+                  <el-input v-model="form.yahoo_level1" class="field-main" />
+                  <el-input
+                    :model-value="form.yahoo_level1_position"
+                    inputmode="numeric"
+                    class="field-pos"
+                    @update:model-value="(v) => { form.yahoo_level1_position = normalizePositionField(v) }"
+                  />
+                </div>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12" :md="6">
+              <el-form-item :label="t('system.categoryLevel2')">
+                <div class="inline-fields">
+                  <el-input v-model="form.yahoo_level2" class="field-main" />
+                  <el-input
+                    :model-value="form.yahoo_level2_position"
+                    inputmode="numeric"
+                    class="field-pos"
+                    @update:model-value="(v) => { form.yahoo_level2_position = normalizePositionField(v) }"
+                  />
+                </div>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12" :md="6">
+              <el-form-item :label="t('system.categoryLevel3')">
+                <div class="inline-fields">
+                  <el-input v-model="form.yahoo_level3" class="field-main" />
+                  <el-input
+                    :model-value="form.yahoo_level3_position"
+                    inputmode="numeric"
+                    class="field-pos"
+                    @update:model-value="(v) => { form.yahoo_level3_position = normalizePositionField(v) }"
+                  />
+                </div>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12" :md="6">
+              <el-form-item :label="t('system.yahooLeafCategory')">
+                <div class="inline-fields">
+                  <el-input v-model="form.yahoo_leaf" class="field-main" />
+                  <el-input
+                    :model-value="form.yahoo_leaf_position"
+                    inputmode="numeric"
+                    class="field-pos"
+                    @update:model-value="(v) => { form.yahoo_leaf_position = normalizePositionField(v) }"
+                  />
+                </div>
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </el-card>
+
         <el-form-item :label="t('system.mappingDescription')">
-          <el-input v-model="form.description" type="textarea" :rows="3" :placeholder="t('system.descriptionPlaceholder')" />
+          <el-input v-model="form.description" type="textarea" :rows="2" :placeholder="t('system.descriptionPlaceholder')" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -128,3 +204,7 @@
 
 <script src="./script.js"></script>
 <style scoped src="./style.css"></style>
+<style>
+/* el-dialog 会 teleport 到 body，宽度收敛只能写在非 scoped 块里 */
+.mapping-dialog { max-width: 95vw; }
+</style>
