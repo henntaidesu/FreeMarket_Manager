@@ -458,7 +458,12 @@ class _SessionsMixin:
                     await ctx.close()
                     closed = True
             except Exception:
-                pass
+                # 上面已经把 ctx / meta 从注册表里 pop 掉了，所以本进程不会再用这个会话——
+                # 但真实的浏览器进程可能还活着（关闭超时、Playwright 连接断了等），
+                # 会继续占着 profile 目录锁，下次开同名 profile 就会失败。
+                # 不抛出（调用方多在收尾路径上），但必须留痕，否则「为什么这个账号打不开浏览器」
+                # 完全无从查起。
+                log.exception("[web_drive] 关闭会话 %s 失败，浏览器进程可能仍在运行", key)
         if closed:
             await asyncio.sleep(self._profile_release_delay_sec())
         return {"account_key": key, "closed": closed}

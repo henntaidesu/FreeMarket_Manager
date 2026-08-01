@@ -114,6 +114,7 @@ export default defineComponent({
     // 顶部分类 chip：key 与后端 _CATEGORY_CONDS 一一对应
     const categoryChips = computed(() => [
       { key: 'comment', label: t('notifications.categoryComment') },
+      { key: 'wait_reply', label: t('notifications.categoryWaitReply') },
       { key: 'bundle', label: t('notifications.categoryBundle') },
       { key: 'desired_price', label: t('notifications.categoryDesiredPrice') },
       { key: 'auction', label: t('notifications.categoryAuction') },
@@ -121,7 +122,6 @@ export default defineComponent({
       { key: 'like', label: t('notifications.categoryLike') },
       { key: 'liked_item', label: t('notifications.categoryLikedItem') },
       { key: 'price_drop', label: t('notifications.categoryPriceDrop') },
-      { key: 'wait_reply', label: t('notifications.categoryWaitReply') },
       { key: 'platform_notice', label: t('notifications.categoryPlatformNotice') },
       { key: 'other', label: t('notifications.categoryOther') },
     ])
@@ -201,8 +201,8 @@ export default defineComponent({
       load()
     }
 
-    // 分类 chip 单选（留言 / 合并购买 / 降价请求 / 拍卖 / 待支付 / 点赞 / 关注商品 /
-    // 商品降价 / 待回复 / 平台通知 / 其他，互斥）：
+    // 分类 chip 单选（留言 / 待回复 / 合并购买 / 降价请求 / 拍卖 / 待支付 / 点赞 /
+    // 关注商品 / 商品降价 / 平台通知 / 其他，互斥）：
     // **始终有且只有一项选中**——再点当前项不取消，否则会落到「无筛选」这个没有对应 chip
     // 的状态，界面上看不出正在看什么。
     function selectFilterChip(chip) {

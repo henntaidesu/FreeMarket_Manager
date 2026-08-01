@@ -81,12 +81,42 @@ class _LifecycleMixin:
 
     @asynccontextmanager
     async def _serialize_profile(self, account_key: str):
+        """按 profile 串行化。在线程里抢 ``threading.Lock``，避免阻塞事件循环。
+
+        ⚠️ 这里必须能扛住**取消**。原写法是 ``await asyncio.to_thread(lock.acquire)``：
+        取消只会取消那个 future，**工作线程仍在跑 ``lock.acquire()``**，随后拿到锁并返回——
+        而 ``try/finally`` 压根没开始，没有任何人会 release。结果是这个账号的 profile
+        永久死锁，之后所有针对它的浏览器操作（同步/出品/待办）全部无限等待，只能重启进程。
+        取消在本项目里是常态：关停 worker、用户中断执行中的任务、``wait_for`` 超时都会取消。
+
+        改法：带超时地轮询抢锁，并且**在线程内**把「抢到了」记进 ``holder``——这样即便取消
+        恰好落在线程返回与赋值之间，下面的 CancelledError 分支也能凭 holder 把锁还回去。
+        """
         lock = self._outer_lock_for_profile(account_key)
-        await asyncio.to_thread(lock.acquire)
+        holder: list = []
+
+        def _try_acquire() -> bool:
+            # 先记录再返回：holder 的写入发生在线程内，不受协程被取消的影响
+            if lock.acquire(True, 0.2):
+                holder.append(True)
+                return True
+            return False
+
+        try:
+            while not holder:
+                await asyncio.to_thread(_try_acquire)
+        except BaseException:
+            if holder:
+                lock.release()
+                holder.clear()
+            raise
+
         try:
             yield
         finally:
-            lock.release()
+            if holder:
+                holder.clear()
+                lock.release()
 
 
     def _ts(self) -> _DriveThreadState:
