@@ -209,7 +209,7 @@
           <template #default="{ row }">
             <div v-if="row.title" class="cell-title">{{ row.title }}</div>
             <div v-if="row.item_id" class="cell-itemid">
-              <el-link :href="mercariItemUrl(row.item_id)" target="_blank" type="primary" underline="never">
+              <el-link :href="itemUrlOf(row)" target="_blank" type="primary" underline="never">
                 {{ row.item_id }}
               </el-link>
               <span v-if="row.item_name" class="cell-itemname">{{ row.item_name }}</span>

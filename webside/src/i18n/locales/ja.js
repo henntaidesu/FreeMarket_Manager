@@ -257,6 +257,7 @@ export default {
       fetchingComments: "コメントを取得中",
       sendingComment: "コメントを送信中",
       sendSuccess: "コメントを送信しました",
+      sendUnverified: "送信は実行しましたが、コメント一覧を再取得できず確認できていません。商品ページでご確認ください",
       sendFailed: "コメントの送信に失敗しました",
       syncFailed: "コメントの同期に失敗しました",
       translate: "翻訳",

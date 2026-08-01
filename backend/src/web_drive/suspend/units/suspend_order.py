@@ -24,13 +24,14 @@ from ...delete.units.delete_order import (
     mercari_item_path_segment,
     _page_for_session,
 )
-from ...sell_edit_state import assert_state_after, read_sell_edit_state
+from ...sell_edit_state import SUSPEND_BTN_SELECTOR, assert_state_after, read_sell_edit_state
 from ....use_mercari.sync.sync_progress import make_sync_reporter
 
 log = logging.getLogger(__name__)
 
-# 「出品を一時停止する」暂停出售按钮
-SUSPEND_BTN_SELECTOR = 'button[data-testid="suspend-button"]'
+# 「出品を一時停止する」暂停出售按钮。
+# 选择器不在这里重复定义：点击方（本模块）与校验方（sell_edit_state）必须永远指同一个
+# testid，否则煤炉改版时只改一边会变成「点得到但校验不过」。
 SUSPEND_BTN_TEXT = "出品を一時停止する"
 
 

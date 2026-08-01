@@ -154,7 +154,14 @@ async def _leave_sell_wizard_if_present(
                 "sell_wizard_error",
                 f"浏览器后退与「{SELL_WIZARD_BACK_TEXT}」均失败，请手动返回",
             )
-        return True
+        # 返回 False：两种返回方式都失败了，就是**没**离开向导页。原来这里返回 True。
+        #
+        # 控制流不受影响——真正拦住「还在向导页却继续填表」的是随后的
+        # ``_ensure_left_sell_wizard``（重查 URL，仍在向导就 _abort_listing）。
+        # 但这个返回值会一路喂进 ``result["sell_wizard_back_clicked"]``，恒为 True 意味着
+        # 出品结果里那个字段是假的：排查「为什么这单出品失败」时，它会让人以为向导已成功返回，
+        # 从而排除掉真正的原因。返回值不该撒谎。
+        return False
 
 async def _wait_post_category_for_delayed_sell_wizard(
     page: Any,

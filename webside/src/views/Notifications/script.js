@@ -469,7 +469,13 @@ export default defineComponent({
     async function onOpenTarget(row) {
       let url = String(row?.target_url || row?.action_url || '').trim()
       if (!url && row?.item_id) {
-        url = `https://jp.mercari.com/item/${row.item_id}`
+        // 兜底 URL 必须跟着行的平台走。雅虎写入器目前 item_id 有值时一定会写 target_url，
+        // 所以这条分支雅虎行走不到；但这里硬编码煤炉域名的话，只要哪天写入器少写一个
+        // target_url，雅虎通知就会拿 z… 开头的 id 拼出煤炉链接——点开是 404，
+        // 而 onOpenTarget 打开后就标已读、列表又只显示未读，这条通知等于被静默吞掉。
+        url = platformOf(row) === 'yahoo'
+          ? `https://paypayfleamarket.yahoo.co.jp/item/${row.item_id}`
+          : `https://jp.mercari.com/item/${row.item_id}`
       }
       if (!url) {
         ElMessage.warning(t('notifications.noTargetUrl'))

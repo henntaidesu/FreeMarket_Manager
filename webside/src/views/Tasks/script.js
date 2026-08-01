@@ -38,6 +38,18 @@ export default defineComponent({
       canceled: { label: t('tasks.statusCanceled'), tag: 'info' }
     }))
 
+    /** 结果里是否带着「逐条失败」记录。只查后端确认过的两种形状，不做泛化猜测。 */
+    const ERROR_KEYS = ['errors', 'info_errors', 'failures']
+    function nonEmptyErrorList(obj) {
+      if (!obj || typeof obj !== 'object') return false
+      return ERROR_KEYS.some((k) => Array.isArray(obj[k]) && obj[k].length > 0)
+    }
+    function hasItemErrors(res) {
+      if (nonEmptyErrorList(res)) return true
+      const accounts = res?.accounts
+      return Array.isArray(accounts) && accounts.some(nonEmptyErrorList)
+    }
+
     /**
      * 任务卡上显示的状态。终态是 success，但**成功不等于结果确定**：
      * 出品自动化「已点过『出品する』却没等到成功提示」时，任务同样落 success，result 里带
@@ -53,6 +65,10 @@ export default defineComponent({
       // 批量操作（一键好评 / 一键确认发送）部分失败：整体不算失败，但也不能显示成绿色成功，
       // 否则挂掉的那几条再没人回头补（见 task_queue/handlers/todos.py::_raise_if_all_failed）
       if (res.partial_failed) return { label: t('tasks.statusPartial'), tag: 'warning' }
+      // 同步类任务把逐条失败收集进 errors / info_errors 数组，整体仍返回成功。
+      // 只认两种在后端确认过的形状：顶层数组，以及 accounts[] 里每个账号的数组
+      // （见 use_mercari/on_sale/on_sale_items_sync/sync.py 与 mercari_auto_fetch_loop）。
+      if (hasItemErrors(res)) return { label: t('tasks.statusPartial'), tag: 'warning' }
       return base
     }
 

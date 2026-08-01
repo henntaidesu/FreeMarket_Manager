@@ -98,6 +98,7 @@ def _attach_inventory_by_item_id(items: list) -> None:
             i.[quantity],
             i.[on_sale_quantity],
             i.[pending_outbound_qty],
+            i.[pending_listing_qty],
             TRIM(IFNULL(i.[barcode], '')),
             {_wh_w},
             IFNULL(w.[location], ''),
@@ -113,12 +114,12 @@ def _attach_inventory_by_item_id(items: list) -> None:
     rows = db.execute_query(sql)
     by_mid: Dict[str, list] = {}
     wanted = set(raw)
-    for (mids_raw, iid, iname, qty, osq, pend, barcode, wname, wloc,
+    for (mids_raw, iid, iname, qty, osq, pend, lpend, barcode, wname, wloc,
          images_json, owner_name, combined) in rows:
         mids = _split_mercari_item_ids(mids_raw)
         if not mids:
             continue
-        payload = (iid, iname, qty, osq, pend, barcode, wname, wloc,
+        payload = (iid, iname, qty, osq, pend, lpend, barcode, wname, wloc,
                    images_json, owner_name, combined)
         for k in mids:
             if k in wanted:
@@ -133,7 +134,7 @@ def _attach_inventory_by_item_id(items: list) -> None:
         if hits:
             first = hits[0]
             row["inventory_id"] = int(first[0]) if first[0] is not None else None
-            # first: (iid, iname, qty, osq, pend, barcode, wname, wloc, ...)
+            # first: (iid, iname, qty, osq, pend, lpend, barcode, wname, wloc, ...)
             row["inventory_quantity"] = _to_int(first[2], 0)
             row["inventory_on_sale_quantity"] = _to_int(first[3], 0)
             row["inventory_pending_outbound_qty"] = _to_int(first[4], 0)
@@ -142,7 +143,7 @@ def _attach_inventory_by_item_id(items: list) -> None:
             barcode_parts = []
             inventory_name_parts = []
             inventory_lines = []
-            for (iid, iname, qty, osq, pend, barcode, wname, wloc,
+            for (iid, iname, qty, osq, pend, lpend, barcode, wname, wloc,
                  images_json, owner_name, combined) in hits:
                 loc_name = str(wname or "").strip() or str(wloc or "").strip() or "-"
                 loc_parts.append(
@@ -161,6 +162,7 @@ def _attach_inventory_by_item_id(items: list) -> None:
                 q_i = _to_int(qty, 0)
                 os_i = _to_int(osq, 0)
                 pend_i = _to_int(pend, 0)
+                lpend_i = _to_int(lpend, 0)
                 comb_i = _to_int(combined, 0)
                 inventory_lines.append(
                     {
@@ -171,8 +173,14 @@ def _attach_inventory_by_item_id(items: list) -> None:
                         "quantity": q_i,
                         "on_sale_quantity": os_i,
                         "pending_outbound_qty": pend_i,
+                        "pending_listing_qty": lpend_i,
                         "combined_quantity": comb_i,
-                        "listable_quantity": max(0, q_i - os_i - pend_i - comb_i),
+                        # 口径必须与 inventory_counters._listable_sql_expr（落库值）和库存页的
+                        # inventory_helpers 重算完全一致：库存 - 在售 - 待出 - 出品预扣减 - 组合预留。
+                        # 这里原来漏减 pending_listing_qty，同一件商品在库存页与在售页会显示两个
+                        # 不同的可上架——而少减的恰好是「已入队待出品」的件数，也就是这个字段存在的
+                        # 全部意义（点出品后可上架立刻下降）。
+                        "listable_quantity": max(0, q_i - os_i - pend_i - lpend_i - comb_i),
                         "inventory_name": n or None,
                         "images": line_images,
                     }

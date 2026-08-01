@@ -257,6 +257,7 @@ export default {
       fetchingComments: "Fetching comments",
       sendingComment: "Sending comment",
       sendSuccess: "Comment sent",
+      sendUnverified: "Send was clicked, but the comment list could not be re-fetched to confirm it — please check the item page",
       sendFailed: "Failed to send comment",
       syncFailed: "Failed to sync comments",
       translate: "Translate",

@@ -228,9 +228,15 @@ class _SessionsMixin:
             raw = await ctx.cookies()
         finally:
             if not was_alive:
-                # 为读 Cookie 临时打开的无头会话：读完即关，不影响任何已开浏览器
+                # 为读 Cookie 临时打开的无头会话：读完即关，不影响任何已开浏览器。
+                #
+                # 用 only_automation=True 而不是 force=True：was_alive 是**进函数时**的快照，
+                # 而 open_session + ctx.cookies() 期间（启动 Edge 可能要几秒）用户完全可能点了
+                # 「打开浏览器」——那开的是同一个主 profile。此时 force=True 会把用户刚打开的
+                # 有头浏览器一起关掉，正好违背本函数「既不关闭也不抢占」的承诺。
+                # only_automation 让 _close_session_unlocked 在会话已是 interactive 时跳过。
                 try:
-                    await self.close_session(key, force=True)
+                    await self.close_session(key, only_automation=True)
                 except Exception:
                     pass
         out: List[Dict[str, Any]] = []

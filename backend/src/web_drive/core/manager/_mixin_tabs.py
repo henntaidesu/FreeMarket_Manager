@@ -59,12 +59,15 @@ class _TabsMixin:
         if not u:
             return
         s = self._prepare_async()
+        # 同 click_xpath：锁只用于查注册表。这里的 timeout_ms 默认 60s，握着全局注册表锁
+        # 等一次导航，会把所有账号的会话操作一起堵住。
         async with s.lock:  # type: ignore[union-attr]
             ctx = s.contexts.get(key)
             if ctx is None or not self._is_context_alive(ctx):
                 return
             page = ctx.pages[-1] if ctx.pages else await ctx.new_page()
-            await page.goto(u, wait_until=wait_until, timeout=timeout_ms)
+
+        await page.goto(u, wait_until=wait_until, timeout=timeout_ms)
 
 
     async def active_tab_page(self, account_key: str) -> Any:
@@ -90,6 +93,11 @@ class _TabsMixin:
         if not xp:
             raise ValueError("xpath 不能为空")
         s = self._prepare_async()
+        # 锁**只用来查注册表**，拿到 page 就放掉——这与 active_tab_page 的用法一致。
+        # s.lock 是按线程的会话注册表锁，本进程只有一个事件循环线程，所以它实际上是全局锁：
+        # 把它一直握到 Playwright 调用结束，意味着一次 click 最长能占住 3×timeout_ms（默认 60s），
+        # 期间**其它账号**的 open/close/active_tab_page 全部排队——恰好抵消了账号串行队列
+        # 想要的「不同账号互不影响」。
         async with s.lock:  # type: ignore[union-attr]
             ctx = s.contexts.get(key)
             if ctx is None or not self._is_context_alive(ctx):
@@ -98,14 +106,15 @@ class _TabsMixin:
             # Step2 click → pages[-1]=取引中(open_new_tab后) → 点进交易详情
             # Step4 click → pages[-1]=出品一覧(open_new_tab后) → 点进商品详情
             page = ctx.pages[-1] if ctx.pages else await ctx.new_page()
-            locator = page.locator(f"xpath={xp}")
-            await locator.first.wait_for(state="visible", timeout=timeout_ms)
-            await locator.first.click(timeout=timeout_ms)
-            try:
-                await page.wait_for_load_state("domcontentloaded", timeout=timeout_ms)
-            except Exception:
-                pass
-            return {"account_key": key, "clicked": True, "xpath": xp}
+
+        locator = page.locator(f"xpath={xp}")
+        await locator.first.wait_for(state="visible", timeout=timeout_ms)
+        await locator.first.click(timeout=timeout_ms)
+        try:
+            await page.wait_for_load_state("domcontentloaded", timeout=timeout_ms)
+        except Exception:
+            pass
+        return {"account_key": key, "clicked": True, "xpath": xp}
 
 
     async def open_new_tab(
@@ -121,10 +130,14 @@ class _TabsMixin:
         if not u:
             raise ValueError("url 不能为空")
         s = self._prepare_async()
+        # 同 click_xpath / reload_active_tab：锁只覆盖「查注册表 + 开标签」，
+        # 导航（最长 timeout_ms）放到锁外，别让它堵住其它账号的会话操作。
+        # new_page 留在锁内是有意的——它会改动 ctx.pages，与 _prune_dead_sessions 等读取者相关。
         async with s.lock:  # type: ignore[union-attr]
             ctx = s.contexts.get(key)
             if ctx is None or not self._is_context_alive(ctx):
                 raise RuntimeError(f"会话未运行: {key}")
             page = await ctx.new_page()
-            await page.goto(u, wait_until=wait_until, timeout=timeout_ms)
-            return {"account_key": key, "opened": True, "url": u}
+
+        await page.goto(u, wait_until=wait_until, timeout=timeout_ms)
+        return {"account_key": key, "opened": True, "url": u}

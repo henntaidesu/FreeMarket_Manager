@@ -80,21 +80,6 @@ def _account_name(account_id: Optional[int]) -> Optional[str]:
         return None
 
 
-def _is_mercari_account(account_id: Optional[int]) -> bool:
-    """在售同步目前只有煤炉实现；雅虎账号不排这条联动任务（排了必失败）。"""
-    if account_id is None:
-        return False
-    try:
-        from ...db_manage.models.shop_accounts.shop_account import ShopAccountModel
-
-        acc = ShopAccountModel.find_by_id(id=int(account_id))
-        if acc is None:
-            return False
-        return (str(getattr(acc, "platform", "") or "").strip() or "mercari") == "mercari"
-    except Exception:
-        return True  # 查不到平台时按原行为（煤炉）处理，不静默吞掉同步
-
-
 def _log_listing(level: str, message: str, account_id: Optional[int], detail: Dict[str, Any]) -> None:
     """写 system_logs（category='listing'），与前端原来的 reportLog 口径一致。"""
     try:
@@ -148,11 +133,12 @@ def _maybe_enqueue_on_sale_sync(
     except Exception:
         log.debug("[listing] 查询待核销出品账号失败", exc_info=True)
     first_task_id: Optional[int] = None
+    # 不按平台过滤：在售同步（``sync_on_sale_core``）内部逐账号分发平台，雅虎走
+    # ``use_yahoo.on_sale.sync_yahoo_on_sale_items``，写入器与煤炉共用，核销出品预扣减的
+    # ``_adjust_on_sale`` 也与平台无关。以前这里挡掉雅虎账号（注释称「在售同步尚未实现」），
+    # 雅虎出品成功后新挂牌就绑不回库存，占用要压到 6 小时 TTL 才释放——那段时间里这件商品
+    # 的「可上架」凭空少 1，用户会以为出品失败而重试。
     for aid in sorted(account_ids):
-        if not _is_mercari_account(aid):
-            # 雅虎账号：在售同步尚未实现，出品占用由 reservations.sweep_stale 的 TTL 兜底释放
-            log.info("[listing] 账号#%s 非煤炉平台，跳过在售同步联动", aid)
-            continue
         try:
             task, created = store.enqueue(
                 task_type=ON_SALE_SYNC,

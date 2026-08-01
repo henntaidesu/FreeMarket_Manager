@@ -11,6 +11,14 @@ log = logging.getLogger(__name__)
 
 # 「待发货」待办：处理时需打开持久化的有头浏览器（前台可见），便于用户在浏览器内
 # 亲自核对/操作发货。kind 命中下列集合，或标题为「発送をしてください」即视为待发货。
+#
+# ⚠ 这是**煤炉自动化专用**的口径，不是待办页那个「待发货」。展示侧另有一套更宽的
+# ``todos_query._WAIT_SHIPPING_KINDS_PY`` / ``_WAIT_SHIPPING_TITLES_PY``，多含雅虎的
+# ``YahooShipRequest`` 与标题「発送依頼」，好让雅虎発送依頼也落进待发货 chip。
+# 两者名字像、含义不同，**故意不一致**：本集合的每一个消费者（todolist_sync、bulk_ship
+# 一键确认发送、transaction_detail 及其预缓存）跑的都是煤炉页面自动化，把雅虎 kind 加进来
+# 会让雅虎待办被送去点煤炉的发货按钮。看到两边不一致时不要「对齐」——要加的是雅虎侧
+# 自己的实现（见 use_yahoo/todos/trade_actions.py）。
 _WAIT_SHIPPING_KINDS = frozenset(
     {
         "WaitShippingCard",

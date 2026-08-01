@@ -257,9 +257,20 @@ async def close_sheet(page: Any, *, timeout_ms: int = 4000) -> bool:
 
 
 async def open_row_sheet(page: Any, label: str, *, element_timeout_ms: int) -> None:
-    """点开某个表单行的选择弹层，等它真的展开。"""
+    """点开某个表单行的选择弹层，等它真的展开。
+
+    ⚠️ 上一个弹层**必须先真正关掉**。``sheet_is_open`` 只判断「页面上有没有 bottom:0 的层」，
+    分不清那是旧层还是新层——旧层没关掉的话，下面的等待循环会立刻把它当成「新层已展开」
+    并返回，调用方接着就在**错误的弹层**上读选项、点条目。在发货流程里这意味着尺寸选错，
+    而尺寸决定了配送コード，发行后不能改，运费差额会后续补收。
+    所以关不掉就直接报错，绝不带着不确定往下走。
+    """
     if await sheet_is_open(page):
-        await close_sheet(page)
+        if not await close_sheet(page):
+            raise RuntimeError(
+                f"打开「{label}」前，上一个选择弹层没能关闭；继续操作会选到错误的弹层，已中止。"
+                "请重新打开该交易页后重试。"
+            )
     if not await page.evaluate(_OPEN_ROW_JS, label):
         raise RuntimeError(f"交易页未找到「{label}」这一行")
     waited = 0

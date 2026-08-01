@@ -201,9 +201,15 @@ async def _field_selected(page: Any, label: str) -> bool:
 
 
 async def _open_field_sheet(page: Any, label: str, *, element_timeout_ms: int) -> None:
-    # 上一个字段的弹层没收干净会挡住新的（弹层是互斥的单例）
+    # 上一个字段的弹层没收干净会挡住新的（弹层是互斥的单例）。
+    # 必须检查返回值：_sheet_is_open 只判断「有没有 bottom:0 的层」，分不清旧层与新层——
+    # 旧层没关掉时，下面那个「轮询到打开为止」会立刻把它当成新层并返回，
+    # 接着就在错误的弹层上选商品状态/分类/配送方式，出品参数会静默出错。
     if await _sheet_is_open(page):
-        await _wait_sheet_closed(page, timeout_ms=3000)
+        if not await _wait_sheet_closed(page, timeout_ms=3000):
+            raise RuntimeError(
+                f"打开「{label}」前，上一个选择弹层没能关闭；继续操作会选到错误的弹层，已中止。"
+            )
     if not await page.evaluate(_FIELD_OPEN_JS, label):
         raise RuntimeError(f"未找到「{label}」的选择入口")
     # 弹层是动画展开的，轮询到打开为止

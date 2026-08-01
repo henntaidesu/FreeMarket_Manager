@@ -257,6 +257,7 @@ export default {
       fetchingComments: "正在抓取评论",
       sendingComment: "正在发送评论",
       sendSuccess: "已发送评论",
+      sendUnverified: "已点击发送，但未能刷新评论列表核对，请稍后打开商品页确认",
       sendFailed: "发送评论失败",
       syncFailed: "同步评论失败",
       translate: "翻译",

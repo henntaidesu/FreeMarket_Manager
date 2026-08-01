@@ -306,7 +306,14 @@ async function onSubmit() {
           progress_job_id: jobId,
         }),
     })
-    ElMessage.success(t('dialogs.itemComment.sendSuccess'))
+    // 后端在发完后会重新抓一次评论列表来核对这条是否真的出现了：核对通过 verified=true；
+    // 列表里确实没有 → 后端直接抛错（走下面 catch）；刷新本身失败 → verified=false，
+    // 此时「发出去没有」是真的不知道，不能报成绿色成功。
+    if (res && res.verified === false) {
+      ElMessage.warning(res.verify_note || t('dialogs.itemComment.sendUnverified'))
+    } else {
+      ElMessage.success(t('dialogs.itemComment.sendSuccess'))
+    }
     emit('posted', { item_id: props.itemId, message: msg })
     replyText.value = ''
     // 后端在同一浏览器会话内 reload 并重新抓取了 items/get,

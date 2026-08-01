@@ -1233,10 +1233,15 @@ export default defineComponent({
       return 'success'
     }
 
-    function mercariItemUrl(itemId) {
-      const s = String(itemId || '').trim()
+    // 商品链接必须按行的平台走：待办页从雅虎待办同步上线后就是多平台表格，
+    // 而雅虎待办同样带 item_id（发货期限就是靠它去公开商品页读的）。原来这里恒拼煤炉域名，
+    // 雅虎行点开就是 jp.mercari.com/item/z… 的 404。
+    function itemUrlOf(row) {
+      const s = String(row?.item_id || '').trim()
       if (!s) return '#'
-      return `https://jp.mercari.com/item/${s}`
+      return platformOf(row) === 'yahoo'
+        ? `https://paypayfleamarket.yahoo.co.jp/item/${s}`
+        : `https://jp.mercari.com/item/${s}`
     }
 
     // 消息译文/原文切换：默认显示中文译文（仅买家消息且有 text_zh），点「原文」切回日文。
@@ -1455,8 +1460,12 @@ export default defineComponent({
           size: yahooForm.size,
           location: yahooForm.location,
         })
-        if (!data?.submitted) {
+        // submitted 只代表「点到了发行按钮」。后端在点击后会回读页面，读不到配送コード图片时
+        // 给出 code_uncertain —— 这时不能报成功：既不知道配送码是否真的发行，也就不该顺势
+        // 记包材 + 出库（下面那段是不可逆的记账）。让用户「重新抓取」确认后再走。
+        if (!data?.submitted || data?.code_uncertain) {
           ElMessage.warning(t('todos.yahoo.shipUncertain'))
+          if (data?.state) applyYahooDetail(data.state)
           return
         }
         ElMessage.success(t('todos.yahoo.shipped'))
@@ -2276,7 +2285,7 @@ export default defineComponent({
       shipRemainingTagType,
       purchaseTsMs,
       displayTs,
-      mercariItemUrl,
+      itemUrlOf,
       onProcess,
       onDetailRefresh,
       onClickShippingSizeLocation,

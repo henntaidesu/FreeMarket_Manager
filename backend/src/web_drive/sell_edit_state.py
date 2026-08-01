@@ -17,11 +17,15 @@ from typing import Any, Dict
 
 log = logging.getLogger(__name__)
 
+# 这两个选择器是煤炉编辑页的**唯一权威定义**：点击方（suspend/resume_order）与校验方
+# （本模块）都从这里取。曾经两边各自写死同样的字符串——煤炉一旦改 testid，改了一处漏另一处，
+# 会变成「点得到但校验不过」（或反过来），排查起来极其别扭。
 #: 出售中 → 显示「出品を一時停止する」
 SUSPEND_BTN_SELECTOR = 'button[data-testid="suspend-button"]'
 #: 停止中 → 显示「出品を再開する」
 RESUME_BTN_SELECTOR = 'button[data-testid="activate-button"]'
 
+# JS 里的选择器同样由上面两个常量拼出，避免第三份硬编码。
 _PAGE_STATE_JS = """
 () => {
   const has = (sel) => !!document.querySelector(sel);
@@ -30,12 +34,14 @@ _PAGE_STATE_JS = """
     .filter(Boolean);
   return {
     url: location.href,
-    suspend: has('button[data-testid="suspend-button"]'),
-    resume: has('button[data-testid="activate-button"]'),
+    suspend: has(__SUSPEND_SEL__),
+    resume: has(__RESUME_SEL__),
     buttons: [...new Set(btns)].slice(0, 30),
   };
 }
-"""
+""".replace("__SUSPEND_SEL__", repr(SUSPEND_BTN_SELECTOR)).replace(
+    "__RESUME_SEL__", repr(RESUME_BTN_SELECTOR)
+)
 
 
 async def read_sell_edit_state(

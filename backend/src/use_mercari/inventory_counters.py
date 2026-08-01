@@ -10,7 +10,11 @@
   · 待出 pending_outbound_qty = 非终态订单且未出库的明细合计，由订单管线派生维护
         （见 description_mgmt_ids.refresh_inventory_pending_outbound_qty）。
   · 组合预留 = Σ(组合商品库存 × 每套该商品数量)，被组合商品拉走但不扣库存，仅在可上架中扣减。
-  · 可上架 listable_quantity = max(0, 库存 - 在售 - 待出 - 组合预留)，落库的派生值，出品可否以此判断。
+  · 出品预扣减 pending_listing_qty = 已入队待出品、尚未被在售同步计入 on_sale 的件数
+    （见 task_queue/reservations.py）。点「出品」后立刻占用，防止重复提交超量出品。
+  · 可上架 listable_quantity = max(0, 库存 - 在售 - 待出 - 组合预留 - 出品预扣减)，落库的派生值，
+    出品可否以此判断。**这五项是唯一口径**：凡是另行重算可上架的地方（inventory_helpers 的库存列表、
+    on_sale_items_query 的在售明细）都必须逐项对齐，漏一项就会出现同一件商品两个页面两个数。
 
 「在售」的增减统一由本模块在「在售列表同步」(sync.apply_on_sale_list_sync) 与「详情绑定」
 (detail_sync) 两处通过 ``reconcile_listing_counts`` 应用，并以 ``on_sale_items.counted_on_sale``
@@ -110,7 +114,7 @@ def _listable_sql_expr() -> str:
 
 
 def recompute_listable_quantity(inv_ids: Optional[Iterable[int]] = None) -> int:
-    """重算并落库 inventory.listable_quantity = max(0, 库存 - 在售 - 待出 - 组合预留)。
+    """重算并落库 inventory.listable_quantity = max(0, 库存 - 在售 - 待出 - 组合预留 - 出品预扣减)。
 
     inv_ids 为空时重算全表；返回受影响行数。
     """

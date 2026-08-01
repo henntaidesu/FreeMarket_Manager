@@ -24,13 +24,12 @@ from ...delete.units.delete_order import (
     mercari_item_path_segment,
     _page_for_session,
 )
-from ...sell_edit_state import assert_state_after, read_sell_edit_state
+from ...sell_edit_state import RESUME_BTN_SELECTOR, assert_state_after, read_sell_edit_state
 from ....use_mercari.sync.sync_progress import make_sync_reporter
 
 log = logging.getLogger(__name__)
 
-# 「出品を再開する」恢复出售按钮
-RESUME_BTN_SELECTOR = 'button[data-testid="activate-button"]'
+# 「出品を再開する」恢复出售按钮。选择器统一由 sell_edit_state 提供（同 suspend_order）。
 RESUME_BTN_TEXT = "出品を再開する"
 
 
