@@ -239,9 +239,9 @@
           </template>
         </el-table-column>
 
-        <el-table-column :label="t('common.time')" width="170" align="center" header-align="center">
+        <el-table-column :label="t('todos.colPurchaseTime')" width="170" align="center" header-align="center">
           <template #default="{ row }">
-            <div>{{ displayTs(row.mercari_created || row.mercari_updated) }}</div>
+            <div>{{ displayTs(purchaseTsMs(row)) }}</div>
           </template>
         </el-table-column>
 

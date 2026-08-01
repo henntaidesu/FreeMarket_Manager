@@ -24,6 +24,7 @@ from ...delete.units.delete_order import (
     mercari_item_path_segment,
     _page_for_session,
 )
+from ...sell_edit_state import assert_state_after, read_sell_edit_state
 from ....use_mercari.sync.sync_progress import make_sync_reporter
 
 log = logging.getLogger(__name__)
@@ -152,9 +153,18 @@ async def resume_mercari_item(
             pass
         await page.wait_for_timeout(2000)
 
+        # 与暂停同理：回读编辑页确认按钮已从 activate-button 换回 suspend-button，
+        # 确认生效后才改本地状态（见 web_drive/sell_edit_state.py）。
+        report("verify", "正在回读编辑页确认已恢复出售…")
+        state = await read_sell_edit_state(
+            page, edit_url, page_load_timeout_ms=page_load_timeout_ms
+        )
+        result["state_after"] = state
+        assert_state_after(state, expect="suspend", action_label="恢复出售")
+
     result["browser_closed"] = True
 
-    # 提交成功后直接更新本地数据库（不重新同步）
+    # 已确认生效，再更新本地数据库（不重新同步）
     report("update_local", "正在更新本地数据…")
     raw_item_id = (item_id or "").strip()
     updated = _resume_local_on_sale_item([seg, raw_item_id])

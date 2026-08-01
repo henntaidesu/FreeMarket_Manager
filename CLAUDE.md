@@ -144,6 +144,7 @@ backend/
     ├── web_drive/                   # Playwright automation
     │   ├── core/                    #   manager/, mitm_session, listing_session, yahoo_session,
     │   │                            #   interactive_browser, account_serial_queue, paths
+    │   ├── sell_edit_state.py       #   煤炉编辑页按钮回读 + 暂停/恢复的生效校验（共享）
     │   └── listing/ revise/ suspend/ resume/ delete/ yahoo_item/ yahoo_trade/
     ├── task_queue/                  # Background job queue (see Task Queue below)
     ├── ssl_mitm_proxy/              # mitmproxy runner, addon, Windows cert trust
@@ -361,8 +362,10 @@ soft-delete, inventory counters and order upsert semantics stay identical across
   form, so `post_to_yahoo._fields` is reused. Buttons: 変更する / 出品を停止する / 商品を削除する
   (a stopped item shows 出品を再開する in place of 停止する). Page primitives live in
   `units/_page.py`, the four actions in `units/item_edit.py`.
-  **Success is judged by Yahoo's own rules, never Mercari's.** Mercari leaves the edit page after
-  the click; Yahoo's 停止/再開 mutate in place — the URL stays on `/edit` and only the button flips.
+  **Success is judged by Yahoo's own rules, never Mercari's.** Mercari's 変更する leaves the edit
+  page after the click; Yahoo's 停止/再開 mutate in place — the URL stays on `/edit` and only the
+  button flips. (Mercari's own 一時停止/再開 behave the same way, which is why they were the two
+  actions that shipped without a result check — see `web_drive/sell_edit_state.py`.)
   So `_run_edit_page_action` reloads the edit page and reads the buttons back: 停止 ⇒
   出品を再開する appears, 再開 ⇒ 出品を停止する returns, 削除 ⇒ the edit page 404s. Anything else
   **raises** — returning a `done: False` dict makes the task-queue worker record the task as

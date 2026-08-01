@@ -1174,10 +1174,10 @@ export default defineComponent({
     // 对齐到日终会让剩余时间超过承诺天数（2~3日 的单能显示「剩余 3 天 4 小时」）。
     // 与后端 _ship_deadline_ts 同口径。
     const DAY_MS = 24 * 3600 * 1000
-    // 计时起点：订单的购入时间（purchase_time，unix 秒，后端联表带出）。
-    // mercari_created 是待办出现/刷新的时刻，会被煤炉刷新反复推后，只能在订单
-    // 还没同步到本地时兜底。与后端 _ship_base_ms 同口径。
-    function shipBaseMs(row) {
+    // 购入时刻(ms)：订单的 purchase_time（unix 秒，后端联表带出）。列表的「购入时间」
+    // 列与发货期限倒计时都用它。mercari_created 是待办出现/刷新的时刻，会被煤炉刷新
+    // 反复推后，只能在订单还没同步到本地时兜底。与后端 _ship_base_ms 同口径。
+    function purchaseTsMs(row) {
       const purchase = Number(row?.purchase_time || 0)
       if (purchase > 0) return purchase * 1000
       return Number(row?.mercari_created || row?.mercari_updated || 0)
@@ -1192,7 +1192,7 @@ export default defineComponent({
       if (!isWaitShipping) return 0
       const days = parseMaxShippingDays(row?.shipping_duration)
       if (!days) return 0
-      const base = shipBaseMs(row)
+      const base = purchaseTsMs(row)
       if (!base) return 0
       return base + days * DAY_MS
     }
@@ -2260,6 +2260,7 @@ export default defineComponent({
       onRetakeShipQr,
       shipRemainingText,
       shipRemainingTagType,
+      purchaseTsMs,
       displayTs,
       mercariItemUrl,
       onProcess,

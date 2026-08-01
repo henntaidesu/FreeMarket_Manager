@@ -34,6 +34,10 @@ _CATEGORY_KEYWORDS: Dict[str, tuple] = {
     "other": ("上記以外", "それ以外", "その他"),
 }
 
+#: 提交「変更する」后等待回到交易页的窗口。这是判定变更是否生效的唯一判据，超时即判失败，
+#: 所以窗口要留得比「正常但慢」更宽（与 revise_mercari_item 的 element_timeout_ms 同量级）。
+_CHANGE_CONFIRM_TIMEOUT_MS = 30_000
+
 
 def _pick_option_for_category(
     options: List[Dict[str, Any]], category: str
@@ -447,11 +451,23 @@ async def confirm_change_shipping_method(
         report("confirm_submit", "正在确认「変更する」…")
         await _click_change_confirm_dialog(page, aid)
 
-        # 等待回到 transaction 详情页（离开 /shipping_method）
+        # 等待回到 transaction 详情页（离开 /shipping_method）——这就是「变更真的生效了」的信号。
+        #
+        # 原来超时只打一条警告日志就继续返回 success=True：煤炉若拒掉这次变更（该交易不支持
+        # 所选方式 / 登录态失效 / 表单校验不过），调用方看到的仍是成功，卖家会按错误的配送方式
+        # 继续走后面的发货流程。同族的 revise_mercari_item 在完全相同的判据上是**抛错**的，
+        # 这里对齐它。
+        #
+        # 窗口从 8s 放宽到 30s：判据从「记个日志」变成「判失败」之后，超时窗口太紧会把
+        # 「其实已改、只是跳转慢」误判成失败——这也是 revise 那边写明放宽的原因。
         try:
-            await page.wait_for_url("**/transaction/*", timeout=8000)
-        except Exception:
-            log.warning("[shipping] 変更後 transaction への遷移を観測できず (URL: %s)", page.url)
+            await page.wait_for_url("**/transaction/*", timeout=_CHANGE_CONFIRM_TIMEOUT_MS)
+        except Exception as exc:
+            raise RuntimeError(
+                "配送方式可能未变更：已点击「変更する」并确认，但页面未在 "
+                f"{_CHANGE_CONFIRM_TIMEOUT_MS // 1000}s 内回到交易页"
+                f"（当前地址：{page.url}）。请打开该交易人工确认当前配送方式后再操作。"
+            ) from exc
         await asyncio.sleep(0.4)
 
     # 变更完成后自动关闭浏览器（本流程自带浏览器、单次完成，无需保持打开）

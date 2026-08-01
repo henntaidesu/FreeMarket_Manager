@@ -24,6 +24,7 @@ from ...delete.units.delete_order import (
     mercari_item_path_segment,
     _page_for_session,
 )
+from ...sell_edit_state import assert_state_after, read_sell_edit_state
 from ....use_mercari.sync.sync_progress import make_sync_reporter
 
 log = logging.getLogger(__name__)
@@ -152,9 +153,19 @@ async def suspend_mercari_item(
             pass
         await page.wait_for_timeout(2000)
 
+        # 「点到了按钮」不等于「暂停生效了」。重新加载编辑页读回按钮状态：真的停了，
+        # 底部就会从 suspend-button 换成 activate-button。不校验的话，煤炉侧没生效
+        # 也会照样把本地 status 改成 stop，本地与煤炉就此长期不一致。
+        report("verify", "正在回读编辑页确认已暂停…")
+        state = await read_sell_edit_state(
+            page, edit_url, page_load_timeout_ms=page_load_timeout_ms
+        )
+        result["state_after"] = state
+        assert_state_after(state, expect="resume", action_label="暂停出售")
+
     result["browser_closed"] = True
 
-    # 提交成功后直接更新本地数据库（不重新同步）
+    # 已确认生效，再更新本地数据库（不重新同步）
     report("update_local", "正在更新本地数据…")
     raw_item_id = (item_id or "").strip()
     updated = _suspend_local_on_sale_item([seg, raw_item_id])
