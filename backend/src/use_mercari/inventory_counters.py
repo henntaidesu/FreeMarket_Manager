@@ -343,20 +343,16 @@ def _adjust_on_sale(
     )
     recompute_listable_quantity([int(inv_id)])
     if on_sale_delta > 0 and consume:
-        # 新挂牌已计入在售 → 核销 auto_relist「未同步补挂」台账（防无限循环出品）
-        try:
-            from .auto_relist import consume_unsynced_relists
-
-            consume_unsynced_relists(int(inv_id), int(on_sale_delta))
-        except Exception:
-            pass
-        # 同理核销任务队列的「出品预扣减」：新挂牌已入账，占用可以放行了
+        # 新挂牌已计入在售 → 核销「出品预扣减」，占用可以放行了。
+        # 手动出品与自动补挂现在共用这一本台账（见 auto_relist 模块说明）。
+        # 核销失败不能拖垮在售计数本身，但**必须留痕**：静默吞掉会让这件商品的可上架
+        # 一直被压低到 6 小时 TTL 才自愈，而现场没有任何线索。
         try:
             from ..task_queue import reservations
 
             reservations.consume(int(inv_id), int(on_sale_delta))
         except Exception:
-            pass
+            log.exception("[inventory_counters] 核销出品预扣减失败 inventory_id=%s", inv_id)
     return bool(changed)
 
 

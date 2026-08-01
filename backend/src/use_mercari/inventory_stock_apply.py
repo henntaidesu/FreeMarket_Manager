@@ -1,5 +1,25 @@
 # -*- coding: utf-8 -*-
 """
+⚠️ **本模块已废弃且当前无人调用，接线前务必先读完这段。**
+
+全仓库没有任何地方 import 本模块——三个公开函数
+(``resolve_bound_inventory_qty_map_for_item`` / ``check_bound_inventory_sufficient_for_resume`` /
+``apply_inventory_change_for_item``) 调用点均为 0。留着是因为它记录了旧数量模型的实现细节，
+但它现在是个**陷阱**：
+
+1. 它实现的是「上架/下架直接增减 ``inventory.quantity``」的旧模型。现行模型完全不同——
+   ``quantity`` 只由入库/出库变动，上架只影响 ``on_sale_quantity``，全部增减集中在
+   ``inventory_counters.reconcile_listing_counts``（凭 ``counted_on_sale`` 幂等）。
+   把本模块接回去会与那套计数**双重扣减**。
+2. ``check_bound_inventory_sufficient_for_resume`` 编码的「恢复出售需校验库存充足」这条规则
+   **已被明确废止**——见 ``use_web/web_drive/units/web_drive_handler/items.py::resume_on_sale_item``：
+   「新计数模型下，恢复出售（stop → on_sale）不消耗库存（暂停期间该件仍占用『在售』名额），
+   故不再做『绑定库存数量是否充足』的前置校验」。
+
+需要「在售/可上架」联动，请用 ``use_mercari/inventory_counters.py``，不要用本模块。
+
+────────────────────────────────────────────────────────────────────────
+（以下为原始说明，仅供追溯旧模型）
 在售/库存联动：恢复出售或下架时，对该煤炉商品「绑定的库存ID」进行
   · 在售（inventory.on_sale_quantity）按 on_sale_items 当前状态重算
   · 库存（inventory.quantity）按说明解析出的占用数量扣减（不低于 0），并写一条出库流水

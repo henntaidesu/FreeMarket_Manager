@@ -17,24 +17,43 @@ Read the active name from `backend/system.db` (`system_settings.mysql_database`)
 
 When unsure which database is active, check the name before writing — an unrecognized name counts as production.
 
+`db_manage/db_settings.py::is_test_database()` whitelists `freemarket_test` (plus anything in
+`TEST_DATABASE_NAMES`) and treats SQLite as a test DB. The production DB name is `mercari`.
+
+**What that predicate actually gates is narrow, so read this before assuming you are protected.**
+It guards exactly one thing: the two destructive schema-sync steps, via
+`db_manage/schema_guard.py::destructive_schema_allowed()` —
+`initialize_database()`'s drop-unknown-tables pass and `BaseModel`'s drop-undeclared-columns pass.
+On a non-test database both are **skipped, not aborted** (raising would make the app unbootable in
+production), and every skip *and* every executed drop is written to `system_logs` under category
+`schema`. `DB_DESTRUCTIVE_SCHEMA_SYNC=0` turns them off on test databases too.
+Ordinary `INSERT`/`UPDATE`/`DELETE` are **not** gated by anything — the rule above is a convention
+you have to follow, not something the code will stop you from breaking.
+
 ## Code Organization Rules
 
 - **Target file length: 500 lines.** Keep `.py` files under `backend/` at or below **500 lines**. When a module grows past this, prefer splitting it by feature — convert it into a package (a folder named after the module with an `__init__.py` that re-exports the public API so existing imports keep working) and group related functions into separate files. Keep shared helpers in a `_common`/`_helpers` module and group cohesive features into their own files (and subfolders when a feature spans several files).
 
-- **Exceeding 500 lines is allowed when splitting would hurt.** Some files are more readable whole — a single cohesive state machine, a long linear automation script, or a registry of related definitions. Don't split a file *just* to satisfy the number, and don't refactor an existing over-length file unless you're already changing it for another reason. Current accepted exceptions: `db_manage/db_manager.py`, `web_drive/listing/units/post_to_macket/post.py`, `use_mercari/get_to_du_list/transaction_detail/wait_shipping/ship_finalize.py`. For **new** files, still aim under 500 — go over only deliberately.
+- **Exceeding 500 lines is allowed when splitting would hurt.** Some files are more readable whole — a single cohesive state machine, a long linear automation script, or a registry of related definitions. Don't split a file *just* to satisfy the number, and don't refactor an existing over-length file unless you're already changing it for another reason. Current over-length files (all deliberate): `db_manage/db_manager.py` (804), `use_mercari/get_to_du_list/transaction_detail/wait_shipping/ship_finalize.py` (592), `use_mercari/inventory_counters.py` (565), `web_drive/listing/units/post_to_macket/post.py` (526), `web_drive/core/mitm_session.py` (506), `use_mercari/get_order/get_in_progress_order/get_order_info.py` (503). For **new** files, still aim under 500 — go over only deliberately.
+
+  Re-check the list with:
+  `find backend/src -name "*.py" -exec wc -l {} + | sort -rn | awk '$1>500'`
 
 ## Technology Stack
 
 | Layer | Technology | Details |
 |-------|-----------|---------|
 | Frontend | Vue 3, Vite, Vue Router, Pinia, Element Plus | Dev: port 9600 (HTTPS), Prod: static SPA |
-| Backend | Python 3.11+, FastAPI, Uvicorn | Port 9601, OpenAPI docs at /docs |
+| Backend | Python 3.11+, FastAPI, Uvicorn | Port 9601 (dev) / 9600 (frozen); `/docs` off by default |
 | Database | SQLite WAL mode (default) / MySQL 8.0+ | backend/mercariDB.db (auto-created); MySQL via `DB_BACKEND=mysql` |
 | Authentication | JWT (Bearer tokens) | 12-hour expiry by default |
 | Image Storage | Local filesystem | backend/imges/ directory |
-| Browser Automation | Playwright | For Mercari listing management |
+| Browser Automation | Playwright | Edge/Chromium; drives both Mercari and Yahoo |
 | Request Inspection | mitmproxy | SSL/TLS interception (Windows) |
-| ML/Vision | EasyOCR, OpenCV | For barcode/text recognition |
+| ML/Vision | EasyOCR, OpenCV, CLIP (ONNX Runtime) | Barcode/text recognition + image search |
+| AI | DeepSeek (OpenAI-compatible) | Generates Japanese listing title/description |
+| i18n | vue-i18n | zh-CN / ja / en — all three locales must stay in sync |
+| Packaging | PyInstaller + pystray | Windows .exe with tray icon & log window |
 
 ## Development Setup
 
@@ -87,58 +106,83 @@ The FastAPI backend can serve the SPA by mounting `webside/dist`. Override with 
 
 ## Project Structure
 
+There is **no `src/routes/` package** — the HTTP layer is `use_web/`, one folder per frontend page.
+
 ```
 backend/
-├── main.py                          # FastAPI entry point, app initialization
-├── requirements.txt                 # Python dependencies
-├── mercariDB.db                     # SQLite database (WAL mode)
+├── main.py                          # Thin entry: mitmdump self-dispatch, console/log window,
+│                                    #   FastAPI app, CORS, /imges mount, router + lifecycle
+├── mercariDB.db                     # SQLite business data (WAL); system.db = bootstrap config
 ├── imges/                           # Product image storage
+├── models/                          # Downloaded ML weights (CLIP ONNX) — not DB models
+├── tools/                           # sqlite_to_mysql.py, clone_mysql_to_test.py (run via -m)
 └── src/
-    ├── auth.py                      # JWT token generation & verification
-    ├── app_paths.py                 # Development vs PyInstaller path handling
-    ├── image_storage.py             # Base64/upload image handling
-    ├── mercari_auto_fetch_loop.py     # Background task: periodic Mercari sync
-    ├── system_service.py            # System utilities (restart, etc.)
-    ├── order_goods_ratio.py         # Order-to-inventory analysis
-    ├── db_manage/                   # Database layer
-    │   ├── base_model.py            # Abstract BaseModel for all tables
-    │   ├── database.py              # DatabaseManager singleton (SQLite connection pooling)
-    │   ├── db_manager.py            # DBManager: coordinated table init & migrations
-    │   └── models/                  # Table models (inventory.py, user.py, etc.)
-    ├── routes/                      # REST API blueprints
-    │   ├── auth.py                  # Login, token refresh
-    │   ├── inventory.py             # Product inventory CRUD
-    │   ├── orders.py                # Order management
-    │   ├── mercari_accounts.py        # Mercari account config
-    │   ├── on_sale_items.py         # Mercari listing sync display
-    │   ├── warehouses.py            # Warehouse & shelf location management
-    │   └── [other routes]
-    ├── use_mercari/           # Mercari API & sync logic
-    │   ├── API.py                   # FastAPI router for /api/mercari endpoints
-    │   ├── sync_data.py             # Mercari API client wrapper
-    │   ├── on_sale_items_sync.py    # Fetch & sync item listings
-    │   └── mgmt_id_cipher.py        # Encode/decode secret code from descriptions
-    ├── web_drive/                   # Playwright browser automation
-    │   ├── manager.py               # Browser manager singleton
-    │   ├── interactive_browser.py   # Headed browser for user interaction
-    │   ├── mitm_session.py          # Per-op headed minimized Edge for MITM ops
-    │   └── account_serial_queue.py  # Serial task execution per account
-    └── ssl_mitm_proxy/              # mitmproxy integration
-        ├── runner.py                # Start/stop MITM proxy
-        ├── mitm_addon.py            # Custom mitmproxy addon for request capture
-        └── windows_trust.py         # Windows cert trust utilities
+    ├── API.py                       # /mercariV2 root router + /mercariV2/health
+    ├── lifecycle.py                 # startup/shutdown orchestration (see Startup Sequence)
+    ├── server.py                    # uvicorn launch, TLS resolution, tray, hard-kill on exit
+    ├── readiness.py                 # is_ready()/mark_ready() — health 503s until startup done
+    ├── auth.py  app_paths.py  system_service.py  memory_recycle.py
+    ├── tray.py  log_window.py  console_win.py     # frozen(.exe)-only Windows UI
+    ├── db_manage/                   # Custom ORM: base_model, database, db_manager,
+    │   ├── dialects/                #   dialect abstraction (sqlite / mysql translation)
+    │   ├── db_settings.py           #   bootstrap store in system.db + is_test_database()
+    │   ├── migrate.py               #   SQLite <-> MySQL data migration
+    │   └── models/                  #   grouped by domain: inventory/ orders/ system/ todos/ ...
+    ├── use_web/                     # ==> THE REST API LAYER (one package per frontend page)
+    │   ├── API.py                   #   aggregates all page routers under /use_web
+    │   ├── <page>/API.py            #   router; <page>/units/*.py holds the handlers
+    │   ├── inventory/image_search/  #   CLIP-ONNX image similarity search
+    │   └── web_drive/               #   browser-automation endpoints (incl. listing dispatch)
+    ├── use_mercari/                 # Mercari business orchestration
+    │   ├── API.py  auto_relist.py  inventory_counters.py   # 计数模型的权威实现
+    │   ├── inventory_stock_apply.py  # ⚠ 已废弃、零调用（旧数量模型，接回去会双重扣减）
+    │   ├── mgmt_id_cipher.py     # secret code in item descriptions — the real binding
+    │   ├── mgmt_image_cipher.py  # QIM image watermark — embedded but never decoded (see below)
+    │   └── sync/  on_sale/  get_order/  get_to_du_list/  get_notifications/
+    ├── use_yahoo/                   # Yahoo!フリマ equivalents (page scraping, see below)
+    │   └── on_sale/  orders/  todos/  notifications/  seller.py  item_page.py
+    ├── web_drive/                   # Playwright automation
+    │   ├── core/                    #   manager/, mitm_session, listing_session, yahoo_session,
+    │   │                            #   interactive_browser, account_serial_queue, paths
+    │   └── listing/ revise/ suspend/ resume/ delete/ yahoo_item/ yahoo_trade/
+    ├── task_queue/                  # Background job queue (see Task Queue below)
+    ├── ssl_mitm_proxy/              # mitmproxy runner, addon, Windows cert trust
+    ├── mercari_proxy/               # Node reverse proxy subprocess (runner.py + server.js)
+    └── ai/deepseek_client.py        # DeepSeek: AI-generated listing title/description
 
 webside/
-├── package.json
-├── vite.config.js                   # Dev server: port 9600, /api & /imges proxy to 9601
-├── dist/                            # Production build output
+├── vite.config.js                   # Port 9600 HTTPS; proxies /mercariV2, /api, /imges -> 9601
 └── src/
-    ├── main.js                      # Vue app initialization (Pinia, router, Element Plus)
-    ├── api/index.js                 # Axios HTTP client with JWT interceptors
-    ├── router/index.js              # Vue Router with auth guards
-    ├── views/                       # Page components (Dashboard, Inventory, Orders, etc.)
-    └── components/                  # Reusable components (Layout, dialogs, forms)
+    ├── api/                         # One module per resource; index.js re-exports them all
+    │   └── http.js                  #   Axios instance + JWT interceptors
+    ├── i18n/locales/                # zh-CN / ja / en — all three must be updated together
+    ├── router/index.js              # Routes + auth guards
+    ├── views/                       # Page components; views/system/* for the system sub-pages
+    └── components/ composables/ stores/ utils/ constants/
 ```
+
+### API Path Convention
+
+Everything is mounted under **`/mercariV2`** — there is no `/api/*` business route
+(`/api/health` survives only as a legacy alias registered in `web_static.py`).
+
+```
+/mercariV2/health                              # 503 until startup completes
+/mercariV2/src/use_web/<page>/<endpoint>       # frontend page APIs
+/mercariV2/src/use_mercari/<module>/<endpoint> # Mercari orchestration (auth required)
+```
+
+Auth is applied **at the aggregation point**, not per-endpoint: `use_web/API.py` attaches
+`dependencies=[Depends(require_auth)]` when including each page router, and `src/API.py` does the
+same for the whole `use_mercari` tree. Public endpoints must be exported as a separate
+`public_router` and included without that dependency (see `login`, `inventory.public_router`,
+`mercari_image.public_router`).
+
+### Startup Sequence (`src/lifecycle.py`)
+
+Order matters and is documented in-file: MITM proxy → mercari-proxy → `init_database()` → image
+search indexer → headed-debug flag → Mercari auto-fetch loop → memory recycler → optional
+interactive browser → `mark_ready()`. Health checks return 503 until that last step.
 
 ## Database Models & Core Tables
 
@@ -148,9 +192,18 @@ Key tables in `backend/src/db_manage/models/`:
 - **inventory**: Products with barcode, SKU, price, quantity, images (filesystem paths in `images_json`; images saved under `backend/imges/`)
 - **warehouses**: Storage locations (shelf names duplicable per warehouse)
 - **product_type_category_mappings**: 商品类型主表 (one row = one 商品类型). `inventory.product_type_id` → `mapping_id` (TEXT PK, numeric, auto-incremented on create, never user-visible). See 商品类型映射 below.
-- **mercari_accounts**: Mercari account config (headers in value JSON field)
-- **on_sale_items**: Mercari listing records synced from API
-- **orders**: Mercari orders synced from API
+- **shop_accounts**: Marketplace account config (headers in `value` JSON field, `platform`,
+  `seller_id`). **Renamed twice** — `meilu_accounts` → `mercari_accounts` → `shop_accounts`, with
+  startup migrations in `models/shop_accounts/shop_account.py` and a self-check in `db_manager.py`.
+  `ShopAccountModel.LEGACY_TABLE_NAME` still holds `mercari_accounts`; older docs/comments use the
+  old names, but the live table is `shop_accounts`.
+- **on_sale_items**: Listing records synced from Mercari/Yahoo
+- **orders**: Orders synced from Mercari/Yahoo
+- **image_embeddings**: CLIP vectors for inventory image search (see Auxiliary Subsystems)
+- **task_queue**: Background job rows (see Task Queue)
+- **config**: Generic key/value app settings — DeepSeek credentials live here, not in env vars
+- **system_logs**, **memos**, **talk_scripts**, **settlement_records**, **desired_price_offers**,
+  **bundle_purchase_requests**, **transaction_messages**, **categories**, **game_types**
 - **order_outbound_lines**: Line items for outbound shipments
 - **transactions**: In/out stock movements with warehouse tracking
 - **cost_records**: Packaging material inventory
@@ -165,11 +218,24 @@ Key tables in `backend/src/db_manage/models/`:
 3. **DBManager** (`db_manager.py`): Coordinates all model registration, table creation, migrations
 4. Migrations handled in `db_manager.py` (e.g., warehouses composite unique constraint)
 
-**`_check_and_update_table_structure()` (`base_model.py`) auto-adds columns declared in `get_fields()`
-and auto-DROPS columns that are not** (both dialects implement `drop_column`). So removing a field
-from a model deletes its data on the next startup — any migration that needs to read a column being
-removed **must be registered in the pre-model block of `init_database()`**, above the
-`ensure_table_exists()` loop, not below it.
+**Startup does two destructive schema-sync passes, both gated by `db_manage/schema_guard.py`:**
+
+- `initialize_database()` (`db_manager.py`) DROPs every table in the schema that no registered
+  model declares. `get_all_tables()` is schema-wide, so this is "delete everything that isn't
+  mine" — pointing the app at another application's database would wipe it.
+- `_check_and_update_table_structure()` (`base_model.py`) auto-adds columns declared in
+  `get_fields()` and DROPs columns that are not (both dialects implement `drop_column`).
+
+`schema_guard.destructive_schema_allowed()` runs both **only on a test database** (and only while
+`DB_DESTRUCTIVE_SCHEMA_SYNC` isn't `0`). Elsewhere they are skipped with a `system_logs` entry
+rather than raising — an exception here would make the app unbootable in production. Executed drops
+are logged too, so data that vanishes is always traceable.
+
+On a test database the old behaviour still applies: removing a field from a model deletes its data
+on the next startup, so any migration that needs to read a column being removed **must be
+registered in the pre-model block of `init_database()`**, above the `ensure_table_exists()` loop,
+not below it. Off a test database, undeclared columns/tables simply linger — harmless, since
+nothing reads what `get_fields()` doesn't declare.
 
 ### 商品类型映射 (`product_type_category_mappings`)
 
@@ -192,26 +258,36 @@ is the single lookup used by the listing dispatcher.
 
 ### Authentication Flow
 
-1. User logs in via `POST /api/auth/login` (username + password)
+1. User logs in via `POST /mercariV2/src/use_web/login/...` (username + password)
 2. Backend verifies with bcrypt, creates JWT with `user_id` and `username`
 3. Frontend stores token in `localStorage`
-4. Axios interceptor adds `Authorization: Bearer <token>` to all requests
+4. Axios interceptor (`api/http.js`) adds `Authorization: Bearer <token>` to all requests
 5. Backend `require_auth()` dependency verifies JWT, raises 401 if expired/invalid
 6. Token expiry: `JWT_EXPIRE_HOURS` env var (default 12)
 
+CORS defaults to `allow_origins=["*"]` with **credentials disabled** — auth rides on the Bearer
+header, not cookies, so the dangerous wildcard+credentials combination never occurs. Setting
+`CORS_ORIGINS` to a comma-separated list locks origins down *and* enables credentials.
+
 ### Mercari Integration Pipeline
 
-1. User adds Mercari account in Web UI → headers & cookies stored in `mercari_accounts.value` (JSON)
+1. User adds Mercari account in Web UI → headers & cookies stored in `shop_accounts.value` (JSON)
 2. `mercari_auto_fetch_loop()` runs on startup, periodically syncs orders & items
-3. `sync_data.py`: Wraps Mercari API calls (fetch orders, items, etc.)
-4. `on_sale_items_sync.py`: Incremental sync with local DB
-5. `mgmt_id_cipher.py`: Decodes secret codes embedded in item descriptions
+3. `use_mercari/sync/`: Mercari API client wrappers (fetch orders, items, etc.)
+4. `use_mercari/on_sale/`: Incremental listing sync with local DB
+5. `mgmt_id_cipher.py`: the `-=~<>` (or `◇◆`) cipher on the **last line of the item description**.
+   This — and only this — is what binds a marketplace listing back to an inventory row.
+   `mgmt_image_cipher.py` embeds the same id into images as a QIM watermark, but is currently
+   **write-only**: `embed_mgmt_code_in_file` is called from both listing flows (and only when
+   `watermark=True`), while `decode_mgmt_code_from_file` has **no callers anywhere**. Treat it as
+   an unfinished feature, not part of the binding path — it costs CPU and alters every uploaded
+   image for no current benefit.
 6. Browser automation (`web_drive/`): Playwright for listing operations
-7. SSL MITM proxy: Captures HTTP traffic for debugging/inspection
+7. SSL MITM proxy: Captures HTTP traffic to harvest tokens the public API does not expose
 
 ### Yahoo!フリマ (PayPayフリマ) Listing
 
-`mercari_accounts.platform` (`mercari` default / `yahoo`) selects the marketplace. Implemented for
+`shop_accounts.platform` (`mercari` default / `yahoo`) selects the marketplace. Implemented for
 Yahoo: **listing, on-sale list+detail sync, revise/suspend/resume/delete, sold-order sync +
 single-order refresh + order-status batch refresh + fee backfill, auto-relist, todo sync,
 notification sync, and the todo 处理 flow (trade detail / 发货 / 交易留言)**. Still Mercari-only:
@@ -219,7 +295,7 @@ notification sync, and the todo 处理 flow (trade detail / 发货 / 交易留�
 its 配送コード is issued server-side, nothing to scan), and every *notification* action
 (回复评论/同意降价) — Yahoo notices remain display-only.
 
-**Every account-driven entry point dispatches on `mercari_accounts.platform`** — the auto-fetch
+**Every account-driven entry point dispatches on `shop_accounts.platform`** — the auto-fetch
 loop, the account page's 同步数据, on-sale sync / full-update / fetch-detail (single + batch),
 order sync + single-row refresh + batch status refresh, todo sync, todo 处理, and
 listing/revise/suspend/delete. Unsupported
@@ -239,6 +315,12 @@ soft-delete, inventory counters and order upsert semantics stay identical across
   `items/get` response into `detail_sync_inventory_from_item_get_response`. This is what binds a
   Yahoo listing to inventory and consumes the listing reservation; it runs automatically for newly
   inserted items after each list sync (`WEB_DRIVE_ON_SALE_SYNC_AUTO_DETAIL=0` disables it).
+  Two entry points, and picking the wrong one is a silent bug: `sync_yahoo_item_details` is the
+  **batch** form and folds per-item failures into a stats dict, while `sync_yahoo_item_detail_one`
+  is the **single-item** form that mirrors Mercari's `fetch_detail_and_sync_inventory` — same
+  `{api, sync}` shape, same progress reporting, and it raises instead of swallowing. The 在售详情
+  弹窗's 同步数据 button (`/fetch-detail`) needs the single-item form: fed the batch stats, the
+  frontend finds no `sync` key and reports 未写入库存 on every Yahoo item, success or not.
 - `use_yahoo/orders/sold_sync.py` — `/my/item/sold` + each `/item/{id}/trade/seller` → `orders`
   (`order_no` = Yahoo item id). Status is matched **only in the page's first 400 chars**: the
   trade page keeps a hidden 取引キャンセル dialog in the DOM that makes whole-body matching report
@@ -266,7 +348,7 @@ soft-delete, inventory counters and order upsert semantics stay identical across
   first metadata line rather than trim trailing blanks (trimming stops at 出品日時 and leaves the
   cipher stranded mid-text, where `parse_trailing_cipher_mgmt_tokens` won't see it).
 - `use_yahoo/seller.py` — Yahoo has no seller_id in any payload; it is scraped once from the
-  `/user/{id}` link on `/my` and written back to `mercari_accounts.seller_id`. That same link also
+  `/user/{id}` link on `/my` and written back to `shop_accounts.seller_id`. That same link also
   carries the nickname (first line of its text), which is what the account dialog's 获取基础信息
   button returns for Yahoo — **no MITM**, unlike Mercari where seller_id only exists in the
   `items/get_items` query string. Like Mercari's button it does not persist; the form saves.
@@ -276,7 +358,23 @@ soft-delete, inventory counters and order upsert semantics stay identical across
   way it always did for `mercari_prepare`.
 - `web_drive/yahoo_item/` — revise / suspend / delete all live on one page
   (`/item/{id}/edit`, public domain — the `-sec` host 404s) whose form is identical to the listing
-  form, so `post_to_yahoo._fields` is reused. Buttons: 変更する / 出品を停止する / 商品を削除する.
+  form, so `post_to_yahoo._fields` is reused. Buttons: 変更する / 出品を停止する / 商品を削除する
+  (a stopped item shows 出品を再開する in place of 停止する). Page primitives live in
+  `units/_page.py`, the four actions in `units/item_edit.py`.
+  **Success is judged by Yahoo's own rules, never Mercari's.** Mercari leaves the edit page after
+  the click; Yahoo's 停止/再開 mutate in place — the URL stays on `/edit` and only the button flips.
+  So `_run_edit_page_action` reloads the edit page and reads the buttons back: 停止 ⇒
+  出品を再開する appears, 再開 ⇒ 出品を停止する returns, 削除 ⇒ the edit page 404s. Anything else
+  **raises** — returning a `done: False` dict makes the task-queue worker record the task as
+  *success*, which is exactly the "task succeeded but the listing never moved" bug. Errors carry a
+  dump of the buttons actually on the page, so a Yahoo copy change is diagnosable from the task row.
+  Buttons are clicked by accessible role first, then by JS first-line text (Yahoo "buttons" are not
+  always `<button>`). The confirm-dialog helper only looks inside an open sheet / `[role=dialog]`
+  **that does not contain the other action buttons** — the edit page's sticky action bar is itself
+  `bottom: 0`, and mistaking it for the dialog re-clicks the button just pressed.
+  Yahoo delete also calls `reconcile_listing_counts` itself: Mercari's delete re-runs the whole
+  on-sale list sync to settle 在售 -1, but a row already soft-deleted here never re-enters the next
+  sync's absent-set (`apply_on_sale_list_sync` reads via `find_all`, which excludes `is_delete=1`).
 - `web_drive/core/yahoo_session.py` — same MITM + cookie-clone session as Mercari, only with
   `cookie_domains=("yahoo","paypay")`; `export_cookies_full` filters by domain, so without this the
   Yahoo session is silently logged out.
@@ -284,8 +382,16 @@ soft-delete, inventory counters and order upsert semantics stay identical across
   `GET /api/v1/notices/todo?result=30&offset=0` (login cookies required). Yahoo todo types map to
   their own `Yahoo*` kinds (`ooesh` → `YahooShipRequest`) rather than onto Mercari kinds — reusing
   `WaitShippingCard` etc. would make the todos page run Mercari-only ship/QR automation on a Yahoo
-  row. The kind *is* listed in `_WAIT_SHIPPING_COND` so 発送依頼 lands in the 待发货 chip. This
-  naming is also what keeps 一键好评 / 一键确认发送 / 详情预抓 off Yahoo rows for free — they all
+  row. The kind *is* listed in `_WAIT_SHIPPING_COND` so 発送依頼 lands in the 待发货 chip — and it
+  must also be in `_WAIT_SHIPPING_KINDS_PY`, the Python twin used by the 期限 sort key; the two
+  are documented as one 口径 and silently drifted apart once. The todo payload carries **no
+  发货期限**, and `on_sale_items` is not a usable source either (an item that sold before its first
+  on-sale sync has no row there at all), so the deadline is read from the **public item page** —
+  `<th>発送までの日数</th><td>2〜3日で発送</td>` — by the same
+  `fetch_and_store_shipping_durations` Mercari uses, dispatched on `platform=`. Unlike Mercari
+  it re-tries every sync for any undeleted 発送依頼 still missing the value: Yahoo returns the
+  full todo list each time and soft-deletes the rest, so the retry set is bounded by open trades.
+  This naming is also what keeps 一键好评 / 一键确认发送 / 详情预抓 off Yahoo rows for free — they all
   filter on Mercari `kind`/`title` constants that no `Yahoo*` value matches.
 - `web_drive/yahoo_trade/` + `use_yahoo/todos/trade_actions.py` — the todo 処理 flow. The whole
   Yahoo transaction lives on one page, so this package splits by *action* (`_page` sheet/row
@@ -308,6 +414,15 @@ soft-delete, inventory counters and order upsert semantics stay identical across
     from the row containing a relative-time leaf.
   - Endpoints are a separate `/{todo_id}/yahoo/*` group; the Mercari `transaction-detail` endpoints
     now **400 on a Yahoo todo** rather than opening `jp.mercari.com/transaction/z…`.
+  - The **frontend** 处理 panel is the *same* dialog for both platforms (`views/Todos/index.vue`);
+    only the 发货 section swaps to Yahoo's three-field form, keyed on `isYahoo`. That is what puts
+    Yahoo on the same 关联库存 → 包材 → 出库 rails: `onSubmitYahooShip` reuses
+    `validatePackagingBeforeShip` / `commitShipPackagingAndOutbound` and refuses to submit until a
+    local inventory match *and* a packaging choice exist, exactly like Mercari's 発送 button. A
+    separate Yahoo-only dialog (the deleted `YahooTradeDialog.vue`) shipped without ever touching
+    包材 or 出库, so a Yahoo sale silently skipped both ledgers.
+    "Already shipped" is `ship_form.pending === false` — Yahoo has no local QR file, so
+    `isPackedDetail` can't key on `qr_image_url` the way Mercari does.
 - `use_yahoo/orders/batch_refresh.py` — 订单「更新状态」的雅虎实现（逐条重读交易页）。
   `OrderModel.find_for_batch_info_refresh` now takes `platform`; without it the Mercari
   `transaction_evidences` batch would pick up `z…` orders and open Mercari transaction pages that
@@ -340,13 +455,13 @@ soft-delete, inventory counters and order upsert semantics stay identical across
   **full tree**, so `select_category` always clicks 「他のカテゴリから選ぶ」 first (the sheet opens on a
   「カテゴリはこちらですか」 recommendation list whose length varies with the 商品名). Missing positions →
   the listing is rejected up front with a clear 400.
-- **Category catalog**: 系统管理 → 雅虎类型映射 (`/system/yahoo-category-mappings`) is a hand-maintained
-  catalog of Yahoo leaf categories in table `yahoo_category_mappings` (id + 3 levels + leaf name +
-  full path). It is paginated/searchable server-side because the tree is large. It is now a
-  standalone reference only — the 商品类型映射 page no longer reads from it, since positions (not
-  names) drive the automation. (Auto-scraping Yahoo's `/api/v1/categories/{id}/children` was tried and dropped: the
-  endpoint returns intermittent 500s under any sustained crawl, so the collected tree came out
-  badly truncated.)
+- **Category catalog**: a hand-maintained catalog of Yahoo leaf categories lives in table
+  `yahoo_category_mappings` (id + 3 levels + leaf name + full path), served by
+  `use_web/system/yahoo_category_mappings/` with server-side pagination/search because the tree is
+  large. **Backend-only now** — the frontend page was removed, so nothing in the UI reads it, and
+  the 商品类型映射 page never did (positions, not names, drive the automation). (Auto-scraping
+  Yahoo's `/api/v1/categories/{id}/children` was tried and dropped: the endpoint returns
+  intermittent 500s under any sustained crawl, so the collected tree came out badly truncated.)
 - Yahoo has no 送料負担 (always seller) and no auction; those fields are hidden in the listing dialogs
   (`useListingPlatform.js`) and ignored by the backend. Shipping method maps
   `rakuraku`→ヤマト運輸 / `yuuyu`→日本郵便; other values keep the page default (日本郵便).
@@ -389,11 +504,39 @@ the message instead of `404: …`.
   released only when a listing is *confirmed* not submitted, with a TTL sweep
   (`TASK_LISTING_RESERVATION_TTL_SEC`, default 6h) as backstop. An unexpected crash **keeps** the
   reservation — under-listing is recoverable, duplicate listing is not.
+  **`use_mercari/auto_relist.py` (售出即补挂) submits `inventory.listing` tasks rather than calling
+  `post_to_market` itself**, precisely so its over-listing guard is this same DB-persisted
+  reservation. It used to keep its own in-process dict (`_unsynced_relists`, now deleted) that
+  recorded a relist only *after* the automation returned — a restart in the window between posting
+  and the on-sale sync binding it lost the count and the next sale relisted the same item again.
+  Anything else that wants to list must go through the queue for the same reason; there is no
+  second ledger to keep in sync.
 - Ordering: since the worker is FIFO, a sync task submitted after listings naturally waits for them.
   `mercari_auto_fetch_loop` additionally defers while listing tasks are queued (max 30 min).
 - On restart, `running` tasks are marked failed but their listing reservations are **kept**
   (released only by the TTL sweep) — a hard crash cannot tell whether 出品する was already
   clicked, and browser automation is never auto-retried.
+
+### Auxiliary Subsystems
+
+Three self-contained features that are easy to miss because nothing else depends on them:
+
+- **Image search** (`use_web/inventory/image_search/`) — CLIP ViT-B/32 vision encoder, int8-quantized
+  ONNX, CPU-only. The ~88MB weight file is **not in the repo**: it is downloaded on first use into
+  `backend/models/` (HuggingFace, with an hf-mirror fallback for CN networks). The model is a lazy
+  singleton, so not using image search costs nothing. `MODEL_NAME` is stored on each row in
+  `image_embeddings` — changing the model automatically invalidates and rebuilds old vectors. A
+  background thread reconciles the index at startup (`IMAGE_SEARCH_AUTO_INDEX=0` disables).
+- **AI listing text** (`ai/deepseek_client.py`) — OpenAI-compatible chat completion that returns
+  strict JSON `{"title", "body"}` in **Japanese**, capped at 40 / 900 chars to match the inventory
+  form. API key, model, and base URL live in the `[config]` table (`ConfigEntryModel`), not in env
+  vars. The default `deepseek-chat` is text-only; sending the main product image requires switching
+  to a vision-capable model in the system settings page.
+- **mercari-proxy** (`mercari_proxy/`) — a **Node** reverse proxy (`server.js`, derived from
+  github.com/Gosoki/mercari-proxy) run as a managed subprocess on its own HTTPS port (default 9610,
+  bound to 127.0.0.1). Its purpose is a genuine secure context, which Mercari's DPoP requires.
+  `register_injection` pushes an account's cookies into the Node process's memory behind a one-shot
+  token; the user then hits `/__boot?token=…` to have them written into their own browser.
 
 ## Environment Variables
 
@@ -401,7 +544,8 @@ the message instead of `404: …`.
 - `DB_BACKEND`: Database backend — `sqlite` (default) or `mysql`. The database layer is dialect-abstracted (`src/db_manage/dialects/`); all call sites write SQLite-style SQL (`?` placeholders, `[identifier]` brackets) and the MySQL dialect translates at execution time. Switching backends requires no call-site changes. **Backend selection precedence: the UI/`system.db` setting > this env var > default `sqlite`.** The active backend is normally managed from the UI (see below), which persists it to `backend/system.db`.
 - `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_DATABASE` / `MYSQL_POOL_SIZE`: MySQL 8.0+ connection fallback settings (used when not configured via the UI; requires `PyMySQL`). The target database is auto-created on startup when privileges allow. Migrate existing SQLite data with `python -m tools.sqlite_to_mysql` (see that script's header).
 
-**Database management UI**: System 管理 → 数据库管理 (`/system/database`) lets the user choose SQLite/MySQL, test the MySQL connection, and switch backends. Switching migrates all data from the current backend to the target (`src/db_manage/migrate.py`), persists the choice + connection params to the always-SQLite bootstrap store `backend/system.db` (`src/db_manage/db_settings.py`), then auto-restarts the backend. In MySQL mode, `system.db` (SQLite) retains only this bootstrap config; all business data lives in MySQL.
+**Database management UI**: System 管理 → 系统设置 (`/system/config`, view `views/system/SystemConfig`)
+lets the user choose SQLite/MySQL, test the MySQL connection, and switch backends. Switching migrates all data from the current backend to the target (`src/db_manage/migrate.py`), persists the choice + connection params to the always-SQLite bootstrap store `backend/system.db` (`src/db_manage/db_settings.py`), then auto-restarts the backend. In MySQL mode, `system.db` (SQLite) retains only this bootstrap config; all business data lives in MySQL.
 - `JWT_SECRET`: Signing key (change in production)
 - `JWT_EXPIRE_HOURS`: Token validity (default: 12)
 - `SSL_MITM_AUTO_START`: Set to `0` to disable mitmproxy (default: 1)
@@ -409,6 +553,27 @@ the message instead of `404: …`.
 - `WEB_DRIVE_AUTOMATION_HEADLESS`: When enabled, all automation browsers (data fetch / startup pre-warm / MITM listing/delete/revise / mercari MITM capture) launch truly headless (silent, never shown in the foreground). Does NOT affect the manual "Open Browser" button on `/mercari-accounts` (always headed). **Default: 1 (headless).** Set to `0` to launch them headed+minimized for debugging.
 - `WEB_DRIVE_MITM_MINIMIZED`: Set to `0` to keep MITM automation windows in the foreground; otherwise they are minimized to the taskbar. Default: 1. Has no effect when automation is headless (the default).
 - `TASK_LISTING_RESERVATION_TTL_SEC`: How long a listing's 可上架 reservation may stay unclaimed before the task queue force-releases it and logs a warning (default 21600 = 6h). See "Task Queue" above.
+- `MERCARI_ENABLE_DOCS`: Set to `1` to expose `/docs`, `/redoc`, `/openapi.json` (default: off).
+- `CORS_ORIGINS`: Comma-separated allowed origins. Unset → `*` with credentials **disabled**; set → those origins with credentials enabled.
+- `MERCARI_HOST` / `MERCARI_PORT`: uvicorn bind (defaults `0.0.0.0`, and `9601` in dev / `9600` when frozen).
+- `MERCARI_SSL_CERTFILE` + `MERCARI_SSL_KEYFILE` / `MERCARI_SSL_CERT_DIR` / `MERCARI_SSL_KEY_PASSWORD`: Serve HTTPS directly from uvicorn. Unnecessary behind nginx. Frozen builds auto-generate a self-signed cert unless `MERCARI_FORCE_HTTP=1`. `MERCARI_FORWARDED_ALLOW_IPS` (default `127.0.0.1`) controls proxy-header trust.
+- `MERCARI_AUTO_FETCH` / `MERCARI_AUTO_FETCH_TICK_SEC` / `MERCARI_AUTO_FETCH_INITIAL_DELAY_SEC`: Background sync loop toggle & cadence (first run is deliberately delayed ~180s to avoid contending with startup).
+- `MERCARI_PROXY_AUTO_START` / `MERCARI_PROXY_PORT` / `MERCARI_PROXY_BIND_HOST` / `MERCARI_PROXY_UPSTREAM` / `MERCARI_PROXY_CERT_DIR`: Node reverse proxy (see Auxiliary Subsystems).
+- `IMAGE_SEARCH_AUTO_INDEX` / `IMAGE_SEARCH_MODEL_URL` / `IMAGE_SEARCH_THREADS`: CLIP image-search indexing.
+- `MEMORY_RECYCLE_AUTO` / `MEMORY_RECYCLE_INTERVAL_SEC` / `MEMORY_RECYCLE_MIN_RSS_MB` / `MEMORY_RECYCLE_INITIAL_DELAY_SEC`: Periodic RSS trimming (`memory_recycle.py`) — this app runs for days with a browser attached.
+- `TEST_DATABASE_NAMES`: Extra comma-separated MySQL names to treat as test DBs. See Database Safety.
+- `DB_DESTRUCTIVE_SCHEMA_SYNC`: Set to `0` to also skip the drop-unknown-tables / drop-undeclared-columns
+  startup passes on a **test** database (they are already skipped everywhere else). See Database Safety.
+- `TXDETAIL_PRECACHE_MAX_PER_RUN`: How many transaction details the post-sync precache may fetch in one
+  run (default 20). Each one is a full browser page load holding the account's serial queue, so an
+  unbounded backlog would block it for minutes; the rest carries over to the next tick. A todo that
+  fails `PRECACHE_MAX_FAILURES` (3) times in a row leaves the candidate set entirely — without that,
+  a permanently unfetchable todo is retried on *every* tick forever. Manual 刷新抓取 still works, and
+  a successful fetch resets the counter.
+- `WEB_DRIVE_QUEUE_IDLE_CLOSE_SEC` / `WEB_DRIVE_PROFILE_RELEASE_DELAY_SEC` / `WEB_DRIVE_PROFILES_DIR` / `WEB_DRIVE_LAUNCH_RETRY_DELAYS_SEC` / `MERCARI_BROWSER_TASK_TIMEOUT_SEC`: Playwright session lifetime, profile storage and retry tuning.
+- `WEB_DRIVE_FORCE_HEADED_DEBUG`: Force **every** automation browser headed. Overrides the `WEB_DRIVE_FORCE_HEADED_DEBUG` constant at the top of `main.py`.
+- `SSL_MITM_LISTEN_PORT` / `SSL_MITM_AUTO_TRUST_WINDOWS` / `MERCARI_SSL_MITM_DIR`: mitmproxy port, cert trust and working directory.
+- `MERCARI_WEBSIDE_DIST` / `MERCARI_NO_STATIC`: Override or disable SPA static hosting.
 
 **Frontend** (`webside/.env.development`):
 - `MERCARI_DEV_HTTP`: Use HTTP instead of HTTPS (default: 0)
@@ -420,17 +585,28 @@ the message instead of `404: …`.
 **Development**:
 - Frontend: https://localhost:9600 (self-signed cert)
 - Backend API: http://localhost:9601
-- OpenAPI docs: http://localhost:9601/docs
-- Health check: http://localhost:9601/api/health
+- OpenAPI docs: **disabled by default** — `/docs`, `/redoc` and `/openapi.json` return 404 unless
+  `MERCARI_ENABLE_DOCS=1` (they would otherwise expose every route to an unauthenticated LAN).
+  Note `start.bat` still prints a `/docs` URL; that message is stale.
+- Health check: http://localhost:9601/mercariV2/health (legacy alias: `/api/health`).
+  Both return **503 while starting up** and only `200 ok` once `mark_ready()` fires.
+
+**Ports differ between dev and packaged builds**: uvicorn listens on **9601 in development** but
+defaults to **9600 when frozen** (the .exe serves the API and the built SPA together, and there is
+no Vite to collide with). Override with `MERCARI_PORT` / `MERCARI_HOST`.
 
 **Network Access**: Vite and uvicorn are both bound to `0.0.0.0` — LAN access via `https://<your-ip>:9600`.
 
 ## Adding a New API Route
 
-1. Create `backend/src/routes/myfeature.py` with a FastAPI router
-2. Import in `backend/main.py` and register with `app.include_router()`
-3. If auth required, add `dependencies=auth_required`
-4. Frontend: Add API calls in `webside/src/api/index.js`, add route in `webside/src/router/index.js`
+1. Create `backend/src/use_web/<page>/API.py` exposing `router`, with handlers in
+   `backend/src/use_web/<page>/units/*.py` (keep `API.py` to routing + request models)
+2. Register it in `backend/src/use_web/API.py` with
+   `router.include_router(x_router, prefix="/<page>", tags=["<page>"], dependencies=_AUTH)`.
+   Omit `dependencies=_AUTH` **only** for a deliberately public `public_router`.
+3. Do **not** touch `main.py` — it only mounts the `/mercariV2` root router.
+4. Frontend: add `webside/src/api/<page>.js`, re-export it from `api/index.js`, add the route in
+   `webside/src/router/index.js`, and add strings to **all three** `i18n/locales/` files.
 
 ## Adding a New Database Table
 
@@ -448,11 +624,23 @@ the message instead of `404: …`.
 | Frontend build | `cd webside && npm run build` |
 | Backend deps | `cd backend && pip install -r requirements.txt` |
 | Frontend deps | `cd webside && npm install` |
-| Disable heavy startup features | `SSL_MITM_AUTO_START=0 INTERACTIVE_BROWSER_AUTO_START=0 python -m uvicorn main:app --reload --host 0.0.0.0 --port 9601` |
-"" 
-# CLAUDE.md
+| Disable heavy startup features | `SSL_MITM_AUTO_START=0 MERCARI_PROXY_AUTO_START=0 IMAGE_SEARCH_AUTO_INDEX=0 MERCARI_AUTO_FETCH=0 python -m uvicorn main:app --reload --host 0.0.0.0 --port 9601` |
+| Syntax-check backend edits | `cd backend && python -m compileall -q src main.py` |
+| Find over-length files | `find backend/src -name "*.py" -exec wc -l {} + \| sort -rn \| awk '$1>500'` |
+| SQLite → MySQL migration | `cd backend && python -m tools.sqlite_to_mysql` |
+| Package Windows .exe | `pyinstaller.bat` (edit `VERSION` / `BUNDLE_OCR` at the top first) |
 
-Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
+**There is no test suite, linter, or formatter in this repo** — no pytest/ruff/eslint config, and
+`npm` exposes only `dev` / `build` / `preview`. Do not invent a `npm test` or `pytest` command.
+Verify backend changes with `python -m compileall` (already allow-listed in `.claude/settings.json`)
+and frontend changes with `npm run build`; behavioral changes must be exercised against a running
+instance. The two `backend/tools/test_*.py` files are standalone scripts, not a test framework.
+`start.bat` assumes a conda env named `mercari` and runs `python main.py` (not uvicorn directly).
+---
+
+# Working Style
+
+Behavioral guidelines to reduce common LLM coding mistakes.
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 

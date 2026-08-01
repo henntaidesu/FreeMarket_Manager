@@ -917,6 +917,35 @@
   border-radius: 8px;
   background: var(--el-fill-color-light);
 }
+/* ─── 雅虎发货表单（复用 .detail-ship-form 卡片，只是行内换成输入控件） ─── */
+/* 带输入控件的行：控件比文本高，基线对齐会把 label 顶歪 */
+.detail-row-form {
+  align-items: flex-start;
+  padding: 6px 0;
+}
+.detail-row-form .detail-label {
+  padding-top: 8px;
+}
+/* 尺寸 / 发货场所：选项数量随配送会社变化，换行排列 */
+.yahoo-opt-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.yahoo-opt-group :deep(.el-radio) {
+  margin-right: 0;
+}
+.yahoo-opt-group :deep(.el-radio.is-bordered + .el-radio.is-bordered) {
+  margin-left: 0;
+}
+/* 交易消息剩余可发送次数（雅虎专有，跟在「消息 / 交流」标题后） */
+.detail-msg-quota {
+  margin-left: 8px;
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
 /* 发货方式（左）+ 按钮（右）同一行 */
 .detail-method-row {
   display: flex;

@@ -158,5 +158,38 @@ async def sync_yahoo_todos(account_id: int) -> Dict[str, Any]:
             f"AND COALESCE([is_delete], 0) = 0 AND [uuid] NOT IN ({ph})",
             (aid, *incoming),
         ) or 0)
+
+    await _fetch_missing_shipping_durations(db, aid, stats)
     log.info("[yahoo_todos] 账号#%s 待办同步：%s", aid, stats)
     return stats
+
+
+async def _fetch_missing_shipping_durations(db: Any, account_id: int, stats: Dict[str, Any]) -> None:
+    """给还缺发货期限的待发货待办补抓「発送までの日数」。
+
+    待办接口本身不带发货期限，商品也未必在 ``on_sale_items`` 里（第一次在售同步之前就
+    卖掉的商品根本没有那一行），所以和煤炉一样去公开商品页读——雅虎已售出的商品页仍可访问。
+
+    不必限定「本次同步涉及的商品」：雅虎接口一次给全量，没返回的上面已软删，所以剩下的
+    未删待办本就全是本次的。抓不到的下次同步再试（未成交的待办本来就没几条）。
+    """
+    from ...use_mercari.get_to_du_list.shipping_duration import fetch_and_store_shipping_durations
+
+    rows = db.execute_query(
+        "SELECT DISTINCT [item_id] FROM [todo_items] "
+        "WHERE [account_id] = ? AND TRIM(IFNULL([platform], '')) = 'yahoo' "
+        "AND [kind] = ? AND COALESCE([is_delete], 0) = 0 "
+        "AND [item_id] IS NOT NULL AND TRIM([item_id]) <> '' "
+        "AND ([shipping_duration] IS NULL OR [shipping_duration] = '')",
+        (int(account_id), _KIND_BY_TYPE["ooesh"]),
+    ) or []
+    item_ids = [str(r[0]).strip() for r in rows if r and r[0]]
+    if not item_ids:
+        return
+    try:
+        stats["shipping_duration_fetched"] = await fetch_and_store_shipping_durations(
+            int(account_id), item_ids, platform="yahoo"
+        )
+    except Exception as exc:  # noqa: BLE001 抓不到发货期限不影响待办同步结果
+        log.warning("[yahoo_todos] 账号#%s 抓取发货期限失败：%s", account_id, exc)
+        stats["shipping_duration_error"] = str(exc)[:200]

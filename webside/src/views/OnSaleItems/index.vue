@@ -479,7 +479,7 @@
                   :disabled="syncLockStore.locked"
                   @click="detailViewRefreshFromMercari"
                 >
-                  {{ t('onSaleItems.refetchFromMercari') }}
+                  {{ t('onSaleItems.syncData') }}
                 </el-button>
               </span>
             </el-tooltip>

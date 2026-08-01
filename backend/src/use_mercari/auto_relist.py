@@ -16,18 +16,21 @@
   1. 订单级：以 ``orders.auto_relisted`` 标记，一个售出订单最多触发一次补挂；
   2. 同轮级：一次 ``run_auto_relist_for_orders`` 内同一库存最多补挂一次
      （同批多笔售出订单指向同一库存时，剩余可售计数尚未更新，不去重会连续重复上架）；
-  3. 台账级：补挂出去但尚未被「在售同步」绑定计入 on_sale_quantity 的件数记入
-     ``_unsynced_relists`` 台账，剩余可售判断一并扣减；绑定成功（在售 +1）时核销。
-     若新挂牌始终绑定失败（暗号丢失/在售同步未开），台账不清零 → 该商品停止补挂，
-     宁可少挂也不再形成「卖一件挂一件」的失控循环。
+  3. 台账级：**走任务队列的可上架预扣减**（``task_queue.reservations``，落在
+     ``inventory.pending_listing_qty``）。入队即占位、在售同步绑定时核销、6 小时 TTL 兜底。
+
+第 3 层过去是本模块自己的进程内字典 ``_unsynced_relists``：补挂发出后 +1，在售同步绑定时 -1。
+**它扛不住重启**——补挂已发出、在售同步还没跑时后端重启，计数清零，下一单售出会对同一件
+库存再补挂一次，形成重复上架（不可逆）。而且它是「先出品、返回后才记账」，进程在出品途中
+被杀连一笔都记不下。现在改为提交 ``inventory.listing`` 任务：预扣减在**入队那一刻**写进
+数据库，与手动出品完全同一套闸门，重启不丢。
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import threading
-from typing import Dict, Iterable, List, Optional, Set
+from typing import Iterable, List, Optional, Set
 
 from ..db_manage.database import DatabaseManager
 from ..db_manage.models.inventory.inventory import InventoryModel
@@ -42,40 +45,7 @@ log = logging.getLogger(__name__)
 # 出品说明总长上限（与手动出品 SingleListingFormDialog 一致）
 _DESCRIPTION_MAX_LEN = 1000
 
-# 「已补挂、尚未被在售同步计入 on_sale_quantity」的件数台账：inventory_id → 件数。
-# 进程重启清零的影响有限：订单级 auto_relisted 去重仍然有效，最多放过每个新售出订单一次补挂。
-_unsynced_relists: Dict[int, int] = {}
-_unsynced_lock = threading.Lock()
 
-
-def _unsynced_relist_count(inventory_id: int) -> int:
-    with _unsynced_lock:
-        return int(_unsynced_relists.get(int(inventory_id), 0))
-
-
-def _note_relist_posted(inventory_id: int) -> None:
-    """记一笔「已补挂、待在售同步计入」。"""
-    iid = int(inventory_id)
-    with _unsynced_lock:
-        _unsynced_relists[iid] = _unsynced_relists.get(iid, 0) + 1
-
-
-def consume_unsynced_relists(inventory_id: int, n: int = 1) -> None:
-    """在售计数 +n（在售同步/详情绑定）后核销同库存的未同步补挂台账。
-
-    由 ``inventory_counters._adjust_on_sale`` 在正增量时调用；台账只会阻止补挂，
-    多核销不会引发多挂，方向安全。
-    """
-    iid = int(inventory_id)
-    with _unsynced_lock:
-        cur = _unsynced_relists.get(iid, 0)
-        if cur <= 0:
-            return
-        left = cur - max(1, int(n))
-        if left > 0:
-            _unsynced_relists[iid] = left
-        else:
-            _unsynced_relists.pop(iid, None)
 
 
 def _account_relist_enabled(account_id: Optional[int]) -> bool:
@@ -95,12 +65,12 @@ async def run_auto_relist_for_orders(
     seller_id: Optional[str] = None,
     account_id: Optional[int] = None,
 ) -> None:
-    """
-    为若干新售出订单**内联**执行补挂（不再 fire-and-forget）。
+    """为若干新售出订单**提交**补挂任务（不在这里跑出品自动化）。
 
-    补挂的出品自动化使用独立无头出品 profile（``mercari_{id}__listing``），不占用
-    当前同步的主 profile 浏览器；以 ``post_to_market(background_caller=True)`` 调用——
-    若有用户正持有全局出品锁则排队等待，不丢任务。
+    每件合格库存提交一条 ``inventory.listing`` 任务，由全局单 worker 依次执行；可上架的
+    预扣减在入队那一刻就落库，因此本函数返回时占用已经生效——即便后端随即重启，
+    也不会重复补挂。出品的浏览器会话、全局出品锁、类目 position 等全在任务处理器里，
+    与手动出品同一条路径。
 
     全程吞异常，绝不影响同步主流程。
     """
@@ -271,21 +241,16 @@ async def _relist_single_inventory(
     if int(getattr(inv, "auto_listing_enabled", 0) or 0) != 1:
         return
 
-    # 用权威口径 listable_quantity（先重算再读）：它额外扣掉了任务队列的出品预扣
-    # （pending_listing_qty）与组合商品占用。自行拼公式会漏掉这两项——已有排队中的
-    # 出品任务时 auto_relist 仍以为有余量，绕过队列直接补挂 → 重复上架。
+    # 余量判断不在这里做终局判定：真正的闸门是入队时 reservations.reserve() 的 CAS
+    #（``pending_listing_qty += 1 WHERE listable_quantity >= 1``）。这里只做一次早退，
+    # 省掉「明显没余量还去拼一堆出品参数」的无用功。
     from .inventory_counters import recompute_listable_quantity
 
     recompute_listable_quantity([int(inventory_id)])
     inv = InventoryModel.find_by_id(id=inventory_id) or inv
     listable = int(getattr(inv, "listable_quantity", 0) or 0)
-    unsynced = _unsynced_relist_count(inventory_id)
-    available = listable - unsynced
-    if available <= 0:
-        log.info(
-            "[auto_relist] 商品 %s 无剩余可售库存（listable=%s 未同步补挂=%s），跳过",
-            inventory_id, listable, unsynced,
-        )
+    if listable <= 0:
+        log.info("[auto_relist] 商品 %s 无剩余可售库存（listable=0），跳过", inventory_id)
         return
 
     product_type_id = getattr(inv, "product_type_id", None)
@@ -332,80 +297,80 @@ async def _relist_single_inventory(
         )
         return
 
-    # 复用既有出品自动化（独立无头出品 profile、全局出品锁、类目 position、MITM 代理全在其中）
+    # 提交到任务队列，而不是在这里直接跑出品自动化。
+    # 关键差别是**预扣减的时机与持久化**：submit_task 在入队那一刻就把
+    # inventory.pending_listing_qty +1 写进数据库（可上架不足直接 InsufficientListableError），
+    # 之后由在售同步绑定时核销、6 小时 TTL 兜底。原来的做法是先跑完出品再往进程内存里记一笔，
+    # 补挂已发出但后端在在售同步之前重启，那笔记账就没了 → 下一单售出重复补挂。
+    # 顺带拿到的：出品在任务页可见/可取消/可重试，失败有终态，与手动出品同一条代码路径。
+    from ..task_queue import submit_task
+    from ..task_queue.reservations import InsufficientListableError
+    from ..task_queue.store import SYSTEM_USERNAME, TaskDuplicateError
     from ..web_drive.core.paths import mercari_account_key
-    from ..use_web.web_drive.units.web_drive_handler import (
-        PostToMarketBody,
-        post_to_market,
-    )
 
-    body = PostToMarketBody(
-        account_key=mercari_account_key(account_id),
-        name=name,
-        description=description,
-        image_urls=image_urls,
-        category_mapping_id=str(product_type_id),
-        status=status,
-        shipping_payer=shipping_payer,
-        shipping_method=shipping_method,
-        sale_type=sale_type,
-        auction_duration=auction_duration,
-        price=price,
-        shipping_days=shipping_days,
-        shipping_from_area_id=shipping_from_area_id,
-        watermark=watermark,
-        use_mitm_proxy=True,
-    )
+    payload = {
+        "inventory_ids": [int(inventory_id)],
+        "account_key": mercari_account_key(account_id),
+        "account_id": int(account_id),
+        "name": name,
+        "description": description,
+        "image_urls": image_urls,
+        "category_mapping_id": str(product_type_id),
+        "status": status,
+        "shipping_payer": shipping_payer,
+        "shipping_method": shipping_method,
+        "sale_type": sale_type,
+        "auction_duration": auction_duration,
+        "price": price,
+        "shipping_days": shipping_days,
+        "shipping_from_area_id": shipping_from_area_id,
+        "watermark": watermark,
+        "use_mitm_proxy": True,
+    }
 
     account_name = _account_name(account_id)
-
     log.info(
         "[auto_relist] 商品 %s 触发补挂：account_id=%s price=%s name=%s",
         inventory_id, account_id, price, name,
     )
-    # 上架尝试前即占位：同一轮内绝不对同一库存二次出品
+    # 入队尝试前即占位：同一轮内绝不对同一库存二次补挂
     if relisted_in_run is not None:
         relisted_in_run.add(inventory_id)
+
     try:
-        # background_caller=True：后台补挂排队等待全局出品锁（有用户正在出品时不丢任务）；
-        # 出品自动化使用独立无头 profile，不与本次订单同步的主 profile 浏览器冲突
-        res = await post_to_market(body, background_caller=True)
+        task, _created = submit_task(
+            task_type="inventory.listing",
+            payload=payload,
+            user_id=None,
+            username=SYSTEM_USERNAME,
+        )
+    except InsufficientListableError as exc:
+        # 可上架已被别的排队出品/在售占满：这正是闸门在起作用，不是错误
+        log.info("[auto_relist] 商品 %s 可上架不足，跳过补挂：%s", inventory_id, exc)
+        return
+    except TaskDuplicateError as exc:
+        log.info("[auto_relist] 商品 %s 已有同语义任务在队列，跳过：%s", inventory_id, exc)
+        return
     except Exception as exc:
-        log.exception("[auto_relist] 商品 %s 出品自动化失败：%s", inventory_id, exc)
+        log.exception("[auto_relist] 商品 %s 补挂入队失败：%s", inventory_id, exc)
         SystemLogModel.add(
             category="auto_relist",
             level="error",
             account_id=account_id,
             account_name=account_name,
-            message=f"重新上架失败：#{inventory_id} {name}（¥{price}）：{exc}",
+            message=f"重新上架入队失败：#{inventory_id} {name}（¥{price}）：{exc}",
             detail={"inventory_id": inventory_id, "name": name, "price": price,
                     "account_id": account_id, "error": str(exc)},
         )
         return
-    submit_msg = None
-    try:
-        data = (res or {}).get("data") if isinstance(res, dict) else None
-        submit_msg = (data or {}).get("submit_message") if isinstance(data, dict) else None
-        # 确认提交成功，或已点过出品按钮但结果未确认（submit_uncertain / submit_error，
-        # 挂牌可能已生成）：都记入「未同步补挂」台账，宁可少挂、绝不重复挂。
-        if isinstance(data, dict) and (
-            data.get("submitted") is True
-            or data.get("submit_uncertain")
-            or data.get("submit_error")
-        ):
-            _note_relist_posted(inventory_id)
-        log.info(
-            "[auto_relist] 商品 %s 出品自动化完成：%s",
-            inventory_id, submit_msg or "(无消息)",
-        )
-    except Exception:
-        pass
+
+    log.info("[auto_relist] 商品 %s 补挂已入队：任务 #%s", inventory_id, task["id"])
     SystemLogModel.add(
         category="auto_relist",
         level="info",
         account_id=account_id,
         account_name=account_name,
-        message=f"重新上架：#{inventory_id} {name}（¥{price}）",
+        message=f"重新上架已加入任务队列：#{inventory_id} {name}（¥{price}）→ 任务 #{task['id']}",
         detail={"inventory_id": inventory_id, "name": name, "price": price,
-                "account_id": account_id, "submit_message": submit_msg},
+                "account_id": account_id, "task_id": task["id"]},
     )

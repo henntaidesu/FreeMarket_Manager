@@ -3,9 +3,12 @@
 数据库模型基础类
 """
 
+import logging
 from abc import ABC, abstractmethod
 from typing import Dict, List, Any, Optional
 from .database import DatabaseManager
+
+log = logging.getLogger(__name__)
 
 
 class BaseModel(ABC):
@@ -281,7 +284,13 @@ class BaseModel(ABC):
 
     @classmethod
     def _check_and_update_table_structure(cls) -> bool:
-        """检查并同步表结构（添加缺失字段，删除多余字段）"""
+        """检查并同步表结构（添加缺失字段；多余字段按闸门决定删或留）。
+
+        删列走 ``schema_guard``：生产库一律跳过、测试库默认放行。跳过时留下的多余列是无害的
+        （``get_fields()`` 不声明就永远不读它），而误删一列的数据不可恢复——两者不对等。
+        """
+        from .schema_guard import destructive_schema_allowed, note_executed_drop, note_skipped_drop
+
         db = DatabaseManager()
         table_name = cls.get_table_name()
         existing = {col['name']: col for col in db.get_table_columns(table_name)}
@@ -289,7 +298,7 @@ class BaseModel(ABC):
 
         for fname, fdef in cls.get_fields().items():
             if fname not in existing:
-                print(f"表 {table_name} 缺少字段 {fname}，正在添加...")
+                log.info("表 %s 缺少字段 %s，正在添加...", table_name, fname)
                 if not db.add_column(table_name, {
                     'name': fname, 'type': fdef['type'],
                     'not_null': fdef.get('not_null', False),
@@ -299,11 +308,21 @@ class BaseModel(ABC):
                 }):
                     return False
 
-        for col_name in set(existing.keys()) - defined:
-            if existing[col_name].get('pk'):
-                continue
-            print(f"表 {table_name} 存在多余字段 {col_name}，正在删除...")
+        extras = sorted(
+            c for c in set(existing.keys()) - defined if not existing[c].get('pk')
+        )
+        if not extras:
+            return True
+
+        allowed, reason = destructive_schema_allowed()
+        if not allowed:
+            note_skipped_drop("column", reason, table_name, extras)
+            return True
+
+        # 逐列留痕，不要等整批删完再记：删到一半失败时提前 return，
+        # 已经删掉的那几列的数据就没了，而 system_logs 里一个字都没有。
+        for col_name in extras:
             if not db.drop_column(table_name, col_name):
                 return False
-
+            note_executed_drop("column", table_name, [col_name])
         return True

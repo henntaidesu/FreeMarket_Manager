@@ -135,6 +135,16 @@ class TodoItemModel(BaseModel):
                 "not_null": False,
                 "default": None,
             },
+            # detail_fetch_failures: 交易详情预缓存连续失败次数。
+            # 抓取成功会写 detail_synced_at，该行随即退出「未缓存」集合；但**永远抓不出来**的行
+            # （商品已删 / 页面结构变了 / 无权限）会一直留在集合里，被每个自动同步 tick 重抓一遍。
+            # 累计到 PRECACHE_MAX_FAILURES 即不再重试，避免变成永久的串行阻塞开销。
+            # 不在 todolist_sync._UPSERT_COLS 里，因此煤炉侧同步不会重置它。
+            "detail_fetch_failures": {
+                "type": "INTEGER",
+                "not_null": False,
+                "default": 0,
+            },
             # qr_image_path: 发行后保存到本地的发货二维码图片可访问路径（/imges/xxx.png）
             "qr_image_path": {
                 "type": "TEXT",

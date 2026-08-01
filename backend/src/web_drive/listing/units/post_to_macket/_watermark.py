@@ -106,10 +106,16 @@ def _download_avatar_with_ua(url: str) -> Optional[str]:
         if low.endswith(c):
             ext = c
             break
+    # 头像 URL 是运营在账号表里自己填的，域名不做白名单（否则粘贴任意图床就用不了）；
+    # 但**必须限长**——原来是无上限 r.read()，对方返回一个巨大响应就能把内存吃光。
+    max_bytes = 8 * 1024 * 1024
     try:
         req = urllib.request.Request(url, headers={"User-Agent": _BROWSER_UA})
         with urllib.request.urlopen(req, timeout=15) as r:
-            body = r.read()
+            body = r.read(max_bytes + 1)
+        if len(body) > max_bytes:
+            log.info("水印头像过大（>%dMB），忽略头像：%s", max_bytes // 1024 // 1024, url)
+            return None
         if not body:
             return None
         tf = tempfile.NamedTemporaryFile(delete=False, suffix=ext)

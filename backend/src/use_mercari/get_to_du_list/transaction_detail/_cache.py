@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from ....db_manage.database import DatabaseManager
 from ._common import _WAIT_REPLY_KINDS, _WAIT_REVIEW_KINDS, _WAIT_SHIPPING_KINDS, _WAIT_SHIPPING_TITLE
 
@@ -13,11 +13,16 @@ log = logging.getLogger(__name__)
 
 
 def _persist_transaction_detail(todo_id: int, data: Dict[str, Any]) -> None:
-    """把抓取到的交易详情整体缓存进 todo_items.detail_json（避免每次开浏览器重抓）。"""
+    """把抓取到的交易详情整体缓存进 todo_items.detail_json（避免每次开浏览器重抓）。
+
+    顺带清零 ``detail_fetch_failures``：抓成功说明这条已恢复正常，之前累计的失败次数
+    不该继续把它挡在预缓存候选集合之外（详情缓存日后若被清空还要重进候选）。
+    """
     try:
         payload = json.dumps(data, ensure_ascii=False)
         DatabaseManager().execute_update(
-            "UPDATE [todo_items] SET [detail_json]=?, [detail_synced_at]=? WHERE [id]=?",
+            "UPDATE [todo_items] SET [detail_json]=?, [detail_synced_at]=?, "
+            "[detail_fetch_failures]=0 WHERE [id]=?",
             (payload, int(time.time() * 1000), int(todo_id)),
         )
     except Exception as exc:
@@ -148,20 +153,34 @@ def get_cached_transaction_detail(todo_id: int) -> Dict[str, Any]:
         data["buyer_name"] = load_order_buyer_name(order_no)
     return data
 
-def list_uncached_detail_todo_ids(account_id: int) -> List[int]:
+#: 一条待办连续抓失败这么多次后不再重试（详情缓存只是加速手段，用户仍可手动「刷新抓取」）
+PRECACHE_MAX_FAILURES = 3
+
+
+def list_uncached_detail_todo_ids(
+    account_id: int, *, limit: Optional[int] = None
+) -> List[int]:
     """返回某账号下「待发货」「待回复」「待评价」且尚无交易详情缓存的待办 id（供「从煤炉同步」后批量补抓详情）。
 
     判定「无缓存」：``detail_synced_at IS NULL``（fetch_transaction_detail 成功后才会写入）。
     仅含未软删 + 有 item_id 的待办（无 item_id 无法打开交易页）。
+
+    两道收敛闸门，缺一不可：
+      · ``detail_fetch_failures >= PRECACHE_MAX_FAILURES`` 的行不再返回——否则一条永远抓不出来的
+        待办（商品已删/页面变了）会被**每个 tick** 重抓一次，成为永久的串行阻塞开销；
+      · ``limit`` 限制单次条数——积压很多时分摊到多个 tick，而不是把账号队列堵上几分钟。
     """
     try:
-        rows = DatabaseManager().execute_query(
+        sql = (
             "SELECT [id], [kind], [title] FROM [todo_items] "
             "WHERE [account_id]=? AND [is_delete]=0 "
             "AND [detail_synced_at] IS NULL "
+            "AND COALESCE([detail_fetch_failures], 0) < ? "
             "AND [item_id] IS NOT NULL AND TRIM([item_id]) <> '' "
-            "ORDER BY [mercari_updated] DESC",
-            (int(account_id),),
+            "ORDER BY [mercari_updated] DESC"
+        )
+        rows = DatabaseManager().execute_query(
+            sql, (int(account_id), int(PRECACHE_MAX_FAILURES))
         )
     except Exception as exc:
         log.warning("[txdetail] 查询未缓存待办失败 account_id=%s: %s", account_id, exc)
@@ -178,4 +197,28 @@ def list_uncached_detail_todo_ids(account_id: int) -> List[int]:
             or title == _WAIT_SHIPPING_TITLE
         ):
             ids.append(int(tid))
+            # kind/title 过滤只能在 Python 侧做（是集合成员判断），所以截断也放在这里
+            if limit is not None and len(ids) >= int(limit):
+                break
     return ids
+
+
+def note_detail_fetch_failure(todo_id: int) -> int:
+    """记一次预缓存失败，返回累计失败次数。达到 ``PRECACHE_MAX_FAILURES`` 即退出重试集合。"""
+    db = DatabaseManager()
+    try:
+        db.execute_update(
+            "UPDATE [todo_items] SET [detail_fetch_failures] = "
+            "COALESCE([detail_fetch_failures], 0) + 1 WHERE [id] = ?",
+            (int(todo_id),),
+        )
+        rows = db.execute_query(
+            "SELECT COALESCE([detail_fetch_failures], 0) FROM [todo_items] WHERE [id] = ?",
+            (int(todo_id),),
+        )
+        return int(rows[0][0] or 0) if rows else 0
+    except Exception as exc:
+        log.warning("[txdetail] 记录预缓存失败次数出错 todo_id=%s: %s", todo_id, exc)
+        return 0
+
+

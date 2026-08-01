@@ -14,8 +14,9 @@
   4. TTL 兜底 → ``sweep_stale``：超时（默认 6h）强制释放并写系统日志告警，
      防暗号丢失导致该商品的可上架被永久锁死。
 
-这与 ``use_mercari/auto_relist.py`` 原有的内存台账 ``_unsynced_relists`` 是同一语义，
-现已统一到本模块（DB 持久化，重启不丢）。
+``use_mercari/auto_relist.py`` 的自动补挂**也走这本台账**：它不再自己跑 ``post_to_market``，
+而是提交 ``inventory.listing`` 任务，占用因此同样落在 DB 上、重启不丢。（它原有的进程内
+字典 ``_unsynced_relists`` 已删除——那份记账扛不住重启，补挂发出后重启一次就会重复上架。）
 """
 from __future__ import annotations
 

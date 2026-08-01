@@ -131,9 +131,19 @@ async def memory_recycle_loop() -> None:
                 if rss is not None and rss < threshold:
                     log.debug("[memory_recycle] RSS %.0fMB 未达阈值 %.0fMB，跳过", rss, threshold)
                 else:
-                    recycle_memory()
+                    await _recycle_off_loop()
             else:
-                recycle_memory()
+                await _recycle_off_loop()
         except Exception:
             log.exception("[memory_recycle] 回收 tick 外层异常")
         await asyncio.sleep(sec)
+
+
+async def _recycle_off_loop() -> None:
+    """在线程里跑回收，别占着事件循环。
+
+    这个进程常驻 Playwright / EasyOCR / OpenCV / CLIP 的对象图，``gc.collect()`` 一次可能
+    要几百毫秒到数秒；直接 await 在循环里就是这段时间**所有 HTTP 请求都排队**。放进线程后
+    GIL 仍会周期性切回事件循环，接口不会整段卡死。
+    """
+    await asyncio.to_thread(recycle_memory)

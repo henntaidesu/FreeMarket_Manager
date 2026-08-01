@@ -18,8 +18,14 @@ from typing import Optional
 log = logging.getLogger(__name__)
 
 MERCARI_HOME = "https://jp.mercari.com/"
+YAHOO_HOME = "https://paypayfleamarket.yahoo.co.jp/"
 
 _autosave_task: Optional[asyncio.Task] = None
+
+
+def _home_url_for_platform(platform: Optional[str]) -> str:
+    """按账号平台选首页。没有快照可恢复时才用得上，但给雅虎账号打开煤炉首页是没有意义的。"""
+    return YAHOO_HOME if (str(platform or "").strip().lower() == "yahoo") else MERCARI_HOME
 
 
 def _autosave_interval_sec() -> float:
@@ -74,9 +80,11 @@ async def startup_interactive_browsers_for_all_active_accounts() -> None:
 
         db = DatabaseManager()
         rows = db.execute_query(
-            "SELECT [id] FROM [shop_accounts] WHERE LOWER(TRIM([status])) = 'active' ORDER BY [id]"
+            "SELECT [id], [platform] FROM [shop_accounts] "
+            "WHERE LOWER(TRIM([status])) = 'active' ORDER BY [id]"
         )
-        account_ids = [int(r[0]) for r in rows]
+        accounts = [(int(r[0]), r[1]) for r in rows]
+        account_ids = [aid for aid, _ in accounts]
     except Exception as exc:
         log.warning(
             "startup_interactive_browsers: 读取活跃账号列表失败，跳过有头浏览器预启动: %s",
@@ -96,13 +104,13 @@ async def startup_interactive_browsers_for_all_active_accounts() -> None:
         "无头" if headless else "有头·后台最小化",
         account_ids,
     )
-    for aid in account_ids:
+    for aid, platform in accounts:
         key = mercari_account_key(aid)
         try:
             result = await mgr.open_session(
                 key,
                 headless=headless,
-                start_url=MERCARI_HOME,
+                start_url=_home_url_for_platform(platform),
                 interactive=not headless,
                 restore_tabs=not headless,
                 start_minimized=True,

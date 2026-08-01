@@ -8,12 +8,17 @@ from typing import Any, Dict, List, Optional, Tuple
 from ...base_model import BaseModel
 
 
-# 以下状态的订单不再占用待出库数量（与业务终态一致）
+# 以下状态的订单不再占用待出库数量（与业务终态一致）。
+#
+# ``cancel_request``（取消申请中）**不在此列**：它只是买家提了申请，还没成立。归为终态会让
+# 同一笔订单同时「释放了待出库」（当作不发货了）和「计入销售额」（``aggregate_sums`` 只排除
+# ``cancelled``）——两种口径直接打架。更要命的是申请被拒时订单会回到 ``wait_shipping``，
+# 而这段时间待出已经归零 → 可上架虚高 → 手动出品/自动补挂的闸门会放行，重复上架不可逆。
+# 按「未成立即仍在途」处理，三处口径才一致：占着待出、计入营收、出现在待处理面板。
 TERMINAL_ORDER_STATUSES: Tuple[str, ...] = (
     "done",
     "sold_out",
     "cancelled",
-    "cancel_request",
 )
 
 # 列表「未关联任何出库库存」标红：仅取消类不提示；已完成仍可能缺出库明细

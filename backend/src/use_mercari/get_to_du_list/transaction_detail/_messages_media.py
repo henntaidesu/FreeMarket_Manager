@@ -13,10 +13,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import urllib.parse
-import urllib.request
 from typing import Any, Dict, List, Optional, Tuple
 
+from ....mercari_cdn_fetch import (
+    MESSAGE_MEDIA_EXACT_HOSTS,
+    MESSAGE_MEDIA_HOST_SUFFIXES,
+    ext_from_url_or_type,
+    fetch_image,
+)
 from ....use_web.image_storage import delete_image_file, get_image_root, save_image_bytes
 
 log = logging.getLogger(__name__)
@@ -24,45 +28,25 @@ log = logging.getLogger(__name__)
 _MAX_BYTES = 20 * 1024 * 1024  # 20MB
 _FETCH_TIMEOUT = 15.0  # seconds
 
-_EXT_BY_CONTENT_TYPE = {
-    "image/jpeg": "jpg",
-    "image/jpg": "jpg",
-    "image/png": "png",
-    "image/webp": "webp",
-    "image/gif": "gif",
-    "image/avif": "avif",
-}
-
 
 def _ext_from_url_or_type(url: str, content_type: Optional[str]) -> str:
-    ct = (content_type or "").split(";", 1)[0].strip().lower()
-    if ct in _EXT_BY_CONTENT_TYPE:
-        return _EXT_BY_CONTENT_TYPE[ct]
-    path = urllib.parse.urlsplit(url).path.lower()
-    for suf in ("jpg", "jpeg", "png", "webp", "gif", "avif"):
-        if path.endswith("." + suf):
-            return "jpg" if suf == "jpeg" else suf
-    return "jpg"
+    return ext_from_url_or_type(url, content_type)
 
 
 def _download(url: str) -> Tuple[bytes, Optional[str]]:
-    req = urllib.request.Request(
+    """走 ``mercari_cdn_fetch``：域名白名单 + 公网地址校验 + 逐跳重定向复检。
+
+    这里的 URL 来自解析煤炉交易页得到的 DOM，不是可信输入；原来是裸 ``urlopen`` 且默认跟随
+    重定向，等于把服务端当成任意 URL 的取回器（同仓库的图片代理早就防住了这一点，本处漏了）。
+    白名单用 ``MESSAGE_MEDIA_*``——留言附件在 GCS 签名 URL 上，不在煤炉自有域内。
+    """
+    return fetch_image(
         url,
-        headers={
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/123.0 Safari/537.36"
-            ),
-            "Accept": "image/avif,image/webp,image/png,image/jpeg,image/*,*/*;q=0.8",
-            "Referer": "https://jp.mercari.com/",
-        },
+        max_bytes=_MAX_BYTES,
+        timeout=_FETCH_TIMEOUT,
+        suffixes=MESSAGE_MEDIA_HOST_SUFFIXES,
+        exact=MESSAGE_MEDIA_EXACT_HOSTS,
     )
-    with urllib.request.urlopen(req, timeout=_FETCH_TIMEOUT) as resp:
-        ct = resp.headers.get("Content-Type")
-        data = resp.read(_MAX_BYTES + 1)
-        if len(data) > _MAX_BYTES:
-            raise ValueError("消息图片体积过大")
-        return data, ct
 
 
 def _imges_abs(path: str) -> Optional[str]:

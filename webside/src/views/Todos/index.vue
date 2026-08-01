@@ -414,7 +414,7 @@
             <!-- 已发行二维码/条形码时：确认发送 + 修改发货方式 并排放到标题右上角 -->
             <div class="detail-section-head">
               <div class="detail-section-title">{{ t('todos.section.shipping') }}</div>
-              <div v-if="detail.qr_image_url" class="detail-section-head-actions">
+              <div v-if="!isYahoo && detail.qr_image_url" class="detail-section-head-actions">
                 <!-- 蓝牙标签机打印发货码 -->
                 <el-button
                   size="default"
@@ -434,6 +434,90 @@
                 </el-button>
               </div>
             </div>
+            <!-- 雅虎：整笔交易就在一张页面上，发货是「品名 + サイズ + 発送場所」一次提交，
+                 提交即发行配送コード。尺寸/发货场所的候选项随配送会社变化，由后端从交易页
+                 读回来（见 web_drive/yahoo_trade），前端不写死。 -->
+            <template v-if="isYahoo">
+              <div v-if="yahooShipped" class="detail-ship-form">
+                <div class="detail-row">
+                  <span class="detail-label">{{ t('todos.yahoo.carrier') }}</span>
+                  <span class="detail-value">{{ detail.yahoo_ship_form?.carrier || dash }}</span>
+                </div>
+                <div v-if="detail.ship_tracking_no" class="detail-row">
+                  <span class="detail-label">{{ t('todos.yahoo.trackingNo') }}</span>
+                  <span class="detail-value">{{ detail.ship_tracking_no }}</span>
+                </div>
+                <div class="detail-empty-hint">{{ t('todos.yahoo.alreadyShipped') }}</div>
+                <div v-if="detail.yahoo_code_image_url" class="detail-qr-wrap">
+                  <el-image
+                    :src="detail.yahoo_code_image_url"
+                    :preview-src-list="[detail.yahoo_code_image_url]"
+                    :preview-teleported="true"
+                    fit="contain"
+                    class="detail-qr-img"
+                  />
+                </div>
+              </div>
+              <div v-else class="detail-ship-form">
+                <div class="detail-row">
+                  <span class="detail-label">{{ t('todos.yahoo.carrier') }}</span>
+                  <span class="detail-value">{{ detail.yahoo_ship_form?.carrier || dash }}</span>
+                </div>
+                <div class="detail-row detail-row-form">
+                  <span class="detail-label">{{ t('todos.yahoo.itemName') }}</span>
+                  <div class="detail-value">
+                    <el-input
+                      v-model="yahooForm.item_name"
+                      :maxlength="yahooItemNameMax"
+                      show-word-limit
+                      :placeholder="t('todos.yahoo.itemNamePlaceholder')"
+                    />
+                  </div>
+                </div>
+                <div class="detail-row detail-row-form">
+                  <span class="detail-label">{{ t('todos.yahoo.size') }}</span>
+                  <div class="detail-value">
+                    <el-radio-group v-if="yahooSizeOptions.length" v-model="yahooForm.size" class="yahoo-opt-group">
+                      <el-radio v-for="s in yahooSizeOptions" :key="s" :value="s" border>{{ s }}</el-radio>
+                    </el-radio-group>
+                    <div v-else class="detail-empty-hint">{{ t('todos.yahoo.needFetch') }}</div>
+                  </div>
+                </div>
+                <div class="detail-row detail-row-form">
+                  <span class="detail-label">{{ t('todos.yahoo.location') }}</span>
+                  <div class="detail-value">
+                    <el-radio-group v-if="yahooLocationOptions.length" v-model="yahooForm.location" class="yahoo-opt-group">
+                      <el-radio v-for="l in yahooLocationOptions" :key="l" :value="l" border>{{ l }}</el-radio>
+                    </el-radio-group>
+                    <div v-else class="detail-empty-hint">{{ t('todos.yahoo.needFetch') }}</div>
+                  </div>
+                </div>
+                <div class="detail-empty-hint">{{ t('todos.yahoo.shipWarning') }}</div>
+                <div class="detail-method-row">
+                  <div class="detail-shipping-actions">
+                    <el-tooltip
+                      :disabled="hasInventoryMatch && hasPackagingSelected"
+                      :content="!hasInventoryMatch ? t('todos.updateOrderFirst') : t('todos.pickPackagingFirst')"
+                      placement="top"
+                    >
+                      <span>
+                        <el-button
+                          type="primary"
+                          size="default"
+                          :loading="yahooShipLoading"
+                          :disabled="!canSubmitYahooShip || !hasInventoryMatch || !hasPackagingSelected"
+                          @click="onSubmitYahooShip"
+                        >
+                          {{ t('todos.yahoo.submitShip') }}
+                        </el-button>
+                      </span>
+                    </el-tooltip>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <template v-else>
             <!-- 发货扫码照片：仅「已扫码(排队/执行中)」与「失败」期间存在（成功后已删除）。
                  失败时可直接换一张重拍重扫，不必回列表。 -->
             <div v-if="shipQrPhotoUrl" class="detail-shipqr">
@@ -606,6 +690,7 @@
                 </div>
               </div>
             </template>
+            </template>
           </section>
         </div>
 
@@ -641,7 +726,13 @@
 
           <!-- 消息 / 交流（默认） -->
           <section v-else class="detail-section detail-section-grow">
-            <div class="detail-section-title">{{ t('todos.section.messages') }}</div>
+            <div class="detail-section-title">
+              {{ t('todos.section.messages') }}
+              <!-- 雅虎对取引メッセージ有次数上限，页面上会写「残り N 回」 -->
+              <span v-if="isYahoo && detail.yahoo_message_quota != null" class="detail-msg-quota">
+                {{ t('todos.yahoo.quota', { n: detail.yahoo_message_quota }) }}
+              </span>
+            </div>
             <div v-if="detail.messages && detail.messages.length" class="detail-messages">
               <div
                 v-for="(m, i) in detail.messages"
@@ -732,7 +823,9 @@
                 v-model="detail.reply_draft"
                 type="textarea"
                 :autosize="{ minRows: 4, maxRows: 8 }"
+                :maxlength="isYahoo ? 1024 : undefined"
                 :placeholder="replyPlaceholder"
+                :disabled="isYahoo && !detail.yahoo_can_send_message"
               />
               <div class="detail-reply-actions">
                 <el-button size="small" @click="onResetReplyDefault">{{ t('todos.defaultReply') }}</el-button>
@@ -740,7 +833,7 @@
                   size="small"
                   type="primary"
                   :loading="replyLoading"
-                  :disabled="!detail.reply_draft || !detail.reply_draft.trim()"
+                  :disabled="!detail.reply_draft || !detail.reply_draft.trim() || (isYahoo && !detail.yahoo_can_send_message)"
                   @click="onSendReply"
                 >
                   {{ t('todos.sendReply') }}
@@ -967,9 +1060,6 @@
         <div class="qr-viewer-close" @click="qrViewer.visible = false">×</div>
       </div>
     </teleport>
-
-    <!-- 雅虎待办的处理面板：发货表单 + 交易留言（煤炉走上面的 detailDialog） -->
-    <YahooTradeDialog v-model="yahooDialogVisible" :row="yahooRow" @done="load" />
 
     <SyncOverlay :state="txOverlay.state" />
   </div>

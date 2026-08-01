@@ -1059,7 +1059,10 @@ export default defineComponent({
     async function detailViewRefreshFromMercari() {
       const base = detailViewBase.value
       if (!base?.item_id) return
-      await fetchItemDetailForItemId(base.item_id, { reloadAfter: true })
+      await fetchItemDetailForItemId(base.item_id, {
+        reloadAfter: true,
+        platform: platformOf(base),
+      })
       const k = expandKey(base.item_id)
       const found = list.value.find((r) => expandKey(r.item_id) === k)
       if (found) {
@@ -1076,8 +1079,18 @@ export default defineComponent({
       }
     }
 
+    /**
+     * 同步单件商品详情。后端按账号平台分派（煤炉走 MITM 截 items/get，雅虎读商品编辑页），
+     * 两边返回同一个 { sync } 结构；这里的 platform 只决定等待框文案，不改调用目标。
+     */
     async function fetchItemDetailForItemId(itemId, options = {}) {
-      const { accountId = null, silent = false, reloadAfter = true } = options
+      const {
+        accountId = null,
+        silent = false,
+        reloadAfter = true,
+        platform = 'mercari',
+      } = options
+      const isYahoo = platform === 'yahoo'
       const iid = String(itemId || '').trim()
       if (!iid) {
         if (!silent) ElMessage.warning(t('onSaleItems.missingItemId'))
@@ -1098,7 +1111,9 @@ export default defineComponent({
       let pollTimer = null
       let lastConsoleStep = ''
       if (showOverlay) {
-        syncOverlayTitle.value = t('onSaleItems.fetchingDetailFromMercari')
+        syncOverlayTitle.value = isYahoo
+          ? t('onSaleItems.fetchingDetailFromYahoo')
+          : t('onSaleItems.fetchingDetailFromMercari')
         syncOverlayFailed.value = false
         syncProgressLabel.value = t('onSaleItems.connectingServer')
         syncOverlayVisible.value = true
@@ -1137,7 +1152,12 @@ export default defineComponent({
                 t('onSaleItems.fetchDetailSuccess', { count: sync.inventory_ids?.length ?? 0, mid: sync.mercari_item_id })
             )
           } else {
-            ElMessage.warning(sync.message || t('onSaleItems.fetchDetailNoWrite'))
+            // 未写入的原因两个平台不同：煤炉多半是账号 DPoP 头缺失，雅虎没有 DPoP，
+            // 只可能是说明里没有管理番号/条码
+            ElMessage.warning(
+              sync.message ||
+                t(isYahoo ? 'onSaleItems.fetchDetailNoWriteYahoo' : 'onSaleItems.fetchDetailNoWrite')
+            )
           }
         }
         if (reloadAfter) await load()
@@ -1172,7 +1192,7 @@ export default defineComponent({
     }
 
     async function fetchItemDetail(row) {
-      await fetchItemDetailForItemId(row.item_id)
+      await fetchItemDetailForItemId(row.item_id, { platform: platformOf(row) })
     }
 
     async function runSync() {

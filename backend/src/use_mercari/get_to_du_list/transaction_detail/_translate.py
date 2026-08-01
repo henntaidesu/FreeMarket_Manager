@@ -23,6 +23,9 @@ _TIMEOUT = 8.0  # seconds，单条
 _TARGET = "zh-CN"
 # 同一会话内并发翻译的上限（买家消息通常很少，给个保守上限即可）
 _CONCURRENCY = 4
+#: 查询串编码后的最大长度。留言走 GET query，超过这个长度就不发请求（见 _translate_one）。
+#: 1800 是为了让「基址 + 参数」整体稳在 2000 字符以内——各类中间环节的通用安全线。
+_MAX_QUERY_LEN = 1800
 
 
 def _translate_one(text: str) -> Optional[str]:
@@ -33,6 +36,16 @@ def _translate_one(text: str) -> Optional[str]:
     params = urllib.parse.urlencode(
         {"client": "gtx", "sl": "auto", "tl": _TARGET, "dt": "t", "q": q}
     )
+    # 整条消息是塞进 **GET 查询串** 的，没有上限就会撞 URL 长度限制：日文 URL 编码后约 9 字节/字，
+    # 一条上千字的留言轻松过万字节。运气好是 414/400（本函数返回 None，前端回落显示原文，没问题），
+    # 运气不好是中间环节把 URL 截断 —— 那样会把**残缺的译文当完整结果**存进 text_zh，
+    # 比不翻译更糟。所以宁可放弃翻译，也不发一个可能被截断的请求。
+    if len(params) > _MAX_QUERY_LEN:
+        log.info(
+            "[txmsg] 留言过长（编码后 %d 字节 > %d），跳过翻译，前端显示原文",
+            len(params), _MAX_QUERY_LEN,
+        )
+        return None
     req = urllib.request.Request(
         f"{_ENDPOINT}?{params}",
         headers={

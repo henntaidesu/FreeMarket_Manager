@@ -303,10 +303,14 @@ async def fetch_on_sale_item_detail(data: FetchOnSaleDetailRequest):
     try:
         qk = queue_key_for_mercari_account(int(account_id))
         if _account_platform(int(account_id)) == "yahoo":
-            # 雅虎从商品编辑页读说明（没有 items/get 这种接口），写库仍复用煤炉那套绑定逻辑
-            from ....use_yahoo.on_sale import sync_yahoo_item_details
+            # 雅虎从商品编辑页读说明（没有 items/get 这种接口），写库仍复用煤炉那套绑定逻辑。
+            # 走单件入口而不是批量统计：返回 {api, sync} 与煤炉同形状，前端按 sync.updated
+            # 判成败；读不到页面时抛异常，不会被折叠成一条「0 条成功」的统计。
+            from ....use_yahoo.on_sale import sync_yahoo_item_detail_one
 
-            runner = lambda: sync_yahoo_item_details(int(account_id), [item_id])
+            runner = lambda: sync_yahoo_item_detail_one(
+                int(account_id), item_id, progress_job_id=jid
+            )
         else:
             runner = lambda: fetch_detail_and_sync_inventory(
                 item_id,
@@ -360,12 +364,9 @@ async def fetch_on_sale_item_details_batch(data: FetchOnSaleDetailsBatchRequest)
             """雅虎从编辑页读说明，煤炉走 MITM 截 items/get；返回结构一致。"""
             if not is_yahoo:
                 return await fetch_detail_and_sync_inventory(iid, account_id=aid)
-            from ....use_yahoo.on_sale import sync_yahoo_item_details
+            from ....use_yahoo.on_sale import sync_yahoo_item_detail_one
 
-            st = await sync_yahoo_item_details(int(aid), [iid])
-            if st.get("errors"):
-                raise RuntimeError(st["errors"][0].get("error") or "详情同步失败")
-            return {"sync": {"updated": bool(st.get("bound"))}}
+            return await sync_yahoo_item_detail_one(int(aid), iid)
 
         async def _run_batch() -> Dict[str, Any]:
             results: List[Dict[str, Any]] = []

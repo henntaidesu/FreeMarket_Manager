@@ -143,7 +143,13 @@ class _AggregateMixin:
         use_completed_time: bool = False,
     ) -> int:
         """
-        与 aggregate_sums 相同订单筛选下，「包装材料」支出合计（quantity * unit_price，日元整数）。
+        与 aggregate_sums 相同订单筛选下，成本支出合计（quantity * unit_price，日元整数）。
+
+        **统计全部支出类型**（``包装材料`` + ``快递费``），与
+        ``cost_expenses_helpers.total_packaging_expense_yen_for_order`` 保持同一口径——
+        后者是订单刷新时从 ``net_income`` 扣减的依据，也不分类型。这里若只统计 ``包装材料``，
+        录入一条 ``快递费`` 就会让仪表盘对不上账：``net_income`` 扣了它，成本 KPI 却看不到它，
+        于是 ``到手 ≠ 售价 − 手续费 − 运费 − 成本支出``，而界面上没有任何一处解释这个差额。
 
         已取消订单排除；若指定 owner_user_id，仅统计 cost_expenses.owner 与该用户
         display_name / username 一致的明细行（与列表按归属筛选时口径一致）。
@@ -158,12 +164,21 @@ class _AggregateMixin:
             by_purchase_time=by_purchase_time,
             use_completed_time=use_completed_time,
         )
-        base_sql = base_sql.replace(
+        joined = base_sql.replace(
             "FROM [orders] o",
             "FROM [orders] o\n"
-            "            INNER JOIN [cost_expenses] e ON e.[order_no] = o.[order_no] AND e.[type] = '包装材料'",
+            "            INNER JOIN [cost_expenses] e ON e.[order_no] = o.[order_no]",
             1,
         )
+        if joined == base_sql:
+            # _build_list_filter 的 FROM 子句一旦改写法，上面的字符串替换会静默失配，
+            # 随后 SQL 里引用不存在的别名 e 直接报错——与其让调用方吃一个费解的 SQL 异常，
+            # 不如在这里明说是哪里断的。
+            raise RuntimeError(
+                "aggregate_packaging_expense_yen: 未能在筛选 SQL 中定位 'FROM [orders] o'，"
+                "_build_list_filter 的写法可能已变更"
+            )
+        base_sql = joined
         base_sql += " AND o.status != 'cancelled'"
         qparams: List[Any] = list(params)
         oid = int(owner_user_id or 0)

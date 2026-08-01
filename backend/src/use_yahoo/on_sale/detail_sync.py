@@ -96,6 +96,62 @@ async def _read_edit_form(page: Any, item_id: str) -> Dict[str, Any]:
     )
 
 
+async def _sync_one_on_page(
+    page: Any,
+    item_id: str,
+    *,
+    seller_id: Optional[str],
+    status: str,
+) -> Dict[str, Any]:
+    """在已打开的会话里同步一件的详情，返回与煤炉 ``fetch_detail_and_sync_inventory``
+    **同形状**的 ``{api, sync}``——单件入口要按 ``sync.updated`` 判成败，形状不一致
+    前端就只能一律显示「未写入库存」。"""
+    from ...use_mercari.on_sale.on_sale_item_detail_sync.detail_sync import (
+        detail_sync_inventory_from_item_get_response,
+    )
+
+    form = await _read_edit_form(page, item_id)
+    if not form or form.get("notFound"):
+        raise RuntimeError("编辑页打不开（商品可能已售出/已删除）")
+    if form.get("description") is None:
+        raise RuntimeError("编辑页未读到商品说明（页面结构可能已变更）")
+    resp = _build_pseudo_item_get(item_id, form, seller_id=seller_id, status=status)
+    return detail_sync_inventory_from_item_get_response(item_id, resp)
+
+
+async def sync_yahoo_item_detail_one(
+    account_id: int,
+    item_id: str,
+    *,
+    seller_id: Optional[str] = None,
+    status: str = "on_sale",
+    progress_job_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """单件详情同步——雅虎侧对应煤炉的 ``fetch_detail_and_sync_inventory``。
+
+    在售详情弹窗的「同步数据」按钮走这里：返回值形状、进度上报都与煤炉一致，
+    读不到页面时**抛异常**（HTTP 让它变成 400），不会像批量统计那样把失败折叠成 0。
+    """
+    from ...use_mercari.sync.sync_progress import make_sync_reporter
+
+    iid = str(item_id or "").strip()
+    if not iid:
+        raise RuntimeError("item_id 不能为空")
+
+    report = make_sync_reporter(progress_job_id)
+    report("open_browser", f"正在打开雅虎商品编辑页（{iid}）…")
+    async with yahoo_automation_browser(
+        int(account_id), start_url=yahoo_item_edit_url(iid)
+    ) as (mgr, key):
+        page = await mgr.active_tab_page(key)
+        report("apply_inventory", "正在解析商品说明并回写库存关联…")
+        out = await _sync_one_on_page(page, iid, seller_id=seller_id, status=status)
+
+    msg = (out.get("sync") or {}).get("message") if isinstance(out, dict) else None
+    report("done", f"完成：{msg or '已处理'}")
+    return out
+
+
 async def sync_yahoo_item_details(
     account_id: int,
     item_ids: List[str],
@@ -104,10 +160,6 @@ async def sync_yahoo_item_details(
     status: str = "on_sale",
 ) -> Dict[str, Any]:
     """逐件打开编辑页读说明并回写库存绑定。返回统计（失败逐件记录，不中断其余）。"""
-    from ...use_mercari.on_sale.on_sale_item_detail_sync.detail_sync import (
-        detail_sync_inventory_from_item_get_response,
-    )
-
     ids = [str(i).strip() for i in item_ids if str(i or "").strip()]
     stats: Dict[str, Any] = {
         "requested": len(ids), "fetched": 0, "bound": 0, "failed": 0, "errors": [],
@@ -121,16 +173,8 @@ async def sync_yahoo_item_details(
         page = await mgr.active_tab_page(key)
         for iid in ids:
             try:
-                form = await _read_edit_form(page, iid)
-                if not form or form.get("notFound"):
-                    raise RuntimeError("编辑页打不开（商品可能已售出/已删除）")
-                if form.get("description") is None:
-                    raise RuntimeError("编辑页未读到商品说明（页面结构可能已变更）")
+                out = await _sync_one_on_page(page, iid, seller_id=seller_id, status=status)
                 stats["fetched"] += 1
-                resp = _build_pseudo_item_get(
-                    iid, form, seller_id=seller_id, status=status
-                )
-                out = detail_sync_inventory_from_item_get_response(iid, resp)
                 if (out.get("sync") or {}).get("inventory_id") is not None:
                     stats["bound"] += 1
             except Exception as exc:  # noqa: BLE001 单件失败不影响其余

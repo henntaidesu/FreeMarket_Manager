@@ -128,12 +128,23 @@ def _process(task_pid: int) -> None:
     total = len(missing)
     _set_status("indexing", total=total, done=0)
     logger.info("[image_search] 开始建立图片索引：%d 张", total)
+    failed = 0
     for i, (path, pid) in enumerate(missing, 1):
-        _embed_path(path, pid)
+        if not _embed_path(path, pid):
+            failed += 1
         _set_status("indexing", total=total, done=i)
         time.sleep(0.02)  # 让出 CPU，弱机器上不影响正常请求
     _set_status("idle")
-    logger.info("[image_search] 图片索引完成：%d 张", total)
+    # _embed_path 的返回值以前被丢弃，失败的图片既不留痕也不会退出候选集合——
+    # 每次全量对账都会把同一批坏图重算一遍，而日志里只说「完成 N 张」。
+    if failed:
+        logger.warning(
+            "[image_search] 图片索引完成：%d 张，其中 %d 张失败（文件缺失/无法解码），"
+            "下次全量对账会再试一遍",
+            total, failed,
+        )
+    else:
+        logger.info("[image_search] 图片索引完成：%d 张", total)
 
 
 def _worker() -> None:

@@ -126,13 +126,15 @@ def _ship_deadline_ts(item: Dict[str, Any]) -> Optional[int]:
 
 _WAIT_SHIPPING_KINDS_PY = {
     "WaitShippingCard", "WaitShippingPoint", "WaitShippingCarrier", "TransactionWaitShippingFunds",
+    "YahooShipRequest",
 }
+_WAIT_SHIPPING_TITLES_PY = {"発送をしてください", "発送依頼"}
 
 
 def _is_wait_shipping_item(item: Dict[str, Any]) -> bool:
     """Python 侧的「待发货」判定，与 _WAIT_SHIPPING_COND 同口径。"""
     return (
-        str(item.get("title") or "").strip() == "発送をしてください"
+        str(item.get("title") or "").strip() in _WAIT_SHIPPING_TITLES_PY
         or str(item.get("kind") or "") in _WAIT_SHIPPING_KINDS_PY
     )
 

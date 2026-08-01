@@ -6,6 +6,12 @@
 from typing import List, Type
 from .base_model import BaseModel
 from .database import DatabaseManager
+from .schema_guard import (
+    destructive_schema_allowed,
+    flush_pending_notices,
+    note_executed_drop,
+    note_skipped_drop,
+)
 from .models import (
     CategoryModel,
     WarehouseModel,
@@ -683,7 +689,18 @@ class DBManager:
         )
 
     def initialize_database(self) -> bool:
-        """初始化数据库：按顺序检查/创建所有表，删除代码中不存在的表"""
+        """初始化数据库：按顺序检查/创建所有表，删除代码中不存在的表。
+
+        结构变更留痕（``schema_guard``）走 ``finally``：本方法有二十多处迁移失败的提前
+        ``return False``，把 flush 放在末尾意味着「初始化失败时留痕全部丢失」——而那正是
+        最需要知道『刚才跳过/删除了什么』的时候。
+        """
+        try:
+            return self._initialize_database_impl()
+        finally:
+            flush_pending_notices()
+
+    def _initialize_database_impl(self) -> bool:
         print("正在初始化数据库...")
 
         # 表重命名迁移：products -> inventory
@@ -723,11 +740,20 @@ class DBManager:
         defined_tables = {m.get_table_name() for m in self.models}
         db_tables = self.db.get_all_tables()
 
-        # 删除代码中已移除的表
+        # 删除代码中已移除的表。get_all_tables() 返回的是**当前 schema 下的全部表**，
+        # 所以这一步等价于「删光所有不属于本应用的表」——指错库名、与别的应用共库、
+        # 或回滚到 models 更少的旧版本，都会在此静默销毁数据。交给 schema_guard 把关：
+        # 生产库一律跳过，测试库默认放行，两种情况都留痕。
         to_drop = [t for t in db_tables if t not in defined_tables and t != "product_types"]
-        for table_name in to_drop:
-            print(f"发现废弃表 {table_name}，正在删除...")
-            self.db.drop_table(table_name)
+        if to_drop:
+            allowed, reason = destructive_schema_allowed()
+            if not allowed:
+                for table_name in to_drop:
+                    note_skipped_drop("table", reason, table_name)
+            else:
+                for table_name in to_drop:
+                    if self.db.drop_table(table_name):
+                        note_executed_drop("table", table_name)
 
         success, failed = 0, []
         for model_class in self.models:

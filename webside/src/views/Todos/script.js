@@ -8,7 +8,6 @@ import { submitTask } from '@/utils/taskSubmit.js'
 import { useMercariAccountStore } from '@/stores/mercariAccount.js'
 import { useSyncOverlay } from '@/composables/useSyncOverlay'
 import SyncOverlay from '@/components/SyncOverlay.vue'
-import YahooTradeDialog from './YahooTradeDialog.vue'
 import { mercariImageUrl, mercariImageUrlList } from '@/utils/mercariImage.js'
 import { useRouter } from 'vue-router'
 import { printLabelImage, isBluetoothSupported } from '@/utils/btPrinter/index.js'
@@ -16,7 +15,6 @@ import { printLabelImage, isBluetoothSupported } from '@/utils/btPrinter/index.j
 export default defineComponent({
   components: {
     SyncOverlay,
-    YahooTradeDialog,
     Loading,
     Plus,
     Minus,
@@ -57,6 +55,8 @@ export default defineComponent({
 
     // 「発送をしてください」（待发货）待办：处理时按商品 ID 反查本地库存图片与关联订单号
     const WAIT_SHIPPING_TITLE = '発送をしてください'
+    // 雅虎的待发货是独立 kind（标题是雅虎自己的日文文案，不等于上面这条）
+    const YAHOO_SHIP_KIND = 'YahooShipRequest'
 
     // ゆうゆうメルカリ便 各尺寸共用的发送方法（发货地）：郵便局 / ローソン。
     // code 与煤炉 /shipping_facilities 页 radio 的 value 属性完全一致（大写）。
@@ -251,6 +251,28 @@ export default defineComponent({
     const detailLoading = ref(false)
     const currentRow = ref(null)
     const detail = reactive(createEmptyDetail())
+
+    // ── 雅虎待办：走同一个处理弹窗（同一套布局），只有「发货」这一段换成雅虎的三项表单 ──
+    const isYahoo = computed(() => platformOf(currentRow.value) === 'yahoo')
+    // 用户在弹窗里填的发货信息（尺寸/发货场所的候选项由后端从交易页读回，不写死）
+    const yahooForm = reactive({ item_name: '', size: '', location: '' })
+    const yahooShipLoading = ref(false)
+    const yahooSizeOptions = computed(() => detail.yahoo_ship_form?.size_options || [])
+    const yahooLocationOptions = computed(() => detail.yahoo_ship_form?.location_options || [])
+    const yahooItemNameMax = computed(() => Number(detail.yahoo_ship_form?.item_name_max || 17))
+    // 读到过交易页且提交按钮已不在 → 发货信息已提交（配送码已发行）
+    const yahooShipped = computed(
+      () => isYahoo.value && !!detail.yahoo_loaded && !detail.yahoo_ship_form?.pending,
+    )
+    const canSubmitYahooShip = computed(
+      () => !!yahooForm.item_name.trim() && !!yahooForm.size && !!yahooForm.location,
+    )
+    function resetYahooShipForm() {
+      yahooForm.item_name = ''
+      yahooForm.size = ''
+      yahooForm.location = ''
+      yahooShipLoading.value = false
+    }
 
     // 「発送をしてください」反查到的本地库存（图片）与关联订单号
     const invMatch = reactive({ loading: false, inventory: [], order_nos: [] })
@@ -527,13 +549,16 @@ export default defineComponent({
       clearPackagingSelection()
     }
 
-    // 当前待办是否「発送をしてください」（待发货）
+    // 当前待办是否「発送をしてください」（待发货）。雅虎没有这条标题，按其独立 kind 判定。
     const isWaitShipping = computed(
-      () => String(currentRow.value?.title || '').trim() === WAIT_SHIPPING_TITLE,
+      () =>
+        String(currentRow.value?.title || '').trim() === WAIT_SHIPPING_TITLE ||
+        String(currentRow.value?.kind || '').trim() === YAHOO_SHIP_KIND,
     )
     // 是否「已打包」详情（待发货 + 已发行发货二维码/条形码）。已打包时不再展示包材表单。
+    // 雅虎没有本地二维码文件，「已发行配送码」＝交易页上的提交按钮已消失（yahooShipped）。
     const isPackedDetail = computed(
-      () => isPackedRow(currentRow.value) || !!detail.qr_image_url,
+      () => isPackedRow(currentRow.value) || !!detail.qr_image_url || yahooShipped.value,
     )
     // 是否反查到关联本地库存（待发货时未关联则不允许选包材 / 发货，须先更新订单管理）
     const hasInventoryMatch = computed(() => (invMatch.inventory || []).length > 0)
@@ -605,6 +630,12 @@ export default defineComponent({
         shipping_facility_name: '',
         shipping_facility_desc: '',
         shipping_facility_image_url: '',
+        // 雅虎交易页字段（platform=yahoo 时才填；煤炉侧始终为空）
+        yahoo_loaded: false,          // 是否已读到过交易页（缓存或抓取）
+        yahoo_ship_form: null,        // { pending, item_name, item_name_max, size, location, carrier, size_options, location_options }
+        yahoo_code_image_url: '',     // 已发行的配送コード图（雅虎 CDN，非本地文件）
+        yahoo_can_send_message: false,
+        yahoo_message_quota: null,
         // 上次从煤炉抓取的时间戳（缓存命中时显示）
         detail_synced_at: null,
         messages: [], // [{ from, text, at, is_buyer, user_id }]
@@ -692,9 +723,10 @@ export default defineComponent({
       isShippedState.value ? DEFAULT_REPLY_SHIPPED : DEFAULT_REPLY,
     )
     // 回复输入框 placeholder：已发送时提示发送完了模板，否则用通用文案
-    const replyPlaceholder = computed(() =>
-      isShippedState.value ? REPLY_PLACEHOLDER_SHIPPED : t('todos.replyPlaceholder'),
-    )
+    const replyPlaceholder = computed(() => {
+      if (isYahoo.value) return t('todos.yahoo.messagePlaceholder')
+      return isShippedState.value ? REPLY_PLACEHOLDER_SHIPPED : t('todos.replyPlaceholder')
+    })
 
     // 选择尺寸 dialog（不再走 MITM 抓取，纯前端硬编码列表）
     const shippingDialogVisible = ref(false)
@@ -1239,20 +1271,39 @@ export default defineComponent({
       }
     }
 
-    // 雅虎处理面板（发货 / 交易留言）——与煤炉的处理弹窗完全分开，流程不同
-    const yahooDialogVisible = ref(false)
-    const yahooRow = ref(null)
+    /** 雅虎交易页详情 → 与煤炉共用的 detail 结构（消息也归一成 from/text/at/is_buyer）。 */
+    function applyYahooDetail(data) {
+      const d = data && typeof data === 'object' ? data : {}
+      const buyerName = String(d.buyer?.name || '').trim()
+      const form = d.ship_form || null
+      detail.yahoo_loaded = true
+      detail.yahoo_ship_form = form
+      detail.yahoo_code_image_url = d.code_image_url || ''
+      detail.yahoo_can_send_message = !!d.can_send_message
+      detail.yahoo_message_quota = d.message_quota ?? null
+      detail.ship_tracking_no = d.tracking_no || ''
+      if (d.detail_synced_at != null) detail.detail_synced_at = d.detail_synced_at
+      if (buyerName) detail.buyer_name = buyerName
+      // 雅虎不给发言者身份，只能按购入者名字比对（比不上就当成卖家自己的消息，不误标买家）
+      detail.messages = (Array.isArray(d.messages) ? d.messages : []).map((m) => ({
+        from: m.sender || '',
+        text: m.text || '',
+        at: m.time_text || '',
+        is_buyer: !!buyerName && String(m.sender || '').trim() === buyerName,
+      }))
+      // 品名雅虎已按商品名预填过，用户可改；已选过的尺寸/场所回显。
+      // 回落用的商品名常常超过雅虎的 17 字上限（页面输入框会自行截断），这里先截好，
+      // 免得计数器显示超限、提交的却是被悄悄截短的另一个品名。
+      yahooForm.item_name = String(form?.item_name || currentRow.value?.item_name || '')
+        .slice(0, Number(form?.item_name_max || 17))
+      yahooForm.size = form?.size || ''
+      yahooForm.location = form?.location || ''
+    }
 
     function onProcess(row) {
-      // 雅虎待办：交易页是一张三项发货表单，走雅虎自己的面板；
-      // 套用煤炉的处理弹窗会跑到 jp.mercari.com 上不存在的交易页。
-      if (platformOf(row) === 'yahoo') {
-        if (!String(row?.item_id || '').trim()) {
-          ElMessage.warning(t('todos.yahooNoItemId'))
-          return
-        }
-        yahooRow.value = row
-        yahooDialogVisible.value = true
+      // 雅虎交易页只能按商品 ID 打开，缺了就没有可处理的对象
+      if (platformOf(row) === 'yahoo' && !String(row?.item_id || '').trim()) {
+        ElMessage.warning(t('todos.yahooNoItemId'))
         return
       }
       currentRow.value = row
@@ -1266,12 +1317,10 @@ export default defineComponent({
         sender_id: row.sender_id || '',
       })
       resetInvMatch()
+      resetYahooShipForm()
       detailDialogVisible.value = true
-      // 「発送をしてください」(待发货) 与 待回复 (IncomingMessage)：按商品 ID 反查本地库存图片与关联订单号
-      if (
-        String(row.title || '').trim() === WAIT_SHIPPING_TITLE ||
-        (row.kind || '').trim() === 'IncomingMessage'
-      ) {
+      // 待发货（含雅虎 発送依頼）与 待回复 (IncomingMessage)：按商品 ID 反查本地库存图片与关联订单号
+      if (isWaitShipping.value || (row.kind || '').trim() === 'IncomingMessage') {
         loadInventoryMatch(row.item_id)
       }
       // 优先读本地缓存（不开浏览器）；用户点「刷新抓取」才打开浏览器更新
@@ -1286,9 +1335,18 @@ export default defineComponent({
     async function loadDetailCache() {
       if (!currentRow.value?.id) return
       const seq = ++detailCacheSeq
+      const yahoo = isYahoo.value
       try {
-        const d = await todosApi.transactionDetailCache(currentRow.value.id)
+        const d = yahoo
+          ? await todosApi.yahooTradeDetailCache(currentRow.value.id)
+          : await todosApi.transactionDetailCache(currentRow.value.id)
         if (seq !== detailCacheSeq) return
+        if (yahoo) {
+          if (d?.cached) applyYahooDetail(d)
+          // 没缓存就得抓一次：尺寸/发货场所的候选项只有交易页知道，前端无从渲染表单
+          else onDetailRefresh()
+          return
+        }
         if (d && typeof d === 'object') {
           const merged = { ...d }
           // null 字段不覆盖本地预填（buyer_name 等）
@@ -1298,12 +1356,32 @@ export default defineComponent({
       } catch { /* 无缓存：静默，保留本地预填 */ }
     }
 
+    /** 打开雅虎交易页重读详情。雅虎侧没有 progress_job_id，用弹窗内的 loading 就够。 */
+    async function refreshYahooDetail() {
+      const todoId = currentRow.value?.id
+      if (!todoId) return
+      detailLoading.value = true
+      try {
+        const d = await todosApi.yahooTradeDetail(todoId)
+        // 抓取期间弹窗被关掉/换了待办：结果丢弃，别写到别人的 detail 上
+        if (currentRow.value?.id !== todoId) return
+        applyYahooDetail(d)
+        ElMessage.success(t('todos.detailFetched'))
+      } catch (e) {
+        // axios 拦截器已弹错误；此处保留兜底
+        if (!e?.response) ElMessage.error(e?.message || t('todos.yahoo.fetchFailed'))
+      } finally {
+        detailLoading.value = false
+      }
+    }
+
     async function onDetailRefresh() {
       if (!currentRow.value?.id) return
       if (!currentRow.value?.item_id) {
         ElMessage.warning(t('todos.noItemIdInTodo'))
         return
       }
+      if (isYahoo.value) return refreshYahooDetail()
       detailLoading.value = true
       try {
         const d = await txOverlay.run({
@@ -1328,6 +1406,61 @@ export default defineComponent({
         if (!e?.response) ElMessage.error(e?.message || t('todos.fetchFailed'))
       } finally {
         detailLoading.value = false
+      }
+    }
+
+    /** 雅虎发货：填完品名/尺寸/发货场所一次提交，雅虎当场发行配送コード（不可撤回）。 */
+    async function onSubmitYahooShip() {
+      const row = currentRow.value
+      if (!row?.id || !canSubmitYahooShip.value || yahooShipLoading.value) return
+      // 与煤炉同一道闸：未关联本地库存 / 未选包材都不许发货（按钮 :disabled 之外再拦一层）
+      if (!hasInventoryMatch.value) {
+        ElMessage.warning(t('todos.updateOrderFirst'))
+        return
+      }
+      if (!hasPackagingSelected.value) {
+        ElMessage.warning(t('todos.pickPackagingFirst'))
+        return
+      }
+      try {
+        await ElMessageBox.confirm(
+          t('todos.yahoo.confirmShip', { size: yahooForm.size, location: yahooForm.location }),
+          t('todos.yahoo.confirmTitle'),
+          { type: 'warning' },
+        )
+      } catch {
+        return
+      }
+      // 发行配送码后雅虎侧不可撤回：出发前先确认所选包材仍存在且库存足够
+      if (!(await validatePackagingBeforeShip())) return
+      yahooShipLoading.value = true
+      try {
+        const data = await todosApi.yahooShip(row.id, {
+          item_name: yahooForm.item_name.trim(),
+          size: yahooForm.size,
+          location: yahooForm.location,
+        })
+        if (!data?.submitted) {
+          ElMessage.warning(t('todos.yahoo.shipUncertain'))
+          return
+        }
+        ElMessage.success(t('todos.yahoo.shipped'))
+        if (data.state) applyYahooDetail(data.state)
+        // 与煤炉一致：发货成功即把包材记到关联订单并出库（同一待办只记一次）
+        if (!shipCommittedIds.has(row.id)) {
+          shipCommittedIds.add(row.id)
+          try {
+            await commitShipPackagingAndOutbound()
+          } catch {
+            shipCommittedIds.delete(row.id)
+            ElMessage.warning(t('todos.packagingSyncFailed'))
+          }
+        }
+        load()
+      } catch (e) {
+        if (!e?.response) ElMessage.error(e?.message || t('todos.yahoo.shipFailed'))
+      } finally {
+        yahooShipLoading.value = false
       }
     }
 
@@ -1813,6 +1946,25 @@ export default defineComponent({
         ElMessage.warning(t('todos.replyEmpty'))
         return
       }
+      // 雅虎：交易页直接发取引メッセージ，没有煤炉那套 progress_job_id 进度回报
+      if (isYahoo.value) {
+        replyLoading.value = true
+        try {
+          const data = await todosApi.yahooSendMessage(currentRow.value.id, { text })
+          if (data?.sent) {
+            ElMessage.success(t('todos.yahoo.messageSent'))
+            detail.reply_draft = ''
+            await refreshYahooDetail()
+          } else {
+            ElMessage.warning(t('todos.yahoo.messageUncertain'))
+          }
+        } catch (e) {
+          if (!e?.response) ElMessage.error(e?.message || t('todos.yahoo.messageFailed'))
+        } finally {
+          replyLoading.value = false
+        }
+        return
+      }
       replyLoading.value = true
       try {
         const result = await txOverlay.run({
@@ -1927,14 +2079,16 @@ export default defineComponent({
     }
 
     function onDetailDialogClose() {
-      // 关 dialog 时同步关掉对应账号的 __auto 浏览器（fire-and-forget）
+      // 关 dialog 时同步关掉对应账号的 __auto 浏览器（fire-and-forget）。
+      // 该端点只认煤炉的 mercari_{id}__todo 会话，雅虎跑在另一套会话上，发过去是空转。
       const aid = currentRow.value?.account_id
-      if (aid) {
+      if (aid && !isYahoo.value) {
         todosApi.closeDetailBrowser(aid).catch(() => { /* 忽略关浏览器失败 */ })
       }
       currentRow.value = null
       replyLoading.value = false
       resetInvMatch()
+      resetYahooShipForm()
     }
 
 
@@ -1997,8 +2151,15 @@ export default defineComponent({
       platformLabel,
       platformTagType,
       platformOf,
-      yahooDialogVisible,
-      yahooRow,
+      isYahoo,
+      yahooForm,
+      yahooShipLoading,
+      yahooSizeOptions,
+      yahooLocationOptions,
+      yahooItemNameMax,
+      yahooShipped,
+      canSubmitYahooShip,
+      onSubmitYahooShip,
       syncLoading,
       bulkReviewLoading,
       bulkConfirmShipLoading,

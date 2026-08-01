@@ -23,6 +23,33 @@ function isNetworkError(err) {
   return err.code === 'ERR_NETWORK' || err.message === 'Network Error'
 }
 
+/**
+ * 把后端返回的 detail 归一化成可读字符串。
+ *
+ * 大部分端点抛 HTTPException(detail="中文说明")，直接就是字符串；但 **FastAPI 的请求体
+ * 校验失败（422）返回的 detail 是数组**（[{loc, msg, type}, ...]），原样丢给 ElMessage
+ * 只会显示 [object Object]，用户看不出哪个字段填错了。
+ */
+function errorText(detail, fallback) {
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((d) => {
+        if (typeof d === 'string') return d
+        const loc = Array.isArray(d?.loc) ? d.loc.filter((x) => x !== 'body').join('.') : ''
+        const msg = d?.msg || d?.type || ''
+        return loc ? `${loc}: ${msg}` : msg
+      })
+      .filter(Boolean)
+    if (parts.length) return parts.join('；')
+  }
+  if (detail && typeof detail === 'object') {
+    const msg = detail.msg || detail.message
+    if (typeof msg === 'string' && msg.trim()) return msg
+  }
+  return fallback
+}
+
 function startHealthPolling() {
   if (healthTimer) return
   healthTimer = setInterval(async () => {
@@ -89,7 +116,7 @@ http.interceptors.response.use(
       // 并发请求会同时收到 401，这里只提示一次并跳转登录页
       if (!authExpiredHandled) {
         authExpiredHandled = true
-        const msg = err.response?.data?.detail || '登录已过期，请重新登录'
+        const msg = errorText(err.response?.data?.detail, '登录已过期，请重新登录')
         ElMessage.error(msg)
         if (window.location.hash !== '#/login') {
           window.location.hash = '#/login'
@@ -97,7 +124,7 @@ http.interceptors.response.use(
       }
       return Promise.reject(err)
     }
-    const msg = err.response?.data?.detail || err.message || '请求失败'
+    const msg = errorText(err.response?.data?.detail, err.message || '请求失败')
     ElMessage.error(msg)
     return Promise.reject(err)
   }

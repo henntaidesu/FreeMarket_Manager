@@ -156,17 +156,32 @@ def update_shop_account(aid: int, data: MercariAccountUpdate):
 
     if data.account_name is not None:
         item.account_name = _norm_required_text(data.account_name, "账号名称")
+    old_platform = _validate_platform(getattr(item, "platform", None) or "mercari")
     if data.platform is not None:
         item.platform = _validate_platform(data.platform)
     # 生效平台：本次若改了平台用新值，否则用记录原平台（供卖家 ID 唯一性按平台隔离）
     eff_platform = _validate_platform(getattr(item, "platform", None) or "mercari")
     if data.login_id is not None:
         item.login_id = (data.login_id or "").strip() or item.account_name
+
+    # 卖家 ID 的校验条件是「(平台, 卖家ID) 这个组合变了」，而不是旧写法的「传了 seller_id」。
+    #
+    # 主要修的是**只改平台、不动 seller_id** 这条路径：旧写法整段跳过，于是
+    # 一个煤炉账号（seller_id 纯数字）被改成雅虎后，会**原样留着这个煤炉格式的 ID 存进去**——
+    # 保存时不报错，之后所有雅虎抓取都对不上号。现在它会在保存前就被 _norm_seller_id 拦下。
+    #
+    # 顺带覆盖同平台重号：A(mercari, X) 与 B(yahoo, X) 本来合法，把 B 改成 mercari 就撞上 A
+    # （重复同步 / 重复补挂）。当前两个平台的 ID 格式互斥（煤炉纯数字 / 雅虎 p+数字），
+    # 这条会先被格式校验挡住；留着是为了将来加第三个平台时不再有这个缺口。
     if data.seller_id is not None:
-        new_sid = _norm_seller_id(data.seller_id, eff_platform)
-        # 卖家 ID 同平台内唯一（排除自身）：防止把同平台已有卖家 ID 改到另一条记录上
-        _ensure_seller_id_unique(new_sid, exclude_id=aid, platform=eff_platform)
-        item.seller_id = new_sid
+        eff_sid = _norm_seller_id(data.seller_id, eff_platform)
+    else:
+        eff_sid = _norm_seller_id(getattr(item, "seller_id", None), eff_platform)
+    old_sid = (getattr(item, "seller_id", None) or "").strip() or None
+    if eff_sid and (eff_sid != old_sid or eff_platform != old_platform):
+        _ensure_seller_id_unique(eff_sid, exclude_id=aid, platform=eff_platform)
+    if data.seller_id is not None:
+        item.seller_id = eff_sid
     if data.avatar is not None:
         new_avatar = (data.avatar or "").strip() or None
         old_avatar = (getattr(item, "avatar", None) or "").strip() or None
