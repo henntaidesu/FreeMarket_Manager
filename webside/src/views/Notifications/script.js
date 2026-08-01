@@ -45,6 +45,16 @@ export default defineComponent({
       PrivateMessage: 'notifications.kindPrivateMessage',
       'merpay-egp-ian-promotion': 'notifications.kindPromotion',
       'merpay-egp-ian-promotion-action-url': 'notifications.kindPromotion',
+      // 雅虎：除 いいね 外都是 `Yahoo:{type}` 原样透传，语义见后端 _CATEGORY_CONDS 注释
+      YahooLike: 'notifications.kindLike',
+      'Yahoo:obems': 'notifications.kindWaitReply',
+      'Yahoo:dosdo': 'notifications.kindDesiredPriceOfferCreated',
+      'Yahoo:lsodi': 'notifications.kindPriceDropMessageV2',
+      'Yahoo:loodo': 'notifications.kindLikedItemLike',
+      'Yahoo:cmp': 'notifications.kindYahooOfficial',
+      'Yahoo:cpon': 'notifications.kindYahooOfficial',
+      'Yahoo:pbsrf': 'notifications.kindYahooOfficial',
+      'Yahoo:foobc': 'notifications.kindYahooOfficial',
     }
 
     const KIND_TAG_TYPES = {
@@ -61,6 +71,15 @@ export default defineComponent({
       PrivateMessage: 'info',
       'merpay-egp-ian-promotion': 'info',
       'merpay-egp-ian-promotion-action-url': 'info',
+      YahooLike: 'danger',
+      'Yahoo:obems': 'primary',
+      'Yahoo:dosdo': 'warning',
+      'Yahoo:lsodi': 'primary',
+      'Yahoo:loodo': 'danger',
+      'Yahoo:cmp': 'info',
+      'Yahoo:cpon': 'info',
+      'Yahoo:pbsrf': 'info',
+      'Yahoo:foobc': 'info',
     }
 
     // 操作列按 kind 区分动作类型：
@@ -101,7 +120,10 @@ export default defineComponent({
       { key: 'wait_payment', label: t('notifications.categoryWaitPayment') },
       { key: 'like', label: t('notifications.categoryLike') },
       { key: 'liked_item', label: t('notifications.categoryLikedItem') },
+      { key: 'price_drop', label: t('notifications.categoryPriceDrop') },
+      { key: 'wait_reply', label: t('notifications.categoryWaitReply') },
       { key: 'bureau', label: t('notifications.categoryBureau') },
+      { key: 'yahoo_official', label: t('notifications.categoryYahooOfficial') },
       { key: 'other', label: t('notifications.categoryOther') },
     ])
 
@@ -180,7 +202,8 @@ export default defineComponent({
       load()
     }
 
-    // 分类 chip 单选（留言 / 合并购买 / 降价请求 / 拍卖 / 点赞 / 关注商品 / 事务局 / 其他，互斥）：
+    // 分类 chip 单选（留言 / 合并购买 / 降价请求 / 拍卖 / 待支付 / 点赞 / 关注商品 /
+    // 商品降价 / 待回复 / 煤炉公式 / 雅虎公式 / 其他，互斥）：
     // **始终有且只有一项选中**——再点当前项不取消，否则会落到「无筛选」这个没有对应 chip
     // 的状态，界面上看不出正在看什么。
     function selectFilterChip(chip) {

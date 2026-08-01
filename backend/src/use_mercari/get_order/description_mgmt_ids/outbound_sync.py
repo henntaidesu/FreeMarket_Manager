@@ -32,8 +32,20 @@ def refresh_inventory_pending_outbound_qty(inventory_ids: Optional[List[int]] = 
     将订单待出库汇总回写到 inventory.pending_outbound_qty：
     - 仅统计非终态订单
     - 仅统计 is_stocked_out != 1 的明细
+
+    **整段必须在一个事务里**：实现是「先把目标行清零，再按汇总结果逐行写回」。中途异常/崩溃
+    会把待出永久停在 0（下一次全量刷新才自愈），而可上架 = 库存 − 在售 − 待出 − …，
+    待出虚低直接导致可上架虚高 → 重复上架，这是本仓库反复强调的不可逆损失。
+    ``inventory_ids`` 为空时清的是**全表**，中断的影响面更大。
+
+    ``transaction()`` 支持嵌套：本函数常被出库/回吐流程调用，会自动并入外层事务。
     """
     db = DatabaseManager()
+    with db.transaction():
+        _refresh_pending_outbound_impl(db, inventory_ids)
+
+
+def _refresh_pending_outbound_impl(db, inventory_ids: Optional[List[int]] = None) -> None:
     inv_ids: List[int] = []
     if inventory_ids:
         seen = set()

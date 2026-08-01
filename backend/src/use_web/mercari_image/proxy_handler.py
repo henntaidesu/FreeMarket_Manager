@@ -38,6 +38,30 @@ def _cache_dir() -> str:
     return d
 
 
+#: 各图片格式的魔数（前缀 / 定位片段）。只看头部字节，不解码整张图——代理只是转发，
+#: 没必要为每张图付一次完整解码的代价；能挡住「拿到的根本不是图片」就够了。
+_IMAGE_MAGIC: Tuple[bytes, ...] = (
+    b"\xff\xd8\xff",          # JPEG
+    b"\x89PNG\r\n\x1a\n",     # PNG
+    b"GIF87a",
+    b"GIF89a",
+    b"BM",                    # BMP
+)
+
+
+def _looks_like_image(data: bytes) -> bool:
+    if not data or len(data) < 12:
+        return False
+    if data.startswith(_IMAGE_MAGIC):
+        return True
+    # RIFF....WEBP / ftyp(avif|heic) 需要看偏移量，不是简单前缀
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return True
+    if data[4:8] == b"ftyp":
+        return True
+    return False
+
+
 def _find_cached(url_hash: str) -> Optional[Tuple[str, str]]:
     d = _cache_dir()
     for ext in ("jpg", "png", "webp", "gif", "avif"):
@@ -97,6 +121,13 @@ async def proxy_mercari_image(u: str):
         raise
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"拉取失败: {e}")
+
+    # 确认拿到的确实是图片再落盘。ext_from_url_or_type 在识别不出时兜底返回 "jpg"，
+    # 于是任何字节（错误页 HTML、被改写的响应）都会被缓存成 .jpg 并以 image/jpeg 返回，
+    # 而且缓存命中后**永远**不会再重新拉取。同目录的缩略图端点早就做了这层校验（415），
+    # 这里漏了——两个公开图片端点的标准应当一致。
+    if not _looks_like_image(data):
+        raise HTTPException(status_code=502, detail="煤炉返回的内容不是有效图片")
 
     ext = ext_from_url_or_type(raw, content_type)
     out_path = os.path.join(_cache_dir(), f"{url_hash}.{ext}")

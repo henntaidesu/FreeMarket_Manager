@@ -140,6 +140,22 @@ def start_proxy() -> Dict[str, Any]:
         stop_proxy()
         return {"started": False, "error": f"mercari-proxy 未在 {host}:{port} 监听"}
 
+    # 端口通了 ≠ 通的是**我们刚拉起的那个**进程。
+    # 上次后端被强杀（任务管理器/断电）时不会走 stop_proxy，node 会成孤儿继续占着端口；
+    # 这时新 node 因 EADDRINUSE 立刻退出，而 _wait_listen 连上的是那个孤儿 → 判定「已启动」。
+    # 随后 register_injection 带着**本进程新生成的** secret 去 POST，孤儿必然拒绝，
+    # 用户只看到一句无从下手的「Cookie 注入失败」，而 stdout/stderr 都是 DEVNULL，没有任何线索。
+    if _proc.poll() is not None:
+        _proc = None
+        return {
+            "started": False,
+            "error": (
+                f"{host}:{port} 已被占用：本次拉起的 node 立即退出，端口上监听的是其它进程"
+                "（多为上次后端未正常退出遗留的 mercari-proxy）。"
+                "请在任务管理器结束残留的 node 进程后重试，或用 MERCARI_PROXY_PORT 换一个端口。"
+            ),
+        }
+
     log.info("mercari-proxy 已启动 %s://%s:%s（根挂载）", _scheme, host, port)
     return {"started": True, **proxy_status()}
 

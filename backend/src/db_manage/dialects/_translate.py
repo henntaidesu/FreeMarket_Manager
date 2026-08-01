@@ -40,16 +40,25 @@ _EXCLUDED_RE = re.compile(r"\bexcluded\.(`[^`]+`|\w+)", re.IGNORECASE)
 
 
 def _split_string_literals(sql: str):
-    """把 SQL 切成交替的 (语法段, 字符串段, 语法段, ...)。字符串段含首尾单引号。"""
+    """把 SQL 切成 (语法段 / 字符串段 / 注释段) 的序列。
+
+    注释也必须切出来，和字符串字面量一样**不参与改写**：注释里出现一个 ``?`` 会被换成
+    ``%s``，PyMySQL 就会多吃一个参数；出现一个 ``'`` 更糟——它会被当成字符串起始，把后面
+    整段 SQL 都吞进「字面量」里，真正的 ``?`` 一个都换不成。仓库里已经有带 ``--`` 注释的
+    多行 SQL（见 outbound_sync.py），只是碰巧没写到问号和撇号。
+
+    识别两种注释：``--`` 行注释（按 MySQL 规则要求其后是空白或行尾，避免误伤 ``a--b``
+    这种「减负号」写法）与 ``/* */`` 块注释。``#`` 行注释不处理——调用方一律写
+    SQLite 风格 SQL，不会用它。
+    """
     segs = []
     i = 0
     n = len(sql)
     start = 0
     while i < n:
-        if sql[i] == "'":
-            # 语法段 [start, i)
+        ch = sql[i]
+        if ch == "'":
             segs.append(("code", sql[start:i]))
-            # 读取字符串字面量
             j = i + 1
             while j < n:
                 if sql[j] == "'":
@@ -60,6 +69,22 @@ def _split_string_literals(sql: str):
                 j += 1
             segs.append(("str", sql[i:j + 1]))
             i = j + 1
+            start = i
+        elif ch == "-" and i + 1 < n and sql[i + 1] == "-" and (
+            i + 2 >= n or sql[i + 2].isspace()
+        ):
+            segs.append(("code", sql[start:i]))
+            j = sql.find("\n", i)
+            j = n if j < 0 else j          # 注释到行尾；换行本身留给下一段
+            segs.append(("comment", sql[i:j]))
+            i = j
+            start = i
+        elif ch == "/" and i + 1 < n and sql[i + 1] == "*":
+            segs.append(("code", sql[start:i]))
+            j = sql.find("*/", i + 2)
+            j = n if j < 0 else j + 2      # 未闭合就吃到结尾
+            segs.append(("comment", sql[i:j]))
+            i = j
             start = i
         else:
             i += 1
@@ -91,7 +116,9 @@ def translate(sql: str, has_params: bool) -> str:
     for kind, seg in _split_string_literals(sql):
         if kind == "code":
             seg = _rewrite_code(seg, has_params)
-        elif has_params and "%" in seg:  # 字符串字面量：仅转义 %
+        elif has_params and "%" in seg:
+            # 字符串字面量与注释：都不改写语法，但 % 仍要转义
+            #（PyMySQL 对整条 SQL 做一次 % 格式化，注释里的 % 同样会被吃掉）
             seg = seg.replace("%", "%%")
         out.append(seg)
     return "".join(out)

@@ -309,11 +309,18 @@ def sweep_stale() -> int:
 
 
 def held_count(inventory_id: Optional[int] = None) -> int:
-    """当前仍被持有的占用件数（不传则统计全部）。供排查与任务页展示。"""
+    """当前仍被持有的占用件数（不传则统计全部）。供排查用。
+
+    ⚠️ 目前**无调用方**。留着是因为排查「可上架为什么偏低」时它很顺手，但别照抄旧写法：
+    原实现按 ``payload.inventory_ids``（整单的完整列表）判断，部分占用已被 ``consume``
+    核销后会继续把它算进去，数出来比实际偏大。这里改用 ``_remaining_release_ids``——
+    和 ``release`` / ``sweep_stale`` 同一口径，即「这条任务此刻还欠着哪些库存」。
+    """
     total = 0
     for task in _held_tasks():
+        remaining = _remaining_release_ids(task)
         if inventory_id is None:
-            total += task["reserved_qty"]
-        elif int(inventory_id) in task["inventory_ids"]:
-            total += 1
+            total += len(remaining)
+        else:
+            total += sum(1 for i in remaining if int(i) == int(inventory_id))
     return total

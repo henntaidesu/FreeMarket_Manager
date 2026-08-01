@@ -46,7 +46,7 @@ you have to follow, not something the code will stop you from breaking.
 | Frontend | Vue 3, Vite, Vue Router, Pinia, Element Plus | Dev: port 9600 (HTTPS), Prod: static SPA |
 | Backend | Python 3.11+, FastAPI, Uvicorn | Port 9601 (dev) / 9600 (frozen); `/docs` off by default |
 | Database | SQLite WAL mode (default) / MySQL 8.0+ | backend/mercariDB.db (auto-created); MySQL via `DB_BACKEND=mysql` |
-| Authentication | JWT (Bearer tokens) | 12-hour expiry by default |
+| Authentication | JWT (Bearer tokens) | **No expiry by default** (`JWT_EXPIRE_HOURS=0`); revoked via `token_version` |
 | Image Storage | Local filesystem | backend/imges/ directory |
 | Browser Automation | Playwright | Edge/Chromium; drives both Mercari and Yahoo |
 | Request Inspection | mitmproxy | SSL/TLS interception (Windows) |
@@ -219,6 +219,20 @@ Key tables in `backend/src/db_manage/models/`:
 3. **DBManager** (`db_manager.py`): Coordinates all model registration, table creation, migrations
 4. Migrations handled in `db_manager.py` (e.g., warehouses composite unique constraint)
 
+**Invariant you can silently break: a table targeted by `ON CONFLICT` must have exactly ONE
+unique index.** All call sites write SQLite-style SQL; `dialects/_translate.py` rewrites
+`ON CONFLICT(cols) DO UPDATE SET …` into MySQL's `ON DUPLICATE KEY UPDATE …` and **discards the
+conflict-target column list**, because MySQL has no way to express it. SQLite fires only on the
+named columns; MySQL fires on *any* unique key. So the moment a second unique index appears on
+such a table, an insert that collides on the *other* key stops raising and silently UPDATEs that
+row instead — on MySQL only, with no error anywhere.
+
+Currently safe: the five UPSERT targets (`todo_items`, `notifications`, `desired_price_offers`,
+`bundle_purchase_requests`, `image_embeddings`) each have exactly one unique index. `inventory`
+(3 unique constraints incl. `barcode`) and `task_queue` (`client_token` + `active_dedup_key`)
+have several — never convert their writes to UPSERT without restructuring first.
+`_translate.py` also maps `excluded.col` → `VALUES(col)`, which MySQL 8.0.20+ deprecates.
+
 **Startup does two destructive schema-sync passes, both gated by `db_manage/schema_guard.py`:**
 
 - `initialize_database()` (`db_manager.py`) DROPs every table in the schema that no registered
@@ -264,7 +278,11 @@ is the single lookup used by the listing dispatcher.
 3. Frontend stores token in `localStorage`
 4. Axios interceptor (`api/http.js`) adds `Authorization: Bearer <token>` to all requests
 5. Backend `require_auth()` dependency verifies JWT, raises 401 if expired/invalid
-6. Token expiry: `JWT_EXPIRE_HOURS` env var (default 12)
+6. Token expiry: `JWT_EXPIRE_HOURS` env var — **default `0` = never expires** (no `exp` claim is
+   written). Sessions are instead invalidated by bumping `users.token_version`, which
+   `require_auth` compares on every request — changing a password, disabling an account or
+   forcing a logout kills every existing token immediately. Set a positive number to also get
+   time-based expiry.
 
 CORS defaults to `allow_origins=["*"]` with **credentials disabled** — auth rides on the Bearer
 header, not cookies, so the dangerous wildcard+credentials combination never occurs. Setting
@@ -563,7 +581,7 @@ Three self-contained features that are easy to miss because nothing else depends
 **Database management UI**: System 管理 → 系统设置 (`/system/config`, view `views/system/SystemConfig`)
 lets the user choose SQLite/MySQL, test the MySQL connection, and switch backends. Switching migrates all data from the current backend to the target (`src/db_manage/migrate.py`), persists the choice + connection params to the always-SQLite bootstrap store `backend/system.db` (`src/db_manage/db_settings.py`), then auto-restarts the backend. In MySQL mode, `system.db` (SQLite) retains only this bootstrap config; all business data lives in MySQL.
 - `JWT_SECRET`: Signing key (change in production)
-- `JWT_EXPIRE_HOURS`: Token validity (default: 12)
+- `JWT_EXPIRE_HOURS`: Token validity in hours. **Default `0` = never expires** — see Authentication Flow.
 - `SSL_MITM_AUTO_START`: Set to `0` to disable mitmproxy (default: 1)
 - `INTERACTIVE_BROWSER_AUTO_START`: Set to `0` to disable headed browser auto-start at boot (default: 0)
 - `WEB_DRIVE_AUTOMATION_HEADLESS`: When enabled, all automation browsers (data fetch / startup pre-warm / MITM listing/delete/revise / mercari MITM capture) launch truly headless (silent, never shown in the foreground). Does NOT affect the manual "Open Browser" button on `/mercari-accounts` (always headed). **Default: 1 (headless).** Set to `0` to launch them headed+minimized for debugging.
@@ -577,6 +595,20 @@ lets the user choose SQLite/MySQL, test the MySQL connection, and switch backend
 - `MERCARI_PROXY_AUTO_START` / `MERCARI_PROXY_PORT` / `MERCARI_PROXY_BIND_HOST` / `MERCARI_PROXY_UPSTREAM` / `MERCARI_PROXY_CERT_DIR`: Node reverse proxy (see Auxiliary Subsystems).
 - `IMAGE_SEARCH_AUTO_INDEX` / `IMAGE_SEARCH_MODEL_URL` / `IMAGE_SEARCH_THREADS`: CLIP image-search indexing.
 - `MEMORY_RECYCLE_AUTO` / `MEMORY_RECYCLE_INTERVAL_SEC` / `MEMORY_RECYCLE_MIN_RSS_MB` / `MEMORY_RECYCLE_INITIAL_DELAY_SEC`: Periodic RSS trimming (`memory_recycle.py`) — this app runs for days with a browser attached.
+- `PUBLIC_RATE_LIMIT` / `PUBLIC_RATE_LIMIT_BURST` (60) / `PUBLIC_RATE_LIMIT_RPS` (10): per-IP token
+  bucket on the two **unauthenticated** image endpoints (`/inventory/image-thumb`,
+  `/mercari-image`). Both make the server do real work (decode + write / outbound fetch + write)
+  and the server binds `0.0.0.0` with `CORS: *`. Set `PUBLIC_RATE_LIMIT=0` to disable.
+  It is a small in-process bucket — real abuse protection belongs at the reverse proxy.
+- `MAINTENANCE_AUTO`: Set to `0` to disable the **startup-only** cleanup pass (`maintenance.py`).
+  Nothing else in this codebase reclaims anything, so without it `system_logs` (~270 rows/day),
+  terminal `task_queue` rows, `detail_json` on soft-deleted todos, and the `_thumbs` /
+  `_mercari_cache` image directories grow without bound. Retention/caps:
+  `MAINTENANCE_SYSTEM_LOG_DAYS` (90) / `MAINTENANCE_TASK_QUEUE_DAYS` (30) /
+  `MAINTENANCE_TODO_DETAIL_DAYS` (30) / `MAINTENANCE_THUMBS_MAX_MB` (512) /
+  `MAINTENANCE_CDN_CACHE_MAX_MB` (256). Set any to `0` to skip that item. It runs once per boot in
+  a thread (deleting files is blocking IO and must not delay `mark_ready`), never touches
+  pending/running task rows, and swallows every error — cleanup must never block startup.
 - `TEST_DATABASE_NAMES`: Extra comma-separated MySQL names to treat as test DBs. See Database Safety.
 - `DB_DESTRUCTIVE_SCHEMA_SYNC`: Set to `0` to also skip the drop-unknown-tables / drop-undeclared-columns
   startup passes on a **test** database (they are already skipped everywhere else). See Database Safety.

@@ -22,6 +22,7 @@ use_web V2 API 聚合模块（按前端页面归类）
 from fastapi import APIRouter, Depends
 
 from ..auth import require_auth
+from ..rate_limit import check_public_rate_limit
 
 from .login.API import router as login_router
 from .dashboard.API import router as dashboard_router
@@ -44,12 +45,23 @@ from .mercari_image.API import public_router as mercari_image_public_router
 router = APIRouter(prefix="/use_web")
 
 # ============ 公开端点（无需认证） ============
-# 登录页：login 端点 + 启动种子事件
+# 登录页：login 端点 + 启动种子事件（自带失败锁定，见 login_handler）
 router.include_router(login_router, prefix="/login", tags=["login"])
+
+# 两个图片端点是公开的（前端 <img> 直接用 URL 访问，带不了 Bearer 头），但它们都会让
+# 服务端干重活：缩略图要解码+落盘，代理要发外网请求+落盘。服务绑 0.0.0.0、CORS 为 *，
+# 未认证即可触发。缓存体积已有 maintenance.py 兜底，CPU / 外网带宽 / 磁盘 IO 没有——
+# 所以这两条（也只有这两条）挂按 IP 的令牌桶限速。PUBLIC_RATE_LIMIT=0 可关。
+_PUBLIC_LIMIT = [Depends(check_public_rate_limit)]
 # 库存公开缩略图
-router.include_router(inventory_public_router, prefix="/inventory", tags=["inventory-public"])
+router.include_router(
+    inventory_public_router, prefix="/inventory", tags=["inventory-public"],
+    dependencies=_PUBLIC_LIMIT,
+)
 # 煤炉图片代理（跨页面共享，前端 <img> 直接通过 URL 访问，无需 token）
-router.include_router(mercari_image_public_router, tags=["mercari-image"])
+router.include_router(
+    mercari_image_public_router, tags=["mercari-image"], dependencies=_PUBLIC_LIMIT,
+)
 
 # ============ 需要认证的端点 ============
 _AUTH = [Depends(require_auth)]

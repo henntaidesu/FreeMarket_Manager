@@ -32,10 +32,20 @@ def restock_order_holding_lines(order_no: str, *, reason: str) -> None:
     占用标记（stock_deducted / is_stocked_out），避免后续删除/编辑对同一行二次回吐。
 
     与改绑 / 归属转化的「回吐」口径一致（见 ``_is_stock_holding_line``）。
+
+    **整段在一个事务里**：下面每行是「先原子清除占用标记（认领）→ 再把数量加回库存」。
+    认领已提交、加回还没执行时崩溃，这一行的库存就**永久丢了**且无法重试——再进来
+    ``claimed`` 为 0 会直接跳过。认领本身解决的是并发（两路取消只有一路命中），
+    事务解决的是崩溃原子性，两者都需要。
     """
     ono = (order_no or "").strip()
     if not ono:
         return
+    with db.transaction():
+        _restock_holding_lines_impl(ono, reason=reason)
+
+
+def _restock_holding_lines_impl(ono: str, *, reason: str) -> None:
     lines = OrderOutboundLineModel.find_all(where="[order_no] = ?", params=(ono,))
     touched: List[int] = []
     for line in lines:
@@ -72,7 +82,12 @@ def restock_order_holding_lines(order_no: str, *, reason: str) -> None:
                     ("in", inv_id, warehouse_id, qty, reason, int(time.time())),
                 )
             except Exception:
-                pass
+                # 库存已经加回去了，流水没写上。不抛出（回吐本身是对的，不该因为记账失败而回滚），
+                # 但**必须留痕**：静默吞掉会让事后盘点对不上账，而且现场没有任何线索说明差额来自哪里。
+                log.exception(
+                    "[outbound] 回吐已完成但入库流水写入失败 inventory=%s qty=%s order=%s，请人工补录",
+                    inv_id, qty, ono,
+                )
         # 组合商品：反向级联回吐来源子商品物理库存（普通商品为空操作）
         cascade_combined_child_restock(inv_id, qty, reason=reason)
         touched.append(inv_id)

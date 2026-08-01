@@ -11,6 +11,16 @@
 ``kind`` 不映射到煤炉的 ``WaitShippingCard`` 之类：待办页上的发货/二维码/批量操作都是煤炉自动化，
 套用煤炉 kind 会让雅虎待办也长出这些按钮然后跑错流程。这里用独立的 ``Yahoo*`` kind，
 配合 ``platform='yahoo'`` 让前端能认出来。
+
+**待回复（取引メッセージ）不在这个接口里。** 雅虎的 やることリスト 只列 ``ooesh``（発送依頼）；
+买家来信只作为「お知らせ」出现在 ``/api/v1/notices/personal`` 的 ``obems`` 里。所以这里把那份
+通知流一并取回来，筛出 ``obems`` 当作待办写入，让它和煤炉的 ``IncomingMessage`` 落在同一个
+「待回复」筛选里。两份接口在同一个浏览器会话里取，不额外开一次浏览器。
+
+代价是 ``obems`` 通知**不会因为已回复而消失**（expireDate 恒为创建后 30 天，是时间制不是状态制），
+所以回复完得靠本地标记收尾：``trade_actions.send_yahoo_todo_message`` 成功后置
+``is_delete=1`` + ``shipped_finalized=1``，后者是 ``_upsert_todo_row`` 认的「本地已完成、
+不得被同步复活」标记——否则下一次同步会把同一个 uuid 原样写回，待办永远回不去。
 """
 from __future__ import annotations
 
@@ -26,13 +36,19 @@ log = logging.getLogger(__name__)
 
 TODO_PAGE_URL = f"{YAHOO_BASE_URL}/my/todo"
 _TODO_API_PATH = "/api/v1/notices/todo?result={limit}&offset={offset}"
+#: 待回复的来源：通知流（待办接口不含取引メッセージ，见模块 docstring）
+_NOTICE_API_PATH = "/api/v1/notices/personal?result={limit}&offset={offset}"
 _PAGE_SIZE = 30
 _MAX_PAGES = 20
 
 #: 雅虎待办 type → 本地 kind（未知类型退化为 ``Yahoo:{type}``，只展示不驱动动作）
 _KIND_BY_TYPE = {
-    "ooesh": "YahooShipRequest",     # 発送依頼：已售出待发货
+    "ooesh": "YahooShipRequest",         # 発送依頼：已售出待发货
+    "obems": "YahooIncomingMessage",     # 取引メッセージ：买家来信待回复（来自通知流）
 }
+
+#: 通知流里要提升为待办的 type（其余仍只进 notifications 表）
+_NOTICE_TODO_TYPES = frozenset({"obems"})
 
 _FETCH_JS = """
 async (path) => {
@@ -88,35 +104,48 @@ def yahoo_todo_to_row(account_id: int, todo: Dict[str, Any], synced_at_ms: int) 
     }
 
 
+async def _fetch_feed(page: Any, path_tmpl: str, list_key: str, label: str) -> List[Dict[str, Any]]:
+    """在已打开的页面里翻页取完一份通知流（接口带 nextOffset）。"""
+    out: List[Dict[str, Any]] = []
+    offset = 0
+    for _ in range(_MAX_PAGES):
+        res = await page.evaluate(_FETCH_JS, path_tmpl.format(limit=_PAGE_SIZE, offset=offset))
+        if int(res.get("status") or 0) != 200:
+            raise RuntimeError(f"雅虎{label}接口返回 {res.get('status')}（登录态可能已失效）")
+        try:
+            data = json.loads(res.get("body") or "{}")
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"雅虎{label}接口返回的不是 JSON：{exc}") from exc
+        batch = data.get(list_key)
+        if not isinstance(batch, list) or not batch:
+            break
+        out.extend(batch)
+        total = int(data.get("totalResultsAvailable") or 0)
+        next_offset = data.get("nextOffset")
+        if next_offset is None or len(out) >= total:
+            break
+        offset = int(next_offset)
+    return out
+
+
 async def fetch_yahoo_todos(account_id: int) -> List[Dict[str, Any]]:
-    """翻页取全部待办（接口带 nextOffset）。"""
-    todos: List[Dict[str, Any]] = []
+    """一次会话取回「待办 + 通知流里的取引メッセージ」，合成同一份待办列表。
+
+    两者的 JSON 形状完全一致（id/title/content/type/createDate/itemId/imageUrl），
+    ``yahoo_todo_to_row`` 无需分支即可处理。
+    """
     async with yahoo_automation_browser(int(account_id), start_url=TODO_PAGE_URL) as (mgr, key):
         page = await mgr.active_tab_page(key)
         try:
             await page.wait_for_load_state("networkidle", timeout=20000)
         except Exception:
             pass
-        offset = 0
-        for _ in range(_MAX_PAGES):
-            res = await page.evaluate(
-                _FETCH_JS, _TODO_API_PATH.format(limit=_PAGE_SIZE, offset=offset)
-            )
-            if int(res.get("status") or 0) != 200:
-                raise RuntimeError(f"雅虎待办接口返回 {res.get('status')}（登录态可能已失效）")
-            try:
-                data = json.loads(res.get("body") or "{}")
-            except json.JSONDecodeError as exc:
-                raise RuntimeError(f"雅虎待办接口返回的不是 JSON：{exc}") from exc
-            batch = data.get("todos")
-            if not isinstance(batch, list) or not batch:
-                break
-            todos.extend(batch)
-            total = int(data.get("totalResultsAvailable") or 0)
-            next_offset = data.get("nextOffset")
-            if next_offset is None or len(todos) >= total:
-                break
-            offset = int(next_offset)
+        todos = await _fetch_feed(page, _TODO_API_PATH, "todos", "待办")
+        notices = await _fetch_feed(page, _NOTICE_API_PATH, "notices", "通知")
+    todos.extend(
+        n for n in notices
+        if isinstance(n, dict) and str(n.get("type") or "").strip() in _NOTICE_TODO_TYPES
+    )
     return todos
 
 

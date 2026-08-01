@@ -3,6 +3,7 @@
 
 import hashlib
 import hmac
+import logging
 import secrets
 import threading
 import time
@@ -16,6 +17,7 @@ from ....db_manage.database import DatabaseManager
 from ....db_manage.models.system.user import UserModel
 
 db = DatabaseManager()
+log = logging.getLogger(__name__)
 
 
 class LoginRequest(PydanticModel):
@@ -90,18 +92,44 @@ def _ensure_default_admin():
     )
 
 
+#: 记录「is_admin 回填已执行过」的配置键。没有这个标记，下面那段回填就是每次启动都跑的
+#: 常驻逻辑，而不是它自称的「仅回填一次」。
+_ADMIN_BACKFILL_DONE_KEY = "bootstrap_admin_backfilled"
+
+
 def _ensure_bootstrap_admin():
-    """迁移引入 is_admin 列后，保持"原本所有登录用户都可管理"的行为不被打断：
-    若当前无任何管理员（刚迁移完），把所有既有用户提升为管理员，避免把真实操作者锁在门外。
-    此后新建用户默认非管理员，可由管理员按需授予/收回。仅在"零管理员"时回填一次。"""
+    """迁移引入 is_admin 列后的一次性回填：若当时无任何管理员，把既有用户提升为管理员，
+    避免把真实操作者锁在门外。
+
+    ⚠️ 这段**只允许跑一次**，跑完在 config 表打标记。原实现没有标记，是「每次启动都检查、
+    只要管理员数为 0 就把**全部用户**提权」——那是一条常驻的提权路径：任何原因导致管理员
+    归零（手工改库、迁移出错、指到一个用户表不全的库），重启一次全体用户就都成了管理员，
+    而管理员可以切换数据库、备份、重启后端。
+
+    另外只在「确实是老库」时回填：全新库由 ``_ensure_default_admin`` 建 admin，
+    走不到这里；真出现「有用户但零管理员」且已打过标记的情况，属于异常，
+    留日志让人处理，不再自动提权。
+    """
     try:
         UserModel.ensure_table_exists()
         admins = db.execute_query("SELECT COUNT(*) FROM [users] WHERE is_admin = 1")
         if admins and admins[0][0] > 0:
             return
-        db.execute_update("UPDATE [users] SET is_admin = 1")
+
+        from ....db_manage.models.system.config_entry import ConfigEntryModel
+
+        if (ConfigEntryModel.get_value(_ADMIN_BACKFILL_DONE_KEY) or "").strip():
+            log.warning(
+                "[bootstrap_admin] 当前无任何管理员，但一次性回填已执行过，不再自动提权。"
+                "请手动把某个用户的 users.is_admin 置 1 后重启。"
+            )
+            return
+
+        n = db.execute_update("UPDATE [users] SET is_admin = 1")
+        ConfigEntryModel.set_value(_ADMIN_BACKFILL_DONE_KEY, "1")
+        log.warning("[bootstrap_admin] 一次性回填：%s 个既有用户已提升为管理员（此后不再自动提权）", n)
     except Exception:  # noqa: BLE001
-        pass
+        log.exception("[bootstrap_admin] 管理员回填检查失败（不阻断启动）")
 
 
 def startup_seed_user():

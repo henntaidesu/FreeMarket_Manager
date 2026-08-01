@@ -37,7 +37,7 @@ _LIST_COLS = (
 # 顶置类型：合并购买请求 / 留言 永远排在列表最前
 _PINNED_KINDS = ("BundleRequestCreated", "Comment")
 
-# 事务局消息分组：kind 含 merpay 的通知（如 merpay-egp-ian-promotion）视同 PrivateMessage。
+# 煤炉公式消息分组：kind 含 merpay 的通知（如 merpay-egp-ian-promotion）视同 PrivateMessage。
 _PRIVATE_MESSAGE_KIND = "PrivateMessage"
 
 # 前端顶部筛选 chip（互斥单选）的分类条件，与 /todos 的 _CATEGORY_CONDS 同构。
@@ -48,9 +48,17 @@ _PRIVATE_MESSAGE_KIND = "PrivateMessage"
 #   · ``Like%`` 会连 ``LikedItemReceiveComment`` 一起吃掉 → 点赞只认 Like / LikeV*（雅虎的
 #     いいね 是 YahooLike）
 #   · 字面量 ``%`` 由方言层转义（见 db_manage/dialects/_translate.py），无需拆成参数
+#
+# 雅虎侧只有 いいね 有具名 kind（YahooLike），其余一律是 ``Yahoo:{type}`` 原样透传，
+# 故按 type 逐个列举。各 type 的语义（取自接口 title）：
+#   obems=取引メッセージ  dosdo=価格の相談  lsodi=商品の値下げ
+#   loodo=いいね！した商品へのいいね  cmp/cpon/pbsrf/foobc=雅虎运营公告
 _COMMENT_COND = "IFNULL(n.[kind], '') LIKE 'Comment%'"
 _BUNDLE_COND = "IFNULL(n.[kind], '') LIKE 'Bundle%'"
-_DESIRED_PRICE_COND = "IFNULL(n.[kind], '') LIKE 'DesiredPrice%'"
+_DESIRED_PRICE_COND = (
+    "(IFNULL(n.[kind], '') LIKE 'DesiredPrice%'"
+    " OR IFNULL(n.[kind], '') = 'Yahoo:dosdo')"
+)
 _AUCTION_COND = (
     "(IFNULL(n.[kind], '') LIKE 'Auction%'"
     " OR IFNULL(n.[kind], '') = 'FlashAuctionStartNotification')"
@@ -59,21 +67,31 @@ _AUCTION_COND = (
 # 那些是「已支付完成」的事后通知，语义相反，留在「其他」。
 _WAIT_PAYMENT_COND = "IFNULL(n.[kind], '') LIKE 'WaitPayment%'"
 _LIKE_COND = (
-    "(IFNULL(n.[kind], '') IN ('Like', 'YahooLike')"
+    "(IFNULL(n.[kind], '') IN ('Like', 'YahooLike', 'Yahoo:loodo')"
     " OR IFNULL(n.[kind], '') LIKE 'LikeV%')"
 )
 _LIKED_ITEM_COND = (
     "IFNULL(n.[kind], '') IN ('LikedItemReceiveComment', 'PriceDropMessageV2')"
 )
-# 事务局：PrivateMessage 系（含 PrivateMessageCustomTitle）、所有 kind 含 merpay 的
+# 待回复：雅虎交易留言（買主から取引メッセージ）。煤炉的同类待办在 /todos 页，
+# 通知流里没有对应 kind，故当前只有雅虎一项。
+_WAIT_REPLY_COND = "IFNULL(n.[kind], '') = 'Yahoo:obems'"
+# 商品降价：关注（いいね）过的商品降价了。煤炉的 PriceDropMessageV2 仍归「关注商品」不动。
+_PRICE_DROP_COND = "IFNULL(n.[kind], '') = 'Yahoo:lsodi'"
+# 煤炉公式：PrivateMessage 系（含 PrivateMessageCustomTitle）、所有 kind 含 merpay 的
 # 推广/Merpay 通知，以及事務局からの一斉連絡与客服回复。
 _BUREAU_COND = (
     f"(IFNULL(n.[kind], '') LIKE '{_PRIVATE_MESSAGE_KIND}%'"
     " OR LOWER(IFNULL(n.[kind], '')) LIKE '%merpay%'"
     " OR IFNULL(n.[kind], '') IN ('AdminBulkContact', 'AgentReplied'))"
 )
+# 雅虎公式：运营侧公告/活动/优惠券，与商品和交易无关（多数连 itemId 都没有）。
+_YAHOO_OFFICIAL_COND = (
+    "IFNULL(n.[kind], '') IN "
+    "('Yahoo:cmp', 'Yahoo:cpon', 'Yahoo:pbsrf', 'Yahoo:foobc')"
+)
 
-#: chip → WHERE 条件。「其他」= 以上八类都不是（如支付完成、未知的 Yahoo:* 类型）。
+#: chip → WHERE 条件。「其他」= 以上各类都不是（如支付完成、未归类的 Yahoo:* 类型）。
 _NAMED_CATEGORY_CONDS = {
     "comment": _COMMENT_COND,
     "bundle": _BUNDLE_COND,
@@ -82,7 +100,10 @@ _NAMED_CATEGORY_CONDS = {
     "wait_payment": _WAIT_PAYMENT_COND,
     "like": _LIKE_COND,
     "liked_item": _LIKED_ITEM_COND,
+    "price_drop": _PRICE_DROP_COND,
+    "wait_reply": _WAIT_REPLY_COND,
     "bureau": _BUREAU_COND,
+    "yahoo_official": _YAHOO_OFFICIAL_COND,
 }
 
 _CATEGORY_CONDS = {
@@ -242,7 +263,7 @@ def list_notifications(
 def list_kinds() -> List[str]:
     """返回所有出现过的 kind（前端下拉用）。
 
-    kind 含 merpay 的归入事务局消息分组，不单独列出；
+    kind 含 merpay 的归入煤炉公式消息分组，不单独列出；
     若存在此类数据则保证下拉中有 ``PrivateMessage`` 一项。
     """
     db = DatabaseManager()

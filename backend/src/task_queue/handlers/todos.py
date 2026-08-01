@@ -15,15 +15,29 @@ log = logging.getLogger(__name__)
 
 
 def _raise_if_all_failed(result: Dict[str, Any], what: str) -> None:
-    """批量结果全部失败时抛错，让任务落成 failed 而不是把失败折进 result JSON 里显示「成功」。"""
+    """批量结果的成败标注。
+
+    - **全部失败** → 抛错，任务落 failed（否则失败会被折进 result JSON 里显示成「成功」）。
+    - **部分失败** → 不抛错（成功的那些是真做了、不可撤销，标成失败会误导），
+      但在 result 里打 ``partial_failed`` 标记：任务页据此把状态渲染成橙色而不是绿色。
+      一键好评 / 一键确认发送都是对外不可逆操作，10 条里挂了 1 条却显示绿色「成功」，
+      那一条就再没人回头补了。
+    """
     ok = int(result.get("ok") or 0)
     fail = int(result.get("fail") or 0)
     already = int(result.get("already_shipped") or 0)
-    if fail > 0 and ok == 0 and already == 0:
-        failures = [str(f) for f in (result.get("failures") or [])]
-        detail = "；".join(failures[:5])
-        more = f"（共 {len(failures)} 条）" if len(failures) > 5 else ""
+    if fail <= 0:
+        return
+    failures = [str(f) for f in (result.get("failures") or [])]
+    detail = "；".join(failures[:5])
+    more = f"（共 {len(failures)} 条）" if len(failures) > 5 else ""
+    if ok == 0 and already == 0:
         raise RuntimeError(f"{what}全部失败：{detail}{more}")
+    result["partial_failed"] = True
+    result["partial_failed_message"] = (
+        f"{what}部分失败：成功 {ok} 条、失败 {fail} 条。{detail}{more}"
+    )
+    log.warning("[task_queue] %s部分失败：ok=%s fail=%s", what, ok, fail)
 
 
 async def handle_sync(task: Dict[str, Any]) -> Dict[str, Any]:

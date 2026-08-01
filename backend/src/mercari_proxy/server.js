@@ -210,6 +210,10 @@ function handleBoot(req, res, reqUrl, proxyHost) {
     "set-cookie": setCookies,
     location: `${BASE}/`,
     "cache-control": "no-store",
+    // token 走 query string（用户浏览器要直接导航过来，没法用 POST 交接）。它是一次性的
+    // ——上面 injectionStore.delete 已经把它作废了——但在被使用前的 TTL 窗口内，这个 URL
+    // 会留在浏览器历史里。no-referrer 保证它至少不会随后续请求的 Referer 头外泄出去。
+    "referrer-policy": "no-referrer",
     "content-type": "text/plain; charset=utf-8",
   });
   res.end("cookie injected, redirecting...");

@@ -18,7 +18,11 @@ _WAIT_SHIPPING_COND = (
     " 'TransactionWaitShippingFunds', 'YahooShipRequest'))"
 )
 # 「待回复」类判定：买家来信（IncomingMessage）。
-_WAIT_REPLY_COND = "IFNULL(t.[kind], '') = 'IncomingMessage'"
+# 雅虎侧是 YahooIncomingMessage（取引メッセージ）——它不来自待办接口而来自通知流，
+# 见 use_yahoo/todos/todo_sync.py 的模块说明。
+_WAIT_REPLY_COND = (
+    "IFNULL(t.[kind], '') IN ('IncomingMessage', 'YahooIncomingMessage')"
+)
 # 「待评价」类判定：卖家待评价（ReviewedSeller）。
 _WAIT_REVIEW_COND = "IFNULL(t.[kind], '') = 'ReviewedSeller'"
 # 「待收货」类判定：已发货、等买家收货（Shipped）。卖家这一步无事可做，只是要能单独看一眼，

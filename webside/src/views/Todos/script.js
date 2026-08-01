@@ -38,6 +38,8 @@ export default defineComponent({
       MerpayRealcardWaitActivation: 'todos.kind.merpayActivation',
       ReviewedSeller: 'todos.kind.waitReview',
       IncomingMessage: 'todos.kind.waitReply',
+      // 雅虎「取引メッセージ」＝买家来信待回复（源自通知流，非待办接口）
+      YahooIncomingMessage: 'todos.kind.waitReply',
       Shipped: 'todos.kind.waitReceipt',
       // 取消/退货申请：买家发起 → 卖家同意后填退货信息，同属「申请退货」
       CancellationRequested: 'todos.kind.cancellation',
@@ -57,6 +59,9 @@ export default defineComponent({
     const WAIT_SHIPPING_TITLE = '発送をしてください'
     // 雅虎的待发货是独立 kind（标题是雅虎自己的日文文案，不等于上面这条）
     const YAHOO_SHIP_KIND = 'YahooShipRequest'
+    // 「待回复」的两个平台 kind。与后端 _WAIT_REPLY_COND 同口径。
+    const WAIT_REPLY_KINDS = ['IncomingMessage', 'YahooIncomingMessage']
+    const isWaitReplyKind = (kind) => WAIT_REPLY_KINDS.includes(String(kind || '').trim())
 
     // ゆうゆうメルカリ便 各尺寸共用的发送方法（发货地）：郵便局 / ローソン。
     // code 与煤炉 /shipping_facilities 页 radio 的 value 属性完全一致（大写）。
@@ -200,6 +205,7 @@ export default defineComponent({
       MerpayRealcardWaitActivation: 'info',
       ReviewedSeller: 'success',
       IncomingMessage: 'primary',
+      YahooIncomingMessage: 'primary',
       Shipped: 'success',
       CancellationRequested: 'danger',
       CancellationRequestApprovedSeller: 'danger',
@@ -699,16 +705,15 @@ export default defineComponent({
       return kind === 'ReviewedSeller' && title === '評価をしてください'
     })
 
-    // 「待回复」(IncomingMessage)：处理面板只展示消息流与回复，不显示发货相关操作
-    const isWaitReply = computed(() => {
-      return (currentRow.value?.kind || '').trim() === 'IncomingMessage'
-    })
+    // 「待回复」：处理面板只展示消息流与回复，不显示发货相关操作
+    const isWaitReply = computed(() => isWaitReplyKind(currentRow.value?.kind))
 
     // 「关联商品」(按商品 ID 反查到的本地库存) 在待发货与待回复都展示；
     // 待回复仅展示库存卡片，不展示包材/发货/出库明细
     const showInventoryMatch = computed(() => isWaitShipping.value || isWaitReply.value)
 
-    // 仅在「待回复」(IncomingMessage) 类型下，允许给买家消息加 emoji 反应
+    // 仅煤炉的「待回复」(IncomingMessage) 允许给买家消息加 emoji 反应——
+    // 雅虎交易页没有反应功能，故不含 YahooIncomingMessage
     const canReactToMessages = computed(() => {
       return (currentRow.value?.kind || '').trim() === 'IncomingMessage'
     })
@@ -1327,8 +1332,8 @@ export default defineComponent({
       resetInvMatch()
       resetYahooShipForm()
       detailDialogVisible.value = true
-      // 待发货（含雅虎 発送依頼）与 待回复 (IncomingMessage)：按商品 ID 反查本地库存图片与关联订单号
-      if (isWaitShipping.value || (row.kind || '').trim() === 'IncomingMessage') {
+      // 待发货（含雅虎 発送依頼）与 待回复（两个平台）：按商品 ID 反查本地库存图片与关联订单号
+      if (isWaitShipping.value || isWaitReplyKind(row.kind)) {
         loadInventoryMatch(row.item_id)
       }
       // 优先读本地缓存（不开浏览器）；用户点「刷新抓取」才打开浏览器更新
@@ -1959,7 +1964,14 @@ export default defineComponent({
         replyLoading.value = true
         try {
           const data = await todosApi.yahooSendMessage(currentRow.value.id, { text })
-          if (data?.sent) {
+          if (data?.completed) {
+            // 待回复：后端已软删，与煤炉一致——关 dialog + 刷列表，别再开一次浏览器抓详情。
+            // 不复用煤炉的 repliedDone：雅虎的会话交给队列空闲关闭，这里没有「浏览器已关闭」
+            ElMessage.success(t('todos.yahoo.messageSentDone'))
+            detail.reply_draft = ''
+            detailDialogVisible.value = false
+            load()
+          } else if (data?.sent) {
             ElMessage.success(t('todos.yahoo.messageSent'))
             detail.reply_draft = ''
             await refreshYahooDetail()

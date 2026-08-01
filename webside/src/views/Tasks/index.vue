@@ -42,8 +42,8 @@
       >
         <!-- 标题行：状态 + 任务名 + 编号 + 操作 -->
         <div class="task-card__head">
-          <el-tag :type="statusConfig[row.status]?.tag || 'info'" size="small" effect="dark" class="task-card__status">
-            {{ statusConfig[row.status]?.label || row.status }}
+          <el-tag :type="statusMeta(row).tag" size="small" effect="dark" class="task-card__status">
+            {{ statusMeta(row).label }}
           </el-tag>
           <span class="task-card__title">{{ row.title || row.task_type }}</span>
           <span class="task-card__id">#{{ row.id }}</span>
@@ -123,7 +123,7 @@
         <el-descriptions :column="2" border size="small">
           <el-descriptions-item :label="t('tasks.colId')">{{ detailRow.id }}</el-descriptions-item>
           <el-descriptions-item :label="t('tasks.colStatus')">
-            {{ statusConfig[detailRow.status]?.label || detailRow.status }}
+            {{ statusMeta(detailRow).label }}
           </el-descriptions-item>
           <el-descriptions-item :label="t('tasks.colType')">{{ typeLabel(detailRow.task_type) }}</el-descriptions-item>
           <el-descriptions-item :label="t('tasks.colDuration')">{{ durationText(detailRow) }}</el-descriptions-item>

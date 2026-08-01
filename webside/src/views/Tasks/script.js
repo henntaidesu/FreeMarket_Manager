@@ -38,6 +38,24 @@ export default defineComponent({
       canceled: { label: t('tasks.statusCanceled'), tag: 'info' }
     }))
 
+    /**
+     * 任务卡上显示的状态。终态是 success，但**成功不等于结果确定**：
+     * 出品自动化「已点过『出品する』却没等到成功提示」时，任务同样落 success，result 里带
+     * submit_uncertain=true（见 task_queue/handlers/listing.py）。这条信息以前只写进系统日志，
+     * 任务页一律显示绿色「成功」——用户据此以为挂牌成功，实际可能没挂上，也可能挂上了，
+     * 重复出品是不可逆的。这里把它单独渲染成橙色「结果不确定」，让人能看见并去核对。
+     */
+    function statusMeta(row) {
+      const base = statusConfig.value[row?.status] || { label: row?.status, tag: 'info' }
+      const res = row?.result
+      if (row?.status !== 'success' || !res || typeof res !== 'object') return base
+      if (res.submit_uncertain) return { label: t('tasks.statusUncertain'), tag: 'warning' }
+      // 批量操作（一键好评 / 一键确认发送）部分失败：整体不算失败，但也不能显示成绿色成功，
+      // 否则挂掉的那几条再没人回头补（见 task_queue/handlers/todos.py::_raise_if_all_failed）
+      if (res.partial_failed) return { label: t('tasks.statusPartial'), tag: 'warning' }
+      return base
+    }
+
     /** 队列里还有活儿没干完 → 用更短的轮询间隔 */
     const hasActive = computed(
       () => Number(stats.value.pending || 0) + Number(stats.value.running || 0) > 0
@@ -186,6 +204,7 @@ export default defineComponent({
       detailVisible,
       detailRow,
       statusConfig,
+      statusMeta,
       typeLabel,
       isSystemTask,
       durationText,

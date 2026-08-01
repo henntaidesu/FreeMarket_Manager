@@ -28,6 +28,9 @@ from ...web_drive.yahoo_trade import (
 
 log = logging.getLogger(__name__)
 
+#: 雅虎「待回复」待办的 kind（写入方见 todos/todo_sync.py 的 _KIND_BY_TYPE）
+_WAIT_REPLY_KIND = "YahooIncomingMessage"
+
 
 def _resolve_yahoo_todo(todo_id: int) -> Tuple[int, str]:
     """待办 → ``(account_id, item_id)``，并确认它确实是雅虎待办。"""
@@ -137,10 +140,37 @@ async def ship_yahoo_todo(
 async def send_yahoo_todo_message(
     todo_id: int, text: str, *, dry_run: bool = False
 ) -> Dict[str, Any]:
-    """在雅虎交易页给买家发一条取引メッセージ。"""
+    """在雅虎交易页给买家发一条取引メッセージ。
+
+    待办若是「待回复」（``YahooIncomingMessage``），发送成功即视为处理完毕并软删——
+    与煤炉 ``IncomingMessage`` 同口径。雅虎这边更非做不可：来信是通知流里的一条
+    ``obems``，回复了它也不会从接口消失，不本地收尾就永远留在待回复里。
+    ``shipped_finalized=1`` 是 ``_upsert_todo_row`` 认的防复活标记，缺了它下次同步会把
+    同一 uuid 原样写回。
+    """
     aid, item_id = _resolve_yahoo_todo(todo_id)
     result = await send_yahoo_trade_message(
         aid, item_id=item_id, text=text, dry_run=dry_run
     )
     result["todo_id"] = int(todo_id)
+    result["completed"] = False
+    if result.get("sent") and not dry_run:
+        result["completed"] = _finalize_wait_reply_todo(int(todo_id))
     return result
+
+
+def _finalize_wait_reply_todo(todo_id: int) -> bool:
+    """待回复待办软删 + 置本地完成标记。返回是否真的收尾了（非待回复类型不动）。"""
+    todo = TodoItemModel.find_by_id(id=int(todo_id))
+    if not todo or (getattr(todo, "kind", "") or "").strip() != _WAIT_REPLY_KIND:
+        return False
+    try:
+        todo.is_delete = 1
+        todo.shipped_finalized = 1
+        todo.synced_at = int(time.time() * 1000)
+        todo.save()
+        log.info("[yahoo_trade] 待回复已软删 todo_id=%s", todo_id)
+        return True
+    except Exception as exc:  # noqa: BLE001 软删失败不该让「消息已发出」这件事回滚
+        log.warning("[yahoo_trade] 软删待回复待办失败 todo_id=%s：%s", todo_id, exc)
+        return False

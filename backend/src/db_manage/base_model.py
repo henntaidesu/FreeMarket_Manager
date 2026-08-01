@@ -230,13 +230,31 @@ class BaseModel(ABC):
             print(f"统计失败: {e}")
             return 0
 
+    #: 表列名缓存的属性名。``_create_from_row`` 按**数据库物理列序**定位字段，所以这份缓存
+    #: 一旦与实际表结构不同步，取出来的每个字段都会错位。
+    _COLUMN_CACHE_ATTR = '_cached_table_columns'
+
+    @classmethod
+    def invalidate_column_cache(cls) -> None:
+        """丢弃本模型的表列缓存。任何 ALTER TABLE 之后都必须调用。"""
+        if cls.__dict__.get(cls._COLUMN_CACHE_ATTR) is not None:
+            try:
+                delattr(cls, cls._COLUMN_CACHE_ATTR)
+            except AttributeError:
+                pass
+
     @classmethod
     def _get_table_column_names(cls) -> List[str]:
-        cache_attr = '_cached_table_columns'
-        if not hasattr(cls, cache_attr):
+        cache_attr = cls._COLUMN_CACHE_ATTR
+        # 只认「本类自己」缓存的值。当前所有模型都直接继承 BaseModel，没有模型继承模型，
+        # 所以这里与 hasattr 等价；写成 __dict__ 是防御性的——真出现模型继承时，
+        # hasattr 会把父模型的列名当成自己的，取出来的每个字段都会错位。
+        cached = cls.__dict__.get(cache_attr)
+        if cached is None:
             columns = cls().db.get_table_columns(cls.get_table_name())
-            setattr(cls, cache_attr, [col['name'] for col in columns])
-        return getattr(cls, cache_attr)
+            cached = [col['name'] for col in columns]
+            setattr(cls, cache_attr, cached)
+        return cached
 
     @classmethod
     def _create_from_row(cls, row: tuple):
@@ -288,6 +306,11 @@ class BaseModel(ABC):
 
         删列走 ``schema_guard``：生产库一律跳过、测试库默认放行。跳过时留下的多余列是无害的
         （``get_fields()`` 不声明就永远不读它），而误删一列的数据不可恢复——两者不对等。
+
+        **每次 ALTER 后都失效列缓存**：``_create_from_row`` 是按数据库**物理列序**把行元组映射
+        成字段的，缓存和实际表结构一旦不同步，取出来的每个字段都会错位。这里是全仓库唯一
+        「每次启动都可能改列」的地方，却原本不失效缓存——别处那九个 ``delattr`` 都是各自
+        迁移后手工补的，反倒把这条主路径漏了。
         """
         from .schema_guard import destructive_schema_allowed, note_executed_drop, note_skipped_drop
 
@@ -306,7 +329,9 @@ class BaseModel(ABC):
                     'max_length': fdef.get('max_length'),
                     'mysql_type': fdef.get('mysql_type'),
                 }):
+                    cls.invalidate_column_cache()
                     return False
+                cls.invalidate_column_cache()
 
         extras = sorted(
             c for c in set(existing.keys()) - defined if not existing[c].get('pk')
@@ -321,8 +346,12 @@ class BaseModel(ABC):
 
         # 逐列留痕，不要等整批删完再记：删到一半失败时提前 return，
         # 已经删掉的那几列的数据就没了，而 system_logs 里一个字都没有。
-        for col_name in extras:
-            if not db.drop_column(table_name, col_name):
-                return False
-            note_executed_drop("column", table_name, [col_name])
+        try:
+            for col_name in extras:
+                if not db.drop_column(table_name, col_name):
+                    return False
+                note_executed_drop("column", table_name, [col_name])
+        finally:
+            # 无论删成删败（哪怕只删掉前几列就中断），物理列序都变了，缓存必须作废
+            cls.invalidate_column_cache()
         return True

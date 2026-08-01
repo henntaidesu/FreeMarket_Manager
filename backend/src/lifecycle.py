@@ -104,6 +104,16 @@ async def _on_startup(force_headed_debug: bool = False) -> None:
     if _env_enabled("INTERACTIVE_BROWSER_AUTO_START", default="0"):
         asyncio.create_task(_startup_web_drive_browsers())
 
+    # ⑤ 一次性清理：日志 / 终态任务行 / 软删待办的详情缓存 / 缩略图与 CDN 缓存目录。
+    # 这些位置原本只增不减（见 maintenance.py 开头的实测数据）。放在线程里跑并且不 await：
+    # 删文件是阻塞 IO，不该拖慢启动，也不该挡住 mark_ready。
+    async def _run_maintenance() -> None:
+        from .maintenance import run_maintenance_once
+
+        await asyncio.to_thread(run_maintenance_once)
+
+    asyncio.create_task(_run_maintenance())
+
     # 全部启动步骤完成（同步初始化 + 后台任务已调度），标记系统就绪。
     mark_ready()
     logging.getLogger(__name__).info("系统启动完成，健康检查已就绪")
