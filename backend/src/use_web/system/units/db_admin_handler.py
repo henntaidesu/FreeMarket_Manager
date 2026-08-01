@@ -171,11 +171,23 @@ async def migrate_database(body: SwitchIn) -> SwitchOut:
     source_db = mgr.db            # 当前运行的 DatabaseManager（后端无关）
     target_dialect = _build_target_dialect(body.backend, body.mysql)
 
-    # 建目标库结构 + 迁移全部数据（逐表校验行数）
+    # 迁移期间持全局同步锁，理由与「备份」完全相同：避免源库数据在逐表拷贝过程中被改动。
+    # 三个数据库管理操作里，备份与热切换本来都持锁，只有迁移漏了——而它做的是同一件
+    # 「整库读一遍再写到别处」的事。并发写入下，新增行会被末尾的行数校验抓到（会报
+    # 「行数不一致」），但**并发 UPDATE 不会**：先拷的表是改前值、后拷的表是改后值，
+    # 行数对得上，迁过去的却是一份自相矛盾的快照。
+    token = sync_lock.try_begin("db_migrate", "正在迁移数据库")
+    if token is None:
+        st = sync_lock.status()
+        label = st.get("label_zh") or "有同步任务"
+        raise HTTPException(status_code=409, detail=f"{label}正在进行，请等待其完成后再迁移")
     try:
+        # 建目标库结构 + 迁移全部数据（逐表校验行数）
         result = migrator.migrate(source_db, target_dialect, mgr.models)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"数据迁移失败：{e}")
+    finally:
+        sync_lock.end(token)
     if not result["ok"]:
         bad = ", ".join(s["table"] for s in result["mismatch"])
         raise HTTPException(status_code=500, detail=f"迁移后行数不一致：{bad}")

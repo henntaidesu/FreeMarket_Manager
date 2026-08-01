@@ -21,6 +21,7 @@ from .models import (
     CostRecordModel,
     CostExpenseModel,
     SettlementRecordModel,
+    PendingSettlementItemModel,
     OrderModel,
     OrderOutboundLineModel,
     ShopAccountModel,
@@ -648,6 +649,7 @@ class DBManager:
             CostRecordModel,  # 依赖 warehouses（可为空）
             CostExpenseModel,  # 成本支出
             SettlementRecordModel,  # 结算记录（结算快照 + 已结区间）
+            PendingSettlementItemModel,  # 待结算物品（依赖 settlement_records，仅顺序习惯）
             OrderModel,       # 订单管理
             OrderOutboundLineModel,  # 订单解析出的待出库明细（依赖 orders / inventory 逻辑）
             ShopAccountModel,  # 店铺账号（煤炉 / 雅虎）

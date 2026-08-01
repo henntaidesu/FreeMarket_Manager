@@ -72,6 +72,23 @@
 .cost-card { border-radius: 8px; }
 .records-card { margin-top: 16px; border-radius: 8px; }
 
+/* ── 待结算物品（原「设备/材料」）：不依赖查询，随时登记 ────── */
+.pending-form {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+/* 全局把 .el-input/.el-select 固定成 180px，这里按字段实际需要覆盖 */
+.pending-form :deep(.pending-name),
+.pending-form :deep(.pending-name .el-input) { width: auto !important; flex: 1 1 150px; min-width: 130px; }
+.pending-form :deep(.pending-num) { width: 110px; flex: none; }
+.pending-form :deep(.pending-num .el-input) { width: 100% !important; }
+.pending-form :deep(.pending-num .el-input__inner) { text-align: right; }
+.pending-form :deep(.pending-currency),
+.pending-form :deep(.pending-currency .el-select__wrapper) { width: 96px !important; flex: none; }
+
 .panel-head {
   display: flex;
   align-items: center;

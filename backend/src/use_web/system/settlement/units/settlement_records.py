@@ -12,6 +12,7 @@ from pydantic import BaseModel as PydModel
 from .....auth import require_auth
 from .....db_manage.database import DatabaseManager
 from .....db_manage.models.system.settlement_record import SettlementRecordModel
+from .pending_items import bind_items_to_settlement, unbind_settlement_items
 
 _db = DatabaseManager()
 
@@ -21,6 +22,7 @@ class SettlementSaveBody(PydModel):
     end: int
     exchange_rate: Optional[float] = None
     consumables: List[Dict[str, Any]] = []
+    # 待结算物品（原「设备/材料」）：来自 pending_settlement_items，每项都带 id
     equipments: List[Dict[str, Any]] = []
     rows: List[Dict[str, Any]] = []
     overall: Dict[str, Any] = {}
@@ -106,6 +108,10 @@ def save_settlement(
             raise HTTPException(status_code=409, detail="所选日期区间与已结算记录重叠，请重新选择")
         if not rec.save():
             raise HTTPException(status_code=500, detail="保存结算记录失败")
+        # 计入本次的待结算物品标记为已结算：绑定的正是快照里的那几行
+        bind_items_to_settlement(
+            [it.get("id") for it in (body.equipments or [])], rec.id
+        )
     return {"ok": True, "id": rec.id}
 
 
@@ -167,4 +173,6 @@ def delete_settlement(rid: int, _auth: Dict[str, Any] = Depends(require_auth)) -
         raise HTTPException(status_code=404, detail="结算记录不存在")
     if not rec.delete():
         raise HTTPException(status_code=500, detail="删除结算记录失败")
+    # 这批物品重新变回待结算，随下次结算再分摊
+    unbind_settlement_items(int(rid))
     return {"ok": True}

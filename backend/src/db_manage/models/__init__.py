@@ -10,6 +10,7 @@ from .system.user import UserModel
 from .system.cost_record import CostRecordModel
 from .system.cost_expense import CostExpenseModel
 from .system.settlement_record import SettlementRecordModel
+from .system.pending_settlement_item import PendingSettlementItemModel
 from .system.product_type_category_mapping import ProductTypeCategoryMappingModel
 from .system.yahoo_category_mapping import YahooCategoryMappingModel
 from .system.config_entry import ConfigEntryModel
@@ -42,6 +43,7 @@ __all__ = [
     'CostRecordModel',
     'CostExpenseModel',
     'SettlementRecordModel',
+    'PendingSettlementItemModel',
     'OrderModel',
     'ShopAccountModel',
     'OnSaleItemModel',

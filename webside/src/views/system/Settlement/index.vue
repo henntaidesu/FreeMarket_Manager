@@ -16,13 +16,12 @@
           />
         </div>
         <div class="toolbar-actions">
-          <el-button type="primary" :loading="loading" @click="load">{{ t('system.settlementQuery') }}</el-button>
           <el-button type="success" :loading="saving" :disabled="!loaded || !tableRows.length" @click="saveSettlement">{{ t('system.settlementSave') }}</el-button>
         </div>
       </div>
     </el-card>
 
-    <el-card shadow="never" class="summary-card" v-if="loaded">
+    <el-card shadow="never" class="summary-card">
       <div class="stat-strip">
         <div class="stat-tile">
           <div class="stat-tile-label">{{ t('system.settlementOverallNet') }}</div>
@@ -49,6 +48,14 @@
               class="rate-input"
             />
             <span class="rate-suffix">{{ t('system.settlementRateJpyUnit') }}</span>
+            <el-button
+              size="small"
+              type="primary"
+              link
+              :loading="rateLoading"
+              :title="t('system.settlementRateRefresh')"
+              @click="loadExchangeRate(true)"
+            >{{ t('system.settlementRateRefresh') }}</el-button>
           </div>
         </div>
         <div class="stat-tile is-primary">
@@ -60,7 +67,7 @@
       <div class="summary-hint" v-if="unassignedNet !== 0">{{ t('system.settlementUnassignedHint') }}</div>
     </el-card>
 
-    <div class="cost-grid" v-if="loaded">
+    <div class="cost-grid">
       <el-card shadow="never" class="cost-card">
         <div class="panel-head">
           <span class="panel-title">{{ t('system.settlementConsumableTable') }}</span>
@@ -109,52 +116,79 @@
 
       <el-card shadow="never" class="cost-card">
         <div class="panel-head">
-          <span class="panel-title">{{ t('system.settlementEquipmentTable') }}</span>
-          <span class="panel-tip">{{ t('system.settlementEquipmentTableTip') }}</span>
-          <el-button size="small" type="primary" plain @click="addEquipment">{{ t('system.settlementRowAdd') }}</el-button>
+          <span class="panel-title">{{ t('system.settlementPendingTable') }}</span>
+          <span class="panel-tip">{{ t('system.settlementPendingTableTip') }}</span>
         </div>
-        <el-table :data="equipments" size="small" class="cost-table">
-          <el-table-column :label="t('system.settlementEquipmentName')" min-width="130">
-            <template #default="{ row }">
-              <el-input v-model="row.name" size="small" :placeholder="t('system.settlementEquipmentNamePh')" />
-            </template>
+        <div class="pending-form">
+          <el-input
+            v-model="pendingForm.name"
+            size="small"
+            class="pending-name"
+            :placeholder="t('system.settlementPendingNamePh')"
+            @keyup.enter="addPendingItem"
+          />
+          <el-input-number
+            v-model="pendingForm.quantity"
+            :min="0"
+            :precision="0"
+            :controls="false"
+            size="small"
+            class="pending-num"
+            :placeholder="t('common.quantity')"
+          />
+          <el-input-number
+            v-model="pendingForm.unit_price"
+            :min="0"
+            :precision="pendingForm.currency === 'CNY' ? 2 : 0"
+            :controls="false"
+            size="small"
+            class="pending-num"
+            :placeholder="t('system.settlementUnitPrice')"
+          />
+          <el-select
+            v-model="pendingForm.currency"
+            size="small"
+            class="pending-currency"
+            @change="onCurrencyChange(pendingForm)"
+          >
+            <el-option :label="t('system.settlementRateJpyUnit')" value="JPY" />
+            <el-option :label="t('system.settlementCnyUnit')" value="CNY" />
+          </el-select>
+          <el-button type="primary" size="small" :loading="pendingAdding" @click="addPendingItem">
+            {{ t('system.settlementPendingAdd') }}
+          </el-button>
+        </div>
+        <el-table :data="pendingItems" size="small" class="cost-table">
+          <el-table-column :label="t('system.settlementPendingName')" min-width="130">
+            <template #default="{ row }">{{ row.name }}</template>
           </el-table-column>
           <el-table-column :label="t('common.quantity')" width="92" align="right">
-            <template #default="{ row }">
-              <el-input-number v-model="row.quantity" :min="0" :precision="0" :controls="false" size="small" />
-            </template>
+            <template #default="{ row }"><span class="num">{{ row.quantity }}</span></template>
           </el-table-column>
           <el-table-column :label="t('system.settlementUnitPrice')" width="108" align="right">
-            <template #default="{ row }">
-              <el-input-number v-model="row.unit_price" :min="0" :precision="row.currency === 'CNY' ? 2 : 0" :controls="false" size="small" />
-            </template>
+            <template #default="{ row }"><span class="num">{{ row.unit_price }}</span></template>
           </el-table-column>
           <el-table-column :label="t('system.settlementCurrency')" width="104">
-            <template #default="{ row }">
-              <el-select v-model="row.currency" size="small" class="currency-select" @change="onCurrencyChange(row)">
-                <el-option :label="t('system.settlementRateJpyUnit')" value="JPY" />
-                <el-option :label="t('system.settlementCnyUnit')" value="CNY" />
-              </el-select>
-            </template>
+            <template #default="{ row }">{{ currencyLabel(row.currency) }}</template>
           </el-table-column>
           <el-table-column :label="t('system.settlementSubtotal')" min-width="170" align="right">
             <template #default="{ row }"><span class="num">{{ rowSubtotalText(row) }}</span></template>
           </el-table-column>
           <el-table-column :label="t('common.actions')" width="60" align="center">
-            <template #default="{ $index }">
-              <el-button size="small" type="danger" link @click="removeEquipment($index)">{{ t('common.delete') }}</el-button>
+            <template #default="{ row }">
+              <el-button size="small" type="danger" link @click="removePendingItem(row)">{{ t('common.delete') }}</el-button>
             </template>
           </el-table-column>
-          <template #empty>{{ t('system.settlementEquipmentEmpty') }}</template>
+          <template #empty>{{ t('system.settlementPendingEmpty') }}</template>
         </el-table>
-        <div class="panel-foot" v-if="equipments.length">
-          <span>{{ t('system.settlementEquipmentTotalLabel') }}</span>
-          <strong>JP¥{{ formatYen(equipmentTotalJpy) }}</strong>
+        <div class="panel-foot" v-if="pendingItems.length">
+          <span>{{ t('system.settlementPendingTotalLabel') }}</span>
+          <strong>JP¥{{ formatYen(pendingTotalJpy) }}</strong>
         </div>
       </el-card>
     </div>
 
-    <div class="section-head" v-if="loaded">
+    <div class="section-head">
       <span class="section-title">{{ t('system.settlementDetailOwners') }}</span>
     </div>
     <div v-loading="loading" class="settlement-cards">
@@ -194,7 +228,7 @@
             <span class="stat-val minus">-JP¥{{ formatYen(row.consumable_share) }}</span>
           </div>
           <div class="stat-line ratio-line">
-            <span class="stat-label">{{ t('system.settlementEquipmentRatio') }}</span>
+            <span class="stat-label">{{ t('system.settlementShareRatio') }}</span>
             <el-input-number
               v-model="ratioMap[row.owner_user_id]"
               :min="0"
@@ -205,7 +239,7 @@
             />
           </div>
           <div class="stat-line">
-            <span class="stat-label">{{ t('system.settlementEquipmentShare') }}</span>
+            <span class="stat-label">{{ t('system.settlementPendingShare') }}</span>
             <span class="stat-val minus">-JP¥{{ formatYen(row.equipment_share) }}</span>
           </div>
         </div>
@@ -221,9 +255,9 @@
       </el-card>
 
       <el-empty
-        v-if="loaded && !tableRows.length"
+        v-if="!tableRows.length"
         class="cards-empty"
-        :description="t('system.settlementNoData')"
+        :description="loaded ? t('system.settlementNoData') : t('system.settlementSelectDate')"
       />
     </div>
 
@@ -297,7 +331,7 @@
             <div class="stat-tile-value">JP¥{{ formatYen(detailRecord.consumable_total) }}</div>
           </div>
           <div class="stat-tile">
-            <div class="stat-tile-label">{{ t('system.settlementEquipmentTotalLabel') }}</div>
+            <div class="stat-tile-label">{{ t('system.settlementPendingTotalLabel') }}</div>
             <div class="stat-tile-value">JP¥{{ formatYen(detailRecord.equipment_total) }}</div>
           </div>
           <div class="stat-tile is-primary">
@@ -331,10 +365,10 @@
             <el-table-column :label="t('system.settlementConsumableShare')" min-width="96" align="right">
               <template #default="{ row }"><span class="num minus">-JP¥{{ formatYen(row.consumable_share) }}</span></template>
             </el-table-column>
-            <el-table-column :label="t('system.settlementEquipmentRatio')" width="82" align="center">
+            <el-table-column :label="t('system.settlementShareRatio')" width="82" align="center">
               <template #default="{ row }"><span class="num">{{ row.equipment_ratio ?? '-' }}</span></template>
             </el-table-column>
-            <el-table-column :label="t('system.settlementEquipmentShare')" min-width="96" align="right">
+            <el-table-column :label="t('system.settlementPendingShare')" min-width="96" align="right">
               <template #default="{ row }"><span class="num minus">-JP¥{{ formatYen(row.equipment_share) }}</span></template>
             </el-table-column>
           </el-table-column>
@@ -370,9 +404,9 @@
             </el-table>
           </div>
           <div class="detail-col">
-            <div class="detail-section-title">{{ t('system.settlementEquipmentTable') }}</div>
+            <div class="detail-section-title">{{ t('system.settlementPendingTable') }}</div>
             <el-table :data="detailRecord.equipments || []" size="small" border>
-              <el-table-column :label="t('system.settlementEquipmentName')" min-width="120">
+              <el-table-column :label="t('system.settlementPendingName')" min-width="120">
                 <template #default="{ row }">{{ row.name || '-' }}</template>
               </el-table-column>
               <el-table-column :label="t('common.quantity')" width="80" align="right">
@@ -384,7 +418,7 @@
               <el-table-column :label="t('system.settlementCurrency')" width="90">
                 <template #default="{ row }">{{ currencyLabel(row.currency) }}</template>
               </el-table-column>
-              <template #empty>{{ t('system.settlementEquipmentEmpty') }}</template>
+              <template #empty>{{ t('system.settlementPendingEmpty') }}</template>
             </el-table>
           </div>
         </div>

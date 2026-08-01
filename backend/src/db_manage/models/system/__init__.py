@@ -5,6 +5,7 @@ from .transaction import TransactionModel
 from .cost_record import CostRecordModel
 from .cost_expense import CostExpenseModel
 from .settlement_record import SettlementRecordModel
+from .pending_settlement_item import PendingSettlementItemModel
 from .warehouse import WarehouseModel
 from .category import CategoryModel
 from .product_type import ProductTypeModel
@@ -21,6 +22,7 @@ __all__ = [
     "CostRecordModel",
     "CostExpenseModel",
     "SettlementRecordModel",
+    "PendingSettlementItemModel",
     "WarehouseModel",
     "CategoryModel",
     "ProductTypeModel",

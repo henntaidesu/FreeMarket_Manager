@@ -35,6 +35,9 @@ class SettlementRecordModel(BaseModel):
             'overall_packaging': {'type': 'INTEGER', 'not_null': False, 'default': 0},
             'assigned_net_income': {'type': 'INTEGER', 'not_null': False, 'default': 0},
             'consumable_total': {'type': 'INTEGER', 'not_null': False, 'default': 0},
+            # equipment_* 现在装的是「待结算物品」：它由原来的「设备/材料」表合并而来，
+            # 口径（按各归属人比例分摊）没变，只是来源改成了常驻登记表。沿用旧列名是
+            # 为了不丢已有结算记录里的设备快照。
             'equipment_total': {'type': 'INTEGER', 'not_null': False, 'default': 0},
             'final_total': {'type': 'INTEGER', 'not_null': False, 'default': 0},
             # 快照明细（JSON 文本）

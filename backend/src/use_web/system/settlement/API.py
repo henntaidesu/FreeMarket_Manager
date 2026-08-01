@@ -8,6 +8,12 @@
 
 from fastapi import APIRouter
 
+from .units.exchange_rate import get_exchange_rate
+from .units.pending_items import (
+    create_pending_item,
+    delete_pending_item,
+    list_pending_items,
+)
 from .units.settlement_handler import settlement_summary
 from .units.settlement_records import (
     delete_settlement,
@@ -24,3 +30,9 @@ router.add_api_route("/records", save_settlement, methods=["POST"])
 router.add_api_route("/records", list_settlements, methods=["GET"])
 router.add_api_route("/settled-ranges", list_settled_ranges, methods=["GET"])
 router.add_api_route("/records/{rid}", delete_settlement, methods=["DELETE"])
+# 待结算物品：随时登记，下次结算全部自动带入
+router.add_api_route("/pending-items", list_pending_items, methods=["GET"])
+router.add_api_route("/pending-items", create_pending_item, methods=["POST"])
+router.add_api_route("/pending-items/{pid}", delete_pending_item, methods=["DELETE"])
+# 汇率：Google Finance CNY→JPY
+router.add_api_route("/exchange-rate", get_exchange_rate, methods=["GET"])

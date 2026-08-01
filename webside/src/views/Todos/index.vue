@@ -38,6 +38,17 @@
           >{{ chipCount('wait_review') }}</span></div>
           <div
             class="search-filter-chip"
+            :class="{ 'search-filter-chip--active': filters.categories.includes('wait_receipt') }"
+            role="button"
+            tabindex="0"
+            @click="selectFilterChip('wait_receipt')"
+            @keyup.enter="selectFilterChip('wait_receipt')"
+          >{{ t('todos.kind.waitReceipt') }}<span
+            class="search-filter-chip__count"
+            :class="{ 'search-filter-chip__count--zero': !chipCount('wait_receipt') }"
+          >{{ chipCount('wait_receipt') }}</span></div>
+          <div
+            class="search-filter-chip"
             :class="{ 'search-filter-chip--active': filters.categories.includes('cancellation') }"
             role="button"
             tabindex="0"

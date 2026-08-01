@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """出库明细操作：绑定库存 / 转换 owner / 出库"""
 
+import logging
 import time
 from typing import List
 from fastapi import Depends, HTTPException
@@ -14,6 +15,8 @@ from .....use_mercari.inventory_counters import (
 )
 from ..orders_helpers import _outbound_line_has_inventory_id, db
 from ..orders_models import OutboundLineBindInventoryBody, OutboundLineConvertOwnerBody, OutboundStockOutBody
+
+log = logging.getLogger(__name__)
 
 
 def _is_stock_holding_line(line: OrderOutboundLineModel) -> bool:
@@ -374,6 +377,8 @@ def stock_out_order_outbound_line(line_id: int, data: OutboundStockOutBody):
     if claimed <= 0:
         raise HTTPException(status_code=400, detail="该明细已出库，不能重复出库")
 
+    # 库存是否已经真的扣下去了。撤销行认领只在「没扣成」时才安全——见下面 except 块。
+    deducted = False
     try:
         if int(line.stock_deducted or 0) == 0:
             if current_qty < qty:
@@ -393,6 +398,7 @@ def stock_out_order_outbound_line(line_id: int, data: OutboundStockOutBody):
             )
             if updated <= 0:
                 raise HTTPException(status_code=400, detail=f"库存不足，当前库存：{current_qty}")
+            deducted = True
             if warehouse_id is not None:
                 db.execute_insert(
                     """
@@ -415,12 +421,22 @@ def stock_out_order_outbound_line(line_id: int, data: OutboundStockOutBody):
                 reason=(data.remark or "").strip() or f"组合售出级联扣减 {line.order_no} / line#{line.id}",
             )
     except Exception:
-        # 扣减失败：撤销行认领，让用户可重试（撤销期间并发请求会误报「已出库」，可接受）
-        db.execute_update(
-            "UPDATE [order_outbound_lines] SET [is_stocked_out] = 0, [stocked_out_at] = NULL "
-            "WHERE [id] = ?",
-            (int(line.id),),
-        )
+        if not deducted:
+            # 库存还没动：撤销行认领，让用户可重试（撤销期间并发请求会误报「已出库」，可接受）
+            db.execute_update(
+                "UPDATE [order_outbound_lines] SET [is_stocked_out] = 0, [stocked_out_at] = NULL "
+                "WHERE [id] = ?",
+                (int(line.id),),
+            )
+        else:
+            # 库存**已经扣掉了**，只是后续步骤（流水/组合级联）出错。这时绝不能撤销认领——
+            # 撤销后这一行看起来「未出库」，用户一重试就会把同一笔货再扣一次。
+            # 保持已出库状态是真实的（货确实扣了），把异常抛给调用方，善后交给人工。
+            log.exception(
+                "[outbound] line#%s 库存已扣减但后续步骤失败；保留已出库状态以免重试造成二次扣减"
+                "（inventory=%s qty=%s），请人工核对出库流水与组合级联",
+                line.id, inv_id, qty,
+            )
         raise
     refresh_inventory_pending_outbound_qty([inv_id])
 
