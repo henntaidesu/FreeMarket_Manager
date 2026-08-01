@@ -636,6 +636,7 @@ export default defineComponent({
         yahoo_code_image_url: '',     // 已发行的配送コード图（雅虎 CDN，非本地文件）
         yahoo_can_send_message: false,
         yahoo_message_quota: null,
+        yahoo_app_only_note: '',    // 雅虎原文：ゆうパケットポスト系 只能在 App 内发货
         // 上次从煤炉抓取的时间戳（缓存命中时显示）
         detail_synced_at: null,
         messages: [], // [{ from, text, at, is_buyer, user_id }]
@@ -1157,7 +1158,7 @@ export default defineComponent({
       return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
     }
 
-    // ─── 剩余发货时间（基于「下单时间 + 発送までの日数 最大天数」推算的发货截止时刻） ───
+    // ─── 剩余发货时间（基于「购入时间 + 発送までの日数 最大天数」推算的发货截止时刻） ───
     // 颜色：≥2天 绿色(success) / 12小时~2天 黄色(warning) / 不到12小时及已超时 红色(danger)。
     // 用每分钟自增的 nowTs 让倒计时与颜色随时间刷新（无需重新请求列表）。
     const nowTs = ref(Date.now())
@@ -1169,11 +1170,18 @@ export default defineComponent({
       if (!nums || !nums.length) return 0
       return Math.max(...nums.map(Number))
     }
-    // 发货截止时刻(ms)：下单日（JST）起第 N 天的 JST 日终（23:59:59.999）。
-    // 煤炉的発送期限按「日」计（到第 N 天 JST 当天结束），不是下单时刻 + N*24h；
-    // 后者会比真实期限早最多近一天，导致提前标红「已超时」。与后端 _ship_deadline_ts 同口径。
-    const JST_OFFSET_MS = 9 * 3600 * 1000
+    // 发货截止时刻(ms)：购入时刻 + N × 24 小时。按整 24 小时计、不做日界对齐——
+    // 对齐到日终会让剩余时间超过承诺天数（2~3日 的单能显示「剩余 3 天 4 小时」）。
+    // 与后端 _ship_deadline_ts 同口径。
     const DAY_MS = 24 * 3600 * 1000
+    // 计时起点：订单的购入时间（purchase_time，unix 秒，后端联表带出）。
+    // mercari_created 是待办出现/刷新的时刻，会被煤炉刷新反复推后，只能在订单
+    // 还没同步到本地时兜底。与后端 _ship_base_ms 同口径。
+    function shipBaseMs(row) {
+      const purchase = Number(row?.purchase_time || 0)
+      if (purchase > 0) return purchase * 1000
+      return Number(row?.mercari_created || row?.mercari_updated || 0)
+    }
     function shipDeadlineTs(row) {
       // 仅对「待发货」行计算：shipping_duration 抓取时写入同交易的所有待办行，
       // 待回复/待评价行也带该值——那不是它们的期限，不显示倒计时也不参与排序
@@ -1184,10 +1192,9 @@ export default defineComponent({
       if (!isWaitShipping) return 0
       const days = parseMaxShippingDays(row?.shipping_duration)
       if (!days) return 0
-      const base = Number(row?.mercari_created || row?.mercari_updated || 0)
+      const base = shipBaseMs(row)
       if (!base) return 0
-      const jstDayStart = Math.floor((base + JST_OFFSET_MS) / DAY_MS) * DAY_MS
-      return jstDayStart + (days + 1) * DAY_MS - 1 - JST_OFFSET_MS
+      return base + days * DAY_MS
     }
     // 剩余毫秒（可为负=已超时）；无法推算返回 null
     function shipRemainingMs(row) {
@@ -1281,6 +1288,7 @@ export default defineComponent({
       detail.yahoo_code_image_url = d.code_image_url || ''
       detail.yahoo_can_send_message = !!d.can_send_message
       detail.yahoo_message_quota = d.message_quota ?? null
+      detail.yahoo_app_only_note = form?.app_only_note || ''
       detail.ship_tracking_no = d.tracking_no || ''
       if (d.detail_synced_at != null) detail.detail_synced_at = d.detail_synced_at
       if (buyerName) detail.buyer_name = buyerName

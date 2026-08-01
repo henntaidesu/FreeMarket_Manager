@@ -101,18 +101,36 @@ _LIST_COLS = (
 _DIGITS_RE = re.compile(r"\d+")
 
 
-_JST_OFFSET_MS = 9 * 3600 * 1000
 _DAY_MS = 24 * 3600 * 1000
 
 
+def _ship_base_ms(item: Dict[str, Any]) -> int:
+    """发货期限的计时起点(ms)：买家**购入**时刻 ``orders.purchase_time``（unix 秒）。
+
+    不能用 todo 自己的 ``mercari_created``：那是待办在平台侧出现/刷新的时刻，煤炉每次
+    刷新都会把它改掉，实测能比真实购入时间晚 1~5 天，用它算出的截止日整体后移，
+    页面会显示还有富余、实际早该发货了。仅在订单尚未同步到本地（查不到 purchase_time）
+    时才回落到 ``mercari_created`` / ``mercari_updated``。
+    """
+    try:
+        purchase = int(item.get("purchase_time") or 0)
+    except (TypeError, ValueError):
+        purchase = 0
+    if purchase > 0:
+        return purchase * 1000
+    try:
+        return int(item.get("mercari_created") or item.get("mercari_updated") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _ship_deadline_ts(item: Dict[str, Any]) -> Optional[int]:
-    """发货截止时刻(ms) = 下单日（JST）起第 N 天的 JST 日终（23:59:59.999）。
+    """发货截止时刻(ms) = 购入时刻 + N × 24 小时。
 
     与前端 ``shipDeadlineTs`` 同口径：``shipping_duration`` 形如「4~7日で発送」，
-    取其中最大天数（卖家承诺的最迟发货天数）。煤炉的発送期限按「日」计（到第 N 天
-    JST 当天结束为止），不是下单时刻 + N*24h —— 后者会比真实期限早最多近一天，
-    导致页面提前标红「已超时」。下单时间取 ``mercari_created``，缺失时回落
-    ``mercari_updated``。任一项取不到则返回 None（无法推算）。
+    取其中最大天数（卖家承诺的最迟发货天数）。按整 24 小时计、不做日界对齐——
+    对齐到日终会让剩余时间超过承诺天数（2~3日 的单能显示「剩余 3 天 4 小时」）。
+    计时起点见 ``_ship_base_ms``。任一项取不到则返回 None（无法推算）。
     """
     nums = _DIGITS_RE.findall(str(item.get("shipping_duration") or ""))
     if not nums:
@@ -120,15 +138,10 @@ def _ship_deadline_ts(item: Dict[str, Any]) -> Optional[int]:
     days = max(int(n) for n in nums)
     if not days:
         return None
-    try:
-        base = int(item.get("mercari_created") or item.get("mercari_updated") or 0)
-    except (TypeError, ValueError):
-        return None
+    base = _ship_base_ms(item)
     if not base:
         return None
-    # 平移到 JST 后取日界：下单日 0 点(JST) + (N+1) 天 − 1ms = 第 N 天 JST 日终
-    jst_day_start = ((base + _JST_OFFSET_MS) // _DAY_MS) * _DAY_MS
-    return jst_day_start + (days + 1) * _DAY_MS - 1 - _JST_OFFSET_MS
+    return base + days * _DAY_MS
 
 
 _WAIT_SHIPPING_KINDS_PY = {
@@ -271,11 +284,16 @@ def count_overdue_wait_shipping(now_ts: int) -> int:
     db = DatabaseManager()
     where_sql, params = _build_todo_where(categories="wait_shipping")
     rows = db.execute_query(
-        "SELECT t.[shipping_duration], t.[mercari_created], t.[mercari_updated], t.[title], t.[kind] "
-        f"FROM [todo_items] t WHERE {where_sql}",
+        "SELECT t.[shipping_duration], t.[mercari_created], t.[mercari_updated], t.[title], t.[kind], "
+        "o.[purchase_time] "
+        "FROM [todo_items] t "
+        # order_no 唯一，LEFT JOIN 不会让待办行翻倍
+        "LEFT JOIN [orders] o ON o.[order_no] = t.[item_id] "
+        f"WHERE {where_sql}",
         tuple(params),
     )
-    keys = ("shipping_duration", "mercari_created", "mercari_updated", "title", "kind")
+    keys = ("shipping_duration", "mercari_created", "mercari_updated", "title", "kind",
+            "purchase_time")
     limit_ms = int(now_ts) * 1000
     overdue = 0
     for row in rows or []:
@@ -327,21 +345,25 @@ def list_todos(
         platform=platform,
     )
 
-    sel_cols = ", ".join(f"t.[{c}]" for c in _LIST_COLS) + ", a.[account_name] AS account_name"
+    sel_cols = (
+        ", ".join(f"t.[{c}]" for c in _LIST_COLS)
+        + ", a.[account_name] AS account_name, o.[purchase_time] AS purchase_time"
+    )
     # 按「发货期限剩余时间」升序（越紧急越前）排序。截止时刻要由 shipping_duration
-    # 文本（「4~7日で発送」）解析天数再与下单时间相加，SQLite / MySQL 的字符串函数不通用，
+    # 文本（「4~7日で発送」）解析天数再与购入时间相加，SQLite / MySQL 的字符串函数不通用，
     # 故整表取出后在 Python 里排序、分页（待办为在办事项，行数很小）。
     rows = db.execute_query(
         f"""
         SELECT {sel_cols}
         FROM [todo_items] t
         LEFT JOIN [shop_accounts] a ON a.[id] = t.[account_id]
+        LEFT JOIN [orders] o ON o.[order_no] = t.[item_id]
         WHERE {where_sql}
         ORDER BY t.[id] ASC
         """,
         tuple(params),
     )
-    keys = list(_LIST_COLS) + ["account_name"]
+    keys = list(_LIST_COLS) + ["account_name", "purchase_time"]
     items = [dict(zip(keys, row)) for row in rows]
     # 稳定排序：推算不出发货期限的行保持原有 id 升序垫底
     items.sort(key=_ship_deadline_sort_key)

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from typing import Any, Dict, Optional
 
@@ -132,6 +133,33 @@ async def _click_submit_button(page: Any) -> None:
     raise RuntimeError(f"未找到「{COMMENT_SUBMIT_TEXT}」按钮: {last_exc}")
 
 
+def _find_posted_comment(
+    refreshed: Optional[Dict[str, Any]], message: str
+) -> Optional[Dict[str, Any]]:
+    """在刷新后的评论列表里找刚发的那条。
+
+    返回值三态：命中的评论 / ``None``。调用方靠 ``refreshed`` 是否为 None 区分
+    「确实没找到」和「压根没刷新成功、无从判断」。
+
+    比对做空白归一化：煤炉会把连续空白折叠、并裁掉首尾空白，原样比对会误判成没发出去。
+    """
+    if not isinstance(refreshed, dict):
+        return None
+    comments = refreshed.get("comments")
+    if not isinstance(comments, list):
+        return None
+    want = re.sub(r"\s+", "", str(message or ""))
+    if not want:
+        return None
+    for c in comments:
+        if not isinstance(c, dict):
+            continue
+        got = re.sub(r"\s+", "", str(c.get("message") or ""))
+        if got == want:
+            return c
+    return None
+
+
 async def post_item_comment(
     *,
     item_id: str,
@@ -228,16 +256,33 @@ async def post_item_comment(
         # 不关闭浏览器:用户可能继续在弹窗里多次发送评论。
         # 关闭由前端 /item-comment/close 触发。
 
+    # 「点到了按钮」不等于「评论发出去了」——煤炉可能因限流/违禁词/登录态失效/商品已关闭
+    # 拒掉这次提交，页面上并不总有醒目提示。上面为了刷新列表**已经把最新评论抓回来了**，
+    # 拿它核对一下几乎不花额外成本；不核对的话，前端会弹「发送成功」并清空输入框，
+    # 用户以为回复过买家了，其实没有。
+    verified = _find_posted_comment(refreshed, msg)
+    if refreshed is not None and verified is None:
+        # 拿到了刷新后的完整评论列表，里面确实没有这条 → 有确凿证据说明没发出去
+        raise RuntimeError(
+            "评论未能发出：已点击「コメントする」，但刷新后的评论列表中找不到这条内容。"
+            "可能被煤炉限流/拦截，或登录态已失效。请确认后重试（输入框内容已保留）。"
+        )
+
     log.info(
-        "[item_comment_post] done account_id=%s item_id=%s refreshed=%s",
-        aid, iid, bool(refreshed),
+        "[item_comment_post] done account_id=%s item_id=%s refreshed=%s verified=%s",
+        aid, iid, bool(refreshed), bool(verified),
     )
     result: Dict[str, Any] = {
         "account_id": int(aid),
         "item_id": iid,
         "posted": True,
         "message": msg,
+        # 刷新失败时无从核对：不谎称已核实，但也不当作失败（评论很可能已经发出去了，
+        # 报失败会诱导用户重发造成重复评论）。
+        "verified": bool(verified),
     }
+    if verified is None:
+        result["verify_note"] = "未能刷新评论列表，无法确认这条评论是否已显示在商品页"
     if refreshed is not None:
         result.update(refreshed)  # 注入 item, comments
     return result

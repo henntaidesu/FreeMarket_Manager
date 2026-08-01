@@ -48,6 +48,13 @@ _QUOTA_RE = re.compile(r"メッセージを送信できるのは残り(\d+)回")
 _TRACKING_RE = re.compile(r"送り状番号\s*\n\s*([0-9\-]{8,})")
 #: 弹层条目里的「税込215円」这类价格行，单独列出来没意义，读选项时过滤掉
 _FEE_ONLY_RE = re.compile(r"^(税込)?[0-9,]+円~?$")
+#: 发货表单里雅虎自己写的「这些方式请用 App」提示，原文形如
+#: 「※ゆうパケットポスト、ゆうパケットポストminiをご利用の場合は、アプリ版で発送手続きをしてください」。
+#: **这就是 サイズ 列表里没有 ゆうパケットポスト / mini 的原因**——不是抓取漏了，也不是客户端
+#: 识别问题：实测桌面 Edge、Android Chrome（含 Client Hints mobile=true）、iPhone Safari 三种
+#: 客户端读回的选项完全一致，网页端根本不下发这两项。原样透传给前端展示，别改写雅虎的措辞
+#: （将来他们放开网页端时这行字会先消失，提示也就自动没了）。
+_APP_ONLY_RE = re.compile(r"※[^\n]*アプリ版[^\n]*")
 
 _STATE_JS = r"""
 () => {
@@ -138,7 +145,11 @@ def _parse_body(body: str) -> Dict[str, Any]:
         "price": None,
         "message_quota": None,
         "tracking_no": None,
+        "app_only_note": None,
     }
+    m = _APP_ONLY_RE.search(body or "")
+    if m:
+        out["app_only_note"] = m.group(0).strip()
     m = re.search(r"購入者\s*\n\s*(.+?)\s*\n", body or "")
     if m:
         out["buyer_name"] = m.group(1).strip()
@@ -221,6 +232,9 @@ async def read_trade_state(
         "submit_ready": submit.get("ready"),
         "size_options": [],
         "location_options": [],
+        # 雅虎明示「仅 App 支持」的发货方式（ゆうパケットポスト / mini）——网页端选不了，
+        # 前端据此提示用户去 App 发货，而不是让人对着少两项的列表发懵
+        "app_only_note": data["app_only_note"],
     }
     if with_options and ship_form["pending"]:
         opts = await _read_options(page, element_timeout_ms=element_timeout_ms)

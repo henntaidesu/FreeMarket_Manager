@@ -503,6 +503,17 @@
                     <div v-else class="detail-empty-hint">{{ t('todos.yahoo.needFetch') }}</div>
                   </div>
                 </div>
+                <!-- ゆうパケットポスト / mini 网页端不下发（雅虎自己在页面上写明只能用 App），
+                     原文照搬展示，省得用户对着少两项的尺寸列表怀疑是抓取漏了 -->
+                <el-alert
+                  v-if="detail.yahoo_app_only_note"
+                  type="info"
+                  :closable="false"
+                  show-icon
+                  :title="t('todos.yahoo.appOnlyTitle')"
+                  :description="detail.yahoo_app_only_note"
+                  class="yahoo-app-only"
+                />
                 <div class="detail-empty-hint">{{ t('todos.yahoo.shipWarning') }}</div>
                 <div class="detail-method-row">
                   <div class="detail-shipping-actions">

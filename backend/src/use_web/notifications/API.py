@@ -318,6 +318,10 @@ async def _item_comment_post_endpoint(req: ItemCommentPostRequest) -> Dict[str, 
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        # 「点了按钮但评论没出现在列表里」等确凿失败：detail 必须是可读字符串，
+        # 前端拦截器直接把它显示给用户（默认 500 只会显示 Internal Server Error）
+        raise HTTPException(status_code=500, detail=str(exc))
     finally:
         if jid:
             clear_sync_progress(jid)

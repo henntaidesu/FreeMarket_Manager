@@ -401,6 +401,19 @@ soft-delete, inventory counters and order upsert semantics stay identical across
     all three are set, then flips to 「配送コードを表示する」. `ship.py` **verifies the flip before
     clicking** and aborts otherwise; a half-filled submit issues a 配送コード for the wrong size and
     the postage difference gets billed later. `dry_run=True` stops exactly at that check.
+  - **ゆうパケットポスト / ゆうパケットポストmini are app-only and cannot be automated.** Don't
+    re-investigate: the trade page itself says so — `※ゆうパケットポスト、ゆうパケットポストminiを
+    ご利用の場合は、アプリ版で発送手続きをしてください` — and the サイズ sheet simply never lists them.
+    It is **not** client sniffing: probing the same trade as desktop Edge, as Android Chrome (with
+    CDP `Emulation.setUserAgentOverride` so `navigator.userAgentData.mobile === true`, touch, 412px)
+    and as iPhone Safari (390px) returns a byte-identical `['ゆうパケット','ゆうパケットプラス',
+    'ゆうパック']`. The option list is server-rendered — it is not in the web JS bundle at all — so
+    no amount of UA/viewport/Client-Hints spoofing changes it, and forcing an unoffered method
+    through a raw API call would risk a 配送コード that doesn't match the parcel (postage difference
+    is billed to the seller later). `detail.py::_APP_ONLY_RE` lifts that notice verbatim into
+    `ship_form.app_only_note` and the 处理 panel shows it, so the missing sizes read as a documented
+    platform limit rather than a scraping bug. If Yahoo ever opens this up, the notice disappears
+    first and the hint disappears with it.
   - **Size/location options are read from the live page, never hard-coded** — the list changes with
     the 配送会社 (日本郵便 → ゆうパケット/プラス/ゆうパック; ヤマト has its own). They're read off the
     sheet's `input[type=radio]` → first text leaf of its `<label>`, which is the same string

@@ -938,6 +938,12 @@
 .yahoo-opt-group :deep(.el-radio.is-bordered + .el-radio.is-bordered) {
   margin-left: 0;
 }
+/* 「仅 App 支持」提示：原文是日文长句，放开换行别截断 */
+.yahoo-app-only :deep(.el-alert__description) {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 4px 0 0;
+}
 /* 交易消息剩余可发送次数（雅虎专有，跟在「消息 / 交流」标题后） */
 .detail-msg-quota {
   margin-left: 8px;
