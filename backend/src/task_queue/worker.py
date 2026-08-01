@@ -224,6 +224,11 @@ async def stop_worker() -> None:
         return
     t.cancel()
     try:
+        # shield 让超时只是「不再等」，不会再取消一次 t（t 已经 cancel 过了）。
+        # 10s 是刻意的上限而不是保证：浏览器自动化可能几十秒才收场，等满它会让退出变得很慢，
+        # 而 _run_one 的 except CancelledError 已经把任务落成终态、出品预扣减也按「拿不准
+        # 就保持占用」处理过了。所以超时后直接往下走是安全的——最坏是 lifecycle 随后关浏览器时
+        # 打断一个正在收尾的自动化，那与硬崩溃同一口径（宁可少上架，绝不重复上架）。
         await asyncio.wait_for(asyncio.shield(t), timeout=10.0)
     except (asyncio.CancelledError, asyncio.TimeoutError):
         pass

@@ -29,8 +29,8 @@ _WAIT_REVIEW_COND = "IFNULL(t.[kind], '') = 'ReviewedSeller'"
 # 所以从「其他」里摘出来单列（见 _CATEGORY_CONDS['other']）。
 # 注意与 awaiting_feedback 不是一回事：那仍是待发货 kind 的行（已通知、煤炉数据连携确认中）。
 _WAIT_RECEIPT_COND = "IFNULL(t.[kind], '') = 'Shipped'"
-# 「申请退货」类判定：买家发起取消/退货申请（キャンセル申請），以及卖家同意后
-# 需要填退货信息并确认退回商品（返品に必要な情報の入力と、返品された商品の確認）。
+# 「退货」类判定：买家发起取消/退货申请（キャンセル申請），以及卖家同意后需要填退货信息
+# 并确认退回商品（返品に必要な情報の入力と、返品された商品の確認 → 前端类型显示「退货地址」）。
 # 这两步是同一件事的前后段，合成一个筛选；它们从「其他」里摘出来单列。
 _CANCELLATION_COND = (
     "IFNULL(t.[kind], '') IN ('CancellationRequested', 'CancellationRequestApprovedSeller')"
@@ -41,7 +41,7 @@ _CANCELLATION_COND = (
 # 本条件不再成立，行自动退回「待发货」并带上当时那张照片。
 _SHIPPING_IN_PROGRESS_COND = "IFNULL(t.[ship_qr_state], '') = 'shipping'"
 
-# 前端「待发货 / 待回复 / 待评价 / 待收货 / 申请退货 / 其他」分类筛选（chip）。
+# 前端「待发货 / 待回复 / 待评价 / 待收货 / 退货 / 其他」分类筛选（chip）。
 # 「其他」= 上述具名分类都不是的行——每加一个分类，这里必须同步排除，否则该分类的行
 # 会同时出现在自己的 chip 和「其他」里。
 # 传入多个分类时取并集；未传（默认）不做分类过滤，全部显示。

@@ -16,7 +16,7 @@ export default {
       orderCount: '订单笔数',
       serviceFee: '手续费',
       shippingFee: '运费',
-      packaging: '成本支出',
+      packaging: '成本支出（已从净收益扣除）',
       profitRate: '利润率 {rate}%',
       avgOrder: '客单价 ¥{value}',
 
@@ -121,7 +121,7 @@ export default {
       orderCount: '注文件数',
       serviceFee: '販売手数料',
       shippingFee: '送料',
-      packaging: 'コスト支出',
+      packaging: 'コスト支出（純利益から控除済み）',
       profitRate: '利益率 {rate}%',
       avgOrder: '客単価 ¥{value}',
 
@@ -221,7 +221,7 @@ export default {
       orderCount: 'Orders',
       serviceFee: 'Service fees',
       shippingFee: 'Shipping fees',
-      packaging: 'Cost expenses',
+      packaging: 'Cost expenses (already deducted from net income)',
       profitRate: 'Margin {rate}%',
       avgOrder: 'Avg ¥{value}',
 

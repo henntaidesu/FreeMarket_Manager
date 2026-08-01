@@ -70,7 +70,9 @@ def _apply_inventory_line_ratio_pricing(items: List[Dict[str, Any]], order_amoun
     return True
 
 
-def apply_bundle_title_ratio_pricing(items: List[Dict[str, Any]], order_amount: int) -> bool:
+def apply_bundle_title_ratio_pricing(
+    items: List[Dict[str, Any]], order_amount: int, platform: Optional[str] = None
+) -> bool:
     """
     优先为 bundle_title 行按在售「组合标题」匹配价写入 goods_ratio、ratio_price；
     若无法完成（无组合行、金额≤0、在售权重为 0 等），再对仍无 ratio_price 且已关联库存的行
@@ -98,8 +100,21 @@ def apply_bundle_title_ratio_pricing(items: List[Dict[str, Any]], order_amount: 
     titles = [t for t in titles if t]
     title_set = list(dict.fromkeys(titles))
 
+    # 按平台隔离匹配范围。同一件商品在煤炉和雅虎往往标价不同，跨平台匹到标题相同的另一条
+    # 在售记录，算出来的货物比例就是错的（进而影响归属拆分金额）。
+    # 想按「卖家」隔离做不到——orders 表只有 platform，没有 seller_id / account_id；
+    # detail_sync 那边能做到是因为它手里有 items/get 响应里的 data.seller.id。
+    plat = (platform or "").strip().lower()
+    where_platform = ""
+    params: tuple = ()
+    if plat:
+        # 平台列上线前的历史行没有值，一律按煤炉处理（与各列表页口径一致）
+        where_platform = (
+            " AND COALESCE(NULLIF(TRIM(IFNULL(o.[platform], '')), ''), 'mercari') = ?"
+        )
+        params = (plat,)
     on_sale_rows = _db.execute_query(
-        """
+        f"""
         SELECT
             o.[item_id],
             TRIM(IFNULL(o.[name], '')) AS [name],
@@ -111,7 +126,9 @@ def apply_bundle_title_ratio_pricing(items: List[Dict[str, Any]], order_amount: 
         WHERE COALESCE(o.[is_delete], 0) = 0
           AND TRIM(IFNULL(o.[item_id], '')) != ''
           AND TRIM(IFNULL(o.[name], '')) != ''
-        """
+          {where_platform}
+        """,
+        params,
     )
     on_sale_records = []
     for item_id_raw, name_raw, price_raw, updated_raw, created_raw, oid_raw in on_sale_rows:
@@ -232,11 +249,12 @@ def recompute_and_store_order_ratio(order_no: str) -> None:
     if not items:
         return
     order_rows = _db.execute_query(
-        "SELECT COALESCE([amount], 0) FROM [orders] WHERE [order_no] = ? LIMIT 1",
+        "SELECT COALESCE([amount], 0), [platform] FROM [orders] WHERE [order_no] = ? LIMIT 1",
         (ono,),
     )
     amount = int(order_rows[0][0] or 0) if order_rows else 0
-    apply_bundle_title_ratio_pricing(items, amount)
+    platform = (order_rows[0][1] if order_rows else None) or "mercari"
+    apply_bundle_title_ratio_pricing(items, amount, platform=platform)
     for it in items:
         lid = it.get("id")
         if lid is None:
@@ -256,7 +274,15 @@ def recompute_and_store_order_ratio(order_no: str) -> None:
 
 
 def _ensure_order_ratio_stored(order_no: str) -> None:
-    """惰性兜底：订单有出库行、金额>0，但尚无任何 ratio_price 时，重算写库一次（之后即命中缓存）。"""
+    """惰性兜底：订单有出库行、金额>0，但尚无任何 ratio_price 时，重算写库一次（之后即命中缓存）。
+
+    这是一条**读接口里的写副作用**（``list_order_outbound_lines`` 是 GET）。库存列表那边
+    已经把同类兜底移除了（``inventory_helpers``：「读取链路只重算用于展示，不再逐行 UPDATE
+    落库」），这里保留是因为两者代价不同：那边是每次列表 N 行、每行一次写；这里只在**展开
+    单个订单的二级明细**且该单从未算过比例时触发一次，之后永远命中缓存。
+    并发重复 GET 是安全的——重算幂等，最坏是多写一次同样的值。
+    列表路径用的是批量版 ``ensure_orders_ratio_stored``，不会逐单触发。
+    """
     ono = (order_no or "").strip()
     if not ono:
         return

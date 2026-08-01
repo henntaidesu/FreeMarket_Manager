@@ -122,8 +122,7 @@ export default defineComponent({
       { key: 'liked_item', label: t('notifications.categoryLikedItem') },
       { key: 'price_drop', label: t('notifications.categoryPriceDrop') },
       { key: 'wait_reply', label: t('notifications.categoryWaitReply') },
-      { key: 'bureau', label: t('notifications.categoryBureau') },
-      { key: 'yahoo_official', label: t('notifications.categoryYahooOfficial') },
+      { key: 'platform_notice', label: t('notifications.categoryPlatformNotice') },
       { key: 'other', label: t('notifications.categoryOther') },
     ])
 
@@ -203,7 +202,7 @@ export default defineComponent({
     }
 
     // 分类 chip 单选（留言 / 合并购买 / 降价请求 / 拍卖 / 待支付 / 点赞 / 关注商品 /
-    // 商品降价 / 待回复 / 煤炉公式 / 雅虎公式 / 其他，互斥）：
+    // 商品降价 / 待回复 / 平台通知 / 其他，互斥）：
     // **始终有且只有一项选中**——再点当前项不取消，否则会落到「无筛选」这个没有对应 chip
     // 的状态，界面上看不出正在看什么。
     function selectFilterChip(chip) {

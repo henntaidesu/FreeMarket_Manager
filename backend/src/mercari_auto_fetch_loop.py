@@ -117,7 +117,9 @@ def _account_platform(account_id: int) -> str:
         return "mercari"
 
 
-#: 雅虎尚未实现的同步项：到期也跳过，避免拿煤炉实现去跑雅虎账号（必失败）
+#: 雅虎尚未实现的同步项：到期也跳过，避免拿煤炉实现去跑雅虎账号（必失败）。
+#: **当前为空集**——订单 / 在售 / 待办 / 通知四项雅虎都已实现，所以下面那个 `continue`
+#: 分支现在走不到。保留是为了将来加同步项时有地方登记；别看到空集就把分支删了。
 _YAHOO_UNSUPPORTED_TASKS: frozenset = frozenset()
 
 

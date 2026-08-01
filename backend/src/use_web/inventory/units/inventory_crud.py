@@ -188,12 +188,62 @@ def update_inventory(pid: int, data: InventoryUpdate, _claims: dict = Depends(re
 
 
 def delete_inventory(pid: int):
-    """假删除：仅置 is_delete=1，保留图片与数据，可通过数据库手动恢复（SET is_delete=0）。"""
+    """假删除：仅置 is_delete=1，保留图片与数据，可通过数据库手动恢复（SET is_delete=0）。
+
+    **排队中的出品任务会挡住删除**：出品在入队那一刻就占了 ``pending_listing_qty``，
+    任务真正执行时才知道该不该挂牌。这时把商品删掉，任务照跑不误、挂出去的商品却已无库存
+    可绑，占用也要等 6 小时 TTL 才释放。与其事后收拾，不如先让用户取消任务。
+
+    已挂在售（``on_sale_quantity > 0``）只提示、不阻止：商品下架/售出后在售同步会把
+    ``reconcile_listing_counts`` 跑一遍，凭 ``counted_inventory_ids`` 正确退回计数，
+    删掉的行也能被找到——这条路径本来就自洽。
+    """
     if not _inventory_exists(pid):
         raise HTTPException(status_code=404, detail="商品不存在")
+
+    pending = _pending_listing_task_ids(int(pid))
+    if pending:
+        ids = "、".join(f"#{t}" for t in pending[:5])
+        more = f" 等 {len(pending)} 条" if len(pending) > 5 else ""
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"该商品还有出品任务在队列中（{ids}{more}），删除后任务仍会执行并挂出无库存可绑的商品。"
+                f"请先到「任务队列」取消这些任务再删除。"
+            ),
+        )
+
     db.execute_update(
         "UPDATE [inventory] SET is_delete = 1 WHERE id = ? AND COALESCE(is_delete, 0) = 0",
         (pid,),
     )
     _enqueue_image_index(pid)
     return {"message": "删除成功"}
+
+
+def _pending_listing_task_ids(inventory_id: int) -> list:
+    """该库存上还没执行完的出品任务 id（pending / running）。查询失败按「没有」处理——
+    队列不可用不该连累删除。"""
+    try:
+        from ....db_manage.models.system.task_queue import ACTIVE_STATUSES
+        from ....task_queue.registry import INVENTORY_LISTING
+
+        ph = ", ".join("?" * len(ACTIVE_STATUSES))
+        rows = db.execute_query(
+            f"SELECT [id], [payload] FROM [task_queue] "
+            f"WHERE [task_type] = ? AND [status] IN ({ph}) ORDER BY [id]",
+            (INVENTORY_LISTING, *ACTIVE_STATUSES),
+        ) or []
+    except Exception:  # noqa: BLE001
+        return []
+    import json
+
+    out = []
+    for tid, payload in rows:
+        try:
+            ids = (json.loads(payload) or {}).get("inventory_ids") or []
+        except (TypeError, ValueError):
+            continue
+        if any(int(x) == int(inventory_id) for x in ids if x is not None):
+            out.append(int(tid))
+    return out

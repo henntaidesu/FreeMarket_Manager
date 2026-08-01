@@ -78,20 +78,26 @@ _LIKED_ITEM_COND = (
 _WAIT_REPLY_COND = "IFNULL(n.[kind], '') = 'Yahoo:obems'"
 # 商品降价：关注（いいね）过的商品降价了。煤炉的 PriceDropMessageV2 仍归「关注商品」不动。
 _PRICE_DROP_COND = "IFNULL(n.[kind], '') = 'Yahoo:lsodi'"
-# 煤炉公式：PrivateMessage 系（含 PrivateMessageCustomTitle）、所有 kind 含 merpay 的
-# 推广/Merpay 通知，以及事務局からの一斉連絡与客服回复。
-_BUREAU_COND = (
+# 平台通知：两个平台的官方/系统告知，看一眼即可、没有要处理的事。合成一个 chip，
+# 行内的「类型」标签仍区分煤炉公式消息 / 雅虎公式，不必靠 chip 分辨来源。
+#   · 煤炉：PrivateMessage 系（含 PrivateMessageCustomTitle）、所有 kind 含 merpay 的
+#     推广/Merpay 通知、事務局からの一斉連絡与客服回复；
+#     以及支付完成（PaymentDone% 与同文案的 TransactionPaymentDoneFunds——三者的
+#     消息模板完全相同，分到两个 chip 只会让人以为漏了）、交易完了、取引メッセージ追加
+#     （煤炉的待回复走 /todos 的 IncomingMessage 待办，通知流这份是重复告知）、
+#     メルペイ利用限度額更新。
+#   · 雅虎：运营侧公告/活动/优惠券，与商品和交易无关（多数连 itemId 都没有）。
+_PLATFORM_NOTICE_COND = (
     f"(IFNULL(n.[kind], '') LIKE '{_PRIVATE_MESSAGE_KIND}%'"
     " OR LOWER(IFNULL(n.[kind], '')) LIKE '%merpay%'"
-    " OR IFNULL(n.[kind], '') IN ('AdminBulkContact', 'AgentReplied'))"
-)
-# 雅虎公式：运营侧公告/活动/优惠券，与商品和交易无关（多数连 itemId 都没有）。
-_YAHOO_OFFICIAL_COND = (
-    "IFNULL(n.[kind], '') IN "
-    "('Yahoo:cmp', 'Yahoo:cpon', 'Yahoo:pbsrf', 'Yahoo:foobc')"
+    " OR IFNULL(n.[kind], '') LIKE 'PaymentDone%'"
+    " OR IFNULL(n.[kind], '') IN ('AdminBulkContact', 'AgentReplied',"
+    " 'TransactionPaymentDoneFunds', 'TradeDone', 'TransactionMessageAdd',"
+    " 'CreditLineCreditUpdateUp',"
+    " 'Yahoo:cmp', 'Yahoo:cpon', 'Yahoo:pbsrf', 'Yahoo:foobc'))"
 )
 
-#: chip → WHERE 条件。「其他」= 以上各类都不是（如支付完成、未归类的 Yahoo:* 类型）。
+#: chip → WHERE 条件。「其他」= 以上各类都不是（如振込完了、未归类的 Yahoo:* 类型）。
 _NAMED_CATEGORY_CONDS = {
     "comment": _COMMENT_COND,
     "bundle": _BUNDLE_COND,
@@ -102,8 +108,7 @@ _NAMED_CATEGORY_CONDS = {
     "liked_item": _LIKED_ITEM_COND,
     "price_drop": _PRICE_DROP_COND,
     "wait_reply": _WAIT_REPLY_COND,
-    "bureau": _BUREAU_COND,
-    "yahoo_official": _YAHOO_OFFICIAL_COND,
+    "platform_notice": _PLATFORM_NOTICE_COND,
 }
 
 _CATEGORY_CONDS = {

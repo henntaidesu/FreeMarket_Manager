@@ -30,6 +30,13 @@ log = logging.getLogger(__name__)
 #: 署上真人用户名会让任务页看起来像是他手动提交的，产生误导。
 SYSTEM_USERNAME = "System"
 
+#: 「查重 → 预扣减 → INSERT」的进程内互斥。
+#:
+#: 用 threading.Lock 而不是 asyncio.Lock 是刻意的：``enqueue`` 是同步函数，被 async 端点直接
+#: 调用，也被同步路径（auto_relist 之外的一些工具）调用；换成 asyncio.Lock 就得把整条链路
+#: 改成 async。代价是持锁期间的 DB 往返会占住事件循环——MySQL 走网络时更明显。
+#: 目前可接受：临界区只有两条 SELECT + 一条 INSERT，且入队本身是低频操作（用户点一次按钮）。
+#: 真要优化，正确做法是把 enqueue 整体丢进 asyncio.to_thread，而不是换锁类型。
 _enqueue_guard = threading.Lock()
 
 _COLUMNS = (

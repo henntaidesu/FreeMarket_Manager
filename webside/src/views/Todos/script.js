@@ -41,9 +41,11 @@ export default defineComponent({
       // 雅虎「取引メッセージ」＝买家来信待回复（源自通知流，非待办接口）
       YahooIncomingMessage: 'todos.kind.waitReply',
       Shipped: 'todos.kind.waitReceipt',
-      // 取消/退货申请：买家发起 → 卖家同意后填退货信息，同属「申请退货」
+      // 退货的两个阶段，同属「退货」筛选但类型分开显示：
+      //   买家发起（キャンセル申請）→ 申请退货
+      //   卖家同意后填退货信息（返品に必要な情報の入力と、返品された商品の確認）→ 退货地址
       CancellationRequested: 'todos.kind.cancellation',
-      CancellationRequestApprovedSeller: 'todos.kind.cancellation',
+      CancellationRequestApprovedSeller: 'todos.kind.returnAddress',
     }
 
     // 待回复（IncomingMessage）默认回复：分两种状态

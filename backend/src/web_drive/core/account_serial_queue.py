@@ -58,6 +58,13 @@ def _idle_close_sec() -> float:
 
 
 def default_task_timeout_sec() -> Optional[float]:
+    """单个浏览器任务的等待上限；**默认不设**（返回 None）。
+
+    ⚠️ 设了它就意味着「超时即 ``asyncio.wait_for`` 取消协程」，而 Playwright 调用不会立刻
+    响应取消——被打断的自动化可能已经点过「出品する」/「発送通知」这类不可逆按钮，却走的是
+    普通 ``TimeoutError`` 路径，享受不到 ``ListingNotSubmittedError`` 那套「确认未挂牌才释放
+    预扣减」的判定。所以除非确有卡死问题，否则别开；要开也请设得足够宽（分钟级）。
+    """
     raw = (os.environ.get("MERCARI_BROWSER_TASK_TIMEOUT_SEC") or "").strip()
     if not raw:
         return None
@@ -211,7 +218,17 @@ async def shutdown_queue() -> None:
 def shutdown_serial_executors(*, wait: bool = False) -> None:
     """进程退出时清空队列状态（兼容旧调用名）。
 
-    取消挂起的 close_task 由 ``shutdown_queue`` 异步完成；此同步入口仅做注册表清空。
+    正常关停顺序是 ``shutdown_queue()``（异步、会等 close_task 结束）→ 本函数。但本函数
+    原来只做 ``_states.clear()``：万一调用顺序颠倒、或有人只调了这个同步入口，那些挂起的
+    ``_delayed_close_browser`` 任务就失去了最后一个引用，既没被取消也没人等它，
+    事件循环关闭时会报 "Task was destroyed but it is pending"。所以这里也把它们取消掉——
+    取消是幂等的，重复调用无害。
     """
+    for _key, state in list(_states.items()):
+        task = state.close_task
+        if task is not None and not task.done():
+            task.cancel()
+        state.close_task = None
+        state.pending = 0
     _states.clear()
     log.debug("async serial queue states cleared (wait=%s)", wait)
