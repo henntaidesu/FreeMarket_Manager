@@ -35,6 +35,10 @@ export const todosApi = {
   /** 在已开浏览器（取引評価页）填评价并点击「購入者を評価して取引完了する」 */
   submitTransactionReview: (todoId, text, opts = {}, axiosConfig = {}) =>
     http.post(`/use_web/todos/${encodeURIComponent(todoId)}/submit-review`, { text, ...opts }, { timeout: 60000, ...axiosConfig }),
+  /** 退货「确认签收」：点「返送された商品を受け取った」+ 二次确认「キャンセルを完了する」，
+   *  完成后软删待办并刷新订单。后端自带开浏览器 → 不设超时。 */
+  confirmCancellationReceipt: (todoId, body = {}, axiosConfig = {}) =>
+    http.post(`/use_web/todos/${encodeURIComponent(todoId)}/confirm-cancellation-receipt`, body || {}, { timeout: 0, ...axiosConfig }),
   /** 一键好评：后端按账号分组、复用浏览器逐条提交评价（不设超时，进度走 sync-progress 轮询） */
   bulkSubmitReviews: (body = {}, axiosConfig = {}) =>
     http.post('/use_web/todos/bulk-review', body || {}, { timeout: 0, ...axiosConfig }),

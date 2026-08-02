@@ -2,7 +2,8 @@ export default {
   'zh-CN': {
     mercariAccounts: {
       title: "店铺账号",
-      addAccount: "添加账号",
+      addAccountFor: "添加{platform}账号",
+      platformEmpty: "暂无{platform}账号",
       editAccount: "编辑账号",
       accountName: "账号名",
       accountId: "账号ID",
@@ -46,7 +47,6 @@ export default {
       syncTaskOrdersStatus: "订单管理：订单状态",
       addDialogTitleGeneric: "新增{platform}账号",
       editDialogTitleGeneric: "编辑{platform}账号",
-      pickPlatformTitle: "选择账号平台",
       platformMercari: "煤炉",
       platformYahoo: "雅虎",
       formIntroTip: "打开本弹窗时会自动请求启动「新增前登录」浏览器（会话键 mercari_prepare），请在 Edge 中登录 jp.mercari.com。账号状态默认为「停用」，填写账号名称等信息后保存即可入库。登录完成后可使用「获取用户信息」完善资料（实现待定）。",
@@ -136,7 +136,8 @@ export default {
   ja: {
     mercariAccounts: {
       title: "店舗アカウント",
-      addAccount: "アカウントを追加",
+      addAccountFor: "{platform}アカウントを追加",
+      platformEmpty: "{platform}アカウントはまだありません",
       editAccount: "アカウントを編集",
       accountName: "アカウント名",
       accountId: "アカウントID",
@@ -180,7 +181,6 @@ export default {
       syncTaskOrdersStatus: "注文管理：注文ステータス",
       addDialogTitleGeneric: "{platform}アカウントを追加",
       editDialogTitleGeneric: "{platform}アカウントを編集",
-      pickPlatformTitle: "アカウントのプラットフォームを選択",
       platformMercari: "メルカリ",
       platformYahoo: "Yahoo!フリマ",
       formIntroTip: "このダイアログを開くと「追加前ログイン」ブラウザ（セッションキー mercari_prepare）が自動で起動します。Edge で jp.mercari.com にログインしてください。アカウントの状態は既定で「無効」です。アカウント名等を入力して保存すれば登録できます。ログイン後は「ユーザー情報を取得」で情報を補完できます（実装予定）。",
@@ -270,7 +270,8 @@ export default {
   en: {
     mercariAccounts: {
       title: "Shop Accounts",
-      addAccount: "Add Account",
+      addAccountFor: "Add {platform} Account",
+      platformEmpty: "No {platform} accounts yet",
       editAccount: "Edit Account",
       accountName: "Account Name",
       accountId: "Account ID",
@@ -314,7 +315,6 @@ export default {
       syncTaskOrdersStatus: "Orders: order status",
       addDialogTitleGeneric: "Add {platform} Account",
       editDialogTitleGeneric: "Edit {platform} Account",
-      pickPlatformTitle: "Select Account Platform",
       platformMercari: "Mercari",
       platformYahoo: "Yahoo!Flea",
       formIntroTip: "Opening this dialog will automatically launch the \"pre-add login\" browser (session key mercari_prepare). Please log in to jp.mercari.com in Edge. The account status defaults to \"Disabled\"; fill in the account name and other info, then save to register. After logging in you can use \"Fetch User Info\" to fill in details (implementation pending).",

@@ -16,6 +16,7 @@
 模块划分：
 - ``_common`` / ``_captures`` / ``_qr_facility`` / ``_cache`` / ``_ui`` / ``detail``：共享层
 - ``review``：待评价（ReviewedSeller）
+- ``cancellation``：退货申请（CancellationRequested）确认签收并完成取消
 - ``wait_shipping/``：待发货处理逻辑（尺寸选择 / 扫码 / 发货收尾 / 改发货方式）
 - ``wait_reply/``：待回复处理逻辑（发送消息 / emoji 反应）
 """
@@ -39,6 +40,9 @@ from .bulk_review import (
     list_pending_review_todos,
     pending_review_account_ids,
 )
+
+# ── 退货（申请退货：确认收到退回商品 → 完成取消） ──
+from .cancellation import confirm_cancellation_receipt
 
 # ── 待回复 ──
 from .wait_reply.message import send_transaction_message
@@ -83,6 +87,7 @@ __all__ = [
     "bulk_submit_reviews_for_account",
     "list_pending_review_todos",
     "pending_review_account_ids",
+    "confirm_cancellation_receipt",
     "send_transaction_message",
     "SUPPORTED_REACTIONS",
     "send_message_reaction_by_index",

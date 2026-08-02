@@ -5,7 +5,7 @@ import logging
 from typing import Any, Dict, Optional
 from fastapi import HTTPException
 from .....db_manage.models.todos.todo_item import TodoItemModel
-from .....use_mercari.get_to_du_list.transaction_detail import SUPPORTED_REACTIONS, capture_qr_scanner_frame, click_change_shipping_method, confirm_change_shipping_method, confirm_shipping_selection, finalize_post_shipping, revise_shipping_after_qr, push_remote_camera_frame, read_post_shipping_confirm_info, send_message_reaction_by_index, send_transaction_message, start_select_shipping_class, submit_transaction_review
+from .....use_mercari.get_to_du_list.transaction_detail import SUPPORTED_REACTIONS, capture_qr_scanner_frame, click_change_shipping_method, confirm_cancellation_receipt, confirm_change_shipping_method, confirm_shipping_selection, finalize_post_shipping, revise_shipping_after_qr, push_remote_camera_frame, read_post_shipping_confirm_info, send_message_reaction_by_index, send_transaction_message, start_select_shipping_class, submit_transaction_review
 from .....use_mercari.sync.sync_progress import clear_sync_progress
 from .....web_drive.core.account_serial_queue import queue_key_for_mercari_account, run_mercari_serial_async
 from .....web_drive.core.manager import get_web_drive_manager
@@ -148,6 +148,44 @@ async def submit_transaction_review_endpoint(
         if jid:
             clear_sync_progress(jid)
 
+# 「确认签收」只对退货类待办开放。前端仅在「申请退货」行展示该按钮，这里放宽到退货两阶段
+# （同一笔交易的前后段，都落在同一张交易页上），其余 kind 一律 400——比让浏览器跑一趟再报
+# 「未找到按钮」要好读得多。
+_CANCELLATION_KINDS = ("CancellationRequested", "CancellationRequestApprovedSeller")
+
+
+async def confirm_cancellation_receipt_endpoint(
+    todo_id: int,
+    req: Optional[TransactionActionRequest] = None,
+) -> Dict[str, Any]:
+    """确认签收退回商品：点「返送された商品を受け取った」+ 二次确认「キャンセルを完了する」。"""
+    todo = TodoItemModel.find_by_id(id=int(todo_id))
+    if not todo:
+        raise HTTPException(status_code=404, detail="待办事项不存在")
+    aid = int(getattr(todo, "account_id", 0) or 0)
+    if not aid:
+        raise HTTPException(status_code=400, detail="待办事项缺少 account_id")
+    platform = (getattr(todo, "platform", "") or "mercari").strip().lower()
+    if platform and platform != "mercari":
+        raise HTTPException(status_code=400, detail="确认签收仅支持煤炉待办")
+    kind = (getattr(todo, "kind", "") or "").strip()
+    if kind not in _CANCELLATION_KINDS:
+        raise HTTPException(status_code=400, detail=f"该待办不是退货类（kind={kind or '空'}）")
+    jid = _validate_job_id(req.progress_job_id if req else None)
+    try:
+        return await run_mercari_serial_async(
+            queue_key_for_mercari_account(aid),
+            lambda: confirm_cancellation_receipt(int(todo_id), progress_job_id=jid),
+            suppress_idle_close=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    finally:
+        if jid:
+            clear_sync_progress(jid)
+
 async def change_shipping_method_endpoint(
     todo_id: int,
     req: Optional[TransactionActionRequest] = None,
@@ -244,25 +282,32 @@ async def send_message_reaction_endpoint(
 async def close_detail_browser(account_id: int) -> Dict[str, Any]:
     """关闭某账号的自动化浏览器（``mercari_{id}__todo``；关闭交易详情 dialog 时调用）。
 
-    **发货扫码任务进行中时拒绝关闭**：该任务全程要用这个会话（选尺寸 → 进扫描页 →
-    喂图 → 発送通知），前端一关就会以「会话不可用或无活动页」失败。用户提交完照片后
-    通常立刻就把弹窗关了，任务才刚排上队，正好撞上。
+    **该账号还有排队/执行中的浏览器任务时拒绝关闭**：这些任务全程要用这个会话，前端
+    一关就会以「会话不可用或无活动页」失败。用户提交完就把弹窗关了、任务才刚排上队，
+    正好撞上——发货扫码（选尺寸 → 进扫描页 → 喂图 → 発送通知）与退货确认签收
+    （点两下按钮结案）都是这样。
     """
     aid = int(account_id)
     if aid <= 0:
         raise HTTPException(status_code=400, detail="account_id 无效")
 
     from .....task_queue import has_active_account_task
-    from .....task_queue.registry import TODOS_SHIPPING_QR
+    from .....task_queue.registry import TODOS_CONFIRM_CANCELLATION, TODOS_SHIPPING_QR
 
-    if has_active_account_task(TODOS_SHIPPING_QR, aid):
-        log.info("[todos] account_id=%s 有发货扫码任务在进行，跳过关闭浏览器", aid)
-        return {
-            "account_id": aid,
-            "closed": False,
-            "skipped": True,
-            "reason": "发货扫码任务进行中，浏览器保持打开",
-        }
+    # 每加一个「占用 __todo 会话」的任务类型都要登记到这里，否则关弹窗会掐断它
+    _BROWSER_HOLDING_TASKS = (
+        (TODOS_SHIPPING_QR, "发货扫码"),
+        (TODOS_CONFIRM_CANCELLATION, "退货确认签收"),
+    )
+    for task_type, what in _BROWSER_HOLDING_TASKS:
+        if has_active_account_task(task_type, aid):
+            log.info("[todos] account_id=%s 有%s任务在进行，跳过关闭浏览器", aid, what)
+            return {
+                "account_id": aid,
+                "closed": False,
+                "skipped": True,
+                "reason": f"{what}任务进行中，浏览器保持打开",
+            }
 
     mgr = get_web_drive_manager()
     main_key = mercari_todo_key(aid)

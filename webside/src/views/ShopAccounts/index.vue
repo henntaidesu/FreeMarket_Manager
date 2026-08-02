@@ -1,108 +1,82 @@
 <template>
   <div>
     <el-card shadow="never" class="list-card" v-loading="loading">
-      <el-row :gutter="16">
-        <el-col v-for="row in list" :key="row.id" :xs="24" :sm="12" :md="8" :lg="6" class="card-col">
-          <el-card shadow="hover" class="account-card">
-            <div class="card-header">
-              <div class="card-header-main">
-                <el-avatar
-                  v-if="row.avatar"
-                  :src="mercariImageUrl(row.avatar)"
-                  :size="28"
-                  class="card-avatar"
-                />
-                <div class="card-title">{{ row.account_name || '-' }}</div>
-              </div>
-              <div class="card-header-tags">
-                <el-tag :type="platformTagType(row.platform)" size="small" effect="plain">
-                  {{ platformName(row.platform) }}
-                </el-tag>
-                <el-tag :type="row.status === 'active' ? 'success' : 'info'" size="small" effect="light">
-                  {{ row.status === 'active' ? t('mercariAccounts.enabled') : t('mercariAccounts.disabled') }}
-                </el-tag>
-              </div>
-            </div>
-            <div class="card-item"><span>{{ t('mercariAccounts.platformLabel') }}</span>{{ platformName(row.platform) }}</div>
-            <div class="card-item"><span>{{ t('mercariAccounts.sellerIdLabel') }}</span>{{ row.seller_id || '-' }}</div>
-            <div class="card-item">
-              <span>{{ t('mercariAccounts.autoFetchLabel') }}</span>
-              <template v-if="anyTaskEnabled(row) && row.status === 'active'">
-                {{ taskIntervalSummary(row) }}
-                <template v-if="pauseWindowLabel(row)"> · {{ t('mercariAccounts.pauseShort') }} {{ pauseWindowLabel(row) }}</template>
-              </template>
-              <template v-else>{{ t('mercariAccounts.autoFetchOff') }}</template>
-            </div>
-            <div class="card-item"><span>{{ t('mercariAccounts.remarkLabel') }}</span>{{ row.remark || '-' }}</div>
-            <div class="card-actions">
-              <el-button
-                size="small"
-                type="primary"
-                plain
-                :loading="browserLoadingKeys.has(browserKeyFor(row.id))"
-                @click="openBrowserForSavedAccount(row)"
-              >{{ t('mercariAccounts.openBrowser') }}</el-button>
-              <!-- 同步数据走任务队列：提交即返回，同步锁被占用时由队列排队，不再禁用按钮 -->
-              <el-tooltip
-                :disabled="row.status === 'active'"
-                :content="t('mercariAccounts.syncDataDisabledHint')"
-                placement="top"
-              >
-                <span>
-                  <el-button
-                    size="small"
-                    type="success"
-                    :disabled="row.status !== 'active'"
-                    @click="openSyncDataDialog(row)"
-                  >{{ t('mercariAccounts.syncData') }}</el-button>
-                </span>
-              </el-tooltip>
-              <el-button size="small" @click="openEdit(row)">{{ t('common.edit') }}</el-button>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :xs="24" :sm="12" :md="8" :lg="6" class="card-col">
-          <div class="add-card">
-            <div class="add-card-main" @click="openCreate">
-              <el-icon class="add-card-icon"><Plus /></el-icon>
-              <span>{{ t('mercariAccounts.addAccount') }}</span>
-            </div>
-          </div>
-        </el-col>
-      </el-row>
-
-      <div class="pagination">
-        <el-pagination
-          v-model:current-page="page"
-          v-model:page-size="pageSize"
-          :total="total"
-          :page-sizes="[20, 50, 100]"
-          layout="total, sizes, prev, pager, next"
-          @change="load"
-          background
-          size="small"
-        />
-      </div>
-    </el-card>
-
-    <el-dialog
-      v-model="platformPickerVisible"
-      :title="t('mercariAccounts.pickPlatformTitle')"
-      width="420px"
-      destroy-on-close
-      class="mercari-dialog"
-    >
-      <div class="platform-picker">
-        <div
-          v-for="opt in PLATFORM_OPTIONS"
-          :key="opt.value"
-          class="platform-picker-card"
-          @click="pickPlatform(opt.value)"
-        >
-          <el-tag :type="opt.tagType" size="large" effect="plain">{{ t(opt.labelKey) }}</el-tag>
+      <!-- 各平台独立成块：煤炉与雅虎分开显示，不再混在同一网格里 -->
+      <section v-for="section in platformSections" :key="section.value" class="platform-section">
+        <div v-if="!section.rows.length" class="platform-section-empty">
+          {{ t('mercariAccounts.platformEmpty', { platform: t(section.labelKey) }) }}
         </div>
-      </div>
-    </el-dialog>
+        <el-row :gutter="16">
+          <el-col v-for="row in section.rows" :key="row.id" :xs="24" :sm="12" :md="8" :lg="6" class="card-col">
+            <el-card shadow="hover" class="account-card">
+              <div class="card-header">
+                <div class="card-header-main">
+                  <el-avatar
+                    v-if="row.avatar"
+                    :src="mercariImageUrl(row.avatar)"
+                    :size="28"
+                    class="card-avatar"
+                  />
+                  <div class="card-title">{{ row.account_name || '-' }}</div>
+                </div>
+                <div class="card-header-tags">
+                  <el-tag :type="section.tagType" size="small" effect="plain">
+                    {{ t(section.labelKey) }}
+                  </el-tag>
+                  <el-tag :type="row.status === 'active' ? 'success' : 'info'" size="small" effect="light">
+                    {{ row.status === 'active' ? t('mercariAccounts.enabled') : t('mercariAccounts.disabled') }}
+                  </el-tag>
+                </div>
+              </div>
+              <div class="card-item"><span>{{ t('mercariAccounts.platformLabel') }}</span>{{ t(section.labelKey) }}</div>
+              <div class="card-item"><span>{{ t('mercariAccounts.sellerIdLabel') }}</span>{{ row.seller_id || '-' }}</div>
+              <div class="card-item">
+                <span>{{ t('mercariAccounts.autoFetchLabel') }}</span>
+                <template v-if="anyTaskEnabled(row) && row.status === 'active'">
+                  {{ taskIntervalSummary(row) }}
+                  <template v-if="pauseWindowLabel(row)"> · {{ t('mercariAccounts.pauseShort') }} {{ pauseWindowLabel(row) }}</template>
+                </template>
+                <template v-else>{{ t('mercariAccounts.autoFetchOff') }}</template>
+              </div>
+              <div class="card-item"><span>{{ t('mercariAccounts.remarkLabel') }}</span>{{ row.remark || '-' }}</div>
+              <div class="card-actions">
+                <el-button
+                  size="small"
+                  type="primary"
+                  plain
+                  :loading="browserLoadingKeys.has(browserKeyFor(row.id))"
+                  @click="openBrowserForSavedAccount(row)"
+                >{{ t('mercariAccounts.openBrowser') }}</el-button>
+                <!-- 同步数据走任务队列：提交即返回，同步锁被占用时由队列排队，不再禁用按钮 -->
+                <el-tooltip
+                  :disabled="row.status === 'active'"
+                  :content="t('mercariAccounts.syncDataDisabledHint')"
+                  placement="top"
+                >
+                  <span>
+                    <el-button
+                      size="small"
+                      type="success"
+                      :disabled="row.status !== 'active'"
+                      @click="openSyncDataDialog(row)"
+                    >{{ t('mercariAccounts.syncData') }}</el-button>
+                  </span>
+                </el-tooltip>
+                <el-button size="small" @click="openEdit(row)">{{ t('common.edit') }}</el-button>
+              </div>
+            </el-card>
+          </el-col>
+          <el-col :xs="24" :sm="12" :md="8" :lg="6" class="card-col">
+            <div class="add-card">
+              <div class="add-card-main" @click="openCreate(section.value)">
+                <el-icon class="add-card-icon"><Plus /></el-icon>
+                <span>{{ t('mercariAccounts.addAccountFor', { platform: t(section.labelKey) }) }}</span>
+              </div>
+            </div>
+          </el-col>
+        </el-row>
+      </section>
+    </el-card>
 
     <el-dialog
       v-model="dialogVisible"

@@ -27,6 +27,7 @@ from .units.todos_sync import (
     bulk_finalize_post_shipping_endpoint,
     camera_frame_endpoint,
     change_shipping_method_endpoint,
+    confirm_cancellation_receipt_endpoint,
     confirm_change_shipping_method_endpoint,
     close_detail_browser,
     confirm_shipping_selection_endpoint,
@@ -127,6 +128,8 @@ router.add_api_route("/{todo_id}/transaction-detail-cache", get_cached_todo_tran
 router.add_api_route("/{todo_id}/send-message", send_transaction_message_endpoint, methods=["POST"])
 router.add_api_route("/{todo_id}/send-reaction", send_message_reaction_endpoint, methods=["POST"])
 router.add_api_route("/{todo_id}/submit-review", submit_transaction_review_endpoint, methods=["POST"])
+# 退货「确认签收」：点「返送された商品を受け取った」+ 二次确认「キャンセルを完了する」
+router.add_api_route("/{todo_id}/confirm-cancellation-receipt", confirm_cancellation_receipt_endpoint, methods=["POST"])
 router.add_api_route("/bulk-review", bulk_submit_reviews_endpoint, methods=["POST"])
 router.add_api_route("/bulk-confirm-ship", bulk_finalize_post_shipping_endpoint, methods=["POST"])
 router.add_api_route("/{todo_id}/shipping/start", start_shipping_class_endpoint, methods=["POST"])

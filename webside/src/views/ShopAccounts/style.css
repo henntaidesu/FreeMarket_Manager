@@ -105,26 +105,15 @@
   gap: 6px;
   flex: none;
 }
-.platform-picker {
-  display: flex;
-  gap: 16px;
-  justify-content: center;
-  padding: 8px 0 4px;
+.platform-section + .platform-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #2a3448;
 }
-.platform-picker-card {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px 12px;
-  border: 1px solid var(--el-border-color, #3a4658);
-  border-radius: 10px;
-  cursor: pointer;
-  transition: border-color 0.15s, transform 0.1s;
-}
-.platform-picker-card:hover {
-  border-color: var(--el-color-primary, #409eff);
-  transform: translateY(-2px);
+.platform-section-empty {
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: #7d8da6;
 }
 .card-avatar {
   flex: none;
@@ -152,11 +141,6 @@
   justify-content: flex-end;
   gap: 8px;
   margin-top: 8px;
-}
-.pagination {
-  margin-top: 16px;
-  display: flex;
-  justify-content: flex-end;
 }
 .mercari-dialog-footer {
   display: flex;

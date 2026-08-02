@@ -26,6 +26,7 @@ TODOS_BULK_REVIEW = "todos.bulk_review"
 TODOS_BULK_CONFIRM_SHIP = "todos.bulk_confirm_ship"
 TODOS_SHIPPING_QR = "todos.shipping_qr"
 TODOS_SYNC = "todos.sync"
+TODOS_CONFIRM_CANCELLATION = "todos.confirm_cancellation"
 ACCOUNT_SYNC_DATA = "account.sync_data"
 
 
@@ -135,6 +136,14 @@ _SPECS: Dict[str, TaskSpec] = {
         dedup_key=lambda p: f"{TODOS_SHIPPING_QR}:{p.get('todo_id')}",
         title=lambda p: f"发货扫码：{p.get('order_no') or ('待办#' + str(p.get('todo_id')))}",
     ),
+    TODOS_CONFIRM_CANCELLATION: TaskSpec(
+        task_type=TODOS_CONFIRM_CANCELLATION,
+        label_zh="确认签收",
+        # 同一笔待办同时只允许排一条：这是不可逆的「完成取消」，重复排队等于重复点击
+        dedup_key=lambda p: f"{TODOS_CONFIRM_CANCELLATION}:{p.get('todo_id')}",
+        title=lambda p: "确认签收退回商品："
+        + (str(p.get("item_id") or "").strip() or f"待办#{p.get('todo_id')}"),
+    ),
     TODOS_BULK_CONFIRM_SHIP: TaskSpec(
         task_type=TODOS_BULK_CONFIRM_SHIP,
         label_zh="一键确认发送",
@@ -206,6 +215,9 @@ def resolve_handler(task_type: str) -> Callable:
     if tt == TODOS_SYNC:
         from .handlers.todos import handle_sync
         return handle_sync
+    if tt == TODOS_CONFIRM_CANCELLATION:
+        from .handlers.todos import handle_confirm_cancellation
+        return handle_confirm_cancellation
     if tt == ACCOUNT_SYNC_DATA:
         from .handlers.account import handle_sync_account_data
         return handle_sync_account_data

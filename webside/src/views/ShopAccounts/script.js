@@ -29,7 +29,6 @@ export default defineComponent({
     ]
     const platformName = (p) =>
       t(p === 'yahoo' ? 'mercariAccounts.platformYahoo' : 'mercariAccounts.platformMercari')
-    const platformTagType = (p) => (p === 'yahoo' ? 'warning' : 'danger')
 
     function browserKeyFor(accountId) {
       return `mercari_${accountId}`
@@ -38,9 +37,8 @@ export default defineComponent({
     const loading = ref(false)
     const submitting = ref(false)
     const list = ref([])
-    const total = ref(0)
-    const page = ref(1)
-    const pageSize = ref(20)
+    // 不分页，一次取全：店铺账号是手工维护的少量数据，200 是后端 page_size 上限
+    const LIST_PAGE_SIZE = 200
     const dialogVisible = ref(false)
     const formRef = ref()
 
@@ -201,9 +199,8 @@ export default defineComponent({
     }
 
     async function fetchList() {
-      const res = await shopAccountApi.list({ page: page.value, page_size: pageSize.value })
+      const res = await shopAccountApi.list({ page: 1, page_size: LIST_PAGE_SIZE })
       list.value = res.items || []
-      total.value = res.total || 0
     }
 
     async function load() {
@@ -214,6 +211,14 @@ export default defineComponent({
         loading.value = false
       }
     }
+
+    // 按平台分块展示：每个平台一个独立模块，没有账号的平台也保留模块（显示空提示）
+    const platformSections = computed(() =>
+      PLATFORM_OPTIONS.map((opt) => ({
+        ...opt,
+        rows: list.value.filter((row) => (row.platform || 'mercari') === opt.value),
+      }))
+    )
 
     function openPrepareLoginBrowser() {
       // 新增账号：先清空 mercari_prepare 的登录态，确保打开的是未登录的全新页面
@@ -229,15 +234,8 @@ export default defineComponent({
       })
     }
 
-    // 平台选择弹框：点「添加账号」先选平台（煤炉/雅虎），再进入对应平台的建号弹框
-    const platformPickerVisible = ref(false)
-
-    function openCreate() {
-      platformPickerVisible.value = true
-    }
-
-    function pickPlatform(platform) {
-      platformPickerVisible.value = false
+    // 每个平台模块各有自己的「添加账号」卡片，平台由所在模块决定，无需再弹框选平台
+    function openCreate(platform) {
       form.value = createDefaultForm()
       form.value.platform = platform
       dialogVisible.value = true
@@ -483,7 +481,6 @@ export default defineComponent({
     async function remove(id) {
       await shopAccountApi.remove(id)
       ElMessage.success(t('mercariAccounts.msgDeleteSuccess'))
-      if (list.value.length === 1 && page.value > 1) page.value -= 1
       load()
     }
 
@@ -723,20 +720,15 @@ export default defineComponent({
       loading,
       submitting,
       list,
-      total,
-      page,
-      pageSize,
       dialogVisible,
       formRef,
       statusOptions,
       PLATFORM_OPTIONS,
       platformName,
+      platformSections,
       sellerIdPlaceholder,
       taskLabel,
       syncTaskLabel,
-      platformTagType,
-      platformPickerVisible,
-      pickPlatform,
       dialogTitle,
       FETCH_TASKS,
       CUSTOM_INTERVAL,

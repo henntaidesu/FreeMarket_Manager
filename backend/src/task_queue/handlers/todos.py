@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
-"""待办页两个批量操作的任务处理器：一键好评 / 已打包一键处理（确认发送）。
+"""待办页后台操作的任务处理器：一键好评 / 已打包一键处理（确认发送）/ 发货扫码 /
+从煤炉同步 / 退货确认签收。
 
-这两个操作本就按账号逐个进串行队列执行（``suppress_idle_close=True`` 复用同一 ``__todo``
+这些操作本就按账号逐个进串行队列执行（``suppress_idle_close=True`` 复用同一 ``__todo``
 浏览器会话），不占全局同步锁，因此处理器只需桥接进度后直接调用既有端点函数。
 """
 from __future__ import annotations
 
 import logging
 from typing import Any, Dict
+
+from fastapi import HTTPException
 
 from .. import progress
 
@@ -82,6 +85,38 @@ async def handle_bulk_confirm_ship(task: Dict[str, Any]) -> Dict[str, Any]:
         req = BulkFinalizePostShippingRequest(progress_job_id=jid)
         result = await bulk_finalize_post_shipping_endpoint(req)
     _raise_if_all_failed(result, "一键确认发送")
+    return result
+
+
+async def handle_confirm_cancellation(task: Dict[str, Any]) -> Dict[str, Any]:
+    """退货「确认签收」：点「返送された商品を受け取った」+ 二次确认「キャンセルを完了する」。
+
+    这是对外**不可逆**的结案操作，所以「点了但没读到完成文案」必须落成失败——此时待办
+    没被软删、订单也没刷新，显示成绿色「成功」会让这单再没人回头看。
+    """
+    from ...use_web.todos.units.todos_models import TransactionActionRequest
+    from ...use_web.todos.units.todos_sync import confirm_cancellation_receipt_endpoint
+
+    payload = task.get("payload") or {}
+    todo_id = int(payload.get("todo_id") or 0)
+    if not todo_id:
+        raise ValueError("确认签收任务缺少 todo_id")
+
+    try:
+        async with progress.bridge(task["id"], "sync") as jid:
+            result = await confirm_cancellation_receipt_endpoint(
+                todo_id, TransactionActionRequest(progress_job_id=jid)
+            )
+    except HTTPException as exc:
+        # 端点与 HTTP 入口共用，前置校验抛的是 HTTPException；直接冒泡会让任务行的
+        # 错误显示成「400: …」，这里剥出 detail
+        raise RuntimeError(str(exc.detail)) from exc
+
+    if not result.get("completed"):
+        raise RuntimeError(
+            "已点击「キャンセルを完了する」，但未检测到「キャンセルが完了」。"
+            "请到煤炉核对该交易当前状态，避免重复操作。"
+        )
     return result
 
 

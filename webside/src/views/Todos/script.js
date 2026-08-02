@@ -1320,6 +1320,46 @@ export default defineComponent({
       yahooForm.location = form?.location || ''
     }
 
+    // 「申请退货」（キャンセル申請）行的操作列不是「处理」而是「确认签收」：卖家收到买家退回的
+    // 商品后，在交易页点「返送された商品を受け取った」→ 二次确认「キャンセルを完了する」结案。
+    // 只认煤炉：雅虎没有这套页面（キャンセル 相关待办另走 Yahoo* kind，不会命中这里）。
+    function isCancellationReceiptRow(row) {
+      return (
+        platformOf(row) === 'mercari' &&
+        String(row?.kind || '').trim() === 'CancellationRequested'
+      )
+    }
+
+    // 正在提交「确认签收」的 todo id（只覆盖入队那一瞬，执行本身在后台队列里）
+    const cancelReceiptBusyId = ref(0)
+
+    async function onConfirmCancellationReceipt(row) {
+      const todoId = Number(row?.id || 0)
+      if (!todoId || cancelReceiptBusyId.value) return
+      try {
+        await ElMessageBox.confirm(
+          t('todos.confirmReceiptMessage'),
+          t('todos.confirmReceiptTitle'),
+          { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') },
+        )
+      } catch {
+        return
+      }
+
+      // 提交到任务队列：后端全局单 worker 打开交易页点两下按钮，进度在 /#/tasks 查看。
+      // 这一步不可逆，故按 todo_id 做语义去重（registry），重复提交后端直接 409。
+      cancelReceiptBusyId.value = todoId
+      try {
+        await submitTask(
+          TASK_TYPES.TODOS_CONFIRM_CANCELLATION,
+          { todo_id: todoId, account_id: row?.account_id ?? null, item_id: row?.item_id || '' },
+          { t },
+        )
+      } finally {
+        cancelReceiptBusyId.value = 0
+      }
+    }
+
     function onProcess(row) {
       // 雅虎交易页只能按商品 ID 打开，缺了就没有可处理的对象
       if (platformOf(row) === 'yahoo' && !String(row?.item_id || '').trim()) {
@@ -2286,6 +2326,9 @@ export default defineComponent({
       purchaseTsMs,
       displayTs,
       itemUrlOf,
+      isCancellationReceiptRow,
+      cancelReceiptBusyId,
+      onConfirmCancellationReceipt,
       onProcess,
       onDetailRefresh,
       onClickShippingSizeLocation,

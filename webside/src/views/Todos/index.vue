@@ -251,9 +251,19 @@
           </template>
         </el-table-column>
 
-        <el-table-column :label="t('common.operate')" width="110" align="center" header-align="center" fixed="right">
+        <el-table-column :label="t('common.operate')" width="130" align="center" header-align="center" fixed="right">
           <template #default="{ row }">
-            <el-button type="primary" plain @click="onProcess(row)">
+            <!-- 「申请退货」行不进处理弹窗：直接确认收到退回商品并完成取消 -->
+            <el-button
+              v-if="isCancellationReceiptRow(row)"
+              type="danger"
+              plain
+              :loading="cancelReceiptBusyId === row.id"
+              @click="onConfirmCancellationReceipt(row)"
+            >
+              {{ t('todos.confirmReceipt') }}
+            </el-button>
+            <el-button v-else type="primary" plain @click="onProcess(row)">
               {{ t('todos.process') }}
             </el-button>
           </template>
