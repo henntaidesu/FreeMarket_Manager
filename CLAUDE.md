@@ -34,7 +34,7 @@ you have to follow, not something the code will stop you from breaking.
 
 - **Target file length: 500 lines.** Keep `.py` files under `backend/` at or below **500 lines**. When a module grows past this, prefer splitting it by feature — convert it into a package (a folder named after the module with an `__init__.py` that re-exports the public API so existing imports keep working) and group related functions into separate files. Keep shared helpers in a `_common`/`_helpers` module and group cohesive features into their own files (and subfolders when a feature spans several files).
 
-- **Exceeding 500 lines is allowed when splitting would hurt.** Some files are more readable whole — a single cohesive state machine, a long linear automation script, or a registry of related definitions. Don't split a file *just* to satisfy the number, and don't refactor an existing over-length file unless you're already changing it for another reason. Current over-length files (all deliberate): `db_manage/db_manager.py` (804), `use_mercari/get_to_du_list/transaction_detail/wait_shipping/ship_finalize.py` (592), `use_mercari/inventory_counters.py` (565), `web_drive/listing/units/post_to_macket/post.py` (526), `web_drive/core/mitm_session.py` (506), `use_mercari/get_order/get_in_progress_order/get_order_info.py` (503). For **new** files, still aim under 500 — go over only deliberately.
+- **Exceeding 500 lines is allowed when splitting would hurt.** Some files are more readable whole — a single cohesive state machine, a long linear automation script, or a registry of related definitions. Don't split a file *just* to satisfy the number, and don't refactor an existing over-length file unless you're already changing it for another reason. Current over-length files (all deliberate): `db_manage/db_manager.py` (832), `use_mercari/get_to_du_list/transaction_detail/wait_shipping/ship_finalize.py` (592), `use_mercari/inventory_counters.py` (573), `use_web/todos/units/todos_query.py` (532), `web_drive/listing/units/post_to_macket/post.py` (526), `web_drive/core/mitm_session.py` (506), `use_mercari/get_order/get_in_progress_order/get_order_info.py` (503). For **new** files, still aim under 500 — go over only deliberately.
 
   Re-check the list with:
   `find backend/src -name "*.py" -exec wc -l {} + | sort -rn | awk '$1>500'`
@@ -251,6 +251,36 @@ on the next startup, so any migration that needs to read a column being removed 
 registered in the pre-model block of `init_database()`**, above the `ensure_table_exists()` loop,
 not below it. Off a test database, undeclared columns/tables simply linger — harmless, since
 nothing reads what `get_fields()` doesn't declare.
+
+**Dialect traps that only bite on MySQL.** All four cost a real bug; none is caught by
+`compileall`, which never executes SQL. Exercise changed SQL in its *actual* calling context.
+
+- **`_listable_sql_expr(materialize_source=…)` must match the statement type.** `True` wraps the
+  inner `inventory` in a derived table, required by `UPDATE [inventory] SET listable_quantity = …`
+  because MySQL forbids re-referencing the UPDATE target inside a subquery FROM (error 1093).
+  But in a **SELECT** that wrapper makes MySQL materialize before filtering, so `JSON_TABLE`
+  receives rows whose `combined_items` is NULL (the vast majority) and raises 1210
+  *Incorrect arguments to JSON_TABLE*. SELECT sites must pass `False`. The same applies to
+  `_combined_reserved_sql_expr`; `_combined_reserved_agg_subquery` never wraps, so it is
+  SELECT-safe by construction.
+- **`||` is string concatenation only because `sql_mode` includes `PIPES_AS_CONCAT`**
+  (set in `dialects/mysql.py` on every pooled connection). Without it MySQL reads `||` as logical
+  OR and silently returns 0/1 instead of text. Don't drop it from `sql_mode`.
+- **可上架 has exactly one 口径**: `max(0, 库存 − 在售 − 待出 − 组合预留 − 出品预扣减)`, defined by
+  `inventory_counters._listable_sql_expr` (the stored value). Two read paths recompute it
+  independently — `inventory_helpers` (库存列表) and `on_sale_items_query` (在售明细). Leave a term
+  out of any one of them and the same item shows two different numbers on two pages.
+- **`transactions` is an audit log, not a source of truth for stock.** Rows are written only for
+  *subsequent* in/out movements — an inventory row's initial quantity never gets an `in` row, and
+  splits write nothing (physically nothing enters or leaves). Deriving stock from
+  `Σin − Σout` therefore yields nonsense, including negative totals. Every stock number must come
+  from `inventory.quantity`.
+
+**Decrementing stock**: always an atomic conditional UPDATE — `… SET quantity = quantity - ?
+WHERE id = ? AND COALESCE(quantity,0) >= ?` plus a `rowcount <= 0` check — never a pre-check
+followed by an unconditional decrement. A read-then-write pair leaves a TOCTOU window that
+concurrent requests drive negative. See `_deduct_packaging_stock`, `orders_outbound/lines.py`,
+`inventory_stock.py`, `inventory_split.py`.
 
 ### 商品类型映射 (`product_type_category_mappings`)
 

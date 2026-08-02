@@ -85,84 +85,51 @@ class WarehouseModel(BaseModel):
         result = cls.find_all("name = ?", (name,), limit=1)
         return result[0] if result else None
 
+    #: 仓位统计一律以 ``inventory.quantity`` 为准，**不能**用 transactions 流水净额推导。
+    #:
+    #: 原实现按 Σ(in) - Σ(out) ± transfer 算净库存，但流水只记录「后来发生的出入库」：
+    #: 库存行建档时的初始数量从不写 in 流水，拆分（inventory_split）改数量也不写流水。
+    #: 实测本库 39 个仓位**全部**对不上，流水净额合计 -558 而实际在库 513——页面上直接显示
+    #: 负数库存。全系统其它地方（可上架、组合预留、库存列表）也都以 inventory.quantity 为
+    #: 权威值，这里跟着对齐；transactions 保留为出入库审计流水，不承担库存推导职责。
+    _STATS_COLS = (
+        "COALESCE(SUM(COALESCE([quantity], 0)), 0) AS total_quantity, "
+        "COALESCE(SUM(CASE WHEN COALESCE([quantity], 0) > 0 THEN 1 ELSE 0 END), 0) AS product_types"
+    )
+
     @classmethod
     def get_stats(cls, warehouse_id: int) -> Dict[str, int]:
-        """获取仓库统计（基于 transactions 计算净库存）"""
+        """获取单个仓位统计（以 inventory 为准，见 _STATS_COLS 说明）"""
         db = cls().db
-        total_qty = db.execute_query(
-            """
-            SELECT COALESCE(SUM(
-                CASE
-                    WHEN type = 'in' AND warehouse_id = ? THEN quantity
-                    WHEN type = 'out' AND warehouse_id = ? THEN -quantity
-                    WHEN type = 'transfer' AND warehouse_id = ? THEN -quantity
-                    WHEN type = 'transfer' AND target_warehouse_id = ? THEN quantity
-                    ELSE 0
-                END
-            ), 0)
-            FROM [transactions]
+        rows = db.execute_query(
+            f"""
+            SELECT {cls._STATS_COLS}
+            FROM [inventory]
+            WHERE COALESCE([is_delete], 0) = 0 AND [warehouse_id] = ?
             """,
-            (warehouse_id, warehouse_id, warehouse_id, warehouse_id)
+            (warehouse_id,),
         )
-        product_types = db.execute_query(
-            """
-            SELECT COUNT(*) FROM (
-                SELECT inventory_id,
-                       SUM(
-                           CASE
-                               WHEN type = 'in' AND warehouse_id = ? THEN quantity
-                               WHEN type = 'out' AND warehouse_id = ? THEN -quantity
-                               WHEN type = 'transfer' AND warehouse_id = ? THEN -quantity
-                               WHEN type = 'transfer' AND target_warehouse_id = ? THEN quantity
-                               ELSE 0
-                           END
-                       ) AS net_qty
-                FROM [transactions]
-                GROUP BY inventory_id
-                HAVING net_qty > 0
-            ) t
-            """,
-            (warehouse_id, warehouse_id, warehouse_id, warehouse_id)
-        )
+        r = rows[0] if rows else None
         return {
-            'total_quantity': total_qty[0][0] if total_qty else 0,
-            'product_types': product_types[0][0] if product_types else 0,
+            'total_quantity': int((r[0] if r else 0) or 0),
+            'product_types': int((r[1] if r else 0) or 0),
         }
 
     @classmethod
     def get_stats_all(cls) -> Dict[int, Dict[str, int]]:
         """一次性返回 {warehouse_id: {total_quantity, product_types}}，口径与 get_stats 完全一致，
-        但用一条按 (仓库, 商品) 聚合的查询替代「逐仓库 2 次全表扫描」的 N+1。
+        但用一条按仓位分组的查询替代「逐仓库一次扫描」的 N+1。
 
-        每笔 transactions 对仓位的净增减：in/out/transfer 计入 warehouse_id（in 加、out/transfer 减），
-        transfer 另把数量计入 target_warehouse_id。total_quantity = 该仓位所有净增减之和；
-        product_types = 该仓位下「按商品聚合后净库存 > 0」的商品种类数。
+        total_quantity = 该仓位下未软删库存的数量之和；
+        product_types = 该仓位下数量 > 0 的商品条数。口径依据见 _STATS_COLS 上方说明。
         """
         db = cls().db
         rows = db.execute_query(
-            """
-            SELECT wh, SUM(net) AS total_quantity,
-                   SUM(CASE WHEN net > 0 THEN 1 ELSE 0 END) AS product_types
-            FROM (
-                SELECT wh, inventory_id, SUM(delta) AS net
-                FROM (
-                    SELECT warehouse_id AS wh, inventory_id,
-                           CASE type
-                               WHEN 'in' THEN quantity
-                               WHEN 'out' THEN -quantity
-                               WHEN 'transfer' THEN -quantity
-                               ELSE 0
-                           END AS delta
-                    FROM [transactions]
-                    WHERE warehouse_id IS NOT NULL
-                    UNION ALL
-                    SELECT target_warehouse_id AS wh, inventory_id, quantity AS delta
-                    FROM [transactions]
-                    WHERE type = 'transfer' AND target_warehouse_id IS NOT NULL
-                ) AS deltas
-                GROUP BY wh, inventory_id
-            ) AS per_item
-            GROUP BY wh
+            f"""
+            SELECT [warehouse_id], {cls._STATS_COLS}
+            FROM [inventory]
+            WHERE COALESCE([is_delete], 0) = 0 AND [warehouse_id] IS NOT NULL
+            GROUP BY [warehouse_id]
             """
         )
         out: Dict[int, Dict[str, int]] = {}

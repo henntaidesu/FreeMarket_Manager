@@ -74,11 +74,12 @@ def split_inventory(pid: int, data: InventorySplitRequest, _claims: dict = Depen
 
     if is_combined:
         raise HTTPException(status_code=400, detail="组合商品不能拆分")
-    if is_combined_source(pid):
+    combined_src = is_combined_source(pid)
+    if combined_src:
         # 被组合商品引用：允许拆分，但只能拆「可上数量」（库存 - 在售 - 待出 - 组合预留）内的部分，
         # 否则来源物理库存会低于组合预留，产生超过实物的「幽灵预留」。
         lst_rows = db.execute_query(
-            f"SELECT {_listable_sql_expr()} FROM [inventory] WHERE id = ? LIMIT 1",
+            f"SELECT {_listable_sql_expr(materialize_source=False)} FROM [inventory] WHERE id = ? LIMIT 1",
             (pid,),
         )
         listable = int(lst_rows[0][0] or 0) if lst_rows else 0
@@ -105,10 +106,32 @@ def split_inventory(pid: int, data: InventorySplitRequest, _claims: dict = Depen
             db.dialect.begin(conn)
             cur = conn.cursor()
             if split_qty > 0:
+                # 事务内复查后再扣减。上面那些校验发生在事务**之外**，而且与这里之间还隔着
+                # _duplicate_image_file 的图片复制（文件 IO，可能几十毫秒），窗口足够两个并发
+                # 拆分请求同时通过前置校验、各扣一次，把 quantity 扣成负数，或跌破组合预留
+                # 产生上面注释要防的「幽灵预留」。出库路径（inventory_stock.py）就是在事务内
+                # 重读并复查后才扣减的，这里对齐同一做法。
+                if combined_src:
+                    cur.execute(
+                        f"SELECT {_listable_sql_expr(materialize_source=False)} FROM [inventory] WHERE id = ? LIMIT 1",
+                        (pid,),
+                    )
+                    row_l = cur.fetchone()
+                    if int((row_l[0] if row_l else 0) or 0) < split_qty:
+                        raise HTTPException(
+                            status_code=409,
+                            detail="拆分失败：可上数量已被其它操作占用，请刷新后重试",
+                        )
                 cur.execute(
-                    "UPDATE [inventory] SET quantity = COALESCE(quantity, 0) - ? WHERE id = ?",
-                    (split_qty, pid),
+                    "UPDATE [inventory] SET quantity = COALESCE(quantity, 0) - ? "
+                    "WHERE id = ? AND COALESCE(quantity, 0) >= ?",
+                    (split_qty, pid, split_qty),
                 )
+                if cur.rowcount <= 0:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="拆分失败：库存已被其它操作变更，请刷新后重试",
+                    )
             cur.execute(
                 """
                 INSERT INTO [inventory] (

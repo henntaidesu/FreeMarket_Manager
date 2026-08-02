@@ -204,6 +204,17 @@ def apply_bundle_title_ratio_pricing(
         it["original_price"] = op
         op_int = int(op) if op is not None else 0
         w = max(0, op_int) * qty
+        if it.get("inventory_id") is None:
+            # 未绑定库存的占位行不参与分摊（与回退路径 _apply_inventory_line_ratio_pricing
+            # 的 inventory_id 非空要求对齐）。这种行是「本账号内无同名在售」时建的占位行，
+            # 供人工介入（见 description_mgmt_ids/outbound_sync.py）。
+            #
+            # 它本可以拿到正的权重：候选解析**按账号**（seller_id）隔离，而上面的
+            # latest_price_by_title 只**按平台**匹配——同平台另一个账号有同名在售时，
+            # 本账号的占位行照样取得到价格。而归属拆分（split_order_money_for_owner_user /
+            # owner_amt_by_order）统一 JOIN inventory，看不见这行，分给它的钱就凭空消失：
+            # 各归属额之和 < 订单额，手续费/快递费/净收益被按同一个偏小的 ratio 一起缩小。
+            w = 0
         weights.append(w)
 
     sum_w = sum(weights)

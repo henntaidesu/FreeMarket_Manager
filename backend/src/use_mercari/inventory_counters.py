@@ -97,18 +97,26 @@ def _combined_reserved_agg_subquery() -> str:
     )
 
 
-def _listable_sql_expr() -> str:
+def _listable_sql_expr(materialize_source: bool = True) -> str:
     """可上架 = max(0, 库存 - 在售 - 待出 - 组合预留 - 出品预扣减) 的 SQL 表达式（基于同表列）。
 
     ``pending_listing_qty``（出品预扣减）：已提交到任务队列但尚未被在售同步计入 on_sale 的件数，
     见 task_queue/reservations.py。点「出品」后可上架立刻减少，防止重复提交超量出品。
+
+    ``materialize_source`` 必须跟着**语境**选，选错在 MySQL 上直接报错：
+
+    - ``UPDATE [inventory] SET listable_quantity = <本表达式>``：必须 ``True``。MySQL 不允许在
+      UPDATE 目标表的子查询 FROM 里再引用该表（错误 1093），要把内层 inventory 包成派生表。
+    - ``SELECT <本表达式> FROM [inventory] WHERE ...``：必须 ``False``。包成派生表后 MySQL 会
+      **先物化再过滤**，JSON_TABLE 于是吃到 ``combined_items`` 为 NULL 的行（本库 758/828 行都是
+      NULL），报 1210 ``Incorrect arguments to JSON_TABLE``；不包装时优化器能先过滤，正常。
     """
     inner = (
         "COALESCE([quantity], 0) "
         "- COALESCE([on_sale_quantity], 0) "
         "- COALESCE([pending_outbound_qty], 0) "
         "- COALESCE([pending_listing_qty], 0) "
-        f"- {_combined_reserved_sql_expr(materialize_source=True)}"
+        f"- {_combined_reserved_sql_expr(materialize_source=materialize_source)}"
     )
     return DatabaseManager().dialect.greatest("0", inner)
 
