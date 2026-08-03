@@ -1,4 +1,4 @@
-import { defineComponent, ref, computed, onBeforeUnmount, onMounted, reactive } from 'vue'
+import { defineComponent, watch, ref, computed, nextTick, onBeforeUnmount, onMounted, reactive } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { ElMessage } from '@/utils/notify'
 import { Download, Refresh, Loading, WarningFilled, Check } from '@element-plus/icons-vue'
@@ -9,6 +9,7 @@ import { parseMgmtIdsFromDescription, isCipherMgmtLine } from '@/utils/mgmtIdCip
 import { mercariImageUrlList } from '@/utils/mercariImage.js'
 import { useMercariAccountStore } from '@/stores/mercariAccount.js'
 import { useSyncLockStore } from '@/stores/syncLock.js'
+import { useViewModeStore } from '@/stores/viewMode.js'
 
 export default defineComponent({
   setup() {
@@ -147,6 +148,30 @@ export default defineComponent({
     /** 表头排序状态：prop 为列字段，order 为 'ascending' | 'descending' | null */
     const sort = ref({ prop: '', order: '' })
 
+    // ===== 表格 / 卡片视图 =====
+    // 视图偏好是全局的（切换开关在侧边栏底部），本页只读不写
+    const viewModeStore = useViewModeStore()
+    const isCardView = computed(() => viewModeStore.isCardView)
+
+    /**
+     * 卡片视图的滚动窗口：一次请求 CARD_PAGE_SIZE 条，滚到底继续接。
+     * 窗口最多保留 CARD_MAX_ROWS 条，超出就把最旧的一批连数据带 DOM 一起丢掉，
+     * 用等高的占位块顶住滚动条位置；往回滚时再按页取回来。
+     * 页大小固定，不跟表格的 pageSize 走——中途改每页条数会让已加载的窗口页码对不上。
+     */
+    const CARD_PAGE_SIZE = 40
+    const CARD_MAX_ROWS = CARD_PAGE_SIZE * 5
+    const cardRows = ref([])
+    const cardFirstPage = ref(1)
+    const cardLastPage = ref(0)
+    const cardExhausted = ref(false)
+    const cardLoading = ref(false)
+    /** 已回收批次的合计高度(px)，撑在列表顶部 */
+    const cardTopSpacer = ref(0)
+    const cardGridRef = ref(null)
+    const cardTopSentinel = ref(null)
+    const cardBottomSentinel = ref(null)
+
     /** 平台筛选/标签：区分商品挂在煤炉还是雅虎（历史数据无值时按煤炉处理） */
     const platformFilterOptions = computed(() => [
       { value: 'mercari', label: t('onSaleItems.platformMercari') },
@@ -248,7 +273,9 @@ export default defineComponent({
       return isOnSaleOverListed(row) || isOnSaleUnlinked(row)
     }
 
+    /** 当前视图实际渲染的行：表格看当前页，卡片看滚动窗口（批量选择也据此解析选中项） */
     const displayList = computed(() => {
+      if (isCardView.value) return Array.isArray(cardRows.value) ? cardRows.value : []
       return Array.isArray(list.value) ? list.value : []
     })
 
@@ -294,8 +321,9 @@ export default defineComponent({
       return Array.from(m.values())
     })
 
-    function listParams() {
-      const p = { page: page.value, page_size: pageSize.value }
+    /** 除分页外的查询条件（表格与卡片共用） */
+    function baseListParams() {
+      const p = {}
       if (filters.value.keyword?.trim()) p.keyword = filters.value.keyword.trim()
       if (filters.value.seller_id?.trim()) p.seller_id = filters.value.seller_id.trim()
       if (filters.value.status?.trim()) p.status = filters.value.status.trim()
@@ -308,6 +336,17 @@ export default defineComponent({
         p.sort_order = sort.value.order === 'ascending' ? 'asc' : 'desc'
       }
       return p
+    }
+
+    function listParams() {
+      return { ...baseListParams(), page: page.value, page_size: pageSize.value }
+    }
+
+    /** 取一页在售商品；顺带刷新总条数 */
+    async function fetchOnSalePage(p, size) {
+      const res = await onSaleItemApi.list({ ...baseListParams(), page: p, page_size: size })
+      total.value = Number(res?.total || 0)
+      return Array.isArray(res?.items) ? res.items : []
     }
 
     function expandKey(itemId) {
@@ -407,7 +446,14 @@ export default defineComponent({
       if (opened) ensureExpandLoaded(row)
     }
 
-    async function load() {
+    /** ``inPlace``：卡片视图下原地重取当前窗口那几页，不把用户滚回顶部（表格视图无差别） */
+    async function load(options = {}) {
+      const { inPlace = false } = options
+      if (isCardView.value) {
+        if (inPlace) await reloadCardWindow()
+        else await loadCardsFromStart()
+        return
+      }
       loading.value = true
       try {
         const res = await onSaleItemApi.list(listParams())
@@ -430,6 +476,193 @@ export default defineComponent({
       sort.value = { prop: order ? prop : '', order: order || '' }
       page.value = 1
       load()
+    }
+
+    // ===== 卡片视图：双向滚动窗口 =====
+
+    /** 真正在滚的那个祖先元素（布局里是 .main-content），找不到就退回文档滚动元素 */
+    function cardScrollContainer() {
+      let el = cardGridRef.value?.parentElement
+      while (el) {
+        const oy = getComputedStyle(el).overflowY
+        if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight) return el
+        el = el.parentElement
+      }
+      return document.scrollingElement || document.documentElement
+    }
+
+    async function loadCardsFromStart() {
+      cardLoading.value = true
+      try {
+        const rows = await fetchOnSalePage(1, CARD_PAGE_SIZE)
+        cardRows.value = rows
+        cardFirstPage.value = 1
+        cardLastPage.value = 1
+        cardTopSpacer.value = 0
+        cardExhausted.value = rows.length < CARD_PAGE_SIZE
+        await nextTick()
+        const el = cardScrollContainer()
+        if (el) el.scrollTop = 0
+      } finally {
+        cardLoading.value = false
+      }
+      await fillCardsUntilScrollable()
+    }
+
+    /**
+     * IntersectionObserver 只在「相交状态变化」时回调：一次加载后底部哨兵仍留在视口内
+     * 就不会再触发，屏幕高、卡片少时会停在半屏且再也滚不动。这里主动补几轮。
+     */
+    let cardFilling = false
+    async function fillCardsUntilScrollable() {
+      if (cardFilling || !isCardView.value) return
+      cardFilling = true
+      try {
+        for (let i = 0; i < 6; i += 1) {
+          if (cardExhausted.value) return
+          const el = cardBottomSentinel.value
+          if (!el) return
+          if (el.getBoundingClientRect().top > (window.innerHeight || 0) + 300) return
+          await loadMoreCards()
+          await nextTick()
+        }
+      } finally {
+        cardFilling = false
+      }
+    }
+
+    /** 原地重取当前窗口内的各页（获取详情后刷新用），保留滚动位置与已回收的占位 */
+    async function reloadCardWindow() {
+      if (cardLastPage.value <= 1) {
+        await loadCardsFromStart()
+        return
+      }
+      cardLoading.value = true
+      try {
+        const pages = []
+        for (let p = cardFirstPage.value; p <= cardLastPage.value; p += 1) pages.push(p)
+        const batches = await Promise.all(pages.map((p) => fetchOnSalePage(p, CARD_PAGE_SIZE)))
+        cardRows.value = batches.flat()
+        cardExhausted.value = (batches[batches.length - 1] || []).length < CARD_PAGE_SIZE
+      } finally {
+        cardLoading.value = false
+      }
+    }
+
+    /** 下拉到底：接下一页；接完若超出窗口上限，丢掉最旧的一批换成等高占位 */
+    async function loadMoreCards() {
+      if (cardLoading.value || cardExhausted.value || !isCardView.value) return
+      cardLoading.value = true
+      try {
+        const next = cardLastPage.value + 1
+        const rows = await fetchOnSalePage(next, CARD_PAGE_SIZE)
+        if (!rows.length) {
+          cardExhausted.value = true
+          return
+        }
+        cardRows.value = [...cardRows.value, ...rows]
+        cardLastPage.value = next
+        if (rows.length < CARD_PAGE_SIZE) cardExhausted.value = true
+        if (cardRows.value.length > CARD_MAX_ROWS) await recycleOldestCardBatch()
+      } finally {
+        cardLoading.value = false
+      }
+    }
+
+    /** 往回滚：把之前回收掉的那一批重新取回来，占位相应减少 */
+    async function loadPrevCards() {
+      if (cardLoading.value || !isCardView.value || cardFirstPage.value <= 1) return
+      cardLoading.value = true
+      try {
+        const prev = cardFirstPage.value - 1
+        const rows = await fetchOnSalePage(prev, CARD_PAGE_SIZE)
+        if (!rows.length) return
+        const el = cardScrollContainer()
+        const beforeHeight = el.scrollHeight
+        const beforeTop = el.scrollTop
+        cardRows.value = [...rows, ...cardRows.value]
+        cardFirstPage.value = prev
+        await nextTick()
+        // 先把滚动位置锚回原处，再拿占位去抵消新增高度，全程视口内容不动
+        const grow = el.scrollHeight - beforeHeight
+        el.scrollTop = beforeTop + grow
+        const take = Math.min(cardTopSpacer.value, grow)
+        if (take > 0) {
+          cardTopSpacer.value -= take
+          await nextTick()
+          el.scrollTop = beforeTop + grow - take
+        }
+        if (cardRows.value.length > CARD_MAX_ROWS) {
+          cardRows.value = cardRows.value.slice(0, cardRows.value.length - CARD_PAGE_SIZE)
+          cardLastPage.value -= 1
+          cardExhausted.value = false
+        }
+      } finally {
+        cardLoading.value = false
+      }
+    }
+
+    /** 丢掉窗口最上面一批：量出它占的高度补进占位块，滚动条位置不变 */
+    async function recycleOldestCardBatch() {
+      const el = cardScrollContainer()
+      const beforeHeight = el.scrollHeight
+      cardRows.value = cardRows.value.slice(CARD_PAGE_SIZE)
+      cardFirstPage.value += 1
+      await nextTick()
+      const shrink = beforeHeight - el.scrollHeight
+      if (shrink > 0) cardTopSpacer.value += shrink
+    }
+
+    let cardObserver = null
+    function teardownCardObserver() {
+      if (cardObserver) {
+        cardObserver.disconnect()
+        cardObserver = null
+      }
+    }
+    async function setupCardObserver() {
+      teardownCardObserver()
+      if (!isCardView.value || typeof IntersectionObserver === 'undefined') return
+      await nextTick()
+      const bottom = cardBottomSentinel.value
+      const top = cardTopSentinel.value
+      if (!bottom && !top) return
+      // root 留空 = 视口；中间的滚动祖先会自动参与裁剪，无需知道它是谁
+      cardObserver = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) {
+            if (!e.isIntersecting) continue
+            if (e.target === cardBottomSentinel.value) void fillCardsUntilScrollable()
+            else if (e.target === cardTopSentinel.value) void loadPrevCards()
+          }
+        },
+        { rootMargin: '300px 0px' }
+      )
+      if (bottom) cardObserver.observe(bottom)
+      if (top) cardObserver.observe(top)
+    }
+
+    /** 视图在侧边栏被切换时的本页收尾：重新按新视图取数并重挂无限滚动观察器。
+     *  只有挂载中的页面会跑到这里，切到别的页面再回来走的是 onMounted 那条路。 */
+    watch(() => viewModeStore.mode, async () => {
+      page.value = 1
+      await load()
+      await setupCardObserver()
+    })
+
+    /** 卡片点击：批量模式当勾选用；否则等同表格「查看详情 / 获取详情」按钮。
+     *  卡片上没有按钮，同步锁定时的禁用只能在这里判——直接吞掉点击会显得没反应，所以给条提示。 */
+    function onCardClick(row) {
+      if (batchMode.value) {
+        toggleBatchRow(row)
+        return
+      }
+      if (detailLoadingIds.value.has(String(row?.item_id ?? '').trim())) return
+      if (syncLockStore.locked && !hasDetailViewable(row)) {
+        ElMessage.warning(syncLockStore.label)
+        return
+      }
+      onDetailActionClick(row)
     }
 
     const pad2 = (n) => String(n).padStart(2, '0')
@@ -1160,7 +1393,7 @@ export default defineComponent({
             )
           }
         }
-        if (reloadAfter) await load()
+        if (reloadAfter) await load({ inPlace: true })
         result = { ok, sync }
       } catch (e) {
         hadError = true
@@ -1254,11 +1487,12 @@ export default defineComponent({
       }
     }
 
-    onMounted(() => {
+    onMounted(async () => {
       mercariAccountStore.ensureLoaded()
       syncLockStore.subscribe()
       loadSellerAccounts()
-      load()
+      await load()
+      await setupCardObserver()
     })
 
     onBeforeUnmount(() => {
@@ -1266,6 +1500,7 @@ export default defineComponent({
         clearInterval(syncProgressTimer)
         syncProgressTimer = null
       }
+      teardownCardObserver()
       syncLockStore.unsubscribe()
     })
 
@@ -1336,6 +1571,15 @@ export default defineComponent({
       isOnSaleAlertRow,
       onSaleAlertReasons,
       displayList,
+      isCardView,
+      cardRows,
+      cardLoading,
+      cardExhausted,
+      cardTopSpacer,
+      cardGridRef,
+      cardTopSentinel,
+      cardBottomSentinel,
+      onCardClick,
       onSaleRowClassName,
       sellerOptions,
       listParams,

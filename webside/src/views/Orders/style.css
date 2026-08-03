@@ -72,6 +72,134 @@
 .table-card {
   border-radius: 8px;
 }
+
+/* ===== 卡片视图 ===== */
+.ord-card-view { width: 100%; }
+/* 已回收批次的等高占位，撑住滚动条位置 */
+.ord-card-spacer { width: 100%; }
+/* 无限滚动哨兵：本身不占空间，由 IntersectionObserver 观察 */
+.ord-card-sentinel { width: 100%; height: 1px; }
+.ord-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px;
+  /* 每行等高，卡片内部各段又都是定高，整屏卡片因此完全一致 */
+  grid-auto-rows: 1fr;
+}
+.ord-card {
+  display: flex;
+  flex-direction: column;
+  background: #131c31;
+  border: 1px solid #263352;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.ord-card:hover {
+  border-color: #409eff;
+  transform: translateY(-2px);
+}
+/* 与表格的预警行同一口径（isOrderAlertRow），配色也沿用那套红 */
+.ord-card.is-alert {
+  border-color: #f56c6c;
+  background: #3a1517;
+}
+/* 图框固定高度 + cover 裁剪：商品图长宽比五花八门，
+   交给图片自己定高会让每张卡片高度都不一样 */
+.ord-card-thumb {
+  position: relative;
+  width: 100%;
+  height: 180px;
+  flex: 0 0 180px;
+  background: #0b1220;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.ord-card-thumb :deep(.el-image) {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.ord-card-thumb :deep(.el-image img) {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+/* 加载中 / 加载失败的占位也要撑满，否则该卡片会塌一块 */
+.ord-card-thumb :deep(.el-image__error),
+.ord-card-thumb :deep(.el-image__placeholder) {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* 图上三角：平台左上、状态右上、预警左下 */
+.ord-card-platform { position: absolute; top: 6px; left: 6px; }
+.ord-card-status { position: absolute; top: 6px; right: 6px; }
+.ord-card-alert { position: absolute; bottom: 6px; left: 6px; color: #f56c6c; font-size: 18px; }
+.ord-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px 10px;
+}
+/* 恒定两行高：只有一行的商品名也占两行，卡片高度才不会因标题长短而参差 */
+.ord-card-name {
+  font-size: 13px;
+  line-height: 1.35;
+  height: 2.7em;
+  color: #e5eaf3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ord-card-money {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  white-space: nowrap;
+}
+.ord-card-amount { font-size: 15px; font-weight: 600; color: #e6a23c; }
+.ord-card-net { font-size: 12px; color: #ffffff; }
+.ord-card-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 17px;
+  height: 17px;
+  color: #909399;
+  white-space: nowrap;
+  overflow: hidden;
+}
+/* 右侧（费用 / 购入时间）定宽，挤压留给左侧的订单号与账号 */
+.ord-card-meta > span:last-child { flex: 0 0 auto; }
+.ord-card-ellipsis { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ord-card-foot {
+  padding: 16px 0 4px;
+  text-align: center;
+  font-size: 12px;
+  color: #909399;
+  min-height: 20px;
+}
+/* 手机：一行两列，图框同比缩小 */
+@media (max-width: 767px) {
+  .ord-card-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 8px;
+  }
+  .ord-card-thumb {
+    height: 140px;
+    flex-basis: 140px;
+  }
+}
 .order-row-actions {
   display: inline-flex;
   flex-wrap: wrap;

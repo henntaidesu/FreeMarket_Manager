@@ -15,9 +15,10 @@ import urllib.error
 import urllib.parse
 from typing import Optional, Tuple
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse
 
+from ...rate_limit import check_public_rate_limit
 from ...mercari_cdn_fetch import (
     FetchRejected,
     FetchTooLarge,
@@ -81,12 +82,15 @@ def _download(url: str) -> Tuple[bytes, Optional[str]]:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
-async def proxy_mercari_image(u: str):
+async def proxy_mercari_image(request: Request, u: str):
     """
     GET /mercariV2/src/use_web/mercari-image?u=<encoded mercari CDN url>
 
     - 仅允许煤炉 CDN 域名
     - 命中本地缓存直接返回，否则后端代下载、缓存到 imges/_mercari_cache/。
+
+    与 image-thumb 同一套口径：限速只压在真正发外网请求的那一次上，命中缓存不计费
+    （缓存文件本身就在 /imges 静态挂载下，无认证无限速可直接取）。
     """
     raw = (u or "").strip()
     if not raw:
@@ -109,6 +113,8 @@ async def proxy_mercari_image(u: str):
             headers={"Cache-Control": "public, max-age=2592000"},
         )
 
+    # 未命中：下面要发外网请求 + 落盘，这才是需要限速保护的重活
+    check_public_rate_limit(request)
     try:
         data, content_type = await asyncio.to_thread(_download, raw)
     except urllib.error.HTTPError as e:

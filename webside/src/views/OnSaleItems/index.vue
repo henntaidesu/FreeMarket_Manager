@@ -133,6 +133,7 @@
 
     <el-card shadow="never" class="table-card">
       <el-table
+        v-if="!isCardView"
         :data="displayList"
         v-loading="loading"
         stripe
@@ -361,7 +362,80 @@
         </el-table-column>
       </el-table>
 
-      <div class="pagination">
+      <div v-if="isCardView" class="os-card-view">
+        <div class="os-card-spacer" :style="{ height: cardTopSpacer + 'px' }"></div>
+        <div ref="cardTopSentinel" class="os-card-sentinel"></div>
+        <div ref="cardGridRef" class="os-card-grid">
+          <div
+            v-for="row in cardRows"
+            :key="row.item_id"
+            class="os-card"
+            :class="{
+              'is-alert': isOnSaleAlertRow(row),
+              'is-picked': batchMode && batchSelectedIds.has(String(row.item_id || '').trim()),
+              'is-pick-disabled': batchMode && !batchSelectable(row)
+            }"
+            @click="onCardClick(row)"
+          >
+            <div class="os-card-thumb">
+              <el-image v-if="firstThumb(row)" :src="firstThumb(row)" fit="cover" lazy referrerpolicy="no-referrer">
+                <template #error><span class="thumb-fallback">-</span></template>
+              </el-image>
+              <span v-else class="thumb-fallback">-</span>
+              <el-tag :type="platformTagType(row)" size="small" effect="dark" class="os-card-platform">
+                {{ platformLabel(row) }}
+              </el-tag>
+              <el-tag :type="onSaleStatusTagType(row.status)" size="small" effect="dark" class="os-card-status">
+                {{ onSaleStatusLabel(row.status) }}
+              </el-tag>
+              <el-tooltip
+                v-if="isOnSaleAlertRow(row)"
+                effect="dark"
+                placement="top"
+                :show-after="100"
+                popper-class="on-sale-alert-tooltip-popper"
+              >
+                <template #content>
+                  <div class="on-sale-alert-tooltip-title">{{ t('onSaleItems.alertReasonTitle') }}</div>
+                  <ul class="on-sale-alert-tooltip-list">
+                    <li v-for="(reason, i) in onSaleAlertReasons(row)" :key="i">{{ reason }}</li>
+                  </ul>
+                </template>
+                <el-icon class="os-card-alert"><WarningFilled /></el-icon>
+              </el-tooltip>
+              <el-icon
+                v-if="batchMode && batchSelectedIds.has(String(row.item_id || '').trim())"
+                class="os-card-check"
+                color="#67C23A"
+                :size="22"
+              ><Check /></el-icon>
+              <!-- 卡片上没有按钮，抓取详情的进度只能压在图上 -->
+              <div v-if="detailLoadingIds.has(String(row.item_id || '').trim())" class="os-card-busy">
+                <el-icon class="is-loading" :size="22"><Loading /></el-icon>
+              </div>
+            </div>
+            <div class="os-card-body">
+              <div class="os-card-name">{{ row.name || '-' }}</div>
+              <div class="os-card-price">¥{{ Number(row.price || 0) }}</div>
+              <div class="os-card-meta">
+                <span class="os-card-ellipsis">{{ row.seller_name || '-' }}</span>
+                <span class="os-card-ellipsis">{{ row.item_id }}</span>
+              </div>
+              <div class="os-card-meta">
+                <span>{{ t('onSaleItems.likesComments') }} {{ row.num_likes ?? 0 }}/{{ row.num_comments ?? 0 }}</span>
+                <span>{{ t('onSaleItems.pvRecent') }} {{ row.item_pv ?? 0 }}/{{ row.recent_item_pv ?? 0 }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div ref="cardBottomSentinel" class="os-card-sentinel"></div>
+        <div class="os-card-foot">
+          <span v-if="cardLoading">{{ t('onSaleItems.cardLoading') }}</span>
+          <span v-else-if="!cardRows.length">{{ t('onSaleItems.cardEmpty') }}</span>
+        </div>
+      </div>
+
+      <div v-if="!isCardView" class="pagination">
         <el-pagination
           v-model:current-page="page"
           v-model:page-size="pageSize"

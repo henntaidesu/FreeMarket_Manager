@@ -16,6 +16,7 @@ from fastapi import HTTPException
 
 from .....use_yahoo.todos import (
     fetch_yahoo_todo_detail,
+    finish_yahoo_wait_reply_todo,
     get_cached_yahoo_todo_detail,
     send_yahoo_todo_message,
     ship_yahoo_todo,
@@ -89,3 +90,16 @@ async def yahoo_trade_message_endpoint(
         todo_id,
         lambda: send_yahoo_todo_message(int(todo_id), req.text, dry_run=bool(req.dry_run)),
     )
+
+
+def yahoo_finish_reply_endpoint(todo_id: int) -> Dict[str, Any]:
+    """把雅虎「待回复」待办标记为处理完毕（软删）。
+
+    纯本地写，不开浏览器也不进账号串行队列——所以这里不走 ``_run``。
+    """
+    try:
+        return finish_yahoo_wait_reply_todo(int(todo_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))

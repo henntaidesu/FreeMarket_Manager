@@ -6,6 +6,7 @@ import { Download, Loading } from '@element-plus/icons-vue'
 import { notificationsApi } from '@/api'
 import { useMercariAccountStore } from '@/stores/mercariAccount.js'
 import { useSyncLockStore } from '@/stores/syncLock.js'
+import { useViewModeStore } from '@/stores/viewMode.js'
 import BundlePurchaseDialog from '@/components/BundlePurchaseDialog.vue'
 import ItemCommentDialog from '@/components/ItemCommentDialog.vue'
 import DesiredPriceDialog from '@/components/DesiredPriceDialog.vue'
@@ -125,6 +126,13 @@ export default defineComponent({
       { key: 'platform_notice', label: t('notifications.categoryPlatformNotice') },
       { key: 'other', label: t('notifications.categoryOther') },
     ])
+
+    // ===== 表格 / 卡片视图 =====
+    // 两种视图共用同一份 list 与分页：本页的「已读」会把行从列表里摘掉（只列未读），
+    // 用其它页那套滚动窗口的话，页码与已加载窗口会随每次已读而错位。
+    // 视图偏好是全局的（切换开关在侧边栏底部），本页只读不写
+    const viewModeStore = useViewModeStore()
+    const isCardView = computed(() => viewModeStore.isCardView)
 
     const syncLoading = ref(false)
     const markReadLoadingIds = ref(new Set())
@@ -566,6 +574,7 @@ export default defineComponent({
       loading,
       page,
       pageSize,
+      isCardView,
       filters,
       categoryChips,
       chipCounts,

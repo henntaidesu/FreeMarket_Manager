@@ -159,6 +159,32 @@ async def send_yahoo_todo_message(
     return result
 
 
+def finish_yahoo_wait_reply_todo(todo_id: int) -> Dict[str, Any]:
+    """把雅虎「待回复」待办直接标记为处理完毕（软删），不开浏览器。
+
+    需要这条手动出口，是因为 ``send_yahoo_todo_message`` 里那次软删只在「真发出了一条
+    取引メッセージ」时才发生：雅虎对取引メッセージ有发送次数上限（交易页上的「残り N 回」），
+    额度用尽、或卖家已经在 App 里回过、或这条来信根本不需要回复时，那条路径走不到。
+    而这条来信是通知流里的一条 ``obems``——回没回复它都不会从雅虎接口消失，不本地收尾
+    就会永远挂在待回复里。
+
+    这里刻意不复用 ``_resolve_yahoo_todo``：它还要求 ``item_id``（开交易页用），而本函数
+    只写本地库，缺商品 ID 的待回复行同样该能收尾。
+    """
+    todo = TodoItemModel.find_by_id(id=int(todo_id))
+    if not todo:
+        raise ValueError(f"待办事项 id={todo_id} 不存在")
+    platform = (getattr(todo, "platform", "") or "mercari").strip().lower()
+    if platform != "yahoo":
+        raise ValueError(f"待办 id={todo_id} 不是雅虎待办（platform={platform}）")
+    kind = (getattr(todo, "kind", "") or "").strip()
+    if kind != _WAIT_REPLY_KIND:
+        raise ValueError(f"待办 id={todo_id} 不是雅虎待回复类型（kind={kind}），不能标记处理完成")
+    if not _finalize_wait_reply_todo(int(todo_id)):
+        raise RuntimeError(f"标记待办 id={todo_id} 处理完成失败")
+    return {"todo_id": int(todo_id), "completed": True}
+
+
 def _finalize_wait_reply_todo(todo_id: int) -> bool:
     """待回复待办软删 + 置本地完成标记。返回是否真的收尾了（非待回复类型不动）。"""
     todo = TodoItemModel.find_by_id(id=int(todo_id))

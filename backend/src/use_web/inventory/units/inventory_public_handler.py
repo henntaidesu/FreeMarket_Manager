@@ -2,10 +2,11 @@
 """库存公开端点业务处理器：无需认证（如缩略图）。"""
 import os
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse
 from PIL import Image, ImageOps
 
+from ....rate_limit import check_public_rate_limit
 from ...image_storage import get_image_root
 from ..._path_safety import resolve_within_imges
 
@@ -13,11 +14,16 @@ from ..._path_safety import resolve_within_imges
 Image.MAX_IMAGE_PIXELS = 64_000_000
 
 
-def get_image_thumb(path: str, size: int = 300):
+def get_image_thumb(request: Request, path: str, size: int = 300):
     """
     按需生成缩略图并缓存到磁盘。
     - path: /imges/xxx.jpg 格式
     - size: 最长边像素（默认 300，列表小图用 200 即可）
+
+    限速只压在**真正要生成**的那一次上（见下方 check_public_rate_limit 的位置）：
+    命中缓存时这里只是 FileResponse 一个小文件，而那个文件本身就躺在 /imges 静态挂载下、
+    无需认证也无限速就能直接取到——对命中缓存计费挡不住任何东西，只会让卡片视图
+    （一屏 30 张图）在自家页面上被判成滥用。
     """
     clean = (path or "").strip()
     # realpath 包含性校验：拦截 ..、Windows 盘符、UNC 等一切越界写法
@@ -42,6 +48,8 @@ def get_image_thumb(path: str, size: int = 300):
     thumb_abs = os.path.join(thumb_dir, thumb_filename)
 
     if not os.path.exists(thumb_abs):
+        # 解码 + 缩放 + 落盘：唯一会让未认证请求占用服务端 CPU/磁盘的分支
+        check_public_rate_limit(request)
         try:
             img = Image.open(orig_abs)
             # 先应用 EXIF 方向信息，避免手机竖拍图片在缩略图中出现旋转偏差

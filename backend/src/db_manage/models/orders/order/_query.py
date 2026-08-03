@@ -71,6 +71,7 @@ class _QueryMixin:
         page: int = 1,
         page_size: int = 20,
         platform: Optional[str] = None,
+        seller_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         db = cls().db
         base_sql, params = cls._build_list_filter(
@@ -80,6 +81,7 @@ class _QueryMixin:
             end_ts=end_ts,
             owner_user_id=owner_user_id,
             platform=platform,
+            seller_id=seller_id,
         )
 
         total = db.execute_query(f"SELECT COUNT(*) {base_sql}", tuple(params))[0][0]

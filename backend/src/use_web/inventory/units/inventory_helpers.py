@@ -111,7 +111,54 @@ def _legacy_paths_from_db_columns(images_json_raw) -> List[str]:
     return _paths_from_images_json(images_json_raw)
 
 
-def _query_inventory_with_joins(where_sql: str = "", params: tuple = ()) -> list[dict]:
+def inventory_alert_sql_expr() -> str:
+    """「需标红顶置」的 SQL 版本，与前端 isInventoryAlertRow 同口径：
+    无归属 / 归属系统管理员（username='admin' 或显示名「系统管理员」）/ 在售+待出 > 库存。
+
+    列表排序把这些行顶到最前，所以口径必须和前端标红一致——两边分开写就会出现
+    「排在最前的行没标红」。
+
+    归属判定走 users 子查询而不是连接别名 ``u``：这个表达式同时要用在 ORDER BY、WHERE
+    和只查 inventory 单表的 count_inventory 里，只依赖 ``p`` 才能三处通用。users 是极小的表。
+    """
+    return (
+        "(p.owner_user_id IS NULL OR p.owner_user_id <= 0"
+        " OR p.owner_user_id IN ("
+        "   SELECT id FROM [users] WHERE username = 'admin' OR display_name = '系统管理员')"
+        " OR (COALESCE(p.on_sale_quantity, 0) + COALESCE(p.pending_outbound_qty, 0)"
+        "     > COALESCE(p.quantity, 0)))"
+    )
+
+
+def inventory_listable_sql_expr() -> str:
+    """可上架的排序表达式：与本文件末尾 Python 侧重算完全同式（组合预留取自 cr 派生表）。"""
+    return db.dialect.greatest(
+        "0",
+        "COALESCE(p.quantity, 0) - COALESCE(p.on_sale_quantity, 0)"
+        " - COALESCE(p.pending_outbound_qty, 0) - COALESCE(p.pending_listing_qty, 0)"
+        " - COALESCE(cr.reserved, 0)",
+    )
+
+
+def count_inventory(where_sql: str = "", params: tuple = ()) -> int:
+    """按同一份 WHERE 统计总条数。
+
+    只连 inventory 本表：list_inventory 的每个筛选条件都只引用 ``p.``，
+    加 JOIN 只会让 COUNT 变慢而不改变结果。
+    """
+    row = db.execute_query(
+        f"SELECT COUNT(*) FROM [inventory] p WHERE COALESCE(p.is_delete, 0) = 0 {where_sql}",
+        tuple(params),
+    )
+    return int(row[0][0] or 0) if row else 0
+
+
+def _query_inventory_with_joins(
+    where_sql: str = "",
+    params: tuple = (),
+    order_sql: str = "",
+    limit_sql: str = "",
+) -> list[dict]:
     from ....db_manage.models.system.warehouse import WarehouseModel
     from ....use_mercari.inventory_counters import _combined_reserved_agg_subquery
 
@@ -137,6 +184,8 @@ def _query_inventory_with_joins(where_sql: str = "", params: tuple = ()) -> list
         LEFT JOIN [users] u ON u.id = p.owner_user_id
         LEFT JOIN {combined_reserved_agg} cr ON cr.src_id = p.id
         WHERE COALESCE(p.is_delete, 0) = 0 {where_sql}
+        {order_sql}
+        {limit_sql}
     """
     rows = db.execute_query(sql, tuple(params))
     items = [_enrich_inventory_api_dict(_row_to_inventory_detail(r)) for r in rows]

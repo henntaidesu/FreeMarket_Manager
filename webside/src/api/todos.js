@@ -88,5 +88,8 @@ export const todosApi = {
     http.post(`/use_web/todos/${encodeURIComponent(todoId)}/yahoo/ship`, body || {}, { timeout: 0, ...axiosConfig }),
   /** 给买家发一条雅虎取引メッセージ */
   yahooSendMessage: (todoId, body = {}, axiosConfig = {}) =>
-    http.post(`/use_web/todos/${encodeURIComponent(todoId)}/yahoo/send-message`, body || {}, { timeout: 0, ...axiosConfig })
+    http.post(`/use_web/todos/${encodeURIComponent(todoId)}/yahoo/send-message`, body || {}, { timeout: 0, ...axiosConfig }),
+  /** 雅虎待回复：直接标记处理完毕（软删）。纯本地写，不开浏览器 */
+  yahooFinishReply: (todoId, axiosConfig = {}) =>
+    http.post(`/use_web/todos/${encodeURIComponent(todoId)}/yahoo/finish-reply`, {}, { timeout: 20000, ...axiosConfig })
 }

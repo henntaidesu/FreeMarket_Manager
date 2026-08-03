@@ -44,6 +44,7 @@ from .units.todos_sync import (
     submit_transaction_review_endpoint,
     sync_todos,
     todos_sync_progress,
+    yahoo_finish_reply_endpoint,
     yahoo_ship_endpoint,
     yahoo_trade_detail_cache_endpoint,
     yahoo_trade_detail_endpoint,
@@ -149,3 +150,4 @@ router.add_api_route("/{todo_id}/yahoo/trade-detail", yahoo_trade_detail_endpoin
 router.add_api_route("/{todo_id}/yahoo/trade-detail-cache", yahoo_trade_detail_cache_endpoint, methods=["GET"])
 router.add_api_route("/{todo_id}/yahoo/ship", yahoo_ship_endpoint, methods=["POST"])
 router.add_api_route("/{todo_id}/yahoo/send-message", yahoo_trade_message_endpoint, methods=["POST"])
+router.add_api_route("/{todo_id}/yahoo/finish-reply", yahoo_finish_reply_endpoint, methods=["POST"])

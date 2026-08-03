@@ -143,7 +143,7 @@
         <el-tag type="primary" effect="light">{{ t('inventory.imageSearchResultCount', { count: list.length }) }}</el-tag>
         <el-button size="small" link type="primary" @click="clearImageSearch">{{ t('inventory.imageSearchClear') }}</el-button>
       </div>
-      <div class="table-scroll">
+      <div v-if="!isCardView" class="table-scroll">
       <el-table
         ref="inventoryTableRef"
         :data="pagedList"
@@ -457,10 +457,86 @@
           v-model:current-page="currentPage"
           :page-size="pageSize"
           layout="total, prev, pager, next"
-          :total="list.length"
+          :total="displayTotal"
           :pager-count="5"
+          @current-change="onInventoryPageChange"
         />
       </div>
+      </div>
+
+      <!-- 卡片视图：懒加载滚动窗口。顶部占位块 = 已回收批次的合计高度，
+           滚动条长度与位置因此保持连续，往回滚碰到上哨兵会把那几批取回来。 -->
+      <div v-if="isCardView" class="inv-card-view">
+        <div class="inv-card-spacer" :style="{ height: cardTopSpacer + 'px' }"></div>
+        <div ref="cardTopSentinel" class="inv-card-sentinel"></div>
+        <div ref="cardGridRef" class="inv-card-grid">
+          <div
+            v-for="row in cardDisplayRows"
+            :key="row.id"
+            class="inv-card"
+            :class="{
+              'is-alert': isInventoryAlertRow(row),
+              'is-picked': listingPickMode && listingPickIds.has(row.id),
+              'is-pick-disabled': listingPickMode && !isListingPickSelectable(row)
+            }"
+            @click="onCardClick(row)"
+          >
+            <div class="inv-card-thumb">
+              <el-image
+                v-if="inventoryRowPrimaryImage(row)"
+                :src="thumbUrl(inventoryRowPrimaryImage(row), 300)"
+                fit="cover"
+                lazy
+                referrerpolicy="no-referrer"
+              >
+                <template #error><span class="thumb-fallback">-</span></template>
+              </el-image>
+              <span v-else class="thumb-fallback">-</span>
+              <!-- 压在图上的四角信息：左上=所属游戏，右上=商品ID，右下=物品归属；
+                   左下留给匹配度/勾选（图片搜索与组合选择互斥，不会同时出现）。缺值不占位 -->
+              <span v-if="row.category_name" class="inv-card-badge inv-card-badge--game">{{ row.category_name }}</span>
+              <span class="inv-card-badge inv-card-badge--id">#{{ row.id }}</span>
+              <span v-if="displayOwnerName(row)" class="inv-card-badge inv-card-badge--owner">{{ displayOwnerName(row) }}</span>
+              <el-tag
+                v-if="imageSearchActive"
+                class="inv-card-score"
+                size="small"
+                effect="dark"
+                :type="Number(row.match_score || 0) >= 0.8 ? 'success' : 'warning'"
+              >{{ Math.round(Number(row.match_score || 0) * 100) }}%</el-tag>
+              <el-icon
+                v-if="listingPickMode && listingPickIds.has(row.id)"
+                class="inv-card-check"
+                color="#67C23A"
+                :size="22"
+              ><Check /></el-icon>
+            </div>
+            <div class="inv-card-body">
+              <div class="inv-card-name">
+                <el-tag v-if="Number(row.is_combined || 0) === 1" size="small" type="success" effect="light">{{ t('inventory.combinedTag') }}</el-tag>
+                {{ row.name || '-' }}
+              </div>
+              <div class="inv-card-price">¥{{ Math.round(Number(row.price || 0)) }}</div>
+              <div class="inv-card-tags">
+                <el-tag :type="quantityTagType(row.quantity)" size="small">{{ t('inventory.stockColumn') }} {{ row.quantity || 0 }}</el-tag>
+                <el-tag size="small" effect="plain">{{ t('inventory.onSaleColumn') }} {{ Number(row.on_sale_quantity ?? 0) }}</el-tag>
+                <el-tag
+                  size="small"
+                  :type="isInventoryOverListed(row) ? 'danger' : (listableQuantity(row) > 0 ? 'success' : 'info')"
+                >{{ t('inventory.listableColumn') }} {{ listableQuantity(row) }}</el-tag>
+              </div>
+              <!-- 商品ID 已移到图片右上角，这行只剩货位 -->
+              <div class="inv-card-meta">
+                <span class="inv-card-wh">{{ displayWarehouseLocation(row) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div ref="cardBottomSentinel" class="inv-card-sentinel"></div>
+        <div class="inv-card-foot">
+          <span v-if="cardLoading">{{ t('inventory.cardLoading') }}</span>
+          <span v-else-if="!cardDisplayRows.length">{{ t('inventory.cardEmpty') }}</span>
+        </div>
       </div>
     </el-card>
 
@@ -524,13 +600,13 @@
             <el-form-item :label="t('inventory.gameCategory')" prop="category_id">
               <div class="product-field-inline">
                 <template v-if="!categoryCreateMode">
+                  <!-- 去掉 clearable 的叉号后，改用带「未分类」节点的选项表，清空仍走下拉本身 -->
                   <el-cascader
                     v-model="formCategoryPath"
-                    :options="categoryCascaderOptions"
+                    :options="categoryCascaderOptionsWithNone"
                     :props="categoryCascaderProps"
                     :show-all-levels="false"
                     filterable
-                    clearable
                     :placeholder="t('inventory.pleaseSelectCategory')"
                     class="product-field-inline__main"
                     popper-class="product-type-cascader-popper"
@@ -538,6 +614,19 @@
                   <el-button type="primary" plain @click="startCreateCategory">{{ t('inventory.newCategory') }}</el-button>
                 </template>
                 <template v-else>
+                  <!-- 新建分类同样是两级：一级=所属公司（可直接输入新公司），二级=分类名。
+                       只填名字建出来的分类没有公司，在级联里会掉成一级叶子，和别的游戏分不到一起 -->
+                  <el-select
+                    v-model="newCategoryCompany"
+                    filterable
+                    allow-create
+                    default-first-option
+                    clearable
+                    class="product-field-inline__company"
+                    :placeholder="t('inventory.newCategoryCompanyPlaceholder')"
+                  >
+                    <el-option v-for="c in categoryCompanyOptions" :key="c" :label="c" :value="c" />
+                  </el-select>
                   <el-input
                     v-model="newCategoryName"
                     :placeholder="t('inventory.inputNewCategoryName')"
@@ -556,10 +645,11 @@
               <el-select
                 v-model="form.product_type_id"
                 filterable
-                clearable
                 :placeholder="t('inventory.pleaseSelectProductType')"
                 style="width: 100%"
               >
+                <!-- 取代 clearable 的叉号：商品类型非必填，留一个显式的「未设置」 -->
+                <el-option :label="t('inventory.notSet')" :value="null" />
                 <el-option
                   v-for="opt in productTypeCascaderOptions"
                   :key="opt.value"
@@ -592,22 +682,23 @@
             <el-form-item :label="t('inventory.productOwner')" prop="owner_user_id">
               <el-select
                 v-model="form.owner_user_id"
-                clearable
                 :placeholder="t('inventory.pleaseSelectOwner')"
                 style="width: 100%"
               >
+                <!-- 取代 clearable 的叉号（无归属会让该行标红，但仍是合法状态，得留得回去） -->
+                <el-option :label="t('inventory.notSet')" :value="null" />
                 <el-option v-for="u in ownerUsers" :key="u.id" :label="u.display_name || u.username" :value="u.id" />
               </el-select>
             </el-form-item>
           </el-col>
           <el-col v-if="!showCombinedEditDetail" :xs="24" :sm="12">
             <el-form-item :label="t('inventory.belongingShelf')" prop="warehouse_id">
+              <!-- 同上：不用叉号，改用带「默认仓库」节点的选项表回到未分配货位 -->
               <el-cascader
                 v-model="warehouseCascaderPath"
-                :options="warehouseCascaderOptions"
+                :options="warehouseCascaderOptionsWithDefault"
                 :props="warehouseCascaderProps"
                 :show-all-levels="false"
-                clearable
                 :placeholder="t('inventory.warehouseShelfArrowPlaceholder')"
                 style="width: 100%"
                 popper-class="product-type-cascader-popper"
@@ -626,7 +717,8 @@
               />
             </el-form-item>
           </el-col>
-          <el-col v-if="form.id" :xs="24" :sm="12">
+          <!-- 三个只读计数：新建时恒为 0，照样展示，免得建档瞬间表单又长出三行 -->
+          <el-col :xs="24" :sm="12">
             <el-form-item :label="t('inventory.onSaleQuantity')">
               <el-input-number
                 v-model="form.on_sale_quantity"
@@ -639,7 +731,7 @@
               />
             </el-form-item>
           </el-col>
-          <el-col v-if="form.id" :xs="24" :sm="12">
+          <el-col :xs="24" :sm="12">
             <el-form-item :label="t('inventory.combinedColumn')">
               <el-input-number
                 :model-value="Number(form.combined_quantity || 0)"
@@ -649,7 +741,7 @@
               />
             </el-form-item>
           </el-col>
-          <el-col v-if="form.id" :xs="24" :sm="12">
+          <el-col :xs="24" :sm="12">
             <el-form-item :label="t('inventory.listableColumn')">
               <el-input-number
                 :model-value="listableQuantity(form)"
@@ -660,7 +752,9 @@
             </el-form-item>
           </el-col>
         </el-row>
-        <template v-if="form.id">
+        <!-- 出品信息等区块过去整段 v-if="form.id"，而新建商品的 id 要等实时保存建档
+             （条码 + 至少一张图 + 合法单价齐了才触发）才回填，于是「商品入库」点开只有半张表单，
+             传完图才突然长出下半截。这里不再按 id 隐藏，新建时同样是完整表单。 -->
           <el-row :gutter="16">
             <el-col :span="24">
               <el-form-item :label="t('inventory.mercariItemId')">
@@ -758,12 +852,35 @@
                   :loading="mercariAccountsLoading"
                   @change="persistListingField('mercari_account_id')"
                 >
+                  <!-- 选中态也要带平台色块，所以 label 插槽和选项插槽渲染同一段结构；
+                       :label 仅作纯文本兜底（筛选/无插槽场景） -->
+                  <template #label="{ label }">
+                    <span class="listing-account-opt">
+                      <el-tag
+                        v-if="currentListingAccount"
+                        size="small"
+                        effect="dark"
+                        :type="accountPlatformTagType(currentListingAccount)"
+                      >{{ accountPlatformName(currentListingAccount) }}</el-tag>
+                      <template v-if="currentListingAccount">
+                        <span class="listing-account-onsale">{{ accountOnSaleText(currentListingAccount) }}</span>
+                        <span class="listing-account-name">{{ accountDisplayName(currentListingAccount) }}</span>
+                      </template>
+                      <template v-else>{{ label }}</template>
+                    </span>
+                  </template>
                   <el-option
                     v-for="a in mercariAccountOptions"
                     :key="a.id"
                     :label="mercariAccountOptionLabel(a)"
                     :value="a.id"
-                  />
+                  >
+                    <span class="listing-account-opt">
+                      <el-tag size="small" effect="dark" :type="accountPlatformTagType(a)">{{ accountPlatformName(a) }}</el-tag>
+                      <span class="listing-account-onsale">{{ accountOnSaleText(a) }}</span>
+                      <span class="listing-account-name">{{ accountDisplayName(a) }}</span>
+                    </span>
+                  </el-option>
                 </el-select>
               </el-form-item>
             </el-col>
@@ -794,7 +911,7 @@
                   :show-all-levels="false"
                   :placeholder="t('dialogs.singleListing.shippingFromPlaceholder')"
                   style="width: 100%"
-                  popper-class="product-type-cascader-popper"
+                  popper-class="product-type-cascader-popper shipping-from-cascader-popper"
                   @change="handleShippingFromChange"
                 />
               </el-form-item>
@@ -859,7 +976,6 @@
               </el-form-item>
             </el-col>
           </el-row>
-        </template>
         </div>
         <aside
           class="product-edit-dialog-layout__aside product-edit-dialog-layout__aside--images"

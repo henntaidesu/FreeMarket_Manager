@@ -105,6 +105,13 @@
   min-height: 300px !important;
 }
 
+/* 发货地是「出品信息」里唯一的级联：cascader 每级菜单默认 min-width:180px，
+   两级叠起来的弹层比同排 el-select 的下拉宽出一倍，看着就比别的长。
+   都道府県名很短（東京都 / 神奈川県），收窄到贴合字段宽度即可。 */
+.shipping-from-cascader-popper .el-cascader-menu {
+  min-width: 128px !important;
+}
+
 /* 商品类型选项上的「煤炉/雅虎未配置」标记。cascader 弹层 teleport 到 body，
    scoped 样式够不着，只能放全局。 */
 .pt-platform-flag {

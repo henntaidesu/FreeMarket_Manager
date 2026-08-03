@@ -12,9 +12,39 @@ from .inventory_helpers import (
     _inventory_exists,
     _inventory_paths_from_parsed_row,
     _sql_inventory_has_image_condition,
+    count_inventory,
+    inventory_alert_sql_expr,
+    inventory_listable_sql_expr,
 )
 
 db = DatabaseManager()
+
+#: 允许排序的列 → SQL 表达式。键与前端表头 prop 一一对应；不在表里的值一律忽略
+#: （而不是拼进 SQL），排序参数是唯一会进入 ORDER BY 的用户输入。
+_SORTABLE_COLUMNS = {
+    "price": "COALESCE(p.price, 0)",
+    "quantity": "COALESCE(p.quantity, 0)",
+    "on_sale_quantity": "COALESCE(p.on_sale_quantity, 0)",
+    "pending_outbound_qty": "COALESCE(p.pending_outbound_qty, 0)",
+    "combined_quantity": "COALESCE(cr.reserved, 0)",
+}
+
+
+def _order_sql(sort_by: Optional[str], sort_order: Optional[str]) -> str:
+    """列表排序：标红行恒定顶置，其后按选中列，最后按管理番号倒序兜底。
+
+    与前端旧的整表排序（sortedInventoryList）同规则——分页以后排序必须在库里做，
+    否则每页各自排一次，翻页时顺序会前后矛盾。
+    """
+    expr = _SORTABLE_COLUMNS.get((sort_by or "").strip())
+    if expr is None and (sort_by or "").strip() == "listable_quantity":
+        expr = inventory_listable_sql_expr()
+    parts = [f"CASE WHEN {inventory_alert_sql_expr()} THEN 0 ELSE 1 END ASC"]
+    if expr:
+        direction = "ASC" if str(sort_order or "").strip().lower() in ("asc", "ascending") else "DESC"
+        parts.append(f"{expr} {direction}")
+    parts.append("p.id DESC")
+    return "ORDER BY " + ", ".join(parts)
 
 
 def list_inventory(
@@ -29,7 +59,22 @@ def list_inventory(
     no_image_only: bool = False,
     combined_only: bool = False,
     auto_listing_only: bool = False,
+    include_alert_rows: bool = False,
+    page: int = 1,
+    page_size: Optional[int] = None,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = None,
 ):
+    """库存列表。
+
+    ``page_size`` 省略 = 不分页，一次返回全部（订单页的库存选择器就是这么用的）。
+    传了则按页返回；无论哪种都是 ``{items,total,page,page_size}`` 这一个信封形状。
+
+    ``include_alert_rows`` 只对 ``in_stock_only`` 生效：库存页「隐藏无在库」是给列表降噪用的，
+    但库存 0 却还挂着在售/待出、或没有归属的行恰恰是最该被看见的，隐掉就再也没人去修。
+    默认关着，因为订单页的出库选择器同样用 ``in_stock_only``，那里放行零库存行是错的
+    （出不了库），两种语义必须分开。
+    """
     where_parts = []
     params = []
     kw = (keyword or "").strip()
@@ -71,7 +116,12 @@ def list_inventory(
         # 组合商品没有货架号（仓库位置恒为「-」），按货架筛选时不应出现在结果里
         where_parts.append("AND COALESCE(p.is_combined, 0) = 0")
     if in_stock_only:
-        where_parts.append("AND COALESCE(p.quantity, 0) > 0")
+        if include_alert_rows:
+            where_parts.append(
+                f"AND (COALESCE(p.quantity, 0) > 0 OR {inventory_alert_sql_expr()})"
+            )
+        else:
+            where_parts.append("AND COALESCE(p.quantity, 0) > 0")
     if warehouse_assigned_only:
         where_parts.append("AND p.warehouse_id IS NOT NULL")
     if no_image_only:
@@ -80,8 +130,26 @@ def list_inventory(
         where_parts.append("AND COALESCE(p.is_combined, 0) = 1")
     if auto_listing_only:
         where_parts.append("AND COALESCE(p.auto_listing_enabled, 0) = 1")
-    where_sql = " " + " ".join(where_parts) + " ORDER BY p.id DESC"
-    return _query_inventory_with_joins(where_sql, tuple(params))
+    where_sql = " " + " ".join(where_parts)
+    order_sql = _order_sql(sort_by, sort_order)
+
+    if page_size is None:
+        items = _query_inventory_with_joins(where_sql, tuple(params), order_sql)
+        return {"items": items, "total": len(items), "page": 1, "page_size": len(items)}
+
+    try:
+        size = max(1, min(int(page_size), 200))
+        pg = max(1, int(page or 1))
+    except (TypeError, ValueError):
+        size, pg = 30, 1
+    total = count_inventory(where_sql, tuple(params))
+    items = _query_inventory_with_joins(
+        where_sql,
+        tuple(params) + (size, (pg - 1) * size),
+        order_sql,
+        "LIMIT ? OFFSET ?",
+    )
+    return {"items": items, "total": total, "page": pg, "page_size": size}
 
 
 def inventory_summary():

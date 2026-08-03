@@ -33,7 +33,7 @@
     </el-card>
 
     <el-card shadow="never" class="table-card">
-      <el-table :data="list" v-loading="loading" stripe row-key="id">
+      <el-table v-if="!isCardView" :data="list" v-loading="loading" stripe row-key="id">
         <el-table-column :label="t('notifications.platformColumn')" width="86" align="center" header-align="center">
           <template #default="{ row }">
             <el-tag :type="platformTagType(row)" size="small" effect="plain">{{ platformLabel(row) }}</el-tag>
@@ -139,6 +139,84 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <!-- 卡片视图：与表格同一份数据、同一套分页，只是换个排布 -->
+      <div v-if="isCardView" v-loading="loading" class="ntf-card-view">
+        <div class="ntf-card-grid">
+          <div v-for="row in list" :key="row.id" class="ntf-card">
+            <div class="ntf-card-head">
+              <div class="ntf-card-thumb">
+                <el-image
+                  v-if="row.photo_url"
+                  :src="row.photo_url"
+                  :preview-src-list="[row.photo_url]"
+                  :preview-teleported="true"
+                  fit="cover"
+                  referrerpolicy="no-referrer"
+                  lazy
+                >
+                  <template #error><span class="thumb-fallback">-</span></template>
+                </el-image>
+                <span v-else class="thumb-fallback">-</span>
+              </div>
+              <div class="ntf-card-headtext">
+                <div class="ntf-card-tags">
+                  <el-tag :type="platformTagType(row)" size="small" effect="dark">{{ platformLabel(row) }}</el-tag>
+                  <el-tag :type="kindTagType(row.kind)" size="small" effect="light">{{ kindLabel(row.kind) }}</el-tag>
+                </div>
+                <div class="ntf-card-message">{{ row.message || '-' }}</div>
+              </div>
+            </div>
+
+            <div v-if="row.item_id" class="ntf-card-item">
+              <span class="ntf-card-ellipsis">{{ row.item_name || row.item_id }}</span>
+              <span v-if="row.item_name" class="ntf-card-itemid">{{ row.item_id }}</span>
+            </div>
+            <div v-if="row.price" class="cell-extra">{{ t('notifications.priceDownRequest') }}: ¥{{ formatYen(row.price) }}</div>
+            <div v-if="row.bid_price" class="cell-extra">{{ t('notifications.bidLabel') }}: ¥{{ formatYen(row.bid_price) }}</div>
+
+            <div class="ntf-card-meta">
+              <span class="ntf-card-ellipsis">{{ senderNameFromMessage(row.message) || (row.sender_id && row.sender_id !== '0' ? `ID: ${row.sender_id}` : '-') }}</span>
+              <span>{{ displayTs(row.mercari_created) }}</span>
+            </div>
+            <div class="ntf-card-meta">
+              <span class="ntf-card-ellipsis">{{ row.account_name || `#${row.account_id}` }}</span>
+            </div>
+
+            <div class="ntf-card-actions">
+              <el-button
+                v-if="actionForKind(row.kind) === 'open'"
+                size="small"
+                type="primary"
+                plain
+                :disabled="!hasTargetUrl(row)"
+                @click="onOpenTarget(row)"
+              >
+                {{ t('notifications.open') }}
+              </el-button>
+              <el-button
+                v-else-if="actionForKind(row.kind) === 'detail'"
+                size="small"
+                type="primary"
+                plain
+                @click="onViewDetail(row)"
+              >
+                {{ t('notifications.viewDetail') }}
+              </el-button>
+              <el-button
+                size="small"
+                type="success"
+                plain
+                :loading="markReadLoadingIds.has(row.id)"
+                @click="onMarkRead(row)"
+              >
+                {{ t('notifications.read') }}
+              </el-button>
+            </div>
+          </div>
+        </div>
+        <div v-if="!loading && !list.length" class="ntf-card-empty">{{ t('notifications.cardEmpty') }}</div>
+      </div>
 
       <el-pagination
         class="pagination"

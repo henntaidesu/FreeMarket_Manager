@@ -631,11 +631,17 @@ lets the user choose SQLite/MySQL, test the MySQL connection, and switch backend
 - `MERCARI_PROXY_AUTO_START` / `MERCARI_PROXY_PORT` / `MERCARI_PROXY_BIND_HOST` / `MERCARI_PROXY_UPSTREAM` / `MERCARI_PROXY_CERT_DIR`: Node reverse proxy (see Auxiliary Subsystems).
 - `IMAGE_SEARCH_AUTO_INDEX` / `IMAGE_SEARCH_MODEL_URL` / `IMAGE_SEARCH_THREADS`: CLIP image-search indexing.
 - `MEMORY_RECYCLE_AUTO` / `MEMORY_RECYCLE_INTERVAL_SEC` / `MEMORY_RECYCLE_MIN_RSS_MB` / `MEMORY_RECYCLE_INITIAL_DELAY_SEC`: Periodic RSS trimming (`memory_recycle.py`) — this app runs for days with a browser attached.
-- `PUBLIC_RATE_LIMIT` / `PUBLIC_RATE_LIMIT_BURST` (60) / `PUBLIC_RATE_LIMIT_RPS` (10): per-IP token
+- `PUBLIC_RATE_LIMIT` / `PUBLIC_RATE_LIMIT_BURST` (120) / `PUBLIC_RATE_LIMIT_RPS` (20): per-IP token
   bucket on the two **unauthenticated** image endpoints (`/inventory/image-thumb`,
   `/mercari-image`). Both make the server do real work (decode + write / outbound fetch + write)
   and the server binds `0.0.0.0` with `CORS: *`. Set `PUBLIC_RATE_LIMIT=0` to disable.
   It is a small in-process bucket — real abuse protection belongs at the reverse proxy.
+  **A token is spent inside the handler, only on a cache miss** — not as a router dependency,
+  which runs too early to know. A cache hit just returns a file that already sits under
+  `backend/imges/`, and that whole directory is mounted at `/imges` with no auth and no limit,
+  so charging for it protects nothing while making the inventory **card view** (30 images per
+  batch) look like abuse. Anything that adds a public endpoint doing real work must call
+  `check_public_rate_limit(request)` itself, at the point where the work begins.
 - `MAINTENANCE_AUTO`: Set to `0` to disable the **startup-only** cleanup pass (`maintenance.py`).
   Nothing else in this codebase reclaims anything, so without it `system_logs` (~270 rows/day),
   terminal `task_queue` rows, `detail_json` on soft-deleted todos, and the `_thumbs` /

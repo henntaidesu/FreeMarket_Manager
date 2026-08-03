@@ -52,7 +52,7 @@
           <el-menu
             :default-active="activePrimary"
             :collapse="false"
-            background-color="#001529"
+            background-color="#0f1728"
             text-color="#a6adb4"
             active-text-color="#ffffff"
             @select="onPrimarySelect"
@@ -85,23 +85,20 @@
             </el-menu-item>
           </el-menu>
         </div>
+        <!-- 列表页视图切换（全局一份）：只在有卡片视图的页面出现，
+             否则就是一个点了没反应的开关 -->
+        <div v-if="showViewModeSwitch" class="sidebar-view-mode">
+          <el-radio-group
+            :model-value="viewModeStore.mode"
+            size="small"
+            class="sidebar-view-mode-group"
+            @change="viewModeStore.setMode"
+          >
+            <el-radio-button value="table">{{ t('layout.viewMode.table') }}</el-radio-button>
+            <el-radio-button value="card">{{ t('layout.viewMode.card') }}</el-radio-button>
+          </el-radio-group>
+        </div>
         <div class="sidebar-footer">
-          <div class="sidebar-lang-row">
-            <el-icon :size="14" color="#9ba8bf"><Promotion /></el-icon>
-            <el-select
-              v-model="locale"
-              size="small"
-              class="sidebar-lang-select"
-              @change="onLocaleChange"
-            >
-              <el-option
-                v-for="lang in localeOptions"
-                :key="lang.value"
-                :label="lang.label"
-                :value="lang.value"
-              />
-            </el-select>
-          </div>
           <div class="sidebar-footer-row">
             <div class="sidebar-footer-user" :title="userName">{{ userName }}</div>
             <el-button class="sidebar-logout-btn" type="danger" plain size="small" @click="handleLogout">
@@ -185,23 +182,20 @@
 import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
-import { Menu, Close, ArrowRight, Promotion } from '@element-plus/icons-vue'
+import { Menu, Close, ArrowRight } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
-import { setLocale, SUPPORTED_LOCALES } from '@/i18n'
 import { memosApi } from '@/api/index.js'
+import { useViewModeStore } from '@/stores/viewMode.js'
 
 const router = useRouter()
 const route = useRoute()
-const { t, locale } = useI18n()
+const { t } = useI18n()
 
-const localeOptions = computed(() => SUPPORTED_LOCALES.map(code => ({
-  value: code,
-  label: t(`lang.${code}`),
-})))
+const viewModeStore = useViewModeStore()
 
-function onLocaleChange(val) {
-  setLocale(val)
-}
+/** 有卡片视图的列表页；其余页面隐藏侧栏那个切换开关 */
+const VIEW_MODE_ROUTES = ['/inventory', '/orders', '/on-sale-items', '/todos', '/notifications']
+const showViewModeSwitch = computed(() => VIEW_MODE_ROUTES.includes(route.path))
 
 const isMobile = ref(false)
 /** 仅手机端：抽屉侧栏是否打开；电脑端忽略 */
@@ -516,26 +510,34 @@ const handleLogout = async () => {
   overflow-x: hidden;
 }
 
+/* 视图切换：菜单与用户名之间，两个按钮平分侧栏宽度 */
+.sidebar-view-mode {
+  flex-shrink: 0;
+  padding: 12px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sidebar-view-mode-group {
+  display: flex;
+  width: 100%;
+}
+
+.sidebar-view-mode-group :deep(.el-radio-button) {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.sidebar-view-mode-group :deep(.el-radio-button__inner) {
+  width: 100%;
+  padding-left: 0;
+  padding-right: 0;
+  text-align: center;
+}
+
 .sidebar-footer {
   flex-shrink: 0;
   padding: 12px 14px 16px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.sidebar-lang-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.sidebar-lang-select {
-  flex: 1;
-  width: auto !important;
-}
-
-.sidebar-lang-select :deep(.el-select__wrapper) {
-  background: #131c2f !important;
 }
 
 .sidebar-footer-row {

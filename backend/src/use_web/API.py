@@ -22,7 +22,6 @@ use_web V2 API 聚合模块（按前端页面归类）
 from fastapi import APIRouter, Depends
 
 from ..auth import require_auth
-from ..rate_limit import check_public_rate_limit
 
 from .login.API import router as login_router
 from .dashboard.API import router as dashboard_router
@@ -52,16 +51,14 @@ router.include_router(login_router, prefix="/login", tags=["login"])
 # 服务端干重活：缩略图要解码+落盘，代理要发外网请求+落盘。服务绑 0.0.0.0、CORS 为 *，
 # 未认证即可触发。缓存体积已有 maintenance.py 兜底，CPU / 外网带宽 / 磁盘 IO 没有——
 # 所以这两条（也只有这两条）挂按 IP 的令牌桶限速。PUBLIC_RATE_LIMIT=0 可关。
-_PUBLIC_LIMIT = [Depends(check_public_rate_limit)]
+# 限速改在**处理器内部**调用，而不是挂成路由依赖：依赖跑在处理器之前，无从知道这次是
+# 命中缓存还是要真的生成/下载。命中缓存只是回传一个已经躺在 /imges 静态挂载下（无认证、
+# 无限速就能直接取）的小文件，对它计费挡不住任何东西，却会让库存卡片视图这种一屏 30 张图
+# 的自家页面被判成滥用（429 破图）。见两个处理器里 check_public_rate_limit 的落点。
 # 库存公开缩略图
-router.include_router(
-    inventory_public_router, prefix="/inventory", tags=["inventory-public"],
-    dependencies=_PUBLIC_LIMIT,
-)
+router.include_router(inventory_public_router, prefix="/inventory", tags=["inventory-public"])
 # 煤炉图片代理（跨页面共享，前端 <img> 直接通过 URL 访问，无需 token）
-router.include_router(
-    mercari_image_public_router, tags=["mercari-image"], dependencies=_PUBLIC_LIMIT,
-)
+router.include_router(mercari_image_public_router, tags=["mercari-image"])
 
 # ============ 需要认证的端点 ============
 _AUTH = [Depends(require_auth)]

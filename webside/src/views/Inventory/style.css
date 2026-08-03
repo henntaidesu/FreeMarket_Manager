@@ -142,6 +142,12 @@
 .product-field-inline :deep(.el-input) {
   width: 100%;
 }
+/* 新建分类的一级（所属公司）：定宽，和分类名输入框并排而不是各占一行 */
+.product-field-inline .product-field-inline__company {
+  flex: 0 0 150px;
+  width: 150px;
+  min-width: 0;
+}
 .product-qty-input {
   width: 100%;
 }
@@ -539,6 +545,170 @@
   display: flex;
   justify-content: flex-end;
   margin-top: 12px;
+}
+
+/* ===== 卡片视图 ===== */
+.inv-card-view { width: 100%; }
+/* 已回收批次的等高占位，撑住滚动条位置 */
+.inv-card-spacer { width: 100%; }
+/* 无限滚动哨兵：本身不占空间，由 IntersectionObserver 观察 */
+.inv-card-sentinel { width: 100%; height: 1px; }
+.inv-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px;
+  /* 每行等高，卡片内部各段又都是定高，整屏卡片因此完全一致 */
+  grid-auto-rows: 1fr;
+}
+.inv-card {
+  display: flex;
+  flex-direction: column;
+  background: #131c31;
+  border: 1px solid #263352;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.inv-card:hover {
+  border-color: #409eff;
+  transform: translateY(-2px);
+}
+.inv-card.is-alert { border-color: #f56c6c; }
+.inv-card.is-picked { border-color: #67c23a; box-shadow: 0 0 0 1px #67c23a inset; }
+.inv-card.is-pick-disabled { opacity: 0.45; cursor: not-allowed; }
+/* 图框固定高度 + cover 裁剪：商品图长宽比五花八门，
+   交给图片自己定高会让每张卡片高度都不一样 */
+.inv-card-thumb {
+  position: relative;
+  width: 100%;
+  height: 180px;
+  flex: 0 0 180px;
+  background: #0b1220;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.inv-card-thumb :deep(.el-image) {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.inv-card-thumb :deep(.el-image img) {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+/* 加载中 / 加载失败的占位也要撑满，否则该卡片会塌一块 */
+.inv-card-thumb :deep(.el-image__error),
+.inv-card-thumb :deep(.el-image__placeholder) {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* 压在图上的四角信息条：半透明黑底 + 白字，任何底图上都读得清。
+   最宽不超过图框的 70%，超出省略号，避免长分类名/长用户名横穿整张图 */
+.inv-card-badge {
+  position: absolute;
+  max-width: 70%;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.inv-card-badge--game { top: 6px; left: 6px; }
+.inv-card-badge--id { top: 6px; right: 6px; font-variant-numeric: tabular-nums; }
+.inv-card-badge--owner { bottom: 6px; right: 6px; }
+/* 左下：图片搜索的匹配度 / 组合选择的勾选（两者互斥，不会同时出现） */
+.inv-card-score { position: absolute; bottom: 6px; left: 6px; }
+.inv-card-check {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  background: rgba(0, 0, 0, 0.62);
+  border-radius: 50%;
+}
+.inv-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px 10px;
+}
+/* 恒定两行高：只有一行的名字也占两行，卡片高度才不会因标题长短而参差 */
+.inv-card-name {
+  font-size: 13px;
+  line-height: 1.35;
+  height: 2.7em;
+  color: #e5eaf3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.inv-card-price { font-size: 15px; font-weight: 600; color: #e6a23c; }
+/* 标签不换行：换行会把卡片顶高一截 */
+.inv-card-tags {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 4px;
+  height: 22px;
+  overflow: hidden;
+}
+.inv-card-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: #909399;
+}
+.inv-card-wh { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inv-card-foot {
+  padding: 16px 0 4px;
+  text-align: center;
+  font-size: 12px;
+  color: #909399;
+  min-height: 20px;
+}
+
+/* 出品账号下拉：平台色块 - 在售数 - 账号名 */
+.listing-account-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  overflow: hidden;
+}
+.listing-account-opt .el-tag { flex: 0 0 auto; }
+.listing-account-onsale {
+  flex: 0 0 auto;
+  color: #909399;
+  font-size: 12px;
+}
+.listing-account-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 手机：一行两列，图框同比缩小 */
+@media (max-width: 767px) {
+  .inv-card-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 8px;
+  }
+  .inv-card-thumb {
+    height: 140px;
+    flex-basis: 140px;
+  }
 }
 .editable-cell {
   min-height: 24px;

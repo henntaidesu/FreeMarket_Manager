@@ -42,6 +42,31 @@
       </nav>
 
       <div class="sc-sections">
+        <!-- 界面语言（原在侧边栏底部，改到这里统一管理；仍存 localStorage，跟随浏览器） -->
+        <section id="sc-language" class="sc-panel">
+          <div class="sc-panel-head">
+            <span class="sc-ic sc-ic--indigo"><el-icon :size="17"><Compass /></el-icon></span>
+            <div class="sc-head-text">
+              <div class="sc-panel-title">{{ t('systemConfig.languageSection') }}</div>
+              <div class="sc-panel-desc">{{ t('systemConfig.descLanguage') }}</div>
+            </div>
+          </div>
+          <div class="sc-panel-body">
+            <div class="sc-grid">
+              <div class="sc-field">
+                <el-select v-model="locale" @change="onLocaleChange">
+                  <el-option
+                    v-for="l in localeOptions"
+                    :key="l.value"
+                    :label="l.label"
+                    :value="l.value"
+                  />
+                </el-select>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <!-- 账号管理 -->
         <section id="sc-account" class="sc-panel">
           <div class="sc-panel-head">
@@ -491,8 +516,9 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
-import { Plus, User, Lock, MagicStick, Sell, Coin, Tickets, Printer } from '@element-plus/icons-vue'
+import { Plus, User, Lock, MagicStick, Sell, Coin, Tickets, Printer, Compass } from '@element-plus/icons-vue'
 import { ElMessage } from '@/utils/notify'
+import { setLocale, SUPPORTED_LOCALES } from '@/i18n'
 import { authApi, configApi } from '@/api/index.js'
 import { databaseApi } from '@/api/database'
 import {
@@ -513,10 +539,11 @@ import {
   normalizeShippingFromSeed
 } from '@/constants/mercariJapanAreas.js'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 // ===== 区块锚点导航（图标名走全局注册的 element-plus 图标，与 Layout 侧边栏一致）=====
 const SECTIONS = [
+  { id: 'language', icon: 'Compass', labelKey: 'systemConfig.languageSection' },
   { id: 'account', icon: 'User', labelKey: 'system.accountManagement' },
   { id: 'password', icon: 'Lock', labelKey: 'system.changeMyPassword' },
   { id: 'ai', icon: 'MagicStick', labelKey: 'systemConfig.deepseekSection' },
@@ -545,6 +572,16 @@ function syncActiveSection() {
     if (el && el.getBoundingClientRect().top - rootTop <= 96) current = s.id
   }
   activeSection.value = current
+}
+
+// ===== 界面语言（无后端，setLocale 会写 localStorage 并同步 element-plus 语言包）=====
+const localeOptions = computed(() => SUPPORTED_LOCALES.map(code => ({
+  value: code,
+  label: t(`lang.${code}`),
+})))
+
+function onLocaleChange(val) {
+  setLocale(val)
 }
 
 // ===== 账号管理（用户列表 / 新建用户 / 改密码，原「系统总览」页并入）=====
@@ -1235,6 +1272,7 @@ onUnmounted(() => {
   border-radius: 10px;
   border: 1px solid transparent;
 }
+.sc-ic--indigo { background: rgba(129, 140, 248, 0.14); border-color: rgba(129, 140, 248, 0.26); color: #949dfb; }
 .sc-ic--blue { background: rgba(91, 140, 255, 0.14); border-color: rgba(91, 140, 255, 0.24); color: #7ea6ff; }
 .sc-ic--violet { background: rgba(167, 139, 250, 0.14); border-color: rgba(167, 139, 250, 0.24); color: #b9a6fb; }
 .sc-ic--cyan { background: rgba(34, 211, 238, 0.13); border-color: rgba(34, 211, 238, 0.24); color: #4fd8ee; }

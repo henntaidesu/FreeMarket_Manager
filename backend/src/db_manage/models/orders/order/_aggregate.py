@@ -17,6 +17,7 @@ class _AggregateMixin:
         by_purchase_time: bool = False,
         use_completed_time: bool = False,
         platform: Optional[str] = None,
+        seller_id: Optional[str] = None,
     ) -> Tuple[str, List[Any]]:
         base_sql = """
             FROM [orders] o
@@ -53,6 +54,10 @@ class _AggregateMixin:
             else:
                 base_sql += " AND TRIM(o.platform) = TRIM(?)"
                 params.append(plat)
+        if seller_id is not None and str(seller_id).strip():
+            # 卖出账号 = orders.data_user（卖家 seller_id），与列表里 account_name 的取数口径一致
+            base_sql += " AND TRIM(IFNULL(o.data_user, '')) = TRIM(?)"
+            params.append(str(seller_id).strip())
         if start_ts is not None:
             base_sql += f" AND {time_col} >= ?"
             params.append(int(start_ts))
@@ -82,6 +87,7 @@ class _AggregateMixin:
         owner_user_id: Optional[int] = None,
         by_purchase_time: bool = False,
         use_completed_time: bool = False,
+        seller_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         与列表相同的筛选条件下，对全量匹配行求和（非当前页）。
@@ -100,6 +106,7 @@ class _AggregateMixin:
                 owner_user_id=int(owner_user_id),
                 by_purchase_time=by_purchase_time,
                 use_completed_time=use_completed_time,
+                seller_id=seller_id,
             )
         db = cls().db
         base_sql, params = cls._build_list_filter(
@@ -110,6 +117,7 @@ class _AggregateMixin:
             owner_user_id=owner_user_id,
             by_purchase_time=by_purchase_time,
             use_completed_time=use_completed_time,
+            seller_id=seller_id,
         )
         base_sql += " AND o.status != 'cancelled'"
         sql = f"""
@@ -141,6 +149,7 @@ class _AggregateMixin:
         owner_user_id: Optional[int] = None,
         by_purchase_time: bool = False,
         use_completed_time: bool = False,
+        seller_id: Optional[str] = None,
     ) -> int:
         """
         与 aggregate_sums 相同订单筛选下，成本支出合计（quantity * unit_price，日元整数）。
@@ -163,6 +172,7 @@ class _AggregateMixin:
             owner_user_id=owner_user_id,
             by_purchase_time=by_purchase_time,
             use_completed_time=use_completed_time,
+            seller_id=seller_id,
         )
         joined = base_sql.replace(
             "FROM [orders] o",
@@ -216,6 +226,7 @@ class _AggregateMixin:
         owner_user_id: int = 0,
         by_purchase_time: bool = False,
         use_completed_time: bool = False,
+        seller_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         from .....use_web.orders.units.order_goods_ratio import (
             ensure_orders_ratio_stored,
@@ -231,6 +242,7 @@ class _AggregateMixin:
             owner_user_id=int(owner_user_id),
             by_purchase_time=by_purchase_time,
             use_completed_time=use_completed_time,
+            seller_id=seller_id,
         )
         base_sql += " AND o.status != 'cancelled'"
         sql = f"""

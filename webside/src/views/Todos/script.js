@@ -1,4 +1,4 @@
-import { defineComponent, computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { defineComponent, watch, computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
 import { ElMessage } from '@/utils/notify'
@@ -6,6 +6,7 @@ import { Loading, Plus, Minus, Printer, Setting } from '@element-plus/icons-vue'
 import { todosApi, costRecordApi, costExpenseApi, orderApi, TASK_TYPES, newClientToken } from '@/api'
 import { submitTask } from '@/utils/taskSubmit.js'
 import { useMercariAccountStore } from '@/stores/mercariAccount.js'
+import { useViewModeStore } from '@/stores/viewMode.js'
 import { useSyncOverlay } from '@/composables/useSyncOverlay'
 import SyncOverlay from '@/components/SyncOverlay.vue'
 import { mercariImageUrl, mercariImageUrlList } from '@/utils/mercariImage.js'
@@ -231,6 +232,30 @@ export default defineComponent({
       // 平台筛选：煤炉 / 雅虎（空=全部）
       platform: '',
     })
+
+    // ===== 表格 / 卡片视图 =====
+    // 视图偏好是全局的（切换开关在侧边栏底部），本页只读不写
+    const viewModeStore = useViewModeStore()
+    const isCardView = computed(() => viewModeStore.isCardView)
+
+    /**
+     * 卡片视图的滚动窗口：一次请求 CARD_PAGE_SIZE 条，滚到底继续接。
+     * 窗口最多保留 CARD_MAX_ROWS 条，超出就把最旧的一批连数据带 DOM 一起丢掉，
+     * 用等高的占位块顶住滚动条位置；往回滚时再按页取回来。
+     * 页大小固定，不跟表格的 pageSize 走——中途改每页条数会让已加载的窗口页码对不上。
+     */
+    const CARD_PAGE_SIZE = 40
+    const CARD_MAX_ROWS = CARD_PAGE_SIZE * 5
+    const cardRows = ref([])
+    const cardFirstPage = ref(1)
+    const cardLastPage = ref(0)
+    const cardExhausted = ref(false)
+    const cardLoading = ref(false)
+    /** 已回收批次的合计高度(px)，撑在列表顶部 */
+    const cardTopSpacer = ref(0)
+    const cardGridRef = ref(null)
+    const cardTopSentinel = ref(null)
+    const cardBottomSentinel = ref(null)
 
     /** 平台筛选/标签：历史数据无值时按煤炉处理 */
     const platformFilterOptions = computed(() => [
@@ -809,13 +834,24 @@ export default defineComponent({
       if (el && el.style) el.style.visibility = 'hidden'
     }
 
-    function listParams() {
-      const p = { page: page.value, page_size: pageSize.value }
+    function baseListParams() {
+      const p = {}
       if (filters.value.packed_only) p.packed_only = true
       if (filters.value.scanned_only) p.scanned_only = true
       if (filters.value.categories.length) p.categories = filters.value.categories.join(',')
       if (filters.value.platform) p.platform = filters.value.platform
       return p
+    }
+
+    function listParams() {
+      return { ...baseListParams(), page: page.value, page_size: pageSize.value }
+    }
+
+    /** 取一页待办；顺带刷新总条数 */
+    async function fetchTodosPage(p, size) {
+      const res = await todosApi.list({ ...baseListParams(), page: p, page_size: size })
+      total.value = Number(res?.total || 0)
+      return Array.isArray(res?.items) ? res.items : []
     }
 
     /** 顶部筛选各 chip 的条数：只随账号/平台/关键字变化，与当前选中哪个 chip 无关 */
@@ -842,18 +878,223 @@ export default defineComponent({
       }
     }
 
-    async function load() {
-      loading.value = true
-      try {
-        const res = await todosApi.list(listParams())
-        list.value = res?.items || []
-        total.value = Number(res?.total || 0)
-      } catch (e) {
-        ElMessage.error(e?.message || t('todos.loadFailed'))
-      } finally {
-        loading.value = false
+    /** ``inPlace``：卡片视图下原地重取当前窗口那几页，不把用户滚回顶部（表格视图无差别） */
+    async function load(options = {}) {
+      const { inPlace = false } = options
+      if (isCardView.value) {
+        try {
+          if (inPlace) await reloadCardWindow()
+          else await loadCardsFromStart()
+        } catch (e) {
+          ElMessage.error(e?.message || t('todos.loadFailed'))
+        }
+      } else {
+        loading.value = true
+        try {
+          const res = await todosApi.list(listParams())
+          list.value = res?.items || []
+          total.value = Number(res?.total || 0)
+        } catch (e) {
+          ElMessage.error(e?.message || t('todos.loadFailed'))
+        } finally {
+          loading.value = false
+        }
       }
       loadChipCounts()
+    }
+
+    // ===== 卡片视图：双向滚动窗口 =====
+
+    /** 真正在滚的那个祖先元素（布局里是 .main-content），找不到就退回文档滚动元素 */
+    function cardScrollContainer() {
+      let el = cardGridRef.value?.parentElement
+      while (el) {
+        const oy = getComputedStyle(el).overflowY
+        if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight) return el
+        el = el.parentElement
+      }
+      return document.scrollingElement || document.documentElement
+    }
+
+    async function loadCardsFromStart() {
+      cardLoading.value = true
+      try {
+        const rows = await fetchTodosPage(1, CARD_PAGE_SIZE)
+        cardRows.value = rows
+        cardFirstPage.value = 1
+        cardLastPage.value = 1
+        cardTopSpacer.value = 0
+        cardExhausted.value = rows.length < CARD_PAGE_SIZE
+        await nextTick()
+        const el = cardScrollContainer()
+        if (el) el.scrollTop = 0
+      } finally {
+        cardLoading.value = false
+      }
+      await fillCardsUntilScrollable()
+    }
+
+    /**
+     * IntersectionObserver 只在「相交状态变化」时回调：一次加载后底部哨兵仍留在视口内
+     * 就不会再触发，屏幕高、卡片少时会停在半屏且再也滚不动。这里主动补几轮。
+     */
+    let cardFilling = false
+    async function fillCardsUntilScrollable() {
+      if (cardFilling || !isCardView.value) return
+      cardFilling = true
+      try {
+        for (let i = 0; i < 6; i += 1) {
+          if (cardExhausted.value) return
+          const el = cardBottomSentinel.value
+          if (!el) return
+          if (el.getBoundingClientRect().top > (window.innerHeight || 0) + 300) return
+          await loadMoreCards()
+          await nextTick()
+        }
+      } finally {
+        cardFilling = false
+      }
+    }
+
+    /** 原地重取当前窗口内的各页（处理完一条后刷新用），保留滚动位置与已回收的占位 */
+    async function reloadCardWindow() {
+      if (cardLastPage.value <= 1) {
+        await loadCardsFromStart()
+        return
+      }
+      cardLoading.value = true
+      try {
+        const pages = []
+        for (let p = cardFirstPage.value; p <= cardLastPage.value; p += 1) pages.push(p)
+        const batches = await Promise.all(pages.map((p) => fetchTodosPage(p, CARD_PAGE_SIZE)))
+        cardRows.value = batches.flat()
+        cardExhausted.value = (batches[batches.length - 1] || []).length < CARD_PAGE_SIZE
+      } finally {
+        cardLoading.value = false
+      }
+    }
+
+    /** 下拉到底：接下一页；接完若超出窗口上限，丢掉最旧的一批换成等高占位 */
+    async function loadMoreCards() {
+      if (cardLoading.value || cardExhausted.value || !isCardView.value) return
+      cardLoading.value = true
+      try {
+        const next = cardLastPage.value + 1
+        const rows = await fetchTodosPage(next, CARD_PAGE_SIZE)
+        if (!rows.length) {
+          cardExhausted.value = true
+          return
+        }
+        cardRows.value = [...cardRows.value, ...rows]
+        cardLastPage.value = next
+        if (rows.length < CARD_PAGE_SIZE) cardExhausted.value = true
+        if (cardRows.value.length > CARD_MAX_ROWS) await recycleOldestCardBatch()
+      } finally {
+        cardLoading.value = false
+      }
+    }
+
+    /** 往回滚：把之前回收掉的那一批重新取回来，占位相应减少 */
+    async function loadPrevCards() {
+      if (cardLoading.value || !isCardView.value || cardFirstPage.value <= 1) return
+      cardLoading.value = true
+      try {
+        const prev = cardFirstPage.value - 1
+        const rows = await fetchTodosPage(prev, CARD_PAGE_SIZE)
+        if (!rows.length) return
+        const el = cardScrollContainer()
+        const beforeHeight = el.scrollHeight
+        const beforeTop = el.scrollTop
+        cardRows.value = [...rows, ...cardRows.value]
+        cardFirstPage.value = prev
+        await nextTick()
+        // 先把滚动位置锚回原处，再拿占位去抵消新增高度，全程视口内容不动
+        const grow = el.scrollHeight - beforeHeight
+        el.scrollTop = beforeTop + grow
+        const take = Math.min(cardTopSpacer.value, grow)
+        if (take > 0) {
+          cardTopSpacer.value -= take
+          await nextTick()
+          el.scrollTop = beforeTop + grow - take
+        }
+        if (cardRows.value.length > CARD_MAX_ROWS) {
+          cardRows.value = cardRows.value.slice(0, cardRows.value.length - CARD_PAGE_SIZE)
+          cardLastPage.value -= 1
+          cardExhausted.value = false
+        }
+      } finally {
+        cardLoading.value = false
+      }
+    }
+
+    /** 丢掉窗口最上面一批：量出它占的高度补进占位块，滚动条位置不变 */
+    async function recycleOldestCardBatch() {
+      const el = cardScrollContainer()
+      const beforeHeight = el.scrollHeight
+      cardRows.value = cardRows.value.slice(CARD_PAGE_SIZE)
+      cardFirstPage.value += 1
+      await nextTick()
+      const shrink = beforeHeight - el.scrollHeight
+      if (shrink > 0) cardTopSpacer.value += shrink
+    }
+
+    let cardObserver = null
+    function teardownCardObserver() {
+      if (cardObserver) {
+        cardObserver.disconnect()
+        cardObserver = null
+      }
+    }
+    async function setupCardObserver() {
+      teardownCardObserver()
+      if (!isCardView.value || typeof IntersectionObserver === 'undefined') return
+      await nextTick()
+      const bottom = cardBottomSentinel.value
+      const top = cardTopSentinel.value
+      if (!bottom && !top) return
+      // root 留空 = 视口；中间的滚动祖先会自动参与裁剪，无需知道它是谁
+      cardObserver = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) {
+            if (!e.isIntersecting) continue
+            if (e.target === cardBottomSentinel.value) void fillCardsUntilScrollable()
+            else if (e.target === cardTopSentinel.value) void loadPrevCards()
+          }
+        },
+        { rootMargin: '300px 0px' }
+      )
+      if (bottom) cardObserver.observe(bottom)
+      if (top) cardObserver.observe(top)
+    }
+
+    /** 视图在侧边栏被切换时的本页收尾：重新按新视图取数并重挂无限滚动观察器。
+     *  只有挂载中的页面会跑到这里，切到别的页面再回来走的是 onMounted 那条路。 */
+    watch(() => viewModeStore.mode, async () => {
+      page.value = 1
+      await load()
+      await setupCardObserver()
+    })
+
+    /** 卡片上的发货码 / 扫码照片：与表格的条件列同口径，只在对应筛选下出现 */
+    function cardQrSrc(row) {
+      if (filters.value.packed_only && row?.qr_image_path) return mercariImageUrl(row.qr_image_path)
+      if (filters.value.scanned_only && row?.ship_qr_photo_path) return mercariImageUrl(row.ship_qr_photo_path)
+      return ''
+    }
+
+    function onCardQrClick(row) {
+      if (filters.value.packed_only && row?.qr_image_path) openQrViewer(row)
+      else openShipQrPhoto(row)
+    }
+
+    /** 卡片点击 = 表格操作列那颗按钮：申请退货行走「确认签收」（自带二次确认），其余进处理弹窗 */
+    function onCardClick(row) {
+      if (isCancellationReceiptRow(row)) {
+        if (cancelReceiptBusyId.value) return
+        onConfirmCancellationReceipt(row)
+        return
+      }
+      onProcess(row)
     }
 
     function onFilterChange() {
@@ -1152,12 +1393,17 @@ export default defineComponent({
 
     // 某行变成「已打包」后：默认列表（未勾选「已打包」筛选）不展示已打包数据，
     // 将其从当前列表移除并同步递减总数；勾选「已打包」筛选时保留（该视图本就只看已打包）。
+    // 表格看 list、卡片看 cardRows，两个窗口各自摘一次（只会命中当前视图那个）。
     function dropPackedRowFromList(id) {
       if (filters.value.packed_only) return
-      const idx = list.value.findIndex((r) => r && r.id === id)
-      if (idx === -1) return
-      list.value.splice(idx, 1)
-      total.value = Math.max(0, total.value - 1)
+      let dropped = false
+      for (const rows of [list, cardRows]) {
+        const idx = rows.value.findIndex((r) => r && r.id === id)
+        if (idx === -1) continue
+        rows.value.splice(idx, 1)
+        dropped = true
+      }
+      if (dropped) total.value = Math.max(0, total.value - 1)
     }
 
     function displayTs(ms) {
@@ -1524,7 +1770,7 @@ export default defineComponent({
             ElMessage.warning(t('todos.packagingSyncFailed'))
           }
         }
-        load()
+        load({ inPlace: true })
       } catch (e) {
         if (!e?.response) ElMessage.error(e?.message || t('todos.yahoo.shipFailed'))
       } finally {
@@ -1888,7 +2134,7 @@ export default defineComponent({
         qrScanVisible.value = false
         shippingDialogVisible.value = false
         detailDialogVisible.value = false
-        load()
+        load({ inPlace: true })
       } catch (e) {
         if (!e?.response) ElMessage.error(e?.message || t('todos.submitFailed'))
       } finally {
@@ -2025,7 +2271,7 @@ export default defineComponent({
             ElMessage.success(t('todos.yahoo.messageSentDone'))
             detail.reply_draft = ''
             detailDialogVisible.value = false
-            load()
+            load({ inPlace: true })
           } else if (data?.sent) {
             ElMessage.success(t('todos.yahoo.messageSent'))
             detail.reply_draft = ''
@@ -2053,7 +2299,7 @@ export default defineComponent({
           // 待回复（IncomingMessage）：后端已软删 + 关浏览器，前端关 dialog + 刷列表
           ElMessage.success(t('todos.repliedDone'))
           detailDialogVisible.value = false
-          load()
+          load({ inPlace: true })
         } else {
           ElMessage.success(t('todos.sendButtonClicked'))
           // 普通发送：刷新一次抓取让消息流更新
@@ -2063,6 +2309,36 @@ export default defineComponent({
         if (!e?.response) ElMessage.error(e?.message || t('todos.sendFailed'))
       } finally {
         replyLoading.value = false
+      }
+    }
+
+    /** 雅虎待回复「处理完成」：不发消息，直接把待办软删掉。
+     *  雅虎的来信是通知流里的一条记录，回没回复它都不会从接口消失；而取引メッセージ有
+     *  发送次数上限，额度用尽或已在 App 里回过时，发送流程里那次软删根本走不到——
+     *  没有这个出口，这类待办会永远挂在待回复列表里。不可逆，故走二次确认。 */
+    const finishReplyLoading = ref(false)
+    async function onFinishYahooReply() {
+      const todoId = Number(currentRow.value?.id || 0)
+      if (!todoId || finishReplyLoading.value) return
+      try {
+        await ElMessageBox.confirm(
+          t('todos.yahoo.finishReplyMessage'),
+          t('todos.yahoo.finishReplyTitle'),
+          { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') },
+        )
+      } catch {
+        return
+      }
+      finishReplyLoading.value = true
+      try {
+        await todosApi.yahooFinishReply(todoId)
+        ElMessage.success(t('todos.yahoo.finishReplyDone'))
+        detailDialogVisible.value = false
+        load({ inPlace: true })
+      } catch (e) {
+        if (!e?.response) ElMessage.error(e?.message || t('todos.yahoo.finishReplyFailed'))
+      } finally {
+        finishReplyLoading.value = false
       }
     }
 
@@ -2093,7 +2369,7 @@ export default defineComponent({
           ElMessage.success(`${t('todos.transactionCompletedDetected')}${note}`)
           // 浏览器已由后端关闭；这里关 dialog（onDetailDialogClose 里的 closeBrowser 是幂等的）
           detailDialogVisible.value = false
-          load() // 刷新待办列表（todo 已软删，列表中应消失）
+          load({ inPlace: true }) // 刷新待办列表（todo 已软删，列表中应消失）
         } else {
           ElMessage.warning(t('todos.submittedNoComplete'))
         }
@@ -2144,7 +2420,7 @@ export default defineComponent({
         if (result?.completed) {
           // 待回复（IncomingMessage）：后端已软删 + 关浏览器，前端关 dialog + 刷列表
           detailDialogVisible.value = false
-          load()
+          load({ inPlace: true })
         }
       } catch (e) {
         if (!e?.response) ElMessage.error(e?.message || t('todos.reactionFailed'))
@@ -2174,11 +2450,12 @@ export default defineComponent({
       return m ? m[1].trim() : ''
     }
 
-    onMounted(() => {
+    onMounted(async () => {
       mercariAccountStore.ensureLoaded()
-      load()
       // 每分钟推进 nowTs，让列表里的「剩余发货时间」倒计时与颜色随时间刷新
       shipCountdownTimer = setInterval(() => { nowTs.value = Date.now() }, 60000)
+      await load()
+      await setupCardObserver()
     })
 
     onBeforeUnmount(() => {
@@ -2186,6 +2463,7 @@ export default defineComponent({
         clearInterval(shipCountdownTimer)
         shipCountdownTimer = null
       }
+      teardownCardObserver()
       stopQrCamera()
       txOverlay.dispose()
     })
@@ -2300,6 +2578,17 @@ export default defineComponent({
       onShippingImgError,
       listParams,
       load,
+      isCardView,
+      cardRows,
+      cardLoading,
+      cardExhausted,
+      cardTopSpacer,
+      cardGridRef,
+      cardTopSentinel,
+      cardBottomSentinel,
+      cardQrSrc,
+      onCardQrClick,
+      onCardClick,
       onFilterChange,
       selectFilterChip,
       onPageChange,
@@ -2362,6 +2651,8 @@ export default defineComponent({
       onConfirmChangeShippingMethod,
       onResetReplyDefault,
       onSendReply,
+      finishReplyLoading,
+      onFinishYahooReply,
       onResetReviewDefault,
       onSubmitReview,
       onSendReaction,

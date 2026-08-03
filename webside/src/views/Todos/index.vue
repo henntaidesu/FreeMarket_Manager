@@ -117,7 +117,7 @@
     </el-card>
 
     <el-card shadow="never" class="table-card">
-      <el-table :data="list" v-loading="loading" stripe row-key="id">
+      <el-table v-if="!isCardView" :data="list" v-loading="loading" stripe row-key="id">
         <el-table-column :label="t('todos.platformColumn')" width="86" align="center" header-align="center">
           <template #default="{ row }">
             <el-tag :type="platformTagType(row)" size="small" effect="plain">{{ platformLabel(row) }}</el-tag>
@@ -270,7 +270,90 @@
         </el-table-column>
       </el-table>
 
+      <!-- 卡片视图：懒加载滚动窗口。顶部占位块 = 已回收批次的合计高度，
+           滚动条长度与位置因此保持连续，往回滚碰到上哨兵会把那几批取回来。 -->
+      <div v-if="isCardView" class="todo-card-view">
+        <div class="todo-card-spacer" :style="{ height: cardTopSpacer + 'px' }"></div>
+        <div ref="cardTopSentinel" class="todo-card-sentinel"></div>
+        <div ref="cardGridRef" class="todo-card-grid">
+          <div
+            v-for="row in cardRows"
+            :key="row.id"
+            class="todo-card"
+            :class="{ 'is-packed': isPackedRow(row), 'is-done': row.is_delete }"
+            @click="onCardClick(row)"
+          >
+            <div class="todo-card-thumb">
+              <el-image
+                v-if="row.photo_url"
+                :src="mercariImageUrl(row.photo_url)"
+                fit="cover"
+                lazy
+                referrerpolicy="no-referrer"
+              >
+                <template #error><span class="thumb-fallback">-</span></template>
+              </el-image>
+              <span v-else class="thumb-fallback">-</span>
+              <el-tag :type="platformTagType(row)" size="small" effect="dark" class="todo-card-platform">
+                {{ platformLabel(row) }}
+              </el-tag>
+              <el-tag
+                :type="kindTagType(row)"
+                size="small"
+                effect="dark"
+                class="todo-card-kind"
+                :class="{ 'todo-tag-packed': isPackedRow(row) }"
+              >
+                {{ kindLabel(row) }}
+              </el-tag>
+              <!-- 卡片没有条件列，发货码/扫码照片压在图右下角；点它看大图，不触发卡片的处理动作 -->
+              <el-image
+                v-if="cardQrSrc(row)"
+                class="todo-card-qr todo-qr-thumb"
+                :src="cardQrSrc(row)"
+                fit="contain"
+                lazy
+                @click.stop="onCardQrClick(row)"
+              >
+                <template #error><span class="thumb-fallback">-</span></template>
+              </el-image>
+            </div>
+            <div class="todo-card-body">
+              <div class="todo-card-name">{{ row.item_name || row.title || '-' }}</div>
+              <div class="todo-card-tags">
+                <el-tag
+                  v-if="shipRemainingText(row)"
+                  :type="shipRemainingTagType(row)"
+                  size="small"
+                  effect="light"
+                >{{ shipRemainingText(row) }}</el-tag>
+                <el-tag v-if="row.ship_qr_scanned_at" size="small" type="info" effect="plain">
+                  {{ t('todos.scanned') }}
+                </el-tag>
+                <el-tag v-if="row.is_delete" size="small" type="success" effect="plain">
+                  {{ t('todos.done') }}
+                </el-tag>
+              </div>
+              <div class="todo-card-meta">
+                <span class="todo-card-ellipsis">{{ buyerNameFromMessage(row.message) || '-' }}</span>
+                <span>{{ row.item_id || '-' }}</span>
+              </div>
+              <div class="todo-card-meta">
+                <span class="todo-card-ellipsis">{{ row.account_name || `#${row.account_id}` }}</span>
+                <span>{{ displayTs(purchaseTsMs(row)) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div ref="cardBottomSentinel" class="todo-card-sentinel"></div>
+        <div class="todo-card-foot">
+          <span v-if="cardLoading">{{ t('todos.cardLoading') }}</span>
+          <span v-else-if="!cardRows.length">{{ t('todos.cardEmpty') }}</span>
+        </div>
+      </div>
+
       <el-pagination
+        v-if="!isCardView"
         class="pagination"
         background
         layout="prev, pager, next, sizes, total"
@@ -861,6 +944,18 @@
               />
               <div class="detail-reply-actions">
                 <el-button size="small" @click="onResetReplyDefault">{{ t('todos.defaultReply') }}</el-button>
+                <!-- 雅虎待回复专用：留言额度用尽 / 已在 App 回过 / 无需回复时，
+                     不发消息也要能收尾——否则这条通知流来的待办永远留在待回复里 -->
+                <el-button
+                  v-if="isYahoo && isWaitReply"
+                  size="small"
+                  type="success"
+                  plain
+                  :loading="finishReplyLoading"
+                  @click="onFinishYahooReply"
+                >
+                  {{ t('todos.yahoo.finishReply') }}
+                </el-button>
                 <el-button
                   size="small"
                   type="primary"

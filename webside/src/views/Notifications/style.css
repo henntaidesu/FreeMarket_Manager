@@ -158,3 +158,139 @@
   display: flex;
 }
 
+/* ─── 卡片视图 ─────────────────────────────────────────────── */
+.ntf-card-view { width: 100%; min-height: 120px; }
+/* 消息是卡片的主体，比商品卡宽；等高行让整屏卡片对齐 */
+.ntf-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+  grid-auto-rows: 1fr;
+}
+.ntf-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  background: #131c31;
+  border: 1px solid #263352;
+  border-radius: 8px;
+  transition: border-color 0.15s ease;
+}
+.ntf-card:hover {
+  border-color: #409eff;
+}
+.ntf-card-head {
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+.ntf-card-thumb {
+  width: 64px;
+  height: 64px;
+  flex: 0 0 64px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #0b1220;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ntf-card-thumb :deep(.el-image) {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.ntf-card-thumb :deep(.el-image img) {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.ntf-card-thumb :deep(.el-image__error),
+.ntf-card-thumb :deep(.el-image__placeholder) {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ntf-card-headtext {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ntf-card-tags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+/* 消息可能很长，固定三行：卡片高度不随文案长短参差 */
+.ntf-card-message {
+  font-size: 13px;
+  line-height: 1.4;
+  height: 4.2em;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-all;
+}
+.ntf-card-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--el-text-color-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.ntf-card-itemid {
+  flex: 0 0 auto;
+  color: var(--el-text-color-placeholder);
+}
+.ntf-card-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 17px;
+  height: 17px;
+  color: #909399;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.ntf-card-meta > span:last-child { flex: 0 0 auto; }
+.ntf-card-ellipsis {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 按钮贴卡片底：卡片等高，操作区位置才一致 */
+.ntf-card-actions {
+  margin-top: auto;
+  padding-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.ntf-card-empty {
+  padding: 32px 0;
+  text-align: center;
+  font-size: 13px;
+  color: #909399;
+}
+@media (max-width: 767px) {
+  .ntf-card-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+}
+

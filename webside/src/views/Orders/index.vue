@@ -18,6 +18,15 @@
             <el-option v-for="p in platformFilterOptions" :key="p.value" :label="p.label" :value="p.value" />
           </el-select>
           <el-select
+            v-model="filters.seller_id"
+            :placeholder="t('orders.sellerFilterPlaceholder')"
+            clearable
+            style="width: 100%"
+            @change="onFilterChange"
+          >
+            <el-option v-for="s in sellerOptions" :key="s.value" :label="s.label" :value="s.value" />
+          </el-select>
+          <el-select
             v-model="filters.status"
             :placeholder="t('orders.statusFilterPlaceholder')"
             clearable
@@ -84,6 +93,7 @@
 
     <el-card shadow="never" class="table-card">
       <el-table
+        v-if="!isCardView"
         ref="orderTableRef"
         :data="displayList"
         v-loading="loading"
@@ -402,14 +412,66 @@
         </el-table-column>
       </el-table>
 
-      <div class="pagination">
+      <!-- 卡片视图：懒加载滚动窗口。顶部占位块 = 已回收批次的合计高度，
+           滚动条长度与位置因此保持连续，往回滚碰到上哨兵会把那几批取回来。 -->
+      <div v-if="isCardView" class="ord-card-view">
+        <div class="ord-card-spacer" :style="{ height: cardTopSpacer + 'px' }"></div>
+        <div ref="cardTopSentinel" class="ord-card-sentinel"></div>
+        <div ref="cardGridRef" class="ord-card-grid">
+          <div
+            v-for="row in cardRows"
+            :key="row.id"
+            class="ord-card"
+            :class="{ 'is-alert': isOrderAlertRow(row) }"
+            @click="onCardClick(row)"
+          >
+            <div class="ord-card-thumb">
+              <el-image v-if="firstThumbUrl(row)" :src="firstThumbUrl(row)" fit="cover" lazy referrerpolicy="no-referrer">
+                <template #error><span class="thumb-fallback">-</span></template>
+              </el-image>
+              <span v-else class="thumb-fallback">-</span>
+              <el-tag :type="platformTagType(row)" size="small" effect="dark" class="ord-card-platform">
+                {{ platformLabel(row) }}
+              </el-tag>
+              <el-tag :type="statusMap[row.status]?.tag || 'info'" size="small" effect="dark" class="ord-card-status">
+                {{ statusMap[row.status]?.label || row.status }}
+              </el-tag>
+              <el-icon v-if="isOrderAlertRow(row)" class="ord-card-alert"><WarningFilled /></el-icon>
+            </div>
+            <div class="ord-card-body">
+              <div class="ord-card-name">{{ row.remark || '-' }}</div>
+              <div class="ord-card-money">
+                <span class="ord-card-amount">¥{{ Math.round(Number(row.amount || 0)) }}</span>
+                <span v-if="orderMoneyField(row.net_income) != null" class="ord-card-net">
+                  {{ t('orders.netIncome') }} {{ orderMoneyField(row.net_income) }}
+                </span>
+              </div>
+              <div class="ord-card-meta">
+                <span class="ord-card-ellipsis">{{ row.order_no }}</span>
+                <span class="col-fee-ship">{{ formatFeeShippingCell(row) }}</span>
+              </div>
+              <div class="ord-card-meta">
+                <span class="ord-card-ellipsis">{{ row.account_name || row.data_user || '-' }}</span>
+                <span>{{ displayTsLocal(row.purchase_time) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div ref="cardBottomSentinel" class="ord-card-sentinel"></div>
+        <div class="ord-card-foot">
+          <span v-if="cardLoading">{{ t('orders.cardLoading') }}</span>
+          <span v-else-if="!cardRows.length">{{ t('orders.cardEmpty') }}</span>
+        </div>
+      </div>
+
+      <div v-if="!isCardView" class="pagination">
         <el-pagination
           v-model:current-page="page"
           v-model:page-size="pageSize"
           :total="total"
           :page-sizes="[20, 50, 100]"
           layout="total, sizes, prev, pager, next"
-          @change="load"
+          @change="load()"
           background
           size="small"
         />

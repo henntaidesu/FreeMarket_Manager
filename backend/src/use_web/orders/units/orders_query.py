@@ -21,6 +21,7 @@ def order_stats(
     owner_user_id: Optional[int] = None,
     today_start_ts: Optional[int] = None,
     today_end_ts: Optional[int] = None,
+    seller_id: Optional[str] = None,
 ):
     """当前筛选条件下的全表汇总（金额、手续费、快递费、净收益及行数），不受分页影响。
 
@@ -40,6 +41,7 @@ def order_stats(
         start_ts=start_ts,
         end_ts=end_ts,
         owner_user_id=owner_user_id,
+        seller_id=seller_id,
     )
     out["sum_packaging"] = OrderModel.aggregate_packaging_expense_yen(
         keyword=keyword,
@@ -47,6 +49,7 @@ def order_stats(
         start_ts=start_ts,
         end_ts=end_ts,
         owner_user_id=owner_user_id,
+        seller_id=seller_id,
     )
     if today_start_ts is not None and today_end_ts is not None:
         # 今日新增：按「购入时间」落在今天的订单统计（不按最后更新时间）
@@ -56,6 +59,7 @@ def order_stats(
             start_ts=int(today_start_ts),
             end_ts=int(today_end_ts),
             owner_user_id=owner_user_id,
+            seller_id=seller_id,
             by_purchase_time=True,
         )
         out["today_total_count"] = t["total_count"]
@@ -69,6 +73,7 @@ def order_stats(
             start_ts=int(today_start_ts),
             end_ts=int(today_end_ts),
             owner_user_id=owner_user_id,
+            seller_id=seller_id,
             by_purchase_time=True,
         )
     return out
@@ -131,6 +136,7 @@ def list_orders(
     page: int = 1,
     page_size: int = 20,
     platform: Optional[str] = None,
+    seller_id: Optional[str] = None,
 ):
     _validate_status_query(status)
     return OrderModel.find_detail_list(
@@ -142,4 +148,5 @@ def list_orders(
         page=page,
         page_size=page_size,
         platform=platform,
+        seller_id=seller_id,
     )
