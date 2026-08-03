@@ -171,9 +171,11 @@ mercari/
 
 | 変数 | デフォルト | 説明 |
 |------|------|------|
-| `MERCARI_DEV_PUBLIC_ORIGIN` | — | ブラウザが実際にアクセスするアドレス（例 `https://mercari.example.com`）。nginx 経由の場合は必須：HMR がこれを見て `wss` とそのポートに切り替える。未設定だと https ページ内の `ws://` がブラウザにブロックされる |
-| `MERCARI_DEV_PUBLIC_HOST` | — | ホスト名のみを指定する場合に使用。`MERCARI_DEV_PUBLIC_ORIGIN` があれば無視される |
+| `MERCARI_DEV_PUBLIC_ORIGIN` | — | nginx 経由で https 公開する場合に設定（例 `https://fmm.example.com`）。**プロトコルとポートのみ**を使用し、ドメインは照合に使わない：HMR がこれを見て `wss` + そのポートに切り替える。未設定だと https ページ内の `ws://` が混在コンテンツとしてブロックされる |
 | `MERCARI_DEV_HMR_CLIENT_PORT` | ORIGIN から取得 | HMR クライアントポートの手動上書き |
+
+dev server の `allowedHosts` は**全許可**で、ドメイン紐付けは行いません（その分 DNS リバインディング対策は無効。自用/LAN 限定）。
+HMR のホスト名はブラウザが現在のページから推測するため、ドメイン変更や LAN IP 直アクセスでも設定変更は不要です。
 
 ## クイックスタート
 

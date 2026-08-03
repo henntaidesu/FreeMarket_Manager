@@ -93,8 +93,11 @@ npm run dev
 
 Frontend server: **http://localhost:9600** — plain HTTP, no built-in TLS anywhere in this app.
 HTTPS is terminated by an external nginx reverse proxy.
-- Behind nginx: set `MERCARI_DEV_PUBLIC_ORIGIN=https://yourhost` in `webside/.env.development` so the
-  HMR client uses `wss` on that port — otherwise the https page's `ws://` is blocked as mixed content.
+- **No host binding**: `allowedHosts: true` (DNS-rebinding protection deliberately off, self-hosted
+  only) and the HMR client infers its hostname from the page, so any domain or LAN IP works unchanged.
+- Behind nginx over https: set `MERCARI_DEV_PUBLIC_ORIGIN=https://yourhost` in
+  `webside/.env.development` — only its scheme+port are used, to make HMR connect over `wss` on that
+  port. Otherwise the https page's `ws://` socket is blocked as mixed content.
 
 ### Production Build (Frontend)
 
@@ -657,9 +660,9 @@ lets the user choose SQLite/MySQL, test the MySQL connection, and switch backend
 - `MERCARI_WEBSIDE_DIST` / `MERCARI_NO_STATIC`: Override or disable SPA static hosting.
 
 **Frontend** (`webside/.env.development`):
-- `MERCARI_DEV_PUBLIC_ORIGIN`: The origin the browser actually loads (e.g. `https://host`). Required behind
-  nginx — `wss` and the client port are derived from it.
-- `MERCARI_DEV_PUBLIC_HOST`: Hostname-only form; ignored when `MERCARI_DEV_PUBLIC_ORIGIN` is set
+- `MERCARI_DEV_PUBLIC_ORIGIN`: Set when nginx serves the dev server over https (e.g. `https://host`).
+  **Only its scheme and port are read** — the hostname matches nothing. `wss` + that port are derived
+  from it; without it an https page's `ws://` HMR socket is blocked as mixed content.
 - `MERCARI_DEV_HMR_CLIENT_PORT`: Manual override for the HMR client port
 
 ## Accessing the Application

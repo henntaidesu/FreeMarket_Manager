@@ -171,9 +171,11 @@ mercari/
 
 | 变量 | 默认 | 说明 |
 |------|------|------|
-| `MERCARI_DEV_PUBLIC_ORIGIN` | — | 浏览器实际访问的地址（如 `https://mercari.example.com`）。经 nginx 反代时必须设置：HMR 据此改用 `wss` 并取该端口，否则 https 页面里的 `ws://` 会被浏览器拦掉 |
-| `MERCARI_DEV_PUBLIC_HOST` | — | 只写主机名（不含协议）时用；`MERCARI_DEV_PUBLIC_ORIGIN` 已设置时忽略 |
+| `MERCARI_DEV_PUBLIC_ORIGIN` | — | 经 nginx 以 https 对外时设置（如 `https://fmm.example.com`）。**只取协议和端口**，域名不参与匹配：HMR 据此改用 `wss` + 该端口，否则 https 页面里的 `ws://` 会被浏览器当混合内容拦掉 |
 | `MERCARI_DEV_HMR_CLIENT_PORT` | 取自 ORIGIN | 手动覆盖 HMR 客户端端口 |
+
+dev server 的 `allowedHosts` 为**放行全部**，不绑定任何域名（DNS 重绑定防护因此关闭，仅限自用/内网）。
+HMR 的主机名由浏览器按当前页面推断，换域名或直连内网 IP 都无需改配置。
 
 ## 快速开始
 
