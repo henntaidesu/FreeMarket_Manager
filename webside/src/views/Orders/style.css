@@ -339,19 +339,18 @@
 :deep(.order-detail-dialog.el-dialog) {
   width: clamp(920px, 66vw, 1420px) !important;
   max-width: 94vw;
+  /* 默认是 --el-border-radius-base（4px），在这么大一块面上显得发直。
+     改写变量而不是 border-radius：Element Plus 自己就是读这个变量的，
+     同元素上覆盖它一定生效，不用跟它的规则比优先级。与页面卡片同为 8px。 */
+  --el-dialog-border-radius: 8px;
   margin: 12.5vh auto !important;
   height: 75vh;
   display: flex;
   flex-direction: column;
 }
-/* 无标题：标题文字去掉，但表头不能整个 display:none —— 关闭的 × 是它的子元素。
-   高度留 34px 是因为 .el-dialog__headerbtn 是 48×48 且 top:0（相对弹窗），
-   加上弹窗自身 16px 内边距刚好把正文推到 × 下方，否则 × 会压在状态行的按钮上。 */
+/* 无标题栏：show-close=false 之后表头里已经没有 × 了，整块拿掉不再占高度
+   （之前必须留 34px，是因为 × 是表头的子元素、48×48 绝对定位在弹窗左上角）。 */
 :deep(.order-detail-dialog .el-dialog__header) {
-  padding: 0;
-  height: 34px;
-}
-:deep(.order-detail-dialog .el-dialog__title) {
   display: none;
 }
 :deep(.order-detail-dialog .el-dialog__body) {

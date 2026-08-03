@@ -238,19 +238,16 @@
 :deep(.on-sale-detail-dialog.el-dialog) {
   width: clamp(880px, 62vw, 1360px) !important;
   max-width: 94vw;
+  /* 与页面卡片同为 8px（默认 --el-border-radius-base 是 4px，太直） */
+  --el-dialog-border-radius: 8px;
   /* 高度封顶 + body 内部滚动：1080p 竖向只有 ~900px 可用，整窗滚动会把底部按钮顶出屏幕 */
   margin: 6vh auto !important;
   max-height: 88vh;
   display: flex;
   flex-direction: column;
 }
-/* 无标题：标题文字去掉，但表头不能整个 display:none —— 关闭的 × 是它的子元素。
-   高度留 34px 是因为 .el-dialog__headerbtn 是 48×48 且 top:0（相对弹窗）。 */
+/* 无标题栏：show-close=false 之后表头里已经没有 × 了，整块拿掉不再占高度 */
 :deep(.on-sale-detail-dialog .el-dialog__header) {
-  padding: 0;
-  height: 34px;
-}
-:deep(.on-sale-detail-dialog .el-dialog__title) {
   display: none;
 }
 :deep(.on-sale-detail-dialog .el-dialog__body) {

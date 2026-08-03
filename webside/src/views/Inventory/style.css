@@ -167,14 +167,18 @@
   display: flex;
   flex-direction: column;
 }
+/* 圆角与库存卡片 / 表单里的分区卡片同为 8px，EP 默认的 --el-border-radius-base 只有 4px，
+   在这么大一块面板上几乎看不出圆角 */
+:deep(.product-dialog--edit.el-dialog) {
+  --el-dialog-border-radius: 8px;
+}
 :deep(.product-dialog .el-dialog__header) {
   padding-bottom: 10px;
 }
-/* 编辑商品弹窗没有标题了，头部只需留出右上角关闭按钮的高度（EP 把它绝对定位成 48px 见方，
-   给 40px 时叉号本体仍落在头部内，只有热区多探出几像素到图片栏的内边距上） */
+/* 编辑商品弹窗既没有标题也不要关闭叉号（EP 把叉号渲染在 header 里），整块头部去掉不留空档。
+   关窗走点击遮罩 / Esc */
 :deep(.product-dialog--edit .el-dialog__header) {
-  padding: 0;
-  height: 40px;
+  display: none;
 }
 :deep(.product-dialog .el-dialog__body) {
   flex: 1 1 auto;
@@ -350,9 +354,12 @@
   line-height: 17px;
   font-variant-numeric: tabular-nums;
 }
-/* 标签页内的子分组：只留标题，不再套一层边框，避免卡中卡 */
+/* 标签页内的子分组：只留标题，不再套一层边框，避免卡中卡。
+   纵向 flex 是为了让底部按钮排能用 margin-top:auto 贴到模块底边 */
 .pef-subcard {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ---- 关联商品：在售 / 已出售 两组卡片 ---- */
@@ -1825,14 +1832,18 @@ a.pef-lcard:hover {
   display: inline-flex;
   gap: 8px;
 }
-/* 弹窗没有 footer 了：拆分 / 出品按钮排在出品参数下方，与两列字段同宽 */
+/* 弹窗没有 footer 了：拆分 / 出品按钮贴在出品参数模块的底边，拆分居左、出品靠右 */
 .pef-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-top: 6px;
-  padding-bottom: 4px;
+  margin-top: auto;
+  padding: 10px 0 4px;
+}
+/* 拆分按钮不存在时（组合商品 / 新建），出品组仍然靠右 */
+.pef-actions .listing-submit-buttons {
+  margin-left: auto;
 }
 .pef-actions :deep(.el-button + .el-button) {
   margin-left: 0;

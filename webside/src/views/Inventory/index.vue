@@ -544,6 +544,7 @@
       v-model="dialogVisible"
       :width="productEditDialogWidth"
       class="product-dialog product-dialog--edit"
+      :show-close="false"
       destroy-on-close
       :before-close="handleProductDialogClose"
     >
@@ -937,10 +938,12 @@
           <!-- 表单没有保存按钮：所有字段输入即实时保存（见 script.js 的 runFormAutosave），
                操作按钮统一收在出品参数下方 -->
           <div class="pef-actions">
+            <!-- size=default：这几个是弹窗的主操作，不跟着 el-form 的 size=small 缩水 -->
             <el-button
               v-if="form.id && Number(form.is_combined || 0) !== 1"
               type="primary"
               plain
+              size="default"
               @click="openSplitDialog(form)"
             >{{ t('inventory.split') }}</el-button>
             <!-- 出品已改为提交任务队列：不受全局同步锁阻挡；可上架为 0 时仍禁用（后端亦会二次把关） -->
@@ -962,6 +965,7 @@
                   <template #reference>
                     <el-button
                       type="success"
+                      size="default"
                       :loading="listingSubmitting"
                       :disabled="inventorySaveBlockedByImageUpload || listableQuantity(form) <= 0 || currentEditRowIsAlert || !hasListingAccountFor('mercari') || !currentTypeMercariReady"
                     >{{ t('inventory.listSubmitMercari') }}</el-button>
@@ -978,6 +982,7 @@
                   <template #reference>
                     <el-button
                       type="success"
+                      size="default"
                       :loading="listingSubmitting"
                       :disabled="inventorySaveBlockedByImageUpload || listableQuantity(form) <= 0 || currentEditRowIsAlert || !hasListingAccountFor('yahoo') || !currentTypeYahooReady || shippingFromIsUndecided"
                     >{{ t('inventory.listSubmitYahoo') }}</el-button>

@@ -99,14 +99,24 @@
 }
 
 /* 弹窗外框跟详情弹窗一套口径：宽度随视口伸缩（1080p 到 4K），高度封顶 + 内部滚动。
-   这里必须写在 global——自定义 class 落在 ElDialog 自己渲染的元素上，没有 scoped 属性 */
-.on-sale-revise-dialog .el-dialog {
+   这里必须写在 global——自定义 class 落在 ElDialog 自己渲染的元素上，没有 scoped 属性。
+   且必须是**同元素**选择器：class 经 $attrs 落在 ElDialogContent 的根节点上，
+   那个根节点本身就是 .el-dialog。写成后代 `.on-sale-revise-dialog .el-dialog` 匹配不到任何东西，
+   这一整块（宽度 / 限高 / 内部滚动）此前是完全没生效的。 */
+.on-sale-revise-dialog.el-dialog {
   width: clamp(560px, 44vw, 820px) !important;
   max-width: 94vw;
   margin: 7vh auto !important;
   max-height: 86vh;
   display: flex;
   flex-direction: column;
+  /* 与页面卡片同为 8px（默认 --el-border-radius-base 是 4px，太直） */
+  --el-dialog-border-radius: 8px;
+}
+/* 本页其余弹窗（库存详情 / 批量修改）同样对齐卡片圆角 */
+.on-sale-inventory-detail-dialog.el-dialog,
+.on-sale-batch-price-dialog.el-dialog {
+  --el-dialog-border-radius: 8px;
 }
 .on-sale-revise-dialog .el-dialog__body {
   flex: 1 1 auto;

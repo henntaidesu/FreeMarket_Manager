@@ -478,8 +478,10 @@
       </div>
     </el-card>
 
+    <!-- 无标题栏、无关闭按钮：点遮罩或 Esc 关闭（el-dialog 默认行为） -->
     <el-dialog
       v-model="dialogVisible"
+      :show-close="false"
       destroy-on-close
       class="order-detail-dialog"
     >

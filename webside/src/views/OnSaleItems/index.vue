@@ -453,8 +453,10 @@
       </div>
     </el-card>
 
+    <!-- 无标题栏、无关闭按钮：点遮罩或 Esc 关闭（el-dialog 默认行为） -->
     <el-dialog
       v-model="detailViewVisible"
+      :show-close="false"
       class="on-sale-detail-dialog"
       destroy-on-close
       @closed="onDetailViewClosed"
@@ -873,6 +875,7 @@
       width="420px"
       append-to-body
       destroy-on-close
+      class="on-sale-batch-price-dialog"
     >
       <div class="batch-price-tip">{{ t('onSaleItems.batchSelectedCount', { count: batchSelectedCount }) }}</div>
       <el-form label-width="110px" class="on-sale-batch-form">
