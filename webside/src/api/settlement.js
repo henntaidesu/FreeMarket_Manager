@@ -9,6 +9,8 @@ export const settlementApi = {
   listRecords: () => http.get('/use_web/system/settlement/records'),
   settledRanges: () => http.get('/use_web/system/settlement/settled-ranges'),
   deleteRecord: (id) => http.delete(`/use_web/system/settlement/records/${id}`),
+  // 重新结算：同区间用最新订单数据重算，与原结算并存并算差额
+  resettleRecord: (id, data) => http.post(`/use_web/system/settlement/records/${id}/resettle`, data),
   // 待结算物品：随时登记，下次结算全部自动带入
   pendingItems: () => http.get('/use_web/system/settlement/pending-items'),
   addPendingItem: (data) => http.post('/use_web/system/settlement/pending-items', data),

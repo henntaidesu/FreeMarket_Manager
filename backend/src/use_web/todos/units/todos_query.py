@@ -28,7 +28,10 @@ _WAIT_REVIEW_COND = "IFNULL(t.[kind], '') = 'ReviewedSeller'"
 # 「待收货」类判定：已发货、等买家收货（Shipped）。卖家这一步无事可做，只是要能单独看一眼，
 # 所以从「其他」里摘出来单列（见 _CATEGORY_CONDS['other']）。
 # 注意与 awaiting_feedback 不是一回事：那仍是待发货 kind 的行（已通知、煤炉数据连携确认中）。
-_WAIT_RECEIPT_COND = "IFNULL(t.[kind], '') = 'Shipped'"
+# 雅虎侧是 ``Yahoo:rsura``：这一步同样无需卖家操作，故沿用通知流的做法（见
+# notifications_query 的 _WAIT_REPLY_COND）——只驱动动作的 type 才在 use_yahoo/todos/
+# todo_sync.py 里给具名 ``Yahoo*`` kind，纯展示的按 ``Yahoo:{type}`` 原样匹配。
+_WAIT_RECEIPT_COND = "IFNULL(t.[kind], '') IN ('Shipped', 'Yahoo:rsura')"
 # 「退货」类判定：买家发起取消/退货申请（キャンセル申請），以及卖家同意后需要填退货信息
 # 并确认退回商品（返品に必要な情報の入力と、返品された商品の確認 → 前端类型显示「退货地址」）。
 # 这两步是同一件事的前后段，合成一个筛选；它们从「其他」里摘出来单列。

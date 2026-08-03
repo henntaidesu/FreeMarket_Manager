@@ -114,7 +114,7 @@ mercari/
 │       └── ssl_mitm_proxy/           # mitmproxy の起動停止とキャプチャ addon
 ├── webside/
 │   ├── package.json
-│   ├── vite.config.js                # ポート 9600、自己署名 HTTPS、/api と /imges のプロキシ
+│   ├── vite.config.js                # ポート 9600（HTTP）、/api と /imges のプロキシ
 │   └── src/
 │       ├── api/                      # Axios ラッパーと JWT インターセプター
 │       ├── components/
@@ -171,9 +171,9 @@ mercari/
 
 | 変数 | デフォルト | 説明 |
 |------|------|------|
-| `MERCARI_DEV_HTTP` | `0` | `1` にすると純粋な HTTP で起動 |
-| `MERCARI_DEV_PUBLIC_HOST` | — | リモート / カスタムドメインでアクセスする際の HMR WebSocket ホスト |
-| `MERCARI_DEV_HMR_CLIENT_PORT` | `9600` | HMR クライアントポート |
+| `MERCARI_DEV_PUBLIC_ORIGIN` | — | ブラウザが実際にアクセスするアドレス（例 `https://mercari.example.com`）。nginx 経由の場合は必須：HMR がこれを見て `wss` とそのポートに切り替える。未設定だと https ページ内の `ws://` がブラウザにブロックされる |
+| `MERCARI_DEV_PUBLIC_HOST` | — | ホスト名のみを指定する場合に使用。`MERCARI_DEV_PUBLIC_ORIGIN` があれば無視される |
+| `MERCARI_DEV_HMR_CLIENT_PORT` | ORIGIN から取得 | HMR クライアントポートの手動上書き |
 
 ## クイックスタート
 
@@ -229,11 +229,9 @@ npm install
 npm run dev
 ```
 
-開発サーバーはデフォルトで **https://localhost:9600**（自己署名証明書。ブラウザの警告は「詳細 → アクセスを続行」でよい）です。純粋な HTTP が必要な場合：
-
-```powershell
-$env:MERCARI_DEV_HTTP="1"; npm run dev
-```
+開発サーバーは **http://localhost:9600**（純粋な HTTP。証明書は同梱しません）です。HTTPS が必要な場合は
+前段の nginx で TLS を終端し、`webside/.env.development` の `MERCARI_DEV_PUBLIC_ORIGIN` にブラウザの
+アドレスバーと同じアドレスを設定してください（HMR が `wss` になります）。
 
 `/api`、`/imges` は Vite がバックエンド `http://localhost:9601` へリバースプロキシします。
 
@@ -241,12 +239,13 @@ $env:MERCARI_DEV_HTTP="1"; npm run dev
 
 | 説明 | アドレス |
 |------|------|
-| フロントエンド（HTTPS） | https://localhost:9600 |
-| フロントエンド（HTTP） | http://localhost:9600（`MERCARI_DEV_HTTP=1` の場合のみ） |
+| フロントエンド | http://localhost:9600 |
 | バックエンドのヘルスチェック | http://localhost:9601/api/health または `/mercariV2/health` |
 | OpenAPI / Swagger | http://localhost:9601/docs |
 
-Vite と Uvicorn はいずれも `0.0.0.0` をリッスンするため、同一 LAN 内の他のデバイスから `https://<自機の IP>:9600` でアクセスできます。
+Vite と Uvicorn はいずれも `0.0.0.0` をリッスンするため、同一 LAN 内の他のデバイスから `http://<自機の IP>:9600` でアクセスできます。
+ただしカメラ／バーコード読取はセキュアコンテキストが必要です。`localhost` は例外的にセキュア扱いですが、
+**LAN IP への HTTP 直アクセスは対象外**なので、nginx 経由の HTTPS ドメインでアクセスしてください。
 
 ## メルカリ連携について
 

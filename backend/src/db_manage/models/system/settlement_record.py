@@ -44,6 +44,9 @@ class SettlementRecordModel(BaseModel):
             'consumables_json': {'type': 'TEXT', 'not_null': False, 'default': None},
             'equipments_json': {'type': 'TEXT', 'not_null': False, 'default': None},
             'rows_json': {'type': 'TEXT', 'not_null': False, 'default': None},
+            # 重新结算：用最新订单数据对同一区间再算一次的快照（含与原结算的差额）。
+            # 上面那些列始终是**原**结算，已经付过的钱不会被重算覆盖；再次重算只覆盖这一列。
+            'resettle_json': {'type': 'TEXT', 'not_null': False, 'default': None},
             # 完整结算明细快照（提交的全部数据，JSON）
             'detail_json': {'type': 'TEXT', 'not_null': False, 'default': None},
             'operator': {'type': 'TEXT', 'not_null': False, 'default': None},

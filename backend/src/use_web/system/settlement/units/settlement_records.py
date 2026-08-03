@@ -159,6 +159,8 @@ def list_settlements(_auth: Dict[str, Any] = Depends(require_auth)) -> Dict[str,
                 "equipments": _parse_json(d.get("equipments_json")) or [],
                 "rows": _parse_json(d.get("rows_json")) or [],
                 "detail": _parse_json(d.get("detail_json")),
+                # 重新结算快照（含与原结算的差额）；从未重算过为 None
+                "resettle": _parse_json(d.get("resettle_json")),
                 "operator": d.get("operator"),
                 "created_at": d.get("created_at"),
             }

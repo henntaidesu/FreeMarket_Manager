@@ -114,7 +114,7 @@ mercari/
 │       └── ssl_mitm_proxy/           # mitmproxy 启停与抓包 addon
 ├── webside/
 │   ├── package.json
-│   ├── vite.config.js                # 9600 端口，HTTPS 自签名，/api 与 /imges 代理
+│   ├── vite.config.js                # 9600 端口（HTTP），/api 与 /imges 代理
 │   └── src/
 │       ├── api/                      # Axios 封装与 JWT 拦截器
 │       ├── components/
@@ -171,9 +171,9 @@ mercari/
 
 | 变量 | 默认 | 说明 |
 |------|------|------|
-| `MERCARI_DEV_HTTP` | `0` | 设为 `1` 改用纯 HTTP 启动 |
-| `MERCARI_DEV_PUBLIC_HOST` | — | 远程 / 自定义域名访问时的 HMR WebSocket 主机 |
-| `MERCARI_DEV_HMR_CLIENT_PORT` | `9600` | HMR 客户端端口 |
+| `MERCARI_DEV_PUBLIC_ORIGIN` | — | 浏览器实际访问的地址（如 `https://mercari.example.com`）。经 nginx 反代时必须设置：HMR 据此改用 `wss` 并取该端口，否则 https 页面里的 `ws://` 会被浏览器拦掉 |
+| `MERCARI_DEV_PUBLIC_HOST` | — | 只写主机名（不含协议）时用；`MERCARI_DEV_PUBLIC_ORIGIN` 已设置时忽略 |
+| `MERCARI_DEV_HMR_CLIENT_PORT` | 取自 ORIGIN | 手动覆盖 HMR 客户端端口 |
 
 ## 快速开始
 
@@ -229,11 +229,8 @@ npm install
 npm run dev
 ```
 
-开发服务器默认 **https://localhost:9600**（自签名证书，浏览器警告点「高级 → 继续访问」即可）。需要纯 HTTP：
-
-```powershell
-$env:MERCARI_DEV_HTTP="1"; npm run dev
-```
+开发服务器为 **http://localhost:9600**（纯 HTTP，不再自带证书）。需要 HTTPS 时由前置 nginx 终止 TLS，
+并在 `webside/.env.development` 中把 `MERCARI_DEV_PUBLIC_ORIGIN` 设为浏览器地址栏里的完整地址，HMR 才能走 `wss`。
 
 `/api`、`/imges` 由 Vite 反向代理到后端 `http://localhost:9601`。
 
@@ -241,12 +238,13 @@ $env:MERCARI_DEV_HTTP="1"; npm run dev
 
 | 说明 | 地址 |
 |------|------|
-| 前端（HTTPS） | https://localhost:9600 |
-| 前端（HTTP） | http://localhost:9600（仅当 `MERCARI_DEV_HTTP=1`） |
+| 前端 | http://localhost:9600 |
 | 后端健康检查 | http://localhost:9601/api/health 或 `/mercariV2/health` |
 | OpenAPI / Swagger | http://localhost:9601/docs |
 
-Vite 与 Uvicorn 均监听 `0.0.0.0`，局域网内其他设备可用 `https://<本机IP>:9600` 访问。
+Vite 与 Uvicorn 均监听 `0.0.0.0`，局域网内其他设备可用 `http://<本机IP>:9600` 访问。
+注意扫码/摄像头等能力要求安全上下文：`localhost` 本身算安全上下文，但用**局域网 IP 直连 HTTP** 时不算，
+需要通过 nginx 以 HTTPS 域名访问。
 
 ## 煤炉对接说明
 

@@ -11,8 +11,7 @@ echo "  mercari dev startup script (mac/linux)"
 echo "========================================"
 echo
 
-# 默认 HTTPS + 自签证书；想用 HTTP 就先 export MERCARI_DEV_HTTP=1 再运行
-export MERCARI_DEV_HTTP="${MERCARI_DEV_HTTP:-0}"
+# 前后端都只监听普通 HTTP；需要 HTTPS 请用 nginx 反代终止 TLS
 
 # ---- 选择 Python 环境：优先 conda 的 mercari 环境，其次 backend/.venv（没有则自动创建）----
 PYTHON=""
@@ -68,11 +67,7 @@ npm install || { echo "[错误] npm install 失败，请检查网络或 package.
 
 echo
 echo "========================================"
-if [ "$MERCARI_DEV_HTTP" = "1" ]; then
-  echo "  前端 (HTTP):  http://localhost:9600"
-else
-  echo "  前端 (HTTPS, 自签证书): https://localhost:9600"
-fi
+echo "  前端 (HTTP):  http://localhost:9600"
 echo "  后端 API:  http://localhost:9601"
 echo "  API 文档:  http://localhost:9601/docs"
 echo "  按 Ctrl+C 停止"

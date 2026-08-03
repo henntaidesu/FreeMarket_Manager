@@ -1,6 +1,7 @@
 /* 弹窗内部结构（.el-dialog__*）属于 ElDialog 自己的作用域，只能用全局样式命中 */
+/* 分账明细一行 14 列：上限压到 1440 会让表格必须横向滚动才看得全，放宽到 1760 */
 .settlement-detail-dialog {
-  max-width: 1440px;
+  max-width: 1760px;
 }
 .settlement-detail-dialog .el-dialog__body {
   padding: 12px 20px 20px;

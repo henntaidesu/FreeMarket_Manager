@@ -8,8 +8,7 @@ set ROOT=%~dp0
 set BACKEND=%ROOT%backend
 set WEBSIDE=%ROOT%webside
 
-rem Default: HTTPS + self-signed cert. For HTTP, set MERCARI_DEV_HTTP=1 before running.
-if not defined MERCARI_DEV_HTTP set MERCARI_DEV_HTTP=0
+rem Both servers listen on plain HTTP. Put nginx in front if you need HTTPS.
 
 echo [1/2] Activating conda env mercari and starting backend (python main.py)...
 call conda activate mercari
@@ -43,11 +42,7 @@ if errorlevel 1 (
 
 echo.
 echo ========================================
-if "%MERCARI_DEV_HTTP%"=="1" (
-  echo   Frontend ^(HTTP^):  http://localhost:9600
-) else (
-  echo   Frontend ^(HTTPS, self-signed^): https://localhost:9600
-)
+echo   Frontend ^(HTTP^):  http://localhost:9600
 echo   Backend API:  http://localhost:9601
 echo   API docs:     http://localhost:9601/docs
 echo   Press Ctrl+C to stop

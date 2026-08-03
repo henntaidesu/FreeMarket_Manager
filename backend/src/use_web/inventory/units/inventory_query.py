@@ -67,6 +67,9 @@ def list_inventory(
         params.append(warehouse_id)
     if warehouse_unassigned:
         where_parts.append("AND p.warehouse_id IS NULL")
+    if warehouse_id or warehouse_unassigned:
+        # 组合商品没有货架号（仓库位置恒为「-」），按货架筛选时不应出现在结果里
+        where_parts.append("AND COALESCE(p.is_combined, 0) = 0")
     if in_stock_only:
         where_parts.append("AND COALESCE(p.quantity, 0) > 0")
     if warehouse_assigned_only:

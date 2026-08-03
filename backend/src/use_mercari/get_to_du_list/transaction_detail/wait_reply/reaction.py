@@ -32,6 +32,91 @@ SUPPORTED_REACTIONS: Dict[str, Dict[str, Any]] = {
     "party": {"emoji": "🎉", "index": 4, "label": "お祝い"},
 }
 
+# 消息区容器（等待聊天流渲染完成的锚点）
+_CHAT_SECTION_SELECTOR = '[data-testid="transaction:chat"]'
+# 「メッセージをもっと見る」：消息多时煤炉只渲染最早的几条，其余折叠在该按钮之后
+_SHOW_MORE_MESSAGES_SELECTOR = '[data-testid="show-more-messages-button"]'
+
+
+async def _pick_transaction_page(page: Any, item_id: str) -> Any:
+    """在同一浏览器上下文里挑出真正的交易页标签，并关掉多余的空白页。
+
+    有头 Edge 复用持久化 profile 时会额外冒出一个 ``about:blank`` 标签，而
+    ``active_tab_page`` 取的是 ``pages[-1]``——正好取到这张空白页，之后所有选择器
+    都落空（报「未找到任何「+」反应按钮」）。这里按 item_id → 任意交易页的顺序挑，
+    挑不到就沿用传入页（由调用方的 URL 校验分支导航过去）。
+    """
+    def _url(p: Any) -> str:
+        try:
+            return (p.url or "").strip()
+        except Exception:
+            return ""
+
+    try:
+        pages = list(page.context.pages)
+    except Exception:
+        return page
+    if len(pages) <= 1:
+        return page
+
+    keep = None
+    if item_id:
+        for p in reversed(pages):
+            if item_id in _url(p):
+                keep = p
+                break
+    if keep is None:
+        for p in reversed(pages):
+            if "jp.mercari.com/transaction/" in _url(p):
+                keep = p
+                break
+    if keep is None:
+        keep = page
+    for p in pages:
+        if p is keep:
+            continue
+        if not _url(p).lower().startswith("about:blank"):
+            continue
+        try:
+            await p.close()
+            log.info("[reaction] 已关闭多余的空白标签页")
+        except Exception as exc:
+            log.debug("[reaction] 关闭空白标签页失败: %s", exc)
+    return keep
+
+
+async def _expand_all_messages(page: Any) -> int:
+    """点开「メッセージをもっと見る」直到消息全部展开，返回点击次数。
+
+    煤炉交易页默认只渲染最早的几条消息，其余折叠在该按钮后面。未展开时页面上的
+    ``add-reaction-button`` 只对应**已渲染**的那几条买家消息，而 reaction_index 是
+    前端按**完整**消息列表算出来的——不展开就会越界（报「reaction_index=N 越界」），
+    或更糟：落在错位的另一条消息上。
+    """
+    clicks = 0
+    for _ in range(20):
+        btn = page.locator(_SHOW_MORE_MESSAGES_SELECTOR)
+        try:
+            if await btn.count() == 0 or not await btn.first.is_visible():
+                break
+        except Exception:
+            break
+        try:
+            await btn.first.scroll_into_view_if_needed(timeout=2000)
+        except Exception:
+            pass
+        try:
+            await btn.first.click(timeout=3000)
+        except Exception as exc:
+            log.warning("[reaction] 点击「メッセージをもっと見る」失败: %s", exc)
+            break
+        clicks += 1
+        await asyncio.sleep(0.4)
+    if clicks:
+        log.info("[reaction] 已展开折叠消息（点击「もっと見る」%s 次）", clicks)
+    return clicks
+
+
 async def send_message_reaction_by_index(
     todo_id: int,
     reaction_index: int,
@@ -81,6 +166,10 @@ async def send_message_reaction_by_index(
     except Exception:
         page = None
 
+    if page is not None:
+        # active_tab_page 取 pages[-1]，可能是 Edge 额外冒出来的 about:blank。
+        page = await _pick_transaction_page(page, item_id)
+
     if page is not None and item_id:
         # __todo 浏览器按账号共享，可能停留在**另一笔交易**页（有头残留会话不会被上面关闭）。
         # 「+」反应按钮在任何有买家消息的交易页都存在，reaction_index 又是按本待办缓存
@@ -121,8 +210,27 @@ async def send_message_reaction_by_index(
             ):
                 pass
             page = await mgr.active_tab_page(auto_key)
+            page = await _pick_transaction_page(page, item_id)
         except Exception as exc:
             raise RuntimeError("无法打开交易页，请重试") from exc
+
+    # 有头窗口里操作的必须是前台标签：后台标签的命中测试可能是旧的，点击会落空。
+    try:
+        await page.bring_to_front()
+    except Exception as exc:
+        log.debug("[reaction] bring_to_front 失败: %s", exc)
+
+    # ── Step 0: 展开被折叠的消息 ──
+    # 消息多时煤炉只渲染最早几条，剩下的在「メッセージをもっと見る」后面；不展开
+    # 的话下面按 reaction_index 取第 N 个「+」必然越界/错位。
+    report("expand_messages", "正在展开全部消息…")
+    try:
+        await page.locator(_CHAT_SECTION_SELECTOR).first.wait_for(
+            state="visible", timeout=8000
+        )
+    except Exception as exc:
+        log.debug("[reaction] 等待消息区渲染超时（继续尝试）: %s", exc)
+    await _expand_all_messages(page)
 
     # ── Step 1: 找到第 reaction_index 个「add-reaction-button」并点击 ──
     # 注：``[data-testid="add-reaction-button"]`` 只在买家消息卡片下渲染，所以这个 N
@@ -138,7 +246,8 @@ async def send_message_reaction_by_index(
     total = await add_btns.count()
     if reaction_index >= total:
         raise RuntimeError(
-            f"reaction_index={reaction_index} 越界（页面共 {total} 个反应按钮）"
+            f"reaction_index={reaction_index} 越界（页面共 {total} 个反应按钮）。"
+            "本地消息可能已过期，请先「刷新抓取」后重试"
         )
     target_btn = add_btns.nth(reaction_index)
     try:

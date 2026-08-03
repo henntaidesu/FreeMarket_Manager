@@ -91,9 +91,10 @@ npm install
 npm run dev
 ```
 
-Frontend server: **https://localhost:9600** (self-signed HTTPS by default)
-- HTTP only: set `MERCARI_DEV_HTTP=1` before `npm run dev`
-- Remote/domain HMR: set `MERCARI_DEV_PUBLIC_HOST=yourhost` in `webside/.env.development`
+Frontend server: **http://localhost:9600** — plain HTTP, no built-in TLS anywhere in this app.
+HTTPS is terminated by an external nginx reverse proxy.
+- Behind nginx: set `MERCARI_DEV_PUBLIC_ORIGIN=https://yourhost` in `webside/.env.development` so the
+  HMR client uses `wss` on that port — otherwise the https page's `ws://` is blocked as mixed content.
 
 ### Production Build (Frontend)
 
@@ -620,7 +621,9 @@ lets the user choose SQLite/MySQL, test the MySQL connection, and switch backend
 - `MERCARI_ENABLE_DOCS`: Set to `1` to expose `/docs`, `/redoc`, `/openapi.json` (default: off).
 - `CORS_ORIGINS`: Comma-separated allowed origins. Unset → `*` with credentials **disabled**; set → those origins with credentials enabled.
 - `MERCARI_HOST` / `MERCARI_PORT`: uvicorn bind (defaults `0.0.0.0`, and `9601` in dev / `9600` when frozen).
-- `MERCARI_SSL_CERTFILE` + `MERCARI_SSL_KEYFILE` / `MERCARI_SSL_CERT_DIR` / `MERCARI_SSL_KEY_PASSWORD`: Serve HTTPS directly from uvicorn. Unnecessary behind nginx. Frozen builds auto-generate a self-signed cert unless `MERCARI_FORCE_HTTP=1`. `MERCARI_FORWARDED_ALLOW_IPS` (default `127.0.0.1`) controls proxy-header trust.
+- `MERCARI_FORWARDED_ALLOW_IPS` (default `127.0.0.1`): which peers may set `X-Forwarded-*`. uvicorn runs
+  with `proxy_headers=True` and **never serves TLS itself** — HTTPS is nginx's job. There are no
+  `MERCARI_SSL_*` / `MERCARI_FORCE_HTTP` variables; the frozen build no longer generates a self-signed cert.
 - `MERCARI_AUTO_FETCH` / `MERCARI_AUTO_FETCH_TICK_SEC` / `MERCARI_AUTO_FETCH_INITIAL_DELAY_SEC`: Background sync loop toggle & cadence (first run is deliberately delayed ~180s to avoid contending with startup).
 - `MERCARI_PROXY_AUTO_START` / `MERCARI_PROXY_PORT` / `MERCARI_PROXY_BIND_HOST` / `MERCARI_PROXY_UPSTREAM` / `MERCARI_PROXY_CERT_DIR`: Node reverse proxy (see Auxiliary Subsystems).
 - `IMAGE_SEARCH_AUTO_INDEX` / `IMAGE_SEARCH_MODEL_URL` / `IMAGE_SEARCH_THREADS`: CLIP image-search indexing.
@@ -654,14 +657,15 @@ lets the user choose SQLite/MySQL, test the MySQL connection, and switch backend
 - `MERCARI_WEBSIDE_DIST` / `MERCARI_NO_STATIC`: Override or disable SPA static hosting.
 
 **Frontend** (`webside/.env.development`):
-- `MERCARI_DEV_HTTP`: Use HTTP instead of HTTPS (default: 0)
-- `MERCARI_DEV_PUBLIC_HOST`: Hostname for remote HMR WebSocket
-- `MERCARI_DEV_HMR_CLIENT_PORT`: Custom HMR port (default: 9600)
+- `MERCARI_DEV_PUBLIC_ORIGIN`: The origin the browser actually loads (e.g. `https://host`). Required behind
+  nginx — `wss` and the client port are derived from it.
+- `MERCARI_DEV_PUBLIC_HOST`: Hostname-only form; ignored when `MERCARI_DEV_PUBLIC_ORIGIN` is set
+- `MERCARI_DEV_HMR_CLIENT_PORT`: Manual override for the HMR client port
 
 ## Accessing the Application
 
 **Development**:
-- Frontend: https://localhost:9600 (self-signed cert)
+- Frontend: http://localhost:9600
 - Backend API: http://localhost:9601
 - OpenAPI docs: **disabled by default** — `/docs`, `/redoc` and `/openapi.json` return 404 unless
   `MERCARI_ENABLE_DOCS=1` (they would otherwise expose every route to an unauthenticated LAN).

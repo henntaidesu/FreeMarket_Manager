@@ -54,6 +54,7 @@
 .stat-tile-value { font-size: 20px; font-weight: 600; color: var(--el-text-color-primary); line-height: 1.2; }
 .stat-tile-value.strong { color: var(--el-color-primary); }
 .stat-tile-sub { font-size: 12px; color: var(--el-color-success); }
+.stat-tile-sub.muted { color: var(--el-text-color-secondary); }
 .warn, .stat-tile-value.warn { color: var(--el-color-danger); }
 .rate-input-wrap { display: flex; align-items: center; gap: 6px; }
 .rate-input-wrap .rate-prefix,
@@ -217,6 +218,10 @@
 .detail-section-title:first-of-type { margin-top: 0; }
 .detail-two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; }
 
+/* 列多，靠压缩单元格留白让整表在弹窗里一屏放得下，不出横向滚动条 */
+.detail-table :deep(.el-table__cell) { padding: 5px 0; }
+.detail-table :deep(.cell) { padding: 0 5px; }
+
 /* 分组表头（收入 / 分摊 / 结算）：父级表头做出层级区分 */
 .detail-table :deep(.el-table__header tr:first-child th) {
   font-weight: 600;
@@ -231,3 +236,18 @@
 .detail-table .num.net { font-weight: 600; }
 .detail-table .num.final { font-weight: 700; color: var(--el-color-primary); }
 .detail-table .num.final-cny { color: var(--el-color-success); }
+
+/* ── 重新结算对比 ───────────────────────────────────────── */
+/* 差额方向：正=需补付，负=需退回 */
+.delta-pos { color: var(--el-color-success); }
+.delta-neg { color: var(--el-color-danger); }
+.delta-val { font-weight: 700; }
+.title-note { font-weight: 400; font-size: 12px; color: var(--el-text-color-secondary); }
+.resettle-meta { padding-bottom: 10px; margin-bottom: 10px; }
+.detail-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+}
+.detail-footer-tip { font-size: 12px; color: var(--el-text-color-secondary); text-align: left; }

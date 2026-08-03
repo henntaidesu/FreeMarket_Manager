@@ -99,6 +99,6 @@ echo ----------------------------------------
 echo   Put mercariDB.db next to "FreeMarket Manager.exe", then run "FreeMarket Manager.exe"
 echo   A run window with live logs opens on launch. Clicking X asks whether to
 echo   exit or minimize to the tray; the tray icon (bottom-right) restores it.
-echo   Then open https://localhost:9600 in your browser (self-signed cert auto-generated)
+echo   Then open http://localhost:9600 in your browser (plain HTTP; put nginx in front for HTTPS)
 echo ========================================
 pause
