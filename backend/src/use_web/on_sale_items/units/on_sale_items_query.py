@@ -236,16 +236,38 @@ def _is_on_sale_over_listed_alert(row: dict) -> bool:
     return (osq + pend) > q
 
 
+def _is_on_sale_unlinked_alert(row: dict) -> bool:
+    """未关联库存预警：出售中的商品没有匹配到任何库存时标红。
+
+    仅限 status=on_sale：已售出/停止/删除等状态在同步时会解除库存绑定，未匹配属正常。
+    """
+    if str(row.get("status") or "").strip() != "on_sale":
+        return False
+    try:
+        return int(row.get("inventory_match_count") or 0) == 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _is_on_sale_alert(row: dict) -> bool:
+    """行是否标红（任一预警命中）。
+
+    口径必须与前端 OnSaleItems/script.js 的 isOnSaleAlertRow 一致：顶置在服务端做（列表已切好页，
+    前端再排只会把当前页内部重排），而标红在前端判。两边漏一个条件，红行就会散落在后面的页里。
+    """
+    return _is_on_sale_over_listed_alert(row) or _is_on_sale_unlinked_alert(row)
+
+
 def _on_sale_sort_key(row: dict) -> tuple:
     """
     在售列表排序键（全表维度）：
-    1) 标红项优先（绑定库存「在售 + 待出 > 库存」）
+    1) 标红项优先（超量上架 / 未关联库存）
     2) 其余按更新时间倒序
     3) 再按创建时间倒序
     4) 最后按 id 倒序兜底，保证稳定
     """
     return (
-        0 if _is_on_sale_over_listed_alert(row) else 1,
+        0 if _is_on_sale_alert(row) else 1,
         -int(row.get("updated") or 0),
         -int(row.get("created") or 0),
         -int(row.get("id") or 0),
@@ -258,8 +280,8 @@ def _sort_on_sale_items_for_alert(items: list[dict]) -> None:
     1) 先将标红项与非标红项拆分，保证标红组整体在前
     2) 各组内按更新时间/创建时间/id 倒序
     """
-    alerts = [r for r in items if _is_on_sale_over_listed_alert(r)]
-    others = [r for r in items if not _is_on_sale_over_listed_alert(r)]
+    alerts = [r for r in items if _is_on_sale_alert(r)]
+    others = [r for r in items if not _is_on_sale_alert(r)]
     # 组内倒序：这里复用原有 key，避免时间并列时不稳定
     alerts.sort(key=_on_sale_sort_key)
     others.sort(key=_on_sale_sort_key)

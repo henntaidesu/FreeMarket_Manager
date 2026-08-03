@@ -382,6 +382,16 @@ export default defineComponent({
       return row.inventory_lines
     }
 
+    /** 卡片图右下角的商品归属：一条 listing 可绑多条库存，去重后合并展示；无归属则不显示 */
+    function cardOwnerNamesText(row) {
+      const names = []
+      for (const ln of inventoryLines(row)) {
+        const n = String(ln?.owner_name || '').trim()
+        if (n && !names.includes(n)) names.push(n)
+      }
+      return names.join('、')
+    }
+
     /** 管理 ID：优先库存关联行，否则从说明暗号/明文解析 */
     function resolvedMgmtIdsForRow(row) {
       const lines = inventoryLines(row)
@@ -1589,6 +1599,7 @@ export default defineComponent({
       hasStoredListingDescription,
       hasDetailViewable,
       inventoryLines,
+      cardOwnerNamesText,
       resolvedMgmtIdsForRow,
       detailMgmtIdsText,
       ensureExpandLoaded,

@@ -403,12 +403,16 @@
                 </template>
                 <el-icon class="os-card-alert"><WarningFilled /></el-icon>
               </el-tooltip>
-              <el-icon
-                v-if="batchMode && batchSelectedIds.has(String(row.item_id || '').trim())"
-                class="os-card-check"
-                color="#67C23A"
-                :size="22"
-              ><Check /></el-icon>
+              <!-- 右下角：批量勾选 + 商品归属（一条 listing 可绑多条库存，去重合并）。缺值不占位 -->
+              <div class="os-card-corner-br">
+                <el-icon
+                  v-if="batchMode && batchSelectedIds.has(String(row.item_id || '').trim())"
+                  class="os-card-check"
+                  color="#67C23A"
+                  :size="22"
+                ><Check /></el-icon>
+                <span v-if="cardOwnerNamesText(row)" class="os-card-owner">{{ cardOwnerNamesText(row) }}</span>
+              </div>
               <!-- 卡片上没有按钮，抓取详情的进度只能压在图上 -->
               <div v-if="detailLoadingIds.has(String(row.item_id || '').trim())" class="os-card-busy">
                 <el-icon class="is-loading" :size="22"><Loading /></el-icon>
@@ -421,9 +425,9 @@
                 <span class="os-card-ellipsis">{{ row.seller_name || '-' }}</span>
                 <span class="os-card-ellipsis">{{ row.item_id }}</span>
               </div>
-              <div class="os-card-meta">
-                <span>{{ t('onSaleItems.likesComments') }} {{ row.num_likes ?? 0 }}/{{ row.num_comments ?? 0 }}</span>
-                <span>{{ t('onSaleItems.pvRecent') }} {{ row.item_pv ?? 0 }}/{{ row.recent_item_pv ?? 0 }}</span>
+              <div class="os-card-tags">
+                <el-tag size="small" effect="plain">{{ t('onSaleItems.likesTag') }} {{ row.num_likes ?? 0 }}</el-tag>
+                <el-tag size="small" effect="plain">{{ t('onSaleItems.commentsTag') }} {{ row.num_comments ?? 0 }}</el-tag>
               </div>
             </div>
           </div>

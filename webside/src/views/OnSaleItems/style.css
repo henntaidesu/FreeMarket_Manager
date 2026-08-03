@@ -140,11 +140,33 @@
   align-items: center;
   justify-content: center;
 }
-/* 图上四角：平台左上、状态右上，预警与批量勾选让到下面两角 */
+/* 图上四角：平台左上、状态右上，预警让到左下，批量勾选与商品归属并排在右下 */
 .os-card-platform { position: absolute; top: 6px; left: 6px; }
 .os-card-status { position: absolute; top: 6px; right: 6px; }
 .os-card-alert { position: absolute; bottom: 6px; left: 6px; color: #f56c6c; font-size: 18px; }
-.os-card-check { position: absolute; bottom: 6px; right: 6px; }
+.os-card-corner-br {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  /* 给左下角的预警图标留出位置，长归属名走省略号而不是横穿整张图 */
+  max-width: calc(100% - 34px);
+}
+/* 半透明黑底 + 白字，任何底图上都读得清 */
+.os-card-owner {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
 /* 抓取详情进行中：压在整张图上 */
 .os-card-busy {
   position: absolute;
@@ -184,9 +206,11 @@
   white-space: nowrap;
   overflow: hidden;
 }
-/* 右侧（商品 ID / PV）定宽，挤压留给左侧的卖家名 */
+/* 右侧（商品 ID）定宽，挤压留给左侧的卖家名 */
 .os-card-meta > span:last-child { flex: 0 0 auto; }
 .os-card-ellipsis { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 赞 / 评：两个小标签并排（原来是一行 PV 文本，PV 不再展示） */
+.os-card-tags { display: flex; gap: 6px; flex-wrap: wrap; }
 .os-card-foot {
   padding: 16px 0 4px;
   text-align: center;
