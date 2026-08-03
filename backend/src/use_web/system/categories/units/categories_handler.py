@@ -8,12 +8,20 @@ from .....db_manage.models.system.category import CategoryModel
 
 class CategoryCreate(PydanticModel):
     name: str
+    company: Optional[str] = None
     description: Optional[str] = None
 
 
 class CategoryUpdate(PydanticModel):
     name: Optional[str] = None
+    company: Optional[str] = None
     description: Optional[str] = None
+
+
+def _norm_company(value: Optional[str]) -> Optional[str]:
+    """空字符串视为未配置所属公司（前端清空即传空串）。"""
+    text = (value or '').strip()
+    return text or None
 
 
 def _serialize(cat: CategoryModel) -> dict:
@@ -35,7 +43,11 @@ def list_categories():
 def create_category(data: CategoryCreate):
     if CategoryModel.find_by_name(data.name):
         raise HTTPException(status_code=400, detail="分类名称已存在")
-    cat = CategoryModel(name=data.name, description=data.description)
+    cat = CategoryModel(
+        name=data.name,
+        company=_norm_company(data.company),
+        description=data.description,
+    )
     if not cat.save():
         raise HTTPException(status_code=500, detail="保存失败")
     return _serialize(cat)
@@ -47,6 +59,8 @@ def update_category(cid: int, data: CategoryUpdate):
         raise HTTPException(status_code=404, detail="分类不存在")
     if data.name is not None:
         cat.name = data.name
+    if data.company is not None:
+        cat.company = _norm_company(data.company)
     if data.description is not None:
         cat.description = data.description
     cat.save()

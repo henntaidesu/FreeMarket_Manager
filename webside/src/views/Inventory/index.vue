@@ -23,12 +23,20 @@
         <div class="search-controls-row">
           <el-input v-model="keyword" class="search-input-control" clearable @change="load" prefix-icon="Search" />
           <div class="search-filters-row">
-            <el-select v-model="filterCat" class="search-select-control" :placeholder="t('inventory.allCategories')" clearable @change="load">
-              <el-option v-for="c in categories" :key="c.id" :label="c.name" :value="c.id" />
-            </el-select>
+            <el-cascader
+              v-model="filterCategoryPath"
+              :options="categoryCascaderOptions"
+              :props="categoryCascaderProps"
+              :show-all-levels="false"
+              class="search-select-control"
+              :placeholder="t('inventory.allCategories')"
+              popper-class="product-type-cascader-popper"
+              filterable
+              clearable
+            />
             <el-cascader
               v-model="filterWarehousePath"
-              :options="warehouseFilterCascaderOptions"
+              :options="warehouseCascaderOptionsWithDefault"
               :props="warehouseCascaderProps"
               :show-all-levels="false"
               class="search-select-control"
@@ -97,11 +105,10 @@
           <template v-if="isIOS">
             <template v-if="!listingPickMode">
               <div class="search-actions-ios-row">
-                <el-button type="success" @click="openContScan">{{ t('inventory.barcodeInbound') }}</el-button>
+                <el-button type="success" plain @click="openNoBarcodeEntry">{{ t('inventory.noBarcodeInbound') }}</el-button>
                 <el-button type="primary" plain @click="openImageSearch">{{ t('inventory.imageSearch') }}</el-button>
               </div>
               <div class="search-actions-ios-row">
-                <el-button type="warning" @click="openNoBarcodeEntry">{{ t('inventory.noBarcodeInbound') }}</el-button>
                 <el-button @click="enterListingPickMode()">{{ t('inventory.combinedProduct') }}</el-button>
               </div>
             </template>
@@ -115,9 +122,8 @@
           </template>
           <template v-else>
             <template v-if="!listingPickMode">
-              <el-button type="success" @click="openContScan">{{ t('inventory.barcodeInbound') }}</el-button>
+              <el-button type="success" plain @click="openNoBarcodeEntry">{{ t('inventory.noBarcodeInbound') }}</el-button>
               <el-button type="primary" plain @click="openImageSearch">{{ t('inventory.imageSearch') }}</el-button>
-              <el-button type="warning" @click="openNoBarcodeEntry">{{ t('inventory.noBarcodeInbound') }}</el-button>
               <el-button @click="enterListingPickMode()">{{ t('inventory.combinedProduct') }}</el-button>
             </template>
             <template v-else>
@@ -292,17 +298,19 @@
               trigger="click"
               :disabled="listingPickMode"
               placement="bottom-start"
-              :width="200"
-              popper-class="inline-edit-popover"
+              width="auto"
+              popper-class="inline-edit-popover inline-edit-popover--cascader"
               @update:visible="(v) => { editingCategoryRowId = v ? row.id : null }"
             >
               <template #reference>
                 <div class="editable-cell">{{ row.category_name || t('inventory.uncategorized') }}</div>
               </template>
-              <el-scrollbar max-height="240px">
-                <div class="inline-edit-option" :class="{ 'is-active': !row.category_id }" @click="saveCategoryInline(row, null)">{{ t('inventory.uncategorized') }}</div>
-                <div v-for="c in categories" :key="c.id" class="inline-edit-option" :class="{ 'is-active': row.category_id === c.id }" @click="saveCategoryInline(row, c.id)">{{ c.name }}</div>
-              </el-scrollbar>
+              <el-cascader-panel
+                :model-value="categoryCascaderPath(row.category_id)"
+                :options="categoryCascaderOptionsWithNone"
+                :props="categoryCascaderProps"
+                @change="saveCategoryInlineFromPath(row, $event)"
+              />
             </el-popover>
           </template>
         </el-table-column>
@@ -385,7 +393,7 @@
               </template>
               <el-cascader-panel
                 :model-value="getInlineWarehousePath(row)"
-                :options="warehouseCascaderOptions"
+                :options="warehouseCascaderOptionsWithDefault"
                 :props="warehouseCascaderProps"
                 @change="saveWarehouseInline(row, $event)"
               />
@@ -516,14 +524,17 @@
             <el-form-item :label="t('inventory.gameCategory')" prop="category_id">
               <div class="product-field-inline">
                 <template v-if="!categoryCreateMode">
-                  <el-select
-                    v-model="form.category_id"
+                  <el-cascader
+                    v-model="formCategoryPath"
+                    :options="categoryCascaderOptions"
+                    :props="categoryCascaderProps"
+                    :show-all-levels="false"
+                    filterable
                     clearable
                     :placeholder="t('inventory.pleaseSelectCategory')"
                     class="product-field-inline__main"
-                  >
-                    <el-option v-for="c in categories" :key="c.id" :label="c.name" :value="c.id" />
-                  </el-select>
+                    popper-class="product-type-cascader-popper"
+                  />
                   <el-button type="primary" plain @click="startCreateCategory">{{ t('inventory.newCategory') }}</el-button>
                 </template>
                 <template v-else>

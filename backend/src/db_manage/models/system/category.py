@@ -29,6 +29,11 @@ class CategoryModel(BaseModel):
                 'unique': True,
                 'default': None,
             },
+            'company': {
+                'type': 'TEXT',
+                'not_null': False,
+                'default': None,
+            },
             'description': {
                 'type': 'TEXT',
                 'not_null': False,

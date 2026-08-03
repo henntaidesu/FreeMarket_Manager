@@ -1,347 +1,474 @@
 <template>
-  <div class="sysconf-page">
-    <div class="sysconf-grid">
-    <!-- 账号管理 + 修改我的密码：并排一行（用户表列多，占 2/3 宽） -->
-    <div class="account-row">
-    <el-card shadow="never" class="sysconf-card account-card">
-      <template #header>
-        <div class="card-head">
-          <span class="card-title">{{ t('system.accountManagement') }}</span>
-          <el-button type="primary" size="small" @click="openUserDialog">
-            <el-icon><Plus /></el-icon> {{ t('system.addUser') }}
-          </el-button>
-        </div>
-      </template>
-      <el-table :data="users" v-loading="usersLoading" stripe>
-        <el-table-column prop="id" label="ID" width="70" />
-        <el-table-column prop="username" :label="t('system.username')" min-width="120" />
-        <el-table-column prop="display_name" :label="t('system.displayName')" min-width="140" />
-        <el-table-column :label="t('common.status')" width="90" align="center">
-          <template #default="{ row }">
-            <el-tag :type="row.is_active ? 'success' : 'danger'" size="small">
-              {{ row.is_active ? t('common.enabled') : t('common.disabled') }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="last_login_at" :label="t('system.lastLoginAt')" min-width="160" />
-        <el-table-column prop="created_at" :label="t('common.createdAt')" min-width="160" />
-      </el-table>
-    </el-card>
-
-    <!-- 修改我的密码 -->
-    <el-card shadow="never" class="sysconf-card">
-      <template #header>
-        <div class="card-title">{{ t('system.changeMyPassword') }}</div>
-      </template>
-      <el-form ref="pwdFormRef" :model="pwdForm" :rules="pwdRules" label-width="90px">
-        <el-form-item :label="t('system.oldPassword')" prop="old_password">
-          <el-input v-model="pwdForm.old_password" type="password" show-password />
-        </el-form-item>
-        <el-form-item :label="t('system.newPassword')" prop="new_password">
-          <el-input v-model="pwdForm.new_password" type="password" show-password />
-        </el-form-item>
-        <el-form-item :label="t('system.confirmPassword')" prop="confirm_password">
-          <el-input v-model="pwdForm.confirm_password" type="password" show-password />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" :loading="pwdSubmitting" @click="submitPassword">
-            {{ t('system.changePassword') }}
-          </el-button>
-        </el-form-item>
-      </el-form>
-      <div class="hint-tip">{{ t('system.pwdTip') }}</div>
-    </el-card>
-    </div>
-
-    <!-- DeepSeek AI 配置 -->
-    <el-card shadow="never" class="sysconf-card" v-loading="loading">
-      <template #header>
-        <div class="card-title">{{ t('systemConfig.deepseekSection') }}</div>
-      </template>
-      <el-form label-width="120px" class="sysconf-form" @submit.prevent>
-        <el-form-item :label="t('systemConfig.apiKey')">
-          <el-input v-model="form.api_key" type="password" show-password clearable />
-        </el-form-item>
-        <el-form-item :label="t('systemConfig.model')">
-          <el-input v-model="form.model" clearable />
-        </el-form-item>
-        <el-form-item :label="t('systemConfig.baseUrl')">
-          <el-input v-model="form.base_url" clearable />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" :loading="saving" @click="save">
-            {{ t('systemConfig.save') }}
-          </el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
-
-    <!-- 出品默认值 -->
-    <el-card shadow="never" class="sysconf-card listing-def-card" v-loading="listingDefLoading">
-      <template #header>
-        <div class="card-title">{{ t('system.listingDefaults') }}</div>
-      </template>
-      <el-form label-width="132px" class="listing-def-form">
-        <el-form-item :label="t('system.defaultShippingFrom')">
-          <el-cascader
-            v-model="listingDefForm.shipping_from_path"
-            :options="shippingFromCascaderOptions"
-            :props="shippingFromCascaderProps"
-            :show-all-levels="false"
-            filterable
-            clearable
-            placeholder=""
-            style="width: 100%; max-width: 520px"
-            popper-class="product-type-cascader-popper"
-            @change="onShippingFromChange"
-          />
-        </el-form-item>
-        <el-form-item :label="t('system.defaultShippingMethod')">
-          <el-select
-            v-model="listingDefForm.shipping_method"
-            clearable
-            placeholder=""
-            style="width: 100%; max-width: 360px"
-            @change="saveListingDefaults"
-          >
-            <el-option v-for="s in shippingMethodOptions" :key="s.value" :label="s.label" :value="s.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="t('system.defaultShippingPayer')">
-          <el-select v-model="listingDefForm.shipping_payer" clearable placeholder="" style="width: 100%; max-width: 360px" @change="saveListingDefaults">
-            <el-option v-for="s in shippingPayerOptions" :key="s.value" :label="s.label" :value="s.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="t('system.defaultShippingDays')">
-          <el-select v-model="listingDefForm.shipping_days" clearable placeholder="" style="width: 100%; max-width: 280px" @change="saveListingDefaults">
-            <el-option v-for="s in shippingDaysOptions" :key="s.value" :label="s.label" :value="s.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="t('system.defaultListingImage')">
-          <el-select v-model="listingDefForm.watermark" placeholder="" style="width: 100%; max-width: 280px" @change="saveListingDefaults">
-            <el-option :label="t('system.listingImageWatermark')" :value="1" />
-            <el-option :label="t('system.listingImageNoWatermark')" :value="0" />
-          </el-select>
-        </el-form-item>
-      </el-form>
-    </el-card>
-
-    <!-- 数据库管理（连接 / 切换 + 备份） -->
-    <el-card shadow="never" class="sysconf-card db-card">
-      <template #header>
-        <div class="card-head">
-          <span class="card-title">数据库管理</span>
-          <el-tag :type="activeBackend === 'mysql' ? 'success' : 'info'" effect="dark">
-            当前：{{ activeBackend === 'mysql' ? 'MySQL' : 'SQLite' }}
-          </el-tag>
-        </div>
-      </template>
-
-      <div class="db-tabs">
-        <el-radio-group v-model="dbPane" size="small">
-          <el-radio-button label="connect">连接 / 切换</el-radio-button>
-          <el-radio-button label="backup">备份</el-radio-button>
-        </el-radio-group>
+  <div ref="pageRef" class="sc">
+    <!-- 页头：标题 + 两个实时状态（数据库 / 打印机），不用再滚到对应卡片才知道当前状态 -->
+    <header class="sc-hero">
+      <div class="sc-hero-main">
+        <h1 class="sc-hero-title">{{ t('systemConfig.title') }}</h1>
+        <p class="sc-hero-sub">{{ t('systemConfig.subtitle') }}</p>
       </div>
-
-      <!-- v-show 而非 v-if：来回切换时两边已填的表单不丢 -->
-      <el-form v-show="dbPane === 'connect'" label-width="110px" @submit.prevent>
-        <el-form-item label="使用数据库">
-          <el-radio-group v-model="dbForm.backend">
-            <el-radio-button label="sqlite">SQLite（默认）</el-radio-button>
-            <el-radio-button label="mysql">MySQL</el-radio-button>
-          </el-radio-group>
-        </el-form-item>
-
-        <template v-if="dbForm.backend === 'mysql'">
-          <el-form-item label="主机">
-            <el-input v-model="dbForm.mysql.host" style="max-width:360px" />
-          </el-form-item>
-          <el-form-item label="端口">
-            <el-input-number v-model="dbForm.mysql.port" :min="1" :max="65535" :controls="false" style="width:160px" class="port-input" />
-          </el-form-item>
-          <el-form-item label="用户">
-            <el-input v-model="dbForm.mysql.user" style="max-width:360px" />
-          </el-form-item>
-          <el-form-item label="密码">
-            <el-input
-              v-model="dbForm.mysql.password"
-              type="password"
-              show-password
-              :placeholder="passwordSet ? '••••••••' : ''"
-              style="max-width:360px"
-            />
-          </el-form-item>
-          <el-form-item label="数据库">
-            <el-input v-model="dbForm.mysql.database" style="max-width:360px" />
-          </el-form-item>
-        </template>
-
-        <el-form-item label=" ">
-          <!-- 测试连接（仅在选择 MySQL 时） -->
-          <el-button v-if="dbForm.backend === 'mysql'" :loading="testing" @click="onTest">测试连接</el-button>
-          <!-- 切换数据库：同服务器热切换库名（仅当前为 MySQL 时） -->
-          <el-button
-            v-if="activeBackend === 'mysql'"
-            type="warning"
-            :loading="hotSwitching"
-            :disabled="!dbForm.mysql.database || dbForm.mysql.database.trim() === activeDatabase"
-            @click="onHotSwitch"
-          >切换数据库</el-button>
-          <!-- 迁移数据：当前为 MySQL 时不显示「迁移数据到 MySQL」 -->
-          <el-button
-            v-if="!(dbForm.backend === 'mysql' && activeBackend === 'mysql')"
-            :loading="migrating"
-            :disabled="dbForm.backend === activeBackend || switching"
-            @click="onMigrate"
-          >
-            迁移数据到 {{ dbForm.backend === 'mysql' ? 'MySQL' : 'SQLite' }}
-          </el-button>
-          <el-button
-            v-if="dbForm.backend !== activeBackend"
-            type="primary"
-            :disabled="migrating"
-            :loading="switching"
-            @click="onSwitch"
-          >
-            切换到 {{ dbForm.backend === 'mysql' ? 'MySQL' : 'SQLite' }}
-          </el-button>
-          <span v-if="testResult" class="test-result" :class="{ ok: testResult.ok }">
-            {{ testResult.message }}
-            <template v-if="testResult.ok">
-              · 版本 {{ testResult.version }}
-              · 目标库{{ testResult.database_exists ? '已存在' : '不存在（将自动创建）' }}
-            </template>
+      <div class="sc-hero-stats">
+        <div class="sc-stat">
+          <span class="sc-dot" :class="activeBackend === 'mysql' ? 'is-ok' : 'is-idle'" />
+          <span class="sc-stat-label">{{ t('systemConfig.databaseSection') }}</span>
+          <span class="sc-stat-value">
+            {{ activeBackend === 'mysql' ? 'MySQL' : 'SQLite' }}
+            <template v-if="activeBackend === 'mysql' && activeDatabase"> · {{ activeDatabase }}</template>
           </span>
-        </el-form-item>
-      </el-form>
-
-      <el-form v-show="dbPane === 'backup'" label-width="110px" @submit.prevent>
-        <el-form-item label="主机">
-          <el-input v-model="backup.host" style="max-width:360px" />
-        </el-form-item>
-        <el-form-item label="端口">
-          <el-input-number v-model="backup.port" :min="1" :max="65535" :controls="false" style="width:160px" class="port-input" />
-        </el-form-item>
-        <el-form-item label="用户">
-          <el-input v-model="backup.user" style="max-width:360px" />
-        </el-form-item>
-        <el-form-item label="密码">
-          <el-input v-model="backup.password" type="password" show-password style="max-width:360px" />
-        </el-form-item>
-        <el-form-item label="目标库">
-          <el-input v-model="backup.database" style="max-width:360px" />
-        </el-form-item>
-        <el-form-item label=" ">
-          <el-button :loading="testingBackup" @click="onTestBackup">测试连接</el-button>
-          <el-button type="primary" :loading="backuping" :disabled="!backup.database" @click="onBackup">开始备份</el-button>
-          <span v-if="backupTestResult" class="test-result" :class="{ ok: backupTestResult.ok }">
-            {{ backupTestResult.message }}
-            <template v-if="backupTestResult.ok">
-              · 版本 {{ backupTestResult.version }}
-              · 目标库{{ backupTestResult.database_exists ? '已存在' : '不存在（将自动创建）' }}
-            </template>
-          </span>
-        </el-form-item>
-      </el-form>
-    </el-card>
-
-    <!-- 二维码打印参数：存 localStorage（跟随浏览器，蓝牙配对本身也是按浏览器授权的） -->
-    <el-card shadow="never" class="sysconf-card">
-      <template #header>
-        <div class="card-title">{{ t('qrPrint.paramsSection') }}</div>
-      </template>
-      <el-form label-width="120px" class="qrprint-form" @submit.prevent>
-        <el-form-item :label="t('qrPrint.labelSize')">
-          <el-input-number v-model="printerCfg.labelWmm" :min="10" :max="100" :controls="false" class="qrprint-num" @change="savePrinterCfg" />
-          <span class="qrprint-sep">×</span>
-          <el-input-number v-model="printerCfg.labelHmm" :min="10" :max="100" :controls="false" class="qrprint-num" @change="savePrinterCfg" />
-          <span class="qrprint-unit">mm</span>
-        </el-form-item>
-        <el-form-item :label="t('qrPrint.headWidth')">
-          <el-input-number v-model="printerCfg.headMm" :min="20" :max="110" :controls="false" class="qrprint-num" @change="savePrinterCfg" />
-          <span class="qrprint-unit">mm</span>
-        </el-form-item>
-        <el-form-item label="DPI">
-          <el-input-number v-model="printerCfg.dpi" :min="100" :max="600" :controls="false" class="qrprint-num" @change="savePrinterCfg" />
-        </el-form-item>
-        <el-form-item :label="t('qrPrint.chunk')">
-          <el-input-number v-model="printerCfg.chunk" :min="20" :max="512" :controls="false" class="qrprint-num" @change="savePrinterCfg" />
-          <span class="qrprint-unit">{{ t('qrPrint.chunkUnit') }}</span>
-        </el-form-item>
-        <el-form-item :label="t('qrPrint.feed')">
-          <el-input-number v-model="printerCfg.feedMm" :min="0" :max="60" :controls="false" class="qrprint-num" @change="savePrinterCfg" />
-          <span class="qrprint-unit">mm</span>
-        </el-form-item>
-        <el-form-item :label="t('qrPrint.density')">
-          <el-input-number v-model="printerCfg.density" :min="1" :max="31" :controls="false" class="qrprint-num" @change="savePrinterCfg" />
-        </el-form-item>
-        <el-form-item :label="t('qrPrint.threshold')">
-          <el-input-number v-model="printerCfg.threshold" :min="10" :max="245" :controls="false" class="qrprint-num" @change="savePrinterCfg" />
-        </el-form-item>
-      </el-form>
-    </el-card>
-
-    <!-- 打印机连接：连接 / 测试打印 / 忘记设备 -->
-    <el-card shadow="never" class="sysconf-card">
-      <template #header>
-        <div class="card-head">
-          <span class="card-title">{{ t('qrPrint.connSection') }}</span>
-          <el-tag :type="printerState.connected ? 'success' : 'info'" effect="dark">
-            {{ printerState.connected ? t('qrPrint.connected') : t('qrPrint.disconnected') }}
-          </el-tag>
         </div>
-      </template>
-      <el-form label-width="120px" @submit.prevent>
-        <el-form-item :label="t('qrPrint.device')">
-          <span>{{ printerState.deviceName || t('qrPrint.noDevice') }}</span>
-        </el-form-item>
-        <!-- 免弹框自动重连：需浏览器支持 getDevices（Chrome/Edge 持久化蓝牙授权） -->
-        <el-form-item :label="t('qrPrint.autoReconnect')">
-          <span :class="autoReconnectOk ? 'qrprint-ok' : 'qrprint-warn'">
-            {{ autoReconnectOk ? t('qrPrint.autoReconnectOk') : t('qrPrint.autoReconnectNo') }}
+        <div class="sc-stat">
+          <span class="sc-dot" :class="printerState.connected ? 'is-ok' : 'is-idle'" />
+          <span class="sc-stat-label">{{ t('qrPrint.device') }}</span>
+          <span class="sc-stat-value">
+            {{ printerState.connected ? t('qrPrint.connected') : t('qrPrint.disconnected') }}
           </span>
-        </el-form-item>
-        <!-- 整表发现出多个可写特征时才显示，默认自动选第一个并持久化 -->
-        <el-form-item v-if="printerState.writableChars.length > 1" :label="t('qrPrint.writeChar')">
-          <el-select :model-value="printerState.charUuid" style="width: 100%; max-width: 480px" @change="onPickChar">
-            <el-option
-              v-for="c in printerState.writableChars"
-              :key="c.uuid"
-              :label="c.uuid + '  [' + c.flags + ']'"
-              :value="c.uuid"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label=" ">
-          <el-button type="primary" :loading="connecting" @click="onConnect">{{ t('qrPrint.connect') }}</el-button>
-          <el-button :loading="qrTesting" @click="onQrTest">{{ t('qrPrint.testPrint') }}</el-button>
-          <el-button type="danger" plain @click="onForget">{{ t('qrPrint.forget') }}</el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
+        </div>
+      </div>
+    </header>
+
+    <div class="sc-body">
+      <!-- 侧边锚点导航：粘在滚动容器顶部，窄屏变成横向 chip 条 -->
+      <nav class="sc-nav">
+        <button
+          v-for="s in SECTIONS"
+          :key="s.id"
+          type="button"
+          class="sc-nav-item"
+          :class="{ 'is-active': activeSection === s.id }"
+          @click="goSection(s.id)"
+        >
+          <el-icon :size="15"><component :is="s.icon" /></el-icon>
+          <span class="sc-nav-text">{{ t(s.labelKey) }}</span>
+        </button>
+      </nav>
+
+      <div class="sc-sections">
+        <!-- 账号管理 -->
+        <section id="sc-account" class="sc-panel">
+          <div class="sc-panel-head">
+            <span class="sc-ic sc-ic--blue"><el-icon :size="17"><User /></el-icon></span>
+            <div class="sc-head-text">
+              <div class="sc-panel-title">{{ t('system.accountManagement') }}</div>
+              <div class="sc-panel-desc">{{ t('systemConfig.descAccount') }}</div>
+            </div>
+            <el-button type="primary" size="small" @click="openUserDialog">
+              <el-icon><Plus /></el-icon>
+              <span class="sc-btn-text">{{ t('system.addUser') }}</span>
+            </el-button>
+          </div>
+          <div class="sc-panel-body sc-panel-body--flush">
+            <el-table :data="users" v-loading="usersLoading" class="sc-table">
+              <el-table-column prop="id" label="ID" width="70" />
+              <el-table-column prop="username" :label="t('system.username')" min-width="120" />
+              <el-table-column prop="display_name" :label="t('system.displayName')" min-width="140" />
+              <el-table-column :label="t('common.status')" width="90" align="center">
+                <template #default="{ row }">
+                  <el-tag :type="row.is_active ? 'success' : 'danger'" size="small" effect="dark" round>
+                    {{ row.is_active ? t('common.enabled') : t('common.disabled') }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="last_login_at" :label="t('system.lastLoginAt')" min-width="160" />
+              <el-table-column prop="created_at" :label="t('common.createdAt')" min-width="160" />
+            </el-table>
+          </div>
+        </section>
+
+        <!-- 修改我的密码 -->
+        <section id="sc-password" class="sc-panel">
+          <div class="sc-panel-head">
+            <span class="sc-ic sc-ic--violet"><el-icon :size="17"><Lock /></el-icon></span>
+            <div class="sc-head-text">
+              <div class="sc-panel-title">{{ t('system.changeMyPassword') }}</div>
+              <div class="sc-panel-desc">{{ t('systemConfig.descPassword') }}</div>
+            </div>
+          </div>
+          <div class="sc-panel-body">
+            <el-form
+              ref="pwdFormRef"
+              :model="pwdForm"
+              :rules="pwdRules"
+              label-position="top"
+              class="sc-form sc-grid"
+            >
+              <el-form-item :label="t('system.oldPassword')" prop="old_password">
+                <el-input v-model="pwdForm.old_password" type="password" show-password />
+              </el-form-item>
+              <el-form-item :label="t('system.newPassword')" prop="new_password">
+                <el-input v-model="pwdForm.new_password" type="password" show-password />
+              </el-form-item>
+              <el-form-item :label="t('system.confirmPassword')" prop="confirm_password">
+                <el-input v-model="pwdForm.confirm_password" type="password" show-password />
+              </el-form-item>
+            </el-form>
+            <div class="sc-actions">
+              <el-button type="primary" :loading="pwdSubmitting" @click="submitPassword">
+                {{ t('system.changePassword') }}
+              </el-button>
+              <span class="sc-note">{{ t('system.pwdTip') }}</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- DeepSeek AI 配置 -->
+        <section id="sc-ai" class="sc-panel">
+          <div class="sc-panel-head">
+            <span class="sc-ic sc-ic--cyan"><el-icon :size="17"><MagicStick /></el-icon></span>
+            <div class="sc-head-text">
+              <div class="sc-panel-title">{{ t('systemConfig.deepseekSection') }}</div>
+              <div class="sc-panel-desc">{{ t('systemConfig.descAi') }}</div>
+            </div>
+          </div>
+          <div class="sc-panel-body" v-loading="loading">
+            <div class="sc-grid">
+              <div class="sc-field">
+                <div class="sc-label">{{ t('systemConfig.apiKey') }}</div>
+                <el-input v-model="form.api_key" type="password" show-password clearable />
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">{{ t('systemConfig.model') }}</div>
+                <el-input v-model="form.model" clearable />
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">{{ t('systemConfig.baseUrl') }}</div>
+                <el-input v-model="form.base_url" clearable />
+              </div>
+            </div>
+            <div class="sc-actions">
+              <el-button type="primary" :loading="saving" @click="save">
+                {{ t('systemConfig.save') }}
+              </el-button>
+            </div>
+          </div>
+        </section>
+
+        <!-- 出品默认值 -->
+        <section id="sc-listing" class="sc-panel">
+          <div class="sc-panel-head">
+            <span class="sc-ic sc-ic--amber"><el-icon :size="17"><Sell /></el-icon></span>
+            <div class="sc-head-text">
+              <div class="sc-panel-title">{{ t('system.listingDefaults') }}</div>
+              <div class="sc-panel-desc">{{ t('systemConfig.descListing') }}</div>
+            </div>
+          </div>
+          <div class="sc-panel-body" v-loading="listingDefLoading">
+            <div class="sc-grid">
+              <div class="sc-field sc-field--wide">
+                <div class="sc-label">{{ t('system.defaultShippingFrom') }}</div>
+                <el-cascader
+                  v-model="listingDefForm.shipping_from_path"
+                  :options="shippingFromCascaderOptions"
+                  :props="shippingFromCascaderProps"
+                  :show-all-levels="false"
+                  filterable
+                  clearable
+                  placeholder=""
+                  popper-class="product-type-cascader-popper"
+                  @change="onShippingFromChange"
+                />
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">{{ t('system.defaultShippingMethod') }}</div>
+                <el-select
+                  v-model="listingDefForm.shipping_method"
+                  clearable
+                  placeholder=""
+                  @change="saveListingDefaults"
+                >
+                  <el-option v-for="s in shippingMethodOptions" :key="s.value" :label="s.label" :value="s.value" />
+                </el-select>
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">{{ t('system.defaultShippingPayer') }}</div>
+                <el-select v-model="listingDefForm.shipping_payer" clearable placeholder="" @change="saveListingDefaults">
+                  <el-option v-for="s in shippingPayerOptions" :key="s.value" :label="s.label" :value="s.value" />
+                </el-select>
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">{{ t('system.defaultShippingDays') }}</div>
+                <el-select v-model="listingDefForm.shipping_days" clearable placeholder="" @change="saveListingDefaults">
+                  <el-option v-for="s in shippingDaysOptions" :key="s.value" :label="s.label" :value="s.value" />
+                </el-select>
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">{{ t('system.defaultListingImage') }}</div>
+                <el-select v-model="listingDefForm.watermark" placeholder="" @change="saveListingDefaults">
+                  <el-option :label="t('system.listingImageWatermark')" :value="1" />
+                  <el-option :label="t('system.listingImageNoWatermark')" :value="0" />
+                </el-select>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 数据库管理（连接 / 切换 + 备份） -->
+        <section id="sc-database" class="sc-panel">
+          <div class="sc-panel-head">
+            <span class="sc-ic sc-ic--emerald"><el-icon :size="17"><Coin /></el-icon></span>
+            <div class="sc-head-text">
+              <div class="sc-panel-title">{{ t('systemConfig.databaseSection') }}</div>
+              <div class="sc-panel-desc">{{ t('systemConfig.descDatabase') }}</div>
+            </div>
+            <div class="sc-seg">
+              <button type="button" :class="{ 'is-on': dbPane === 'connect' }" @click="dbPane = 'connect'">连接 / 切换</button>
+              <button type="button" :class="{ 'is-on': dbPane === 'backup' }" @click="dbPane = 'backup'">备份</button>
+            </div>
+          </div>
+
+          <!-- v-show 而非 v-if：来回切换时两边已填的表单不丢 -->
+          <div v-show="dbPane === 'connect'" class="sc-panel-body">
+            <div class="sc-label">使用数据库</div>
+            <div class="sc-choices">
+              <button
+                type="button"
+                class="sc-choice"
+                :class="{ 'is-on': dbForm.backend === 'sqlite' }"
+                @click="dbForm.backend = 'sqlite'"
+              >
+                <span class="sc-choice-title">SQLite</span>
+                <span class="sc-choice-sub">默认 · 本地文件</span>
+                <span v-if="activeBackend === 'sqlite'" class="sc-choice-flag">当前</span>
+              </button>
+              <button
+                type="button"
+                class="sc-choice"
+                :class="{ 'is-on': dbForm.backend === 'mysql' }"
+                @click="dbForm.backend = 'mysql'"
+              >
+                <span class="sc-choice-title">MySQL</span>
+                <span class="sc-choice-sub">独立服务器 · 8.0+</span>
+                <span v-if="activeBackend === 'mysql'" class="sc-choice-flag">当前</span>
+              </button>
+            </div>
+
+            <div v-if="dbForm.backend === 'mysql'" class="sc-grid sc-grid--tight">
+              <div class="sc-field">
+                <div class="sc-label">主机</div>
+                <el-input v-model="dbForm.mysql.host" />
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">端口</div>
+                <el-input-number v-model="dbForm.mysql.port" :min="1" :max="65535" :controls="false" class="sc-num" />
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">用户</div>
+                <el-input v-model="dbForm.mysql.user" />
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">密码</div>
+                <el-input
+                  v-model="dbForm.mysql.password"
+                  type="password"
+                  show-password
+                  :placeholder="passwordSet ? '••••••••' : ''"
+                />
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">数据库</div>
+                <el-input v-model="dbForm.mysql.database" />
+              </div>
+            </div>
+
+            <div class="sc-actions">
+              <!-- 测试连接（仅在选择 MySQL 时） -->
+              <el-button v-if="dbForm.backend === 'mysql'" :loading="testing" @click="onTest">测试连接</el-button>
+              <!-- 切换数据库：同服务器热切换库名（仅当前为 MySQL 时） -->
+              <el-button
+                v-if="activeBackend === 'mysql'"
+                type="warning"
+                :loading="hotSwitching"
+                :disabled="!dbForm.mysql.database || dbForm.mysql.database.trim() === activeDatabase"
+                @click="onHotSwitch"
+              >切换数据库</el-button>
+              <!-- 迁移数据：当前为 MySQL 时不显示「迁移数据到 MySQL」 -->
+              <el-button
+                v-if="!(dbForm.backend === 'mysql' && activeBackend === 'mysql')"
+                :loading="migrating"
+                :disabled="dbForm.backend === activeBackend || switching"
+                @click="onMigrate"
+              >
+                迁移数据到 {{ dbForm.backend === 'mysql' ? 'MySQL' : 'SQLite' }}
+              </el-button>
+              <el-button
+                v-if="dbForm.backend !== activeBackend"
+                type="primary"
+                :disabled="migrating"
+                :loading="switching"
+                @click="onSwitch"
+              >
+                切换到 {{ dbForm.backend === 'mysql' ? 'MySQL' : 'SQLite' }}
+              </el-button>
+              <span v-if="testResult" class="sc-result" :class="{ 'is-ok': testResult.ok }">
+                <span class="sc-dot" :class="testResult.ok ? 'is-ok' : 'is-bad'" />
+                {{ testResult.message }}
+                <template v-if="testResult.ok">
+                  · 版本 {{ testResult.version }}
+                  · 目标库{{ testResult.database_exists ? '已存在' : '不存在（将自动创建）' }}
+                </template>
+              </span>
+            </div>
+          </div>
+
+          <div v-show="dbPane === 'backup'" class="sc-panel-body">
+            <div class="sc-grid sc-grid--tight">
+              <div class="sc-field">
+                <div class="sc-label">主机</div>
+                <el-input v-model="backup.host" />
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">端口</div>
+                <el-input-number v-model="backup.port" :min="1" :max="65535" :controls="false" class="sc-num" />
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">用户</div>
+                <el-input v-model="backup.user" />
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">密码</div>
+                <el-input v-model="backup.password" type="password" show-password />
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">目标库</div>
+                <el-input v-model="backup.database" />
+              </div>
+            </div>
+            <div class="sc-actions">
+              <el-button :loading="testingBackup" @click="onTestBackup">测试连接</el-button>
+              <el-button type="primary" :loading="backuping" :disabled="!backup.database" @click="onBackup">开始备份</el-button>
+              <span v-if="backupTestResult" class="sc-result" :class="{ 'is-ok': backupTestResult.ok }">
+                <span class="sc-dot" :class="backupTestResult.ok ? 'is-ok' : 'is-bad'" />
+                {{ backupTestResult.message }}
+                <template v-if="backupTestResult.ok">
+                  · 版本 {{ backupTestResult.version }}
+                  · 目标库{{ backupTestResult.database_exists ? '已存在' : '不存在（将自动创建）' }}
+                </template>
+              </span>
+            </div>
+          </div>
+
+          <!-- 迁移 / 备份结果紧跟在数据库区块里，不再落到页面最底部 -->
+          <div v-if="migrateSummary.length" class="sc-panel-body sc-panel-body--sub">
+            <div class="sc-sub-title">迁移 / 备份结果（逐表行数校验）</div>
+            <el-table :data="migrateSummary" size="small" max-height="360" class="sc-table">
+              <el-table-column prop="table" label="表" min-width="220" />
+              <el-table-column prop="src" label="源行数" width="100" align="right" />
+              <el-table-column prop="dst" label="目标行数" width="100" align="right" />
+              <el-table-column label="状态" width="120" align="center">
+                <template #default="{ row }">
+                  <el-tag :type="row.status === 'OK' ? 'success' : (row.status.includes('不一致') ? 'danger' : 'info')" size="small" effect="dark" round>
+                    {{ row.status }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </section>
+
+        <!-- 二维码打印参数：存 localStorage（跟随浏览器，蓝牙配对本身也是按浏览器授权的） -->
+        <section id="sc-qrparams" class="sc-panel">
+          <div class="sc-panel-head">
+            <span class="sc-ic sc-ic--rose"><el-icon :size="17"><Tickets /></el-icon></span>
+            <div class="sc-head-text">
+              <div class="sc-panel-title">{{ t('qrPrint.paramsSection') }}</div>
+              <div class="sc-panel-desc">{{ t('systemConfig.descQrParams') }}</div>
+            </div>
+          </div>
+          <div class="sc-panel-body">
+            <div class="sc-grid sc-grid--narrow">
+              <div class="sc-field">
+                <div class="sc-label">{{ t('qrPrint.labelSize') }}</div>
+                <div class="sc-inline">
+                  <el-input-number v-model="printerCfg.labelWmm" :min="10" :max="100" :controls="false" class="sc-num" @change="savePrinterCfg" />
+                  <span class="sc-unit">×</span>
+                  <el-input-number v-model="printerCfg.labelHmm" :min="10" :max="100" :controls="false" class="sc-num" @change="savePrinterCfg" />
+                  <span class="sc-unit">mm</span>
+                </div>
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">{{ t('qrPrint.headWidth') }}</div>
+                <div class="sc-inline">
+                  <el-input-number v-model="printerCfg.headMm" :min="20" :max="110" :controls="false" class="sc-num" @change="savePrinterCfg" />
+                  <span class="sc-unit">mm</span>
+                </div>
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">DPI</div>
+                <el-input-number v-model="printerCfg.dpi" :min="100" :max="600" :controls="false" class="sc-num" @change="savePrinterCfg" />
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">{{ t('qrPrint.chunk') }}</div>
+                <div class="sc-inline">
+                  <el-input-number v-model="printerCfg.chunk" :min="20" :max="512" :controls="false" class="sc-num" @change="savePrinterCfg" />
+                  <span class="sc-unit">{{ t('qrPrint.chunkUnit') }}</span>
+                </div>
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">{{ t('qrPrint.feed') }}</div>
+                <div class="sc-inline">
+                  <el-input-number v-model="printerCfg.feedMm" :min="0" :max="60" :controls="false" class="sc-num" @change="savePrinterCfg" />
+                  <span class="sc-unit">mm</span>
+                </div>
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">{{ t('qrPrint.density') }}</div>
+                <el-input-number v-model="printerCfg.density" :min="1" :max="31" :controls="false" class="sc-num" @change="savePrinterCfg" />
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">{{ t('qrPrint.threshold') }}</div>
+                <el-input-number v-model="printerCfg.threshold" :min="10" :max="245" :controls="false" class="sc-num" @change="savePrinterCfg" />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 打印机连接：连接 / 测试打印 / 忘记设备 -->
+        <section id="sc-printer" class="sc-panel">
+          <div class="sc-panel-head">
+            <span class="sc-ic sc-ic--sky"><el-icon :size="17"><Printer /></el-icon></span>
+            <div class="sc-head-text">
+              <div class="sc-panel-title">{{ t('qrPrint.connSection') }}</div>
+              <div class="sc-panel-desc">{{ t('systemConfig.descPrinter') }}</div>
+            </div>
+            <el-tag :type="printerState.connected ? 'success' : 'info'" effect="dark" round size="small">
+              {{ printerState.connected ? t('qrPrint.connected') : t('qrPrint.disconnected') }}
+            </el-tag>
+          </div>
+          <div class="sc-panel-body">
+            <div class="sc-device" :class="{ 'is-on': printerState.connected }">
+              <span class="sc-device-ic"><el-icon :size="20"><Printer /></el-icon></span>
+              <div class="sc-device-text">
+                <div class="sc-device-name">{{ printerState.deviceName || t('qrPrint.noDevice') }}</div>
+                <!-- 免弹框自动重连：需浏览器支持 getDevices（Chrome/Edge 持久化蓝牙授权） -->
+                <div class="sc-device-sub" :class="autoReconnectOk ? 'is-ok' : 'is-warn'">
+                  {{ t('qrPrint.autoReconnect') }} · {{ autoReconnectOk ? t('qrPrint.autoReconnectOk') : t('qrPrint.autoReconnectNo') }}
+                </div>
+              </div>
+            </div>
+
+            <!-- 整表发现出多个可写特征时才显示，默认自动选第一个并持久化 -->
+            <div v-if="printerState.writableChars.length > 1" class="sc-field sc-field--stack">
+              <div class="sc-label">{{ t('qrPrint.writeChar') }}</div>
+              <el-select :model-value="printerState.charUuid" @change="onPickChar">
+                <el-option
+                  v-for="c in printerState.writableChars"
+                  :key="c.uuid"
+                  :label="c.uuid + '  [' + c.flags + ']'"
+                  :value="c.uuid"
+                />
+              </el-select>
+            </div>
+
+            <div class="sc-actions">
+              <el-button type="primary" :loading="connecting" @click="onConnect">{{ t('qrPrint.connect') }}</el-button>
+              <el-button :loading="qrTesting" @click="onQrTest">{{ t('qrPrint.testPrint') }}</el-button>
+              <el-button type="danger" plain @click="onForget">{{ t('qrPrint.forget') }}</el-button>
+            </div>
+          </div>
+        </section>
+      </div>
     </div>
 
-    <el-card v-if="migrateSummary.length" shadow="never" class="sysconf-card summary-card">
-      <template #header>
-        <div class="card-title">迁移 / 备份结果（逐表行数校验）</div>
-      </template>
-      <el-table :data="migrateSummary" stripe size="small" max-height="420">
-        <el-table-column prop="table" label="表" min-width="220" />
-        <el-table-column prop="src" label="源行数" width="100" align="right" />
-        <el-table-column prop="dst" label="目标行数" width="100" align="right" />
-        <el-table-column label="状态" width="120" align="center">
-          <template #default="{ row }">
-            <el-tag :type="row.status === 'OK' ? 'success' : (row.status.includes('不一致') ? 'danger' : 'info')" size="small">
-              {{ row.status }}
-            </el-tag>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
-
-    <el-dialog v-model="userDialogVisible" :title="t('system.addUser')" width="420px" destroy-on-close>
-      <el-form ref="userFormRef" :model="userForm" :rules="userRules" label-width="90px">
+    <el-dialog v-model="userDialogVisible" :title="t('system.addUser')" width="420px" class="sc-dialog" destroy-on-close>
+      <el-form ref="userFormRef" :model="userForm" :rules="userRules" label-position="top">
         <el-form-item :label="t('system.username')" prop="username">
           <el-input v-model="userForm.username" />
         </el-form-item>
@@ -361,10 +488,10 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
+import { Plus, User, Lock, MagicStick, Sell, Coin, Tickets, Printer } from '@element-plus/icons-vue'
 import { ElMessage } from '@/utils/notify'
 import { authApi, configApi } from '@/api/index.js'
 import { databaseApi } from '@/api/database'
@@ -387,6 +514,38 @@ import {
 } from '@/constants/mercariJapanAreas.js'
 
 const { t } = useI18n()
+
+// ===== 区块锚点导航（图标名走全局注册的 element-plus 图标，与 Layout 侧边栏一致）=====
+const SECTIONS = [
+  { id: 'account', icon: 'User', labelKey: 'system.accountManagement' },
+  { id: 'password', icon: 'Lock', labelKey: 'system.changeMyPassword' },
+  { id: 'ai', icon: 'MagicStick', labelKey: 'systemConfig.deepseekSection' },
+  { id: 'listing', icon: 'Sell', labelKey: 'system.listingDefaults' },
+  { id: 'database', icon: 'Coin', labelKey: 'systemConfig.databaseSection' },
+  { id: 'qrparams', icon: 'Tickets', labelKey: 'qrPrint.paramsSection' },
+  { id: 'printer', icon: 'Printer', labelKey: 'qrPrint.connSection' },
+]
+
+const pageRef = ref(null)
+const activeSection = ref(SECTIONS[0].id)
+/** 真正的滚动容器是 Layout 的 .main-content，不是 window */
+let scrollRoot = null
+
+function goSection(id) {
+  document.getElementById(`sc-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  activeSection.value = id
+}
+
+/** 取最后一个越过「顶部 96px」的区块作为当前区块 */
+function syncActiveSection() {
+  const rootTop = scrollRoot ? scrollRoot.getBoundingClientRect().top : 0
+  let current = SECTIONS[0].id
+  for (const s of SECTIONS) {
+    const el = document.getElementById(`sc-${s.id}`)
+    if (el && el.getBoundingClientRect().top - rootTop <= 96) current = s.id
+  }
+  activeSection.value = current
+}
 
 // ===== 账号管理（用户列表 / 新建用户 / 改密码，原「系统总览」页并入）=====
 const users = ref([])
@@ -867,82 +1026,485 @@ onMounted(() => {
   load()
   loadListingDefaults()
   loadDbConfig()
+
+  scrollRoot = pageRef.value?.closest('.main-content') || null
+  ;(scrollRoot || window).addEventListener('scroll', syncActiveSection, { passive: true })
+  syncActiveSection()
+})
+
+onUnmounted(() => {
+  ;(scrollRoot || window).removeEventListener('scroll', syncActiveSection)
 })
 </script>
 
 <style scoped>
-.sysconf-page {
+/* 配色沿用全站暗色（页面底 #0b1220 / 卡片 #131c2f / 描边 #2a3446），
+   这里只把「一堆并排卡片」改成「页头 + 锚点导航 + 单列区块」的设置页版式。 */
+.sc {
+  --sc-line: #26314a;
+  --sc-line-soft: #202a41;
+  --sc-text: #e6edf7;
+  --sc-text-dim: #9ba8bf;
+  --sc-text-mute: #7f8da6;
+  --sc-accent: #5b8cff;
+  /* 跟随窗口，不设上限：外层 .main-content 已经给了 20px 内边距 */
   width: 100%;
 }
-.sysconf-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
-  gap: 16px;
-}
-.card-title {
-  font-weight: 600;
-}
-.summary-card {
-  margin-top: 16px;
-}
-.card-head {
+
+/* ── 页头 ──────────────────────────────────────────────────── */
+.sc-hero {
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-/* 账号管理 + 修改我的密码 并排：整行独占，用户表 6 列吃 2/3 宽（挤在 440px 网格列里会串行） */
-.account-row {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  flex-wrap: wrap;
   gap: 16px;
+  padding: 20px 24px;
+  margin-bottom: 18px;
+  border: 1px solid var(--sc-line);
+  border-radius: 16px;
+  background:
+    radial-gradient(760px 200px at 6% -60%, rgba(91, 140, 255, 0.22), transparent 70%),
+    linear-gradient(180deg, #16203a, #111a2c);
+}
+.sc-hero-title {
+  font-size: 21px;
+  font-weight: 650;
+  line-height: 1.2;
+  color: #f2f6ff;
+}
+.sc-hero-sub {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--sc-text-mute);
+}
+.sc-hero-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.sc-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 13px;
+  border: 1px solid var(--sc-line);
+  border-radius: 999px;
+  background: rgba(11, 18, 32, 0.55);
+  font-size: 12px;
+}
+.sc-stat-label {
+  color: var(--sc-text-mute);
+}
+.sc-stat-value {
+  color: var(--sc-text);
+  font-weight: 600;
+}
+.sc-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: #4c5b78;
+}
+.sc-dot.is-ok {
+  background: #34d399;
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.16);
+}
+.sc-dot.is-bad {
+  background: #f56c6c;
+  box-shadow: 0 0 0 3px rgba(245, 108, 108, 0.16);
+}
+
+/* ── 版式：左锚点导航 + 右单列区块 ────────────────────────── */
+.sc-body {
+  display: grid;
+  grid-template-columns: 208px minmax(0, 1fr);
+  gap: 20px;
   align-items: start;
 }
-@media (max-width: 1100px) {
-  .account-row {
-    grid-template-columns: 1fr;
-  }
+.sc-nav {
+  position: sticky;
+  top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid var(--sc-line);
+  border-radius: 14px;
+  background: rgba(19, 28, 47, 0.82);
+  backdrop-filter: blur(8px);
 }
-/* 数据库卡片内「连接/切换」与「备份」两套表单的切换按钮 */
-.db-tabs {
-  margin-bottom: 16px;
+.sc-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 9px;
+  background: none;
+  color: var(--sc-text-dim);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
 }
-.hint-tip {
+.sc-nav-item:hover {
+  background: #18233a;
+  color: var(--sc-text);
+}
+.sc-nav-item.is-active {
+  background: linear-gradient(90deg, rgba(91, 140, 255, 0.2), rgba(91, 140, 255, 0.04));
+  color: #fff;
+  box-shadow: inset 2px 0 0 var(--sc-accent);
+}
+.sc-nav-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sc-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+/* ── 区块 ──────────────────────────────────────────────────── */
+.sc-panel {
+  border: 1px solid var(--sc-line);
+  border-radius: 14px;
+  /* 账号表格是贴边铺满的，不裁切的话会把圆角顶成直角 */
+  overflow: hidden;
+  background: linear-gradient(180deg, #141d31, #111a2c);
+  /* 点导航滚过来时，标题不要顶到容器边 */
+  scroll-margin-top: 12px;
+}
+.sc-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--sc-line-soft);
+}
+.sc-head-text {
+  flex: 1;
+  min-width: 160px;
+}
+.sc-panel-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--sc-text);
+}
+.sc-panel-desc {
+  margin-top: 2px;
   font-size: 12px;
-  color: #94a3b8;
-  margin-top: 8px;
+  color: var(--sc-text-mute);
 }
-.test-result {
-  margin-left: 12px;
+.sc-btn-text {
+  margin-left: 4px;
+}
+.sc-panel-body {
+  padding: 18px;
+}
+.sc-panel-body--flush {
+  padding: 0;
+}
+.sc-panel-body--sub {
+  border-top: 1px solid var(--sc-line-soft);
+}
+.sc-sub-title {
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sc-text);
+}
+
+/* 区块图标：色相只用于快速定位，与左侧导航一一对应 */
+.sc-ic {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  border: 1px solid transparent;
+}
+.sc-ic--blue { background: rgba(91, 140, 255, 0.14); border-color: rgba(91, 140, 255, 0.24); color: #7ea6ff; }
+.sc-ic--violet { background: rgba(167, 139, 250, 0.14); border-color: rgba(167, 139, 250, 0.24); color: #b9a6fb; }
+.sc-ic--cyan { background: rgba(34, 211, 238, 0.13); border-color: rgba(34, 211, 238, 0.24); color: #4fd8ee; }
+.sc-ic--amber { background: rgba(245, 158, 11, 0.13); border-color: rgba(245, 158, 11, 0.24); color: #f0ad3d; }
+.sc-ic--emerald { background: rgba(52, 211, 153, 0.13); border-color: rgba(52, 211, 153, 0.24); color: #4bd8a5; }
+.sc-ic--rose { background: rgba(251, 113, 133, 0.13); border-color: rgba(251, 113, 133, 0.24); color: #fb8b9c; }
+.sc-ic--sky { background: rgba(56, 189, 248, 0.13); border-color: rgba(56, 189, 248, 0.24); color: #5cc7f9; }
+
+/* ── 字段栅格 ──────────────────────────────────────────────── */
+/* 一律 auto-fill 而非 auto-fit：区块本身铺满屏幕，但字段数少于列数时
+   多余的列要留空，不能让 3 个输入框各自被拉到屏幕的三分之一宽。 */
+.sc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 16px 18px;
+}
+.sc-grid--tight {
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+}
+.sc-grid--narrow {
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+}
+.sc-field {
+  min-width: 0;
+}
+.sc-field--wide {
+  grid-column: span 2;
+}
+.sc-field--stack {
+  margin-top: 16px;
+}
+.sc-label {
+  margin-bottom: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--sc-text-dim);
+}
+.sc-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sc-inline .sc-num {
+  flex: 1;
+  min-width: 0;
+}
+.sc-unit {
+  flex: none;
+  font-size: 12px;
+  color: var(--sc-text-mute);
+}
+.sc-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+.sc-note {
+  font-size: 12px;
+  color: var(--sc-text-mute);
+}
+.sc-result {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  border: 1px solid rgba(245, 108, 108, 0.35);
+  border-radius: 999px;
+  background: rgba(245, 108, 108, 0.08);
+  font-size: 12px;
   color: #f56c6c;
 }
-.test-result.ok {
+.sc-result.is-ok {
+  border-color: rgba(52, 211, 153, 0.35);
+  background: rgba(52, 211, 153, 0.08);
   color: #67c23a;
 }
-.port-input :deep(.el-input__inner) {
+
+/* ── 分栏开关（连接/切换 · 备份） ──────────────────────────── */
+.sc-seg {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid var(--sc-line);
+  border-radius: 10px;
+  background: #0f1728;
+}
+.sc-seg button {
+  padding: 5px 14px;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  color: var(--sc-text-dim);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.sc-seg button:hover {
+  color: var(--sc-text);
+}
+.sc-seg button.is-on {
+  background: #26314a;
+  color: #fff;
+}
+
+/* ── 后端选择卡 ───────────────────────────────────────────── */
+.sc-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.sc-choice {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 13px 15px;
+  border: 1px solid var(--sc-line);
+  border-radius: 12px;
+  background: #131c2f;
   text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
-.qrprint-form {
-  max-width: 640px;
+.sc-choice:hover {
+  border-color: #3a4c6e;
 }
-.qrprint-num {
-  width: 100px;
+.sc-choice.is-on {
+  border-color: var(--sc-accent);
+  background: linear-gradient(180deg, rgba(91, 140, 255, 0.12), rgba(91, 140, 255, 0.03));
 }
-.qrprint-num :deep(.el-input__inner) {
-  text-align: left;
+.sc-choice-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--sc-text);
 }
-.qrprint-sep {
-  margin: 0 6px;
-  color: var(--el-text-color-secondary);
+.sc-choice-sub {
+  font-size: 12px;
+  color: var(--sc-text-mute);
 }
-.qrprint-unit {
-  margin-left: 6px;
-  color: var(--el-text-color-secondary);
+.sc-choice-flag {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(52, 211, 153, 0.16);
+  color: #4bd8a5;
+  font-size: 11px;
 }
-.qrprint-ok {
-  color: var(--el-color-success);
+
+/* ── 打印机设备卡 ─────────────────────────────────────────── */
+.sc-device {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 14px 16px;
+  border: 1px solid var(--sc-line);
+  border-radius: 12px;
+  background: #131c2f;
 }
-.qrprint-warn {
+.sc-device.is-on {
+  border-color: rgba(52, 211, 153, 0.4);
+}
+.sc-device-ic {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  background: #1b2942;
+  color: var(--sc-text-dim);
+}
+.sc-device.is-on .sc-device-ic {
+  background: rgba(52, 211, 153, 0.14);
+  color: #4bd8a5;
+}
+.sc-device-text {
+  min-width: 0;
+}
+.sc-device-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--sc-text);
+}
+.sc-device-sub {
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.sc-device-sub.is-ok {
+  color: var(--sc-text-mute);
+}
+.sc-device-sub.is-warn {
   color: var(--el-color-warning);
+}
+
+/* ── Element Plus 局部改写 ────────────────────────────────── */
+/* 全局把 .el-input/.el-select 钉死在 180px，这里让它们填满各自的栅格单元 */
+.sc :deep(.el-input),
+.sc :deep(.el-select),
+.sc :deep(.el-cascader),
+.sc :deep(.el-input-number) {
+  width: 100% !important;
+}
+.sc :deep(.el-input-number .el-input__inner) {
+  text-align: left;
+}
+.sc-form :deep(.el-form-item) {
+  margin-bottom: 0;
+}
+.sc-form :deep(.el-form-item__label) {
+  padding-bottom: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--sc-text-dim);
+}
+.sc-table {
+  --el-table-border-color: var(--sc-line-soft);
+  background: transparent;
+}
+.sc-table :deep(.el-table__inner-wrapper::before) {
+  display: none;
+}
+.sc-table :deep(th.el-table__cell) {
+  background: #18233a !important;
+  font-weight: 600;
+}
+.sc-table :deep(tr) {
+  background: transparent;
+}
+
+/* ── 窄屏：导航变成顶部横向 chip 条 ───────────────────────── */
+@media (max-width: 900px) {
+  .sc-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sc-nav {
+    z-index: 5;
+    top: 0;
+    flex-direction: row;
+    gap: 6px;
+    overflow-x: auto;
+    border-radius: 12px;
+  }
+  .sc-nav-item {
+    width: auto;
+    flex: none;
+  }
+  .sc-nav-item.is-active {
+    box-shadow: inset 0 -2px 0 var(--sc-accent);
+  }
+  .sc-field--wide {
+    grid-column: auto;
+  }
+}
+</style>
+
+<!-- el-dialog 默认挂到 body，scoped 选择器够不到，单独用带前缀的全局块 -->
+<style>
+.sc-dialog .el-input,
+.sc-dialog .el-select {
+  width: 100% !important;
+}
+.sc-dialog .el-form-item__label {
+  padding-bottom: 4px;
+  font-size: 12px;
+  color: #9ba8bf;
 }
 </style>

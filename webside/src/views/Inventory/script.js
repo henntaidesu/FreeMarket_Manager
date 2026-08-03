@@ -29,6 +29,13 @@ import {
 } from '@/constants/mercariJapanAreas.js'
 import { MERCARI_UNDECIDED_AREA_ID } from '@/composables/useListingPlatform.js'
 
+/**
+ * 无码入库上次选择（游戏分类 / 商品类型 / 所属货架 + 商品归属）。
+ * 刻意放在模块作用域而不是 localStorage：只在当前这次页面会话里记住，
+ * 换路由再回来还在，刷新页面即失效。
+ */
+let noBarcodeLastSelections = null
+
 export default defineComponent({
   components: {
     WarningFilled,
@@ -271,12 +278,16 @@ export default defineComponent({
       }
     }
 
+    /** 出品账号下拉：账号名 · 平台 · 在售件数（不显示卖家 ID） */
     function mercariAccountOptionLabel(a) {
       const name = (a?.account_name || '').trim() || `ID ${a?.id}`
-      const sid = String(a?.seller_id || '').trim()
-      const tail = sid ? ` · ${t('dialogs.singleListing.sellerLabel')} ${sid}` : ''
+      const platform =
+        String(a?.platform || 'mercari').trim() === 'yahoo'
+          ? t('inventory.platformNameYahoo')
+          : t('inventory.platformNameMercari')
+      const onSale = t('inventory.accountOnSaleCount', { n: Number(a?.on_sale_count ?? 0) })
       const inactive = a?.status === 'disabled' ? t('dialogs.singleListing.inactiveSuffix') : ''
-      return `${name}${tail}${inactive}`
+      return `${name} · ${platform} · ${onSale}${inactive}`
     }
 
     async function fetchMercariAccounts() {
@@ -654,7 +665,6 @@ export default defineComponent({
     const INVENTORY_CAMERA_STORAGE_KEY = 'mercari.inventory.preferredCameraDeviceId'
     const inventoryCameraDevices = ref([])
     const inventoryCameraSelectId = ref('')
-    const NO_BARCODE_FORM_CACHE_KEY = 'mercari.inventory.noBarcode.lastSelections'
 
     /** 无码入库：商品归属默认用当前登录用户 id（与 /api/auth/login 返回的 user.id 一致） */
     function getCurrentAuthUserId() {
@@ -673,33 +683,15 @@ export default defineComponent({
     }
 
     function readNoBarcodeFormSelectionsCache() {
-      try {
-        const raw = localStorage.getItem(NO_BARCODE_FORM_CACHE_KEY)
-        if (!raw) return null
-        const parsed = JSON.parse(raw)
-        if (!parsed || typeof parsed !== 'object') return null
-        return {
-          category_id: toNullableInt(parsed.category_id),
-          product_type_id: toNullableInt(parsed.product_type_id),
-          owner_user_id: toNullableInt(parsed.owner_user_id),
-          warehouse_id: toNullableInt(parsed.warehouse_id)
-        }
-      } catch {
-        return null
-      }
+      return noBarcodeLastSelections
     }
 
     function writeNoBarcodeFormSelectionsCache(data) {
-      try {
-        const payload = {
-          category_id: toNullableInt(data?.category_id),
-          product_type_id: toNullableInt(data?.product_type_id),
-          owner_user_id: toNullableInt(data?.owner_user_id),
-          warehouse_id: toNullableInt(data?.warehouse_id)
-        }
-        localStorage.setItem(NO_BARCODE_FORM_CACHE_KEY, JSON.stringify(payload))
-      } catch {
-        /* ignore */
+      noBarcodeLastSelections = {
+        category_id: toNullableInt(data?.category_id),
+        product_type_id: toNullableInt(data?.product_type_id),
+        owner_user_id: toNullableInt(data?.owner_user_id),
+        warehouse_id: toNullableInt(data?.warehouse_id)
       }
     }
 
@@ -1323,6 +1315,13 @@ export default defineComponent({
       }
     }
 
+    /** 表格内联级联面板：选到「未分类」合成节点或游戏叶子后落库 */
+    function saveCategoryInlineFromPath(row, path) {
+      const picked = Array.isArray(path) ? path[path.length - 1] : null
+      if (picked === CATEGORY_UNASSIGNED_VALUE) return saveCategoryInline(row, null)
+      return saveCategoryInline(row, categoryIdFromPath(path))
+    }
+
     async function saveProductTypeInline(row, productTypeId) {
       const parsed = Number(productTypeId)
       const normalized = Number.isFinite(parsed) ? parsed : null
@@ -1342,7 +1341,10 @@ export default defineComponent({
     }
 
     function getInlineWarehousePath(row) {
-      const wid = Number(row?.warehouse_id)
+      const raw = row?.warehouse_id
+      // 未分配货位时选中合成的「默认仓库」节点（货位已删除等找不到路径的情况仍留空）
+      if (raw == null || raw === '') return [WAREHOUSE_UNASSIGNED_VALUE]
+      const wid = Number(raw)
       if (!Number.isFinite(wid)) return []
       const path = warehouseTreeMeta.value.idToPath.get(wid)
       return path ? [...path] : []
@@ -1468,6 +1470,87 @@ export default defineComponent({
 
     const productTypeCascaderOptions = computed(() => productTypeTreeMeta.value.options)
 
+    /** 内联编辑用的「未分类」合成节点：清空商品的游戏分类 */
+    const CATEGORY_UNASSIGNED_VALUE = 'CAT_NONE'
+
+    /** 游戏分类二级树：一级=所属公司，二级=游戏；未配置公司的分类直接作为一级叶子 */
+    const categoryTreeMeta = computed(() => {
+      const idToPath = new Map()
+      const byCompany = new Map()
+      const standalone = []
+      for (const c of categories.value || []) {
+        if (!Number.isFinite(Number(c?.id))) continue
+        const company = String(c?.company ?? '').trim()
+        if (!company) {
+          standalone.push(c)
+          continue
+        }
+        if (!byCompany.has(company)) byCompany.set(company, [])
+        byCompany.get(company).push(c)
+      }
+      const byName = (a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), 'zh-Hans-CN')
+      const roots = []
+      const sortedCompanies = [...byCompany.keys()].sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
+      for (const company of sortedCompanies) {
+        const l1Val = `CATC:${encodeURIComponent(company)}`
+        const leaves = byCompany.get(company).slice().sort(byName).map((c) => {
+          const leafVal = `CAT:${c.id}`
+          idToPath.set(Number(c.id), [l1Val, leafVal])
+          return { value: leafVal, label: c.name, children: [] }
+        })
+        roots.push({ value: l1Val, label: company, children: leaves })
+      }
+      for (const c of standalone.slice().sort(byName)) {
+        const leafVal = `CAT:${c.id}`
+        idToPath.set(Number(c.id), [leafVal])
+        roots.push({ value: leafVal, label: c.name, children: [] })
+      }
+      return { roots, idToPath }
+    })
+
+    const categoryCascaderOptions = computed(() => categoryTreeMeta.value.roots)
+    const categoryCascaderOptionsWithNone = computed(() => [
+      { value: CATEGORY_UNASSIGNED_VALUE, label: t('inventory.uncategorized'), children: [] },
+      ...categoryTreeMeta.value.roots,
+    ])
+    const categoryCascaderProps = {
+      value: 'value',
+      label: 'label',
+      children: 'children',
+      emitPath: true,
+      checkStrictly: false,
+    }
+
+    function categoryCascaderPath(categoryId) {
+      const id = categoryId == null || categoryId === '' ? null : Number(categoryId)
+      if (!Number.isFinite(id)) return []
+      const path = categoryTreeMeta.value.idToPath.get(id)
+      return path ? [...path] : []
+    }
+
+    /** 级联路径 → 分类 id；未落到分类叶子（公司节点／清空）一律为 null */
+    function categoryIdFromPath(path) {
+      const picked = Array.isArray(path) ? path[path.length - 1] : null
+      if (!picked || !String(picked).startsWith('CAT:')) return null
+      const id = Number(String(picked).slice(4))
+      return Number.isFinite(id) ? id : null
+    }
+
+    const filterCategoryPath = computed({
+      get: () => categoryCascaderPath(filterCat.value),
+      set: (path) => {
+        filterCat.value = categoryIdFromPath(path)
+        load()
+      },
+    })
+
+    const formCategoryPath = computed({
+      get: () => categoryCascaderPath(form.value?.category_id),
+      set: (path) => {
+        form.value.category_id = categoryIdFromPath(path)
+      },
+    })
+
     const DEFAULT_WH_LABEL = t('inventory.defaultWarehouse')
     /** 与后端 WarehouseModel.normalize_warehouse_key 一致 */
     function warehouseGroupKey(w) {
@@ -1543,9 +1626,10 @@ export default defineComponent({
 
     const warehouseCascaderOptions = computed(() => warehouseTreeMeta.value.roots)
 
-    // 顶部筛选专用：在真实仓库分组之上追加「默认仓库」合成节点，用于筛选未分配货位的商品
+    // 在真实仓库分组之上追加「默认仓库」合成节点：顶部筛选用它筛未分配货位的商品，
+    // 表格内联编辑用它把已分配的货位清回未分配（弹窗表单靠 clearable 叉号清空，不用这份选项）
     const WAREHOUSE_UNASSIGNED_VALUE = 'WH_UNASSIGNED'
-    const warehouseFilterCascaderOptions = computed(() => [
+    const warehouseCascaderOptionsWithDefault = computed(() => [
       { value: WAREHOUSE_UNASSIGNED_VALUE, label: t('inventory.defaultWarehouse'), children: [] },
       ...warehouseTreeMeta.value.roots,
     ])
@@ -2558,7 +2642,8 @@ export default defineComponent({
       syncMercariIdListFromForm()
       syncWarehouseCascaderPathByWarehouseId(form.value.warehouse_id)
       applyListingDefaultsToForm()
-      if (mercariAccountOptions.value.length === 0) fetchMercariAccounts()
+      // 每次打开都重拉：选项标签里带「在售 N」，缓存一次会一直显示开页时的旧件数
+      fetchMercariAccounts()
       dialogVisible.value = true
       // 初始填充表单引发的 watch 不应触发实时保存，下一 tick 再放开
       nextTick(() => {
@@ -4047,7 +4132,6 @@ export default defineComponent({
       inventorySummary,
       inventoryStatCards,
       onSaleStatusMap,
-      categories,
       warehouses,
       productTypes,
       ownerUsers,
@@ -4209,7 +4293,6 @@ export default defineComponent({
       INVENTORY_CAMERA_STORAGE_KEY,
       inventoryCameraDevices,
       inventoryCameraSelectId,
-      NO_BARCODE_FORM_CACHE_KEY,
       getCurrentAuthUserId,
       toNullableInt,
       readNoBarcodeFormSelectionsCache,
@@ -4260,7 +4343,7 @@ export default defineComponent({
       displayWarehouseLocation,
       displayOwnerName,
       saveInlineEdit,
-      saveCategoryInline,
+      saveCategoryInlineFromPath,
       saveProductTypeInline,
       saveWarehouseInline,
       getInlineWarehousePath,
@@ -4270,6 +4353,12 @@ export default defineComponent({
       buildProductTypeOptionsFromMappings,
       productTypeTreeMeta,
       productTypeCascaderOptions,
+      categoryCascaderOptions,
+      categoryCascaderOptionsWithNone,
+      categoryCascaderProps,
+      categoryCascaderPath,
+      filterCategoryPath,
+      formCategoryPath,
       currentTypeMercariReady,
       currentTypeYahooReady,
       shippingFromIsUndecided,
@@ -4280,7 +4369,7 @@ export default defineComponent({
       shelfNamePartitionLabelFromKey,
       warehouseTreeMeta,
       warehouseCascaderOptions,
-      warehouseFilterCascaderOptions,
+      warehouseCascaderOptionsWithDefault,
       syncWarehouseCascaderPathByWarehouseId,
       syncFilterWarehousePathByWarehouseId,
       handleWarehouseCascaderChange,

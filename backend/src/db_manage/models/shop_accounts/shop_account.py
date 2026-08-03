@@ -351,6 +351,15 @@ class ShopAccountModel(BaseModel):
         """
         keys = ['id', 'account_name', 'platform', 'login_id', 'seller_id', 'avatar', 'login_password', 'status', 'remark', 'value', 'is_open', 'fetch_interval', 'auto_fetch_last_at', 'auto_fetch_order_list', 'auto_fetch_on_sale', 'auto_fetch_todos', 'auto_fetch_notifications', 'auto_fetch_order_list_interval', 'auto_fetch_on_sale_interval', 'auto_fetch_todos_interval', 'auto_fetch_notifications_interval', 'auto_fetch_relist', 'pause_start_time', 'pause_end_time']
         rows = db.execute_query(select_sql, tuple(params + [page_size, (page - 1) * page_size]))
+        # 各账号当前在售件数：与看板同口径（未软删 + status='on_sale'），
+        # 按 (平台, 卖家ID) 归属——on_sale_items 没有 account_id 列，seller_id 才是账号锚点。
+        on_sale_by_seller: Dict[tuple, int] = {}
+        for pf, sid, cnt in db.execute_query(
+            "SELECT COALESCE([platform], 'mercari'), [seller_id], COUNT(*) FROM [on_sale_items] "
+            "WHERE COALESCE([is_delete], 0) = 0 AND [status] = 'on_sale' "
+            "GROUP BY COALESCE([platform], 'mercari'), [seller_id]"
+        ):
+            on_sale_by_seller[(str(pf or 'mercari'), str(sid or '').strip())] = int(cnt or 0)
         items = []
         for row in rows:
             d = dict(zip(keys, row))
@@ -375,6 +384,8 @@ class ShopAccountModel(BaseModel):
             d['auto_fetch_relist'] = 1 if d.get('auto_fetch_relist') else 0
             d['pause_start_time'] = d.get('pause_start_time') or None
             d['pause_end_time'] = d.get('pause_end_time') or None
+            _sid = str(d.get('seller_id') or '').strip()
+            d['on_sale_count'] = on_sale_by_seller.get((d['platform'], _sid), 0) if _sid else 0
             items.append(d)
         return {
             'total': total,

@@ -12,6 +12,9 @@
       <el-table :data="list" v-loading="loading" stripe>
         <el-table-column label="ID" prop="id" width="70" />
         <el-table-column :label="t('system.categoryName')" prop="name" />
+        <el-table-column :label="t('system.categoryCompany')" prop="company">
+          <template #default="{ row }">{{ row.company || '-' }}</template>
+        </el-table-column>
         <el-table-column :label="t('common.description')" prop="description" show-overflow-tooltip />
         <el-table-column :label="t('system.inventoryCount')" prop="inventory_count" width="100" align="center" />
         <el-table-column :label="t('common.actions')" width="140" fixed="right">
@@ -31,6 +34,19 @@
       <el-form :model="form" :rules="rules" ref="formRef" label-width="80px">
         <el-form-item :label="t('common.name')" prop="name">
           <el-input v-model="form.name" :placeholder="t('system.categoryNameRequired')" />
+        </el-form-item>
+        <el-form-item :label="t('system.categoryCompany')">
+          <el-select
+            v-model="form.company"
+            filterable
+            allow-create
+            default-first-option
+            clearable
+            style="width: 100%"
+            :placeholder="t('system.categoryCompanyPlaceholder')"
+          >
+            <el-option v-for="c in companyOptions" :key="c" :label="c" :value="c" />
+          </el-select>
         </el-form-item>
         <el-form-item :label="t('common.description')">
           <el-input v-model="form.description" type="textarea" :rows="3" :placeholder="t('system.optionalDescription')" />
