@@ -176,6 +176,7 @@ class OrderOutboundLineModel(BaseModel):
                 COALESCE(u.display_name, u.username) AS inventory_owner_name,
                 p.owner_user_id AS inventory_owner_user_id,
                 p.warehouse_id AS inventory_warehouse_id,
+                p.images_json AS inventory_images_json,
                 NULLIF(TRIM(w.[warehouse]), '') AS warehouse_name,
                 NULLIF(TRIM(w.[shelf_name]), '') AS shelf_name,
                 NULLIF(TRIM(w.[name]), '') AS shelf_code
@@ -210,10 +211,16 @@ class OrderOutboundLineModel(BaseModel):
             "inventory_owner_name",
             "inventory_owner_user_id",
             "inventory_warehouse_id",
+            "inventory_images_json",
             "warehouse_name",
             "shelf_name",
             "shelf_code",
         ]
+        # 延迟导入：models 层被 use_web 依赖，模块级导入会成环（与 auto_relist 同样处理）
+        from ....use_web.inventory.units.inventory_helpers import (
+            _inventory_paths_from_parsed_row,
+        )
+
         out = [dict(zip(keys, r)) for r in rows]
         for row in out:
             # 与 order_goods_ratio / 列表筛选字段名兼容
@@ -221,6 +228,10 @@ class OrderOutboundLineModel(BaseModel):
             # 回退权重基准；「商品原价」列的展示替换（用 ratio_unit_price）在读取链路 list_order_outbound_lines 处理。
             row["product_owner_user_id"] = row.get("inventory_owner_user_id")
             row["product_owner_name"] = row.get("inventory_owner_name")
+            # 订单详情图廊用：关联库存的实拍图路径（与在售详情同口径，只认 images_json）
+            row["images"] = _inventory_paths_from_parsed_row(
+                {"images_json": row.pop("inventory_images_json", None)}
+            )
         return out
 
     @staticmethod

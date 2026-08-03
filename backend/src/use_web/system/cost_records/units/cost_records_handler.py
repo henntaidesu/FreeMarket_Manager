@@ -95,6 +95,8 @@ def list_packaging_items():
             "expense_type": "包装材料",
             "amount": int(row.amount or 0),
             "quantity": int(row.quantity or 0),
+            # 订单详情的包材卡片要在左侧显示实物图
+            "item_image": (row.item_image or "").strip() or None,
         }
     # 库存（最新记录数量）为 0 的包材不出现在下拉选择中
     items = sorted(

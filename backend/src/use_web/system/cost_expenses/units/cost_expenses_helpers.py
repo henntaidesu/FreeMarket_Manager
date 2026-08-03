@@ -50,6 +50,33 @@ def _find_packaging_item_latest(item_name: str):
     return rows[0] if rows else None
 
 
+def _packaging_images_by_name(names) -> dict:
+    """物品名 -> 包材实物图路径（取该名字最新的一条 cost_records）。
+
+    支出行只存物品名，图在 cost_records 上；列表要按名字批量回填，所以一次查完
+    这一页涉及的所有名字，而不是逐行查。
+    """
+    wanted = {str(n or "").strip() for n in (names or ())}
+    wanted.discard("")
+    if not wanted:
+        return {}
+    placeholders = ", ".join("?" for _ in wanted)
+    rows = CostRecordModel.find_all(
+        where=f"type = ? AND item_name IN ({placeholders})",
+        params=("packaging", *wanted),
+        order_by="cost_date DESC, id DESC",
+    )
+    out: dict = {}
+    for row in rows:
+        name = (row.item_name or "").strip()
+        if not name or name in out:
+            continue
+        img = (row.item_image or "").strip()
+        if img:
+            out[name] = img
+    return out
+
+
 def _validate_packaging_stock(item_name: str, quantity: int, source=None):
     """source 可由调用方预取传入，避免重复查询 cost_records。"""
     if source is None:

@@ -64,6 +64,22 @@ def _attach_seller_name(items: list) -> None:
         row["seller_name"] = name_map.get(sid) or None
 
 
+def _warehouse_full_path(h: dict) -> str:
+    """完整仓库路径「仓库-货架名-货架号」，与库存页 displayWarehouseLocation 同一 口径。
+
+    wh_id 为 None 表示该库存根本没绑仓库——此时不能套「默认仓库」的兜底，
+    否则未分配货位的商品会显示成真有货位。
+    """
+    if h.get("wh_id") is None:
+        return "-"
+    parts = [
+        str(h.get("wh_top") or "").strip() or "默认仓库",
+        str(h.get("wh_shelf") or "").strip(),
+        str(h.get("wh_code") or "").strip(),
+    ]
+    return "-".join([p for p in parts if p]) or "-"
+
+
 def _attach_inventory_by_item_id(items: list) -> None:
     """按煤炉 item_id 与 inventory.mercari_item_id 匹配，附加库存位置与数量（支持一对多）。"""
     def _to_int(v, default=0) -> int:
@@ -104,23 +120,31 @@ def _attach_inventory_by_item_id(items: list) -> None:
             IFNULL(w.[location], ''),
             i.[images_json],
             COALESCE(u.[display_name], u.[username], '') AS owner_user_name,
-            COALESCE(cr.[reserved], 0) AS combined_quantity
+            COALESCE(cr.[reserved], 0) AS combined_quantity,
+            w.[id] AS wh_id,
+            TRIM(IFNULL(w.[warehouse], '')) AS wh_top,
+            TRIM(IFNULL(w.[shelf_name], '')) AS wh_shelf,
+            TRIM(IFNULL(w.[name], '')) AS wh_code
         FROM [inventory] i
         LEFT JOIN [warehouses] w ON w.[id] = i.[warehouse_id]
         LEFT JOIN [users] u ON u.[id] = i.[owner_user_id]
         LEFT JOIN {_combined_agg} cr ON cr.src_id = i.[id]
         WHERE TRIM(IFNULL(i.[mercari_item_id], '')) != ''
     """
+    # 列已经多到用位置解包必错，改成按名取；顺序必须与上面 SELECT 完全一致
+    _COLS = (
+        "mids_raw", "iid", "iname", "qty", "osq", "pend", "lpend", "barcode",
+        "wname", "wloc", "images_json", "owner_name", "combined",
+        "wh_id", "wh_top", "wh_shelf", "wh_code",
+    )
     rows = db.execute_query(sql)
     by_mid: Dict[str, list] = {}
     wanted = set(raw)
-    for (mids_raw, iid, iname, qty, osq, pend, lpend, barcode, wname, wloc,
-         images_json, owner_name, combined) in rows:
-        mids = _split_mercari_item_ids(mids_raw)
+    for row_vals in rows:
+        payload = dict(zip(_COLS, row_vals))
+        mids = _split_mercari_item_ids(payload["mids_raw"])
         if not mids:
             continue
-        payload = (iid, iname, qty, osq, pend, lpend, barcode, wname, wloc,
-                   images_json, owner_name, combined)
         for k in mids:
             if k in wanted:
                 by_mid.setdefault(k, []).append(payload)
@@ -133,43 +157,45 @@ def _attach_inventory_by_item_id(items: list) -> None:
             hits = by_mid.get("m" + k)
         if hits:
             first = hits[0]
-            row["inventory_id"] = int(first[0]) if first[0] is not None else None
-            # first: (iid, iname, qty, osq, pend, lpend, barcode, wname, wloc, ...)
-            row["inventory_quantity"] = _to_int(first[2], 0)
-            row["inventory_on_sale_quantity"] = _to_int(first[3], 0)
-            row["inventory_pending_outbound_qty"] = _to_int(first[4], 0)
+            row["inventory_id"] = int(first["iid"]) if first["iid"] is not None else None
+            row["inventory_quantity"] = _to_int(first["qty"], 0)
+            row["inventory_on_sale_quantity"] = _to_int(first["osq"], 0)
+            row["inventory_pending_outbound_qty"] = _to_int(first["pend"], 0)
             loc_parts = []
             mgmt_id_parts = []
             barcode_parts = []
             inventory_name_parts = []
             inventory_lines = []
-            for (iid, iname, qty, osq, pend, lpend, barcode, wname, wloc,
-                 images_json, owner_name, combined) in hits:
-                loc_name = str(wname or "").strip() or str(wloc or "").strip() or "-"
+            for h in hits:
+                iid, osq = h["iid"], h["osq"]
+                # 汇总文案沿用短标签（「货架名（仓库）」），行内 location 给完整路径
+                loc_name = (
+                    str(h["wname"] or "").strip() or str(h["wloc"] or "").strip() or "-"
+                )
                 loc_parts.append(
                     f"#{int(iid)} {loc_name} x{int(osq) if osq is not None else 0}"
                 )
                 mgmt_id_parts.append(str(int(iid)))
-                bc = str(barcode or "").strip()
+                bc = str(h["barcode"] or "").strip()
                 if bc:
                     barcode_parts.append(bc)
-                n = str(iname or "").strip()
+                n = str(h["iname"] or "").strip()
                 if n:
                     inventory_name_parts.append(n)
                 line_images = _inventory_paths_from_parsed_row(
-                    {"images_json": images_json}
+                    {"images_json": h["images_json"]}
                 )
-                q_i = _to_int(qty, 0)
+                q_i = _to_int(h["qty"], 0)
                 os_i = _to_int(osq, 0)
-                pend_i = _to_int(pend, 0)
-                lpend_i = _to_int(lpend, 0)
-                comb_i = _to_int(combined, 0)
+                pend_i = _to_int(h["pend"], 0)
+                lpend_i = _to_int(h["lpend"], 0)
+                comb_i = _to_int(h["combined"], 0)
                 inventory_lines.append(
                     {
                         "management_id": str(int(iid)),
                         "barcode": bc or None,
-                        "location": loc_name,
-                        "owner_name": str(owner_name or "").strip() or None,
+                        "location": _warehouse_full_path(h),
+                        "owner_name": str(h["owner_name"] or "").strip() or None,
                         "quantity": q_i,
                         "on_sale_quantity": os_i,
                         "pending_outbound_qty": pend_i,

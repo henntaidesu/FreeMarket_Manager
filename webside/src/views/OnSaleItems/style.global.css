@@ -93,8 +93,35 @@
 
 /* 修改在售商品弹窗（append-to-body，已脱离 scoped）：标题/价格等输入框撑满，与商品说明同宽 */
 .on-sale-revise-form .el-input,
-.on-sale-revise-form .el-input-number {
+.on-sale-revise-form .el-input-number,
+.on-sale-revise-form .el-select {
   width: 100%;
+}
+
+/* 弹窗外框跟详情弹窗一套口径：宽度随视口伸缩（1080p 到 4K），高度封顶 + 内部滚动。
+   这里必须写在 global——自定义 class 落在 ElDialog 自己渲染的元素上，没有 scoped 属性 */
+.on-sale-revise-dialog .el-dialog {
+  width: clamp(560px, 44vw, 820px) !important;
+  max-width: 94vw;
+  margin: 7vh auto !important;
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+}
+.on-sale-revise-dialog .el-dialog__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+/* 标签移到输入框上方（原来是 110px 左标签，右边被挤得很窄），小号弱化处理 */
+.on-sale-revise-dialog .el-form-item {
+  margin-bottom: 16px;
+}
+.on-sale-revise-dialog .el-form-item__label {
+  padding-bottom: 4px;
+  font-size: 12px;
+  line-height: 18px;
+  color: #8a93a6;
 }
 
 /* 价格用 el-input-number，默认文字居中；改为居左显示（修改弹窗 + 批量改价弹窗） */

@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-"""库存查询端点：列表、单条、按条形码、待出库明细。"""
+"""库存查询端点：列表、单条、按条形码、待出库明细、关联商品。"""
+import json
+import re
 from typing import Optional
 from fastapi import HTTPException
 
@@ -18,6 +20,24 @@ from .inventory_helpers import (
 )
 
 db = DatabaseManager()
+
+#: inventory.mercari_item_id 里多个平台 ID 的分隔符，与 on_sale_items_query 同口径
+_MERCARI_ID_SEP_RE = re.compile(r"[\n,，、\s]+")
+
+
+def _split_mercari_item_ids(raw) -> list[str]:
+    s = str(raw or "").strip()
+    if not s:
+        return []
+    out: list[str] = []
+    seen = set()
+    for part in _MERCARI_ID_SEP_RE.split(s):
+        token = str(part or "").strip()
+        if not token or token in seen:
+            continue
+        seen.add(token)
+        out.append(token)
+    return out
 
 #: 允许排序的列 → SQL 表达式。键与前端表头 prop 一一对应；不在表里的值一律忽略
 #: （而不是拼进 SQL），排序参数是唯一会进入 ORDER BY 的用户输入。
@@ -189,6 +209,113 @@ def list_inventory_pending_outbound_lines(pid: int):
         raise HTTPException(status_code=404, detail="商品不存在")
     items = OrderOutboundLineModel.list_pending_for_inventory(pid)
     return {"inventory_id": pid, "items": items}
+
+
+def _first_thumbnail(raw) -> str:
+    """orders/on_sale_items 的 thumbnails 都是 JSON 数组字符串，取首图。"""
+    s = str(raw or "").strip()
+    if not s:
+        return ""
+    if s.startswith("["):
+        try:
+            arr = json.loads(s)
+        except (ValueError, TypeError):
+            return ""
+        for u in arr or []:
+            u = str(u or "").strip()
+            if u:
+                return u
+        return ""
+    return s
+
+
+def list_inventory_linked_items(pid: int):
+    """编辑弹窗「关联商品」标签页：这件库存在平台上的在售商品 + 已售出订单。
+
+    两条关联走的是两套完全不同的键，不能合并成一次查询：
+    - 在售：inventory.mercari_item_id 里逗号分隔的平台 item_id（出品/同步时写回），
+      列名是历史遗留，煤炉与雅虎的 ID 混在同一列，靠 on_sale_items.platform 区分。
+    - 已售：order_outbound_lines.inventory_id → orders，即出库明细认下的那笔订单。
+      取消的订单不算「已出售」，其余状态都留下并把 status 带给前端显示。
+    """
+    if not _inventory_exists(pid):
+        raise HTTPException(status_code=404, detail="商品不存在")
+
+    row = db.execute_query(
+        "SELECT [mercari_item_id] FROM [inventory] WHERE [id] = ? LIMIT 1", (pid,)
+    )
+    item_ids = _split_mercari_item_ids(row[0][0] if row else "")
+
+    listings = []
+    if item_ids:
+        ph = ",".join("?" * len(item_ids))
+        rows = db.execute_query(
+            f"""
+            SELECT [item_id], [platform], [status], IFNULL([name], ''), COALESCE([price], 0),
+                   [thumbnails], COALESCE([num_likes], 0), COALESCE([num_comments], 0),
+                   COALESCE([item_pv], 0), [created], [updated], COALESCE([is_delete], 0)
+            FROM [on_sale_items]
+            WHERE [item_id] IN ({ph})
+            ORDER BY COALESCE([is_delete], 0) ASC, [updated] DESC
+            """,
+            tuple(item_ids),
+        )
+        keys = ("item_id", "platform", "status", "name", "price", "thumbnails",
+                "num_likes", "num_comments", "item_pv", "created", "updated", "is_delete")
+        seen = set()
+        for r in rows or []:
+            d = dict(zip(keys, r))
+            d["thumbnail"] = _first_thumbnail(d.pop("thumbnails"))
+            d["platform"] = (d.get("platform") or "mercari").strip() or "mercari"
+            seen.add(str(d["item_id"] or ""))
+            listings.append(d)
+        # 同步前/已彻底删除的 ID 在 on_sale_items 里没有行，仍要列出来，
+        # 否则「关联商品」会比编辑页写着的 ID 少几条，看着像丢数据。
+        for iid in item_ids:
+            if iid not in seen:
+                listings.append({"item_id": iid, "platform": "", "status": "",
+                                 "name": "", "price": 0, "thumbnail": "",
+                                 "num_likes": 0, "num_comments": 0, "item_pv": 0,
+                                 "created": None, "updated": None, "is_delete": 0})
+
+    sold_rows = db.execute_query(
+        """
+        SELECT o.[order_no], IFNULL(o.[platform], ''), IFNULL(o.[status], ''),
+               o.[order_date], IFNULL(o.[customer_name], ''), COALESCE(o.[amount], 0),
+               o.[thumbnails], IFNULL(o.[remark], ''),
+               SUM(COALESCE(l.[quantity], 0)) AS qty,
+               MAX(IFNULL(l.[management_id], '')) AS management_id
+        FROM [order_outbound_lines] l
+        INNER JOIN [orders] o ON o.[order_no] = l.[order_no]
+        WHERE l.[inventory_id] = ?
+          AND IFNULL(o.[status], '') != 'cancelled'
+        GROUP BY o.[order_no], o.[platform], o.[status], o.[order_date],
+                 o.[customer_name], o.[amount], o.[thumbnails], o.[remark]
+        ORDER BY o.[order_date] DESC, o.[order_no] DESC
+        """,
+        (pid,),
+    )
+    sold_keys = ("order_no", "platform", "status", "order_date", "customer_name",
+                 "amount", "thumbnails", "remark", "quantity", "management_id")
+    sold = []
+    for r in sold_rows or []:
+        d = dict(zip(sold_keys, r))
+        d["thumbnail"] = _first_thumbnail(d.pop("thumbnails"))
+        d["platform"] = (d.get("platform") or "mercari").strip() or "mercari"
+        d["quantity"] = int(d.get("quantity") or 0)
+        sold.append(d)
+
+    # 两个平台的 order_no 都等于商品 ID，所以「已下架的在售行」和「已售出订单」
+    # 会是同一件东西的两副面孔。卖掉才下架的那条只留在已出售里，避免同一件出现两次；
+    # 仍在售却已有订单的（同步滞后）保留，那是真的值得看见的状态。
+    sold_ids = {str(d.get("order_no") or "").strip() for d in sold}
+    listings = [
+        it for it in listings
+        if not (int(it.get("is_delete") or 0) == 1
+                and str(it.get("item_id") or "").strip() in sold_ids)
+    ]
+
+    return {"inventory_id": pid, "listings": listings, "sold": sold}
 
 
 def list_inventory_used_in_combos(pid: int):

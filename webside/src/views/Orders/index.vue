@@ -401,7 +401,7 @@
         <el-table-column :label="t('common.operate')" width="156" fixed="right" align="center" header-align="center">
           <template #default="{ row }">
             <div class="order-row-actions">
-              <el-button size="small" @click="openEdit(row)">{{ t('common.edit') }}</el-button>
+              <el-button size="small" @click="openDetail(row)">{{ t('common.detail') }}</el-button>
               <el-button
                 size="small"
                 :loading="refreshingId === row.id"
@@ -480,214 +480,277 @@
 
     <el-dialog
       v-model="dialogVisible"
-      :title="t('orders.orderDetail')"
-      width="1120px"
       destroy-on-close
-      class="order-edit-dialog"
+      class="order-detail-dialog"
     >
-      <div class="order-edit-layout">
-      <el-form :model="form" :rules="rules" ref="formRef" label-position="top" size="small" hide-required-asterisk class="order-edit-form order-edit-form--tiled order-edit-form--main" disabled>
-        <!-- 基本信息 -->
-        <el-divider content-position="left" class="order-edit-section">{{ t('orders.sectionBasic') }}</el-divider>
-        <el-row :gutter="16" class="order-edit-row5">
-          <el-col v-if="form.id != null" :xs="24" :sm="12" :md="6">
-            <el-form-item :label="t('orders.dbId')">
-              <el-input :model-value="String(form.id)" disabled />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="12" :md="6">
-            <el-form-item :label="t('orders.orderNumber')" prop="order_no">
-              <el-input v-model="form.order_no" :placeholder="''" maxlength="60" clearable />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="12" :md="6">
-            <el-form-item :label="t('orders.orderStatus')">
-              <el-input :model-value="statusMap[form.status]?.label || form.status" />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="12" :md="6">
-            <el-form-item :label="t('orders.transactionEvidenceId')">
-              <el-input-number
-                v-model="form.transaction_evidence_id"
-                :precision="0"
-                :controls="false"
-                style="width: 100%"
-                :placeholder="''"
-              />
-            </el-form-item>
-          </el-col>
-        </el-row>
+      <div class="odt">
+        <div class="odt-main">
+          <!-- 概要：左图廊 / 右摘要，窄弹窗下堆叠成单栏 -->
+          <div class="odt-hero">
+            <!-- 图廊：出品图 + 关联库存实拍图合成一条。主图上左右切换，下方缩略条点选 -->
+            <div class="odt-gallery">
+              <div class="odt-gallery__main">
+                <el-image
+                  v-if="detailGalleryCurrent"
+                  :src="detailGalleryCurrent.big"
+                  :preview-src-list="detailGalleryPreviewList"
+                  :initial-index="gallerySafeIndex"
+                  fit="contain"
+                  preview-teleported
+                  hide-on-click-modal
+                  :z-index="4000"
+                  referrerpolicy="no-referrer"
+                >
+                  <template #error><span class="thumb-fallback">-</span></template>
+                </el-image>
+                <span v-else class="thumb-fallback">{{ t('orders.noImages') }}</span>
+                <template v-if="detailGalleryImages.length > 1">
+                  <button
+                    type="button"
+                    class="odt-gallery__nav odt-gallery__nav--prev"
+                    @click.stop="stepGallery(-1)"
+                  >
+                    <el-icon><ArrowLeft /></el-icon>
+                  </button>
+                  <button
+                    type="button"
+                    class="odt-gallery__nav odt-gallery__nav--next"
+                    @click.stop="stepGallery(1)"
+                  >
+                    <el-icon><ArrowRight /></el-icon>
+                  </button>
+                  <span class="odt-gallery__counter">
+                    {{ gallerySafeIndex + 1 }} / {{ detailGalleryImages.length }}
+                  </span>
+                </template>
+              </div>
+              <div v-if="detailGalleryImages.length > 1" ref="galleryStripRef" class="odt-strip">
+                <button
+                  v-for="(img, idx) in detailGalleryImages"
+                  :key="idx"
+                  type="button"
+                  class="odt-strip__item"
+                  :class="{ 'is-active': idx === gallerySafeIndex }"
+                  @click="detailImageIndex = idx"
+                >
+                  <img :src="img.thumb" alt="" referrerpolicy="no-referrer" />
+                </button>
+              </div>
+            </div>
 
-        <!-- 时间 -->
-        <el-divider content-position="left" class="order-edit-section">{{ t('orders.sectionTime') }}</el-divider>
-        <el-row :gutter="16" class="order-edit-row5 order-row-plain--date">
-          <el-col :xs="24" :sm="12" :md="6">
-            <el-form-item :label="t('orders.listingTime')" prop="order_date">
-              <el-date-picker
-                v-model="form.order_date"
-                type="datetime"
-                value-format="YYYY-MM-DD HH:mm:ss"
-                style="width: 100%"
-                :placeholder="''"
-                clearable
-              />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="12" :md="6">
-            <el-form-item :label="t('orders.purchaseTime')">
-              <el-date-picker
-                v-model="form.purchase_time"
-                type="datetime"
-                value-format="YYYY-MM-DD HH:mm:ss"
-                style="width: 100%"
-                :placeholder="''"
-                clearable
-              />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="12" :md="6">
-            <el-form-item :label="t('orders.packedTime')">
-              <el-date-picker
-                v-model="form.packed_at"
-                type="datetime"
-                value-format="YYYY-MM-DD HH:mm:ss"
-                style="width: 100%"
-                :placeholder="''"
-                clearable
-              />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="12" :md="6">
-            <el-form-item :label="t('orders.shippedTime')">
-              <el-date-picker
-                v-model="form.shipped_at"
-                type="datetime"
-                value-format="YYYY-MM-DD HH:mm:ss"
-                style="width: 100%"
-                :placeholder="''"
-                clearable
-              />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="12" :md="6">
-            <el-form-item :label="t('orders.completedTime')">
-              <el-date-picker
-                v-model="form.completed_at"
-                type="datetime"
-                value-format="YYYY-MM-DD HH:mm:ss"
-                style="width: 100%"
-                :placeholder="''"
-                clearable
-              />
-            </el-form-item>
-          </el-col>
-        </el-row>
+            <div class="odt-summary">
+              <div class="odt-chips">
+                <el-tag :type="platformTagType(detailRow || {})" size="small" effect="dark">
+                  {{ platformLabel(detailRow || {}) }}
+                </el-tag>
+                <el-tag :type="statusMap[form.status]?.tag || 'info'" size="small" effect="dark">
+                  {{ statusMap[form.status]?.label || form.status }}
+                </el-tag>
+                <el-button
+                  class="odt-chips__action"
+                  size="small"
+                  :icon="RefreshRight"
+                  :loading="rematching"
+                  @click="rematchProducts"
+                >{{ t('orders.rematchProducts') }}</el-button>
+              </div>
 
-        <!-- 交易双方 -->
-        <el-divider content-position="left" class="order-edit-section">{{ t('orders.sectionParties') }}</el-divider>
-        <el-row :gutter="16" class="order-edit-row5">
-          <el-col :xs="24" :sm="12" :md="6">
-            <el-form-item :label="t('orders.sellerId')">
-              <el-input v-model="form.data_user" :placeholder="''" maxlength="64" clearable />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="12" :md="6">
-            <el-form-item :label="t('orders.buyerId')">
-              <el-input v-model="form.customer_name" :placeholder="''" maxlength="30" clearable />
-            </el-form-item>
-          </el-col>
-        </el-row>
+              <div class="odt-title">{{ form.remark || '-' }}</div>
+              <div class="odt-price">¥{{ Math.round(Number(form.amount || 0)).toLocaleString('ja-JP') }}</div>
 
-        <!-- 金额 -->
-        <el-divider content-position="left" class="order-edit-section">{{ t('orders.sectionAmount') }}</el-divider>
-        <el-row :gutter="16" class="order-edit-row5">
-          <el-col :xs="24" :sm="12" :md="6">
-            <el-form-item :label="t('orders.amountJpy')" prop="amount">
-              <el-input-number v-model="form.amount" :min="1" :precision="0" :controls="false" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="12" :md="6">
-            <el-form-item :label="t('orders.serviceFeeJpy')">
-              <el-input-number
-                v-model="form.service_fee"
-                :precision="0"
-                :controls="false"
-                style="width: 100%"
-                :placeholder="''"
-              />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="12" :md="6">
-            <el-form-item :label="t('orders.packagingTotalJpy')">
-              <el-input :model-value="String(formPackagingTotal)" disabled />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="12" :md="6">
-            <el-form-item :label="t('orders.netIncomeJpy')">
-              <el-input-number
-                v-model="form.net_income"
-                :precision="0"
-                :controls="false"
-                style="width: 100%"
-                :placeholder="''"
-              />
-            </el-form-item>
-          </el-col>
-        </el-row>
+              <!-- 标红原因原先只能在列表上看出「这行是红的」，详情里直接摊开 -->
+              <div v-if="detailAlertReasons.length" class="odt-alert">
+                <el-icon><WarningFilled /></el-icon>
+                <div>
+                  <div class="odt-alert__title">{{ t('orders.alertReasonTitle') }}</div>
+                  <div v-for="(reason, i) in detailAlertReasons" :key="i">{{ reason }}</div>
+                </div>
+              </div>
 
-        <!-- 物流 -->
-        <el-divider content-position="left" class="order-edit-section">{{ t('orders.sectionLogistics') }}</el-divider>
-        <el-row :gutter="16" class="order-edit-row5">
-          <el-col :xs="24" :sm="12" :md="6">
-            <el-form-item :label="t('orders.carrier')">
-              <el-input v-model="form.carrier_display_name" clearable :placeholder="''" />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="12" :md="6">
-            <el-form-item :label="t('orders.shippingFeeJpy')">
-              <el-input-number
-                v-model="form.shipping_fee"
-                :precision="0"
-                :controls="false"
-                style="width: 100%"
-                :placeholder="''"
-              />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="12" :md="6">
-            <el-form-item :label="t('orders.trackingNo')">
-              <el-input v-model="form.tracking_no" clearable :placeholder="''" />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="12" :md="6">
-            <el-form-item :label="t('orders.shipConfirmCode')">
-              <el-input v-model="form.ship_confirm_code" clearable :placeholder="''" />
-            </el-form-item>
-          </el-col>
-        </el-row>
+              <div class="odt-stats">
+                <div v-for="s in detailMoneyStats" :key="s.label" class="odt-stat">
+                  <span class="odt-stat__v" :class="{ 'is-accent': s.accent }">{{ s.value ?? '-' }}</span>
+                  <span class="odt-stat__k">{{ s.label }}</span>
+                </div>
+              </div>
 
-        <!-- 商品信息 -->
-        <el-divider content-position="left" class="order-edit-section">{{ t('orders.sectionItemInfo') }}</el-divider>
-        <el-row :gutter="16">
-          <el-col :span="24">
-            <el-form-item :label="t('orders.itemNameCol')">
-              <el-input v-model="form.remark" type="textarea" :rows="2" maxlength="2000" show-word-limit :placeholder="''" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="24">
-            <el-form-item :label="t('orders.itemDescription')">
-              <el-input
-                v-model="form.description"
-                type="textarea"
-                :rows="10"
-                maxlength="4000"
-                show-word-limit
-                :placeholder="''"
-              />
-            </el-form-item>
-          </el-col>
-        </el-row>
-      </el-form>
+              <!-- 核心 + 物流 + 标识：原「更多信息」页签，改为跟在图片右侧一起看 -->
+              <dl class="odt-facts">
+                <div v-for="f in detailFacts" :key="f.label" class="odt-fact">
+                  <dt>{{ f.label }}</dt>
+                  <dd>{{ f.value }}</dd>
+                </div>
+              </dl>
+            </div>
+          </div>
+
+          <!-- 时间轴：订单生命周期，取到值的节点点亮 -->
+          <ol class="odt-timeline">
+            <li
+              v-for="n in detailTimeline"
+              :key="n.key"
+              class="odt-tl"
+              :class="{ 'is-done': n.done, 'is-reached': n.reached, 'is-reached-next': n.reachedNext }"
+            >
+              <span class="odt-tl__dot"></span>
+              <span class="odt-tl__k">{{ n.label }}</span>
+              <span class="odt-tl__v">{{ n.value || '-' }}</span>
+            </li>
+          </ol>
+
+          <!-- 出库明细 / 商品说明 / 更多信息，避免三段纵向堆叠后要滚很久 -->
+          <el-tabs v-model="detailActiveTab" class="odt-tabs">
+            <el-tab-pane name="lines">
+              <template #label>
+                {{ t('orders.outboundLines') }}
+                <span v-if="detailLines.length" class="odt-tab-count">{{ detailLines.length }}</span>
+              </template>
+              <div v-loading="detailLinesLoading" class="odt-lines">
+                <div
+                  v-for="ln in detailLines"
+                  :key="ln.id"
+                  class="odt-line"
+                  :class="{ 'is-alert': isOutboundLineOwnerUnmatched(ln) }"
+                >
+                  <!-- 只铺前几张；剩下的折进最后一格的「+N」，点开仍是全部图片 -->
+                  <div class="odt-line__imgs">
+                    <div
+                      v-for="(u, ii) in outboundLineImageThumbs(ln)"
+                      :key="ii"
+                      class="odt-line__img-cell"
+                    >
+                      <el-image
+                        :src="u"
+                        :preview-src-list="outboundLineImagePreviews(ln)"
+                        :initial-index="ii"
+                        fit="cover"
+                        preview-teleported
+                        hide-on-click-modal
+                        :z-index="4000"
+                        class="odt-line__img"
+                      >
+                        <template #error><span class="thumb-fallback">-</span></template>
+                      </el-image>
+                      <span
+                        v-if="ii === outboundLineImageThumbs(ln).length - 1 && outboundLineImageHiddenCount(ln) > 0"
+                        class="odt-line__img-more"
+                      >+{{ outboundLineImageHiddenCount(ln) }}</span>
+                    </div>
+                    <span v-if="!outboundLineImageThumbs(ln).length" class="odt-line__noimg">
+                      {{ t('orders.noLinkedImages') }}
+                    </span>
+                  </div>
+                  <div class="odt-line__body">
+                    <div class="odt-line__head">
+                      <el-tag size="small" effect="plain">{{ outboundLineKindLabel(ln) }}</el-tag>
+                      <el-tag
+                        :type="Number(ln.is_stocked_out || 0) === 1 ? 'success' : 'info'"
+                        size="small"
+                      >
+                        {{ Number(ln.is_stocked_out || 0) === 1 ? t('orders.stockedOut') : t('orders.pendingStockOut') }}
+                      </el-tag>
+                      <span class="odt-line__mid">{{ formatOutboundManagementId(ln) }}</span>
+                    </div>
+                    <div class="odt-line__name">{{ ln.inventory_name || '-' }}</div>
+                    <dl class="odt-facts odt-facts--tight odt-facts--cols5">
+                      <div class="odt-fact">
+                        <dt>{{ t('orders.ownership') }}</dt>
+                        <dd :class="{ 'odt-fact--alert': isOutboundLineOwnerUnmatched(ln) }">
+                          {{ ln.inventory_owner_name || '—' }}
+                        </dd>
+                      </div>
+                      <div class="odt-fact">
+                        <dt>{{ t('orders.warehouse') }} / {{ t('orders.shelf') }}</dt>
+                        <dd>{{ [ln.warehouse_name, ln.shelf_name, ln.shelf_code].filter(Boolean).join(' / ') || '—' }}</dd>
+                      </div>
+                      <div v-if="outboundLineShowsRatioPricing(ln)" class="odt-fact">
+                        <dt>{{ t('orders.ratioPrice') }}</dt>
+                        <dd>
+                          {{ orderMoneyField(ln.ratio_price) ?? '—' }}
+                          <span v-if="ln.goods_ratio != null" class="odt-fact__note">
+                            （{{ formatGoodsRatio(ln.goods_ratio) }}）
+                          </span>
+                        </dd>
+                      </div>
+                      <div class="odt-fact">
+                        <dt>{{ t('orders.orderQty') }}</dt>
+                        <dd>{{ ln.quantity ?? '—' }}</dd>
+                      </div>
+                      <div class="odt-fact">
+                        <dt>{{ t('orders.currentStock') }}</dt>
+                        <dd>{{ ln.stock_quantity != null ? ln.stock_quantity : '—' }}</dd>
+                      </div>
+                    </dl>
+                  </div>
+                </div>
+                <el-empty
+                  v-if="!detailLinesLoading && !detailLines.length"
+                  :description="t('orders.noOutboundLines')"
+                  :image-size="56"
+                />
+              </div>
+            </el-tab-pane>
+
+            <!-- 包材：与订单二级展开区同一套状态和接口，登记后立即回写包材合计 -->
+            <el-tab-pane name="packaging" :label="t('orders.packagingCost')">
+              <div class="odt-packaging" v-loading="packagingState[form.order_no]?.loading">
+                <div class="odt-pkg-list">
+                  <div v-for="pk in packagingCards" :key="pk.id" class="odt-pkg">
+                    <el-image
+                      v-if="pk.image"
+                      :src="pk.image"
+                      :preview-src-list="[pk.imageBig]"
+                      fit="cover"
+                      preview-teleported
+                      hide-on-click-modal
+                      :z-index="4000"
+                      class="odt-pkg__img"
+                    >
+                      <template #error><span class="thumb-fallback">-</span></template>
+                    </el-image>
+                    <span v-else class="odt-pkg__img odt-pkg__img--empty">
+                      <span class="thumb-fallback">-</span>
+                    </span>
+                    <div class="odt-pkg__body">
+                      <div class="odt-pkg__name">{{ pk.item_name || '-' }}</div>
+                      <dl class="odt-facts odt-facts--tight">
+                        <div class="odt-fact">
+                          <dt>{{ t('orders.bearer') }}</dt>
+                          <dd>{{ pk.owner || t('orders.unassigned') }}</dd>
+                        </div>
+                        <div class="odt-fact">
+                          <dt>{{ t('common.quantity') }} × {{ t('orders.unitPrice') }}</dt>
+                          <dd>{{ pk.quantity ?? '-' }} × {{ pk.unitPrice }}</dd>
+                        </div>
+                        <div class="odt-fact">
+                          <dt>{{ t('orders.recordTime') }}</dt>
+                          <dd>{{ pk.recordTime }}</dd>
+                        </div>
+                      </dl>
+                    </div>
+                    <div class="odt-pkg__amount">{{ pk.amount }}</div>
+                  </div>
+                  <!-- 虚线卡片跟在列表末尾（与店铺账号页的新增卡一致）：
+                       列表为空时它就是空状态本身，不再另给 el-empty -->
+                  <button
+                    type="button"
+                    class="odt-pkg-add-card"
+                    :disabled="packagingState[form.order_no]?.submitting"
+                    @click="openPackagingPicker"
+                  >
+                    <el-icon class="odt-pkg-add-card__icon"><Plus /></el-icon>
+                    <span>{{ t('orders.addPackaging') }}</span>
+                  </button>
+                </div>
+              </div>
+            </el-tab-pane>
+
+            <el-tab-pane name="desc" :label="t('orders.itemDescription')">
+              <div v-if="form.description" class="odt-desc">{{ form.description }}</div>
+              <el-empty v-else :description="t('orders.descEmpty')" :image-size="48" />
+            </el-tab-pane>
+          </el-tabs>
+        </div>
 
       <!-- 右侧：对话消息（来源同待办「处理」面板，按 order_no 读交易消息缓存） -->
       <aside class="order-conversation">
@@ -737,6 +800,7 @@
           </div>
           <el-empty v-else-if="!orderMessagesLoading" :description="t('orders.noMessages')" :image-size="60" />
         </div>
+        <!-- 回复框固定在对话栏底部；发送按钮浮在输入框内的右下角 -->
         <div v-if="canReplyMessage" class="order-conversation-reply">
           <el-input
             v-model="replyDraft"
@@ -745,34 +809,71 @@
             :placeholder="t('orders.replyPlaceholder')"
             maxlength="1000"
             resize="none"
+            class="order-conversation-reply-input"
           />
-          <div class="order-conversation-reply-actions">
-            <el-button
-              type="primary"
-              size="small"
-              :loading="replySending"
-              :disabled="!replyDraft.trim()"
-              @click="sendOrderReply"
-            >{{ t('orders.sendReply') }}</el-button>
-          </div>
+          <el-button
+            class="order-conversation-reply-send"
+            type="primary"
+            size="small"
+            :loading="replySending"
+            :disabled="!replyDraft.trim()"
+            @click="sendOrderReply"
+          >{{ t('orders.sendReply') }}</el-button>
         </div>
       </aside>
       </div>
-      <template #footer>
-        <div class="order-dialog-footer">
-          <div class="order-dialog-footer-left">
-            <el-button
-              :icon="RefreshRight"
-              :loading="rematching"
-              @click="rematchProducts"
-            >{{ t('orders.rematchProducts') }}</el-button>
-          </div>
-          <div class="order-dialog-footer-right">
-            <el-button @click="dialogVisible = false">{{ t('common.cancel') }}</el-button>
-            <el-button type="primary" :loading="submitting" @click="submit">{{ t('common.save') }}</el-button>
-          </div>
-        </div>
-      </template>
+    </el-dialog>
+
+    <!-- 包材选择：卡片挑选，点一张即登记。append-to-body 是必须的——
+         订单详情弹窗的 body 是 overflow:hidden，不 teleport 会被裁掉。 -->
+    <el-dialog
+      v-model="packagingPickerVisible"
+      :title="t('orders.addPackagingMaterial')"
+      width="820px"
+      append-to-body
+      destroy-on-close
+    >
+      <div class="pkg-picker" v-loading="packagingState[form.order_no]?.submitting">
+        <button
+          type="button"
+          class="pkg-pick pkg-pick--none"
+          :disabled="packagingState[form.order_no]?.submitting"
+          @click="pickPackaging(PACKAGING_ITEM_NONE)"
+        >
+          <span class="pkg-pick__thumb pkg-pick__thumb--none">
+            <el-icon><Minus /></el-icon>
+          </span>
+          <span class="pkg-pick__name">{{ t('orders.noPackaging') }}</span>
+        </button>
+        <button
+          v-for="pkg in packagingItemsOptions"
+          :key="pkg.item_name"
+          type="button"
+          class="pkg-pick"
+          :disabled="packagingState[form.order_no]?.submitting"
+          @click="pickPackaging(pkg.item_name)"
+        >
+          <img
+            v-if="pkg.item_image"
+            :src="localThumbSrc(pkg.item_image, 200)"
+            alt=""
+            class="pkg-pick__thumb"
+          />
+          <span v-else class="pkg-pick__thumb pkg-pick__thumb--empty">
+            <span class="thumb-fallback">-</span>
+          </span>
+          <span class="pkg-pick__name">{{ pkg.item_name }}</span>
+          <span class="pkg-pick__meta">
+            <span>{{ t('orders.stockLabel') }} {{ Number(pkg.quantity || 0) }}</span>
+            <span class="pkg-pick__price">{{ Math.round(Number(pkg.amount || 0)) }}</span>
+          </span>
+        </button>
+      </div>
+      <el-empty
+        v-if="!packagingItemsOptions.length"
+        :description="t('orders.packagingOptionsEmpty')"
+        :image-size="48"
+      />
     </el-dialog>
 
     <el-dialog

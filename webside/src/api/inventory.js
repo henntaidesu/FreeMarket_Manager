@@ -7,6 +7,7 @@ export const inventoryApi = {
   get: (id) => http.get(`/use_web/inventory/${id}`),
   pendingOutboundLines: (id) => http.get(`/use_web/inventory/${id}/pending-outbound-lines`),
   usedInCombos: (id) => http.get(`/use_web/inventory/${id}/used-in-combos`),
+  linkedItems: (id) => http.get(`/use_web/inventory/${id}/linked-items`),
   findByBarcode: (barcode) => http.get(`/use_web/inventory/barcode/${encodeURIComponent(barcode)}`),
   findByImage: (file) => {
     const fd = new FormData()

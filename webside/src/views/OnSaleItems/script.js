@@ -1,7 +1,7 @@
 import { defineComponent, watch, ref, computed, nextTick, onBeforeUnmount, onMounted, reactive } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { ElMessage } from '@/utils/notify'
-import { Download, Refresh, Loading, WarningFilled, Check } from '@element-plus/icons-vue'
+import { Download, Refresh, Loading, WarningFilled, Check, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { onSaleItemApi, shopAccountApi, inventoryApi, TASK_TYPES } from '@/api/index.js'
 import { submitTask, submitTasks } from '@/utils/taskSubmit.js'
@@ -67,6 +67,72 @@ export default defineComponent({
     const deleteItemLoading = ref(false)
     const resumeItemLoading = ref(false)
     const suspendItemLoading = ref(false)
+    /** 详情弹窗左侧图廊当前选中的图（出品图 + 关联库存图合成的同一条列表） */
+    const detailImageIndex = ref(0)
+
+    /** 该 listing 自己的商品图（列表卡片用的同一份 thumbnails），非关联库存图 */
+    const detailImages = computed(() =>
+      detailViewBase.value ? thumbPreviewList(detailViewBase.value) : []
+    )
+
+    /**
+     * 详情用的整行：以列表行为底（它带着 seller_name / inventory_* 这些后端附加字段），
+     * 再覆盖上 /by-item-id 返回的那条——后者查的是模型声明的全部列，列表查询只取子集。
+     */
+    const detailRawRow = computed(() => {
+      const base = detailViewBase.value
+      if (!base) return null
+      const k = String(base.item_id ?? '').trim()
+      const matched = Array.isArray(detailViewOnSaleItems.value)
+        ? detailViewOnSaleItems.value.find((it) => String(it?.item_id ?? '').trim() === k)
+        : null
+      return { ...base, ...(matched || {}) }
+    })
+
+    /** 概要区的数据表现：一律数字，缺失按 0 */
+    const detailPerfStats = computed(() => {
+      const r = detailRawRow.value
+      if (!r) return []
+      const n = (v) => Number(v || 0)
+      return [
+        { label: t('onSaleItems.likesTag'), value: n(r.num_likes) },
+        { label: t('onSaleItems.commentsTag'), value: n(r.num_comments) },
+        { label: t('onSaleItems.itemPv'), value: n(r.item_pv) },
+        { label: t('onSaleItems.recentItemPv'), value: n(r.recent_item_pv) },
+        { label: t('onSaleItems.searchImpression'), value: n(r.search_impression) },
+        { label: t('onSaleItems.recentSearchImpression'), value: n(r.recent_search_impression) },
+      ]
+    })
+
+    const detailFieldText = (v) =>
+      v === null || v === undefined || String(v).trim() === '' ? '-' : String(v)
+
+    /** 出品信息：跟着概要区走（放在右栏关键字段卡的下面），不进下方的商品信息区 */
+    const detailListingFacts = computed(() => {
+      const r = detailRawRow.value
+      if (!r) return []
+      return [
+        { label: t('onSaleItems.categoryRoot'), value: detailFieldText(r.category_root_name) },
+        { label: t('onSaleItems.listedAt'), value: displayTs(r.created) },
+        {
+          label: t('onSaleItems.shippingFromAreaLabel'),
+          value: detailFieldText(r.shipping_from_area_name),
+        },
+        {
+          label: t('onSaleItems.listingTypeLabel'),
+          value: String(r.auction_info_json || '').trim()
+            ? t('onSaleItems.auction')
+            : t('onSaleItems.listingTypeNormal'),
+        },
+        { label: t('onSaleItems.impressionBoost'), value: detailFieldText(r.impression_boost_status) },
+      ]
+    })
+
+    /** 拍卖信息原文（只有拍卖出品才有），格式化后单独成块 */
+    const detailAuctionInfoText = computed(() => {
+      const raw = String(detailRawRow.value?.auction_info_json || '').trim()
+      return raw ? formatJsonPretty(raw) : ''
+    })
 
     /** 二级列表「查看库存详情」弹窗 */
     const inventoryDetailVisible = ref(false)
@@ -730,6 +796,7 @@ export default defineComponent({
     async function openDetailView(row) {
       if (!row) return
       detailViewBase.value = { ...row }
+      detailImageIndex.value = 0
       detailViewVisible.value = true
       const k = expandKey(row.item_id)
       if (!k) return
@@ -773,28 +840,62 @@ export default defineComponent({
     }
 
     /**
-     * 详情弹窗：按管理 ID（= 库存 id）聚合关联商品图片，去重后每组展示其全部图片。
-     * 图片路径来自后端 inventory_lines[].images（库存表 images_json / image_front 等）。
+     * 详情弹窗的图廊：**该商品的全部图片**——先出品图（煤炉/雅虎那边的 thumbnails），
+     * 再按管理 ID（= 库存 id）去重后的关联库存实拍图，合成同一条列表。
+     * 每张带 label 说明它是哪来的，主图上左右切换、下方缩略条点选，索引三者共用。
+     * 库存图路径来自后端 inventory_lines[].images（库存表 images_json / image_front 等）。
      */
-    const detailLinkedImageGroups = computed(() => {
+    const detailGalleryImages = computed(() => {
+      const out = []
+      for (const u of detailImages.value) {
+        out.push({ thumb: u, big: u })
+      }
       const seen = new Set()
-      const groups = []
       for (const ln of detailInventoryLines.value) {
         const mid = String(ln?.management_id || '').trim()
         if (!mid || seen.has(mid)) continue
+        seen.add(mid)
         const imgs = Array.isArray(ln?.images)
           ? ln.images.map((s) => String(s || '').trim()).filter(Boolean)
           : []
-        if (!imgs.length) continue
-        seen.add(mid)
-        groups.push({
-          management_id: mid,
-          inventory_name: String(ln?.inventory_name || '').trim(),
-          images: imgs.map((p) => ({ thumb: thumbUrl(p, 160), big: thumbUrl(p, 900) })),
-          previewList: imgs.map((p) => thumbUrl(p, 900)),
-        })
+        for (const p of imgs) {
+          out.push({ thumb: thumbUrl(p, 300), big: thumbUrl(p, 900) })
+        }
       }
-      return groups
+      return out
+    })
+
+    const detailGalleryPreviewList = computed(() => detailGalleryImages.value.map((i) => i.big))
+    // 下标就地夹紧而不是用 watch 纠正：关联行是异步补上的，图片数量会从 N 变成 N+M
+    const gallerySafeIndex = computed(() => {
+      const n = detailGalleryImages.value.length
+      if (n <= 0) return 0
+      return Math.min(Math.max(detailImageIndex.value, 0), n - 1)
+    })
+    const detailGalleryCurrent = computed(
+      () => detailGalleryImages.value[gallerySafeIndex.value] || null
+    )
+
+    /** 主图上的左右切换，两端循环 */
+    function stepGallery(delta) {
+      const n = detailGalleryImages.value.length
+      if (n <= 1) return
+      detailImageIndex.value = (gallerySafeIndex.value + delta + n) % n
+    }
+
+    const galleryStripRef = ref(null)
+    /**
+     * 缩略条跟着当前图滚动。全局滚动条只有 6px 高，横向拖它基本抓不住，
+     * 所以主图那对箭头必须自己把选中项带进可视区，否则切到第 7 张时下面还停在第 1 张。
+     * 直接改 scrollLeft 而不是 scrollIntoView——后者会连带滚动弹窗 body。
+     */
+    watch(gallerySafeIndex, async (idx) => {
+      await nextTick()
+      const strip = galleryStripRef.value
+      const item = strip?.children?.[idx]
+      if (!strip || !item) return
+      const left = item.offsetLeft - strip.offsetLeft - (strip.clientWidth - item.clientWidth) / 2
+      strip.scrollTo({ left: Math.max(0, left), behavior: 'smooth' })
     })
 
     /** 修改在售商品弹窗（标题 / 价格 / 商品说明；出品方式稍后接入，保存方法由后续提供） */
@@ -1550,6 +1651,10 @@ export default defineComponent({
       detailViewVisible,
       detailViewLoading,
       detailViewBase,
+      detailImageIndex,
+      detailPerfStats,
+      detailListingFacts,
+      detailAuctionInfoText,
       detailViewOnSaleItems,
       deleteItemLoading,
       resumeItemLoading,
@@ -1626,7 +1731,14 @@ export default defineComponent({
       runFullUpdate,
       loadSellerAccounts,
       thumbUrl,
-      detailLinkedImageGroups,
+      detailGalleryImages,
+      detailGalleryPreviewList,
+      gallerySafeIndex,
+      detailGalleryCurrent,
+      stepGallery,
+      galleryStripRef,
+      ArrowLeft,
+      ArrowRight,
       reviseDialogVisible,
       reviseSaving,
       reviseForm,

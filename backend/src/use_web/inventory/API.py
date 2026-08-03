@@ -9,7 +9,7 @@
 """
 from fastapi import APIRouter
 
-from .units.inventory_query import list_inventory, inventory_summary, find_by_barcode, get_inventory, list_inventory_pending_outbound_lines, list_inventory_used_in_combos
+from .units.inventory_query import list_inventory, inventory_summary, find_by_barcode, get_inventory, list_inventory_pending_outbound_lines, list_inventory_used_in_combos, list_inventory_linked_items
 from .units.inventory_crud import create_inventory, update_inventory, delete_inventory
 from .units.inventory_stock import stock_in_inventory, stock_out_inventory
 from .units.inventory_combined import create_combined_inventory, remove_combined_component
@@ -44,6 +44,7 @@ router.add_api_route("/{pid}/stock-in", stock_in_inventory, methods=["POST"])
 router.add_api_route("/{pid}/stock-out", stock_out_inventory, methods=["POST"])
 router.add_api_route("/{pid}/pending-outbound-lines", list_inventory_pending_outbound_lines, methods=["GET"])
 router.add_api_route("/{pid}/used-in-combos", list_inventory_used_in_combos, methods=["GET"])
+router.add_api_route("/{pid}/linked-items", list_inventory_linked_items, methods=["GET"])
 router.add_api_route("/{pid}", get_inventory, methods=["GET"])
 router.add_api_route("", create_inventory, methods=["POST"])
 router.add_api_route("/{pid}", update_inventory, methods=["PUT"])

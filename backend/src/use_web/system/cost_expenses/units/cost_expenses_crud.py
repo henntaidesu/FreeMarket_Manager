@@ -17,6 +17,7 @@ from .cost_expenses_helpers import (
     _default_london_ts,
     _ensure_order_exists,
     _find_packaging_item_latest,
+    _packaging_images_by_name,
     _reject_if_order_period_settled,
     _resolve_order_owner_value_weights,
     _restore_order_net_income_cost,
@@ -69,11 +70,18 @@ def list_cost_expenses(
         limit=page_size,
         offset=(page - 1) * page_size,
     )
+    items = [row.to_dict() for row in rows]
+    # 包材实物图存在 cost_records 上，按物品名回填给本页每一行（订单详情的包材卡片要用）。
+    # 一次查完整页的名字，不按行逐条查；用光库存的包材也照样能取到图。
+    images = _packaging_images_by_name({str(it.get("item_name") or "").strip() for it in items})
+    if images:
+        for it in items:
+            it["item_image"] = images.get(str(it.get("item_name") or "").strip())
     return {
         "total": total,
         "page": page,
         "page_size": page_size,
-        "items": [row.to_dict() for row in rows],
+        "items": items,
     }
 
 

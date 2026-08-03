@@ -2,7 +2,15 @@ import { defineComponent, ref, computed, onMounted, watch, onBeforeUnmount, next
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
 import { ElMessage } from '@/utils/notify'
-import { RefreshRight, Refresh, Plus, Minus, WarningFilled } from '@element-plus/icons-vue'
+import {
+  RefreshRight,
+  Refresh,
+  Plus,
+  Minus,
+  WarningFilled,
+  ArrowLeft,
+  ArrowRight,
+} from '@element-plus/icons-vue'
 import {
   orderApi,
   inventoryApi,
@@ -49,7 +57,6 @@ export default defineComponent({
     const statsLoading = ref(false)
     /** 与 Layout / 库存页一致：(max-width: 768px) */
     const isMobile = ref(false)
-    const submitting = ref(false)
     /** 正在 Mercari 拉取详情的行 id */
     const refreshingId = ref(null)
     /** 二级列表：正在执行出库的明细键 order_no:line_id */
@@ -260,7 +267,6 @@ export default defineComponent({
     const pageSize = ref(20)
     const dateRange = ref([])
     const dialogVisible = ref(false)
-    const formRef = ref()
 
     // ===== 表格 / 卡片视图 =====
     // 视图偏好是全局的（切换开关在侧边栏底部），本页只读不写
@@ -534,78 +540,16 @@ export default defineComponent({
       return formatLocalWallToStr(dt)
     }
 
-    /** 保存：本地 datetime 串 -> Unix 秒（null 表示清空可选字段） */
-    function localFormStringToUnixSec(v) {
-      if (!v || !String(v).trim()) return null
-      const s = String(v).trim()
-      const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{2}):(\d{2}):(\d{2}))?$/)
-      if (!m) return null
-      const y = +m[1]
-      const mo = +m[2] - 1
-      const d = +m[3]
-      const h = m[4] != null ? +m[4] : 0
-      const mi = m[5] != null ? +m[5] : 0
-      const sec = m[6] != null ? +m[6] : 0
-      const local = new Date(y, mo, d, h, mi, sec)
-      if (Number.isNaN(local.getTime())) return null
-      return Math.floor(local.getTime() / 1000)
-    }
-
     function optionalNumFromRow(v) {
       if (v == null || v === '') return undefined
       const n = Number(v)
       return Number.isNaN(n) ? undefined : n
     }
 
-    function numOrNull(v) {
-      if (v === null || v === undefined || v === '') return null
-      const n = Number(v)
-      return Number.isNaN(n) ? null : n
-    }
-
     function optionalIntFromRow(v) {
       if (v == null || v === '') return undefined
       const n = Number.parseInt(String(v), 10)
       return Number.isNaN(n) ? undefined : n
-    }
-
-    function intOrNull(v) {
-      if (v === null || v === undefined || v === '') return null
-      const n = Number.parseInt(String(v), 10)
-      return Number.isNaN(n) ? null : n
-    }
-
-    function thumbnailsToFormText(row) {
-      const t = row.thumbnails
-      if (t == null || t === '') return ''
-      if (Array.isArray(t)) return JSON.stringify(t, null, 2)
-      if (typeof t === 'string') {
-        try {
-          const o = JSON.parse(t)
-          if (Array.isArray(o)) return JSON.stringify(o, null, 2)
-        } catch {
-          /* 原样展示 */
-        }
-        return t
-      }
-      return String(t)
-    }
-
-    /** 解析为 API 所需的 string[]；空串返回 null 表示清空或未传 */
-    function parseThumbnailsPayload(text) {
-      const raw = String(text ?? '').trim()
-      if (!raw) return null
-      try {
-        const p = JSON.parse(raw)
-        if (Array.isArray(p)) {
-          const urls = p.map((s) => String(s).trim()).filter(Boolean)
-          return urls.length ? urls : null
-        }
-      } catch {
-        /* 按行/逗号拆分 */
-      }
-      const urls = raw.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean)
-      return urls.length ? urls : null
     }
 
     /** 手续费 / 快递费 / 净收益列：null 表示无数据，单元格显示「-」；展示为整数（四舍五入） */
@@ -656,6 +600,7 @@ export default defineComponent({
       return list.length ? list[0] : ''
     }
 
+    /** 详情弹窗的展示数据：由 openDetail 从列表行归一化而来（时间已转本地墙钟串） */
     const createDefaultForm = () => ({
       id: null,
       order_no: '',
@@ -679,23 +624,260 @@ export default defineComponent({
       transaction_evidence_id: undefined,
       remark: '',
       description: '',
-      thumbnails_text: '',
     })
 
     const form = ref(createDefaultForm())
 
-    /** 编辑订单弹窗：当前订单的包材合计金额（日元） */
+    /** 详情弹窗：当前订单的包材合计金额（日元） */
     const formPackagingTotal = computed(() => {
       const ono = String(form.value.order_no || '').trim()
       return Math.round(Number(packagingState.value?.[ono]?.total_amount || 0))
     })
 
-    const rules = computed(() => ({
-      order_no: [{ required: true, message: t('orders.orderNumberPlaceholder'), trigger: 'blur' }],
-      order_date: [{ required: true, message: t('orders.pleaseSelectOrderTime'), trigger: 'change' }],
-      status: [{ required: true, message: t('orders.pleaseSelectOrderStatus'), trigger: 'change' }],
-      amount: [{ required: true, message: t('orders.pleaseInputOrderAmount'), trigger: 'blur' }],
-    }))
+    // ===== 订单详情弹窗（只读） =====
+    /** 打开详情的原始列表行：缩略图、预警标记等只在行上、不进 form */
+    const detailRow = ref(null)
+    const detailImageIndex = ref(0)
+    const detailActiveTab = ref('lines')
+    /** 详情内的出库明细：与二级展开同接口，但独立一份，避免和展开行的缓存互相清空 */
+    const detailLines = ref([])
+    const detailLinesLoading = ref(false)
+
+    async function loadDetailOutboundLines(orderNo) {
+      const ono = String(orderNo || '').trim()
+      detailLines.value = []
+      if (!ono) return
+      detailLinesLoading.value = true
+      try {
+        const res = await orderApi.outboundLines(buildOutboundLinesParams(ono))
+        detailLines.value = sortOutboundLinesDisplay(Array.isArray(res?.items) ? res.items : [])
+      } catch (e) {
+        console.error('[订单出库明细]', e?.response?.data?.detail || e?.message || e)
+      } finally {
+        detailLinesLoading.value = false
+      }
+    }
+
+    /** 本地 /imges/ 路径转缩略图接口 URL；非本地图片原样返回（与库存/在售详情一致） */
+    function localThumbSrc(src, size = 300) {
+      const s = String(src || '').trim()
+      if (!s.startsWith('/imges/')) return s
+      return `/mercariV2/src/use_web/inventory/image-thumb?path=${encodeURIComponent(s)}&size=${size}`
+    }
+
+    /** 某条出库明细关联库存的实拍图（后端按 images_json 解析后返回） */
+    function outboundLineImages(line) {
+      const arr = Array.isArray(line?.images) ? line.images : []
+      return arr.map((s) => String(s || '').trim()).filter(Boolean)
+    }
+
+    /**
+     * 明细行里最多铺几张缩略图。一条库存挂二十来张实拍图是常态（这单就 21 张），
+     * 全铺开会把单行撑到七百多像素高，整个列表没法看——超出的折进最后一格的「+N」，
+     * 点开的预览列表仍然是**全部**图片，一张都不少。
+     */
+    const OUTBOUND_LINE_THUMB_MAX = 4
+
+    function outboundLineImageThumbs(line) {
+      return outboundLineImages(line).slice(0, OUTBOUND_LINE_THUMB_MAX).map((p) => localThumbSrc(p, 160))
+    }
+
+    function outboundLineImageHiddenCount(line) {
+      return Math.max(0, outboundLineImages(line).length - OUTBOUND_LINE_THUMB_MAX)
+    }
+
+    function outboundLineImagePreviews(line) {
+      return outboundLineImages(line).map((p) => localThumbSrc(p, 900))
+    }
+
+    /**
+     * 详情图廊：**该订单的全部图片**——先平台出品图（thumbnails），再按库存 ID 去重后的
+     * 关联库存实拍图，合成同一条列表。主图上左右切换、下方缩略条点选，索引三者共用。
+     * 库存图路径来自后端 outbound-lines[].images（库存表 images_json）。
+     */
+    const detailGalleryImages = computed(() => {
+      const out = []
+      for (const u of thumbnailPreviewList(detailRow.value || {})) {
+        out.push({ thumb: u, big: u })
+      }
+      // 组合单里多条明细可能指向同一条库存，去重后同一张实拍图不会在图廊里出现两次
+      const seen = new Set()
+      for (const ln of detailLines.value) {
+        const iid = ln?.inventory_id != null ? String(ln.inventory_id) : ''
+        if (!iid || seen.has(iid)) continue
+        seen.add(iid)
+        for (const p of outboundLineImages(ln)) {
+          out.push({ thumb: localThumbSrc(p, 300), big: localThumbSrc(p, 900) })
+        }
+      }
+      return out
+    })
+
+    const detailGalleryPreviewList = computed(() => detailGalleryImages.value.map((i) => i.big))
+
+    // 下标就地夹紧而不是用 watch 纠正：出库明细是异步补上的，图片数量会从 N 变成 N+M
+    const gallerySafeIndex = computed(() => {
+      const n = detailGalleryImages.value.length
+      if (!n) return 0
+      return Math.min(Math.max(0, detailImageIndex.value), n - 1)
+    })
+
+    const detailGalleryCurrent = computed(
+      () => detailGalleryImages.value[gallerySafeIndex.value] || null
+    )
+
+    /** 主图上的左右切换，两端循环 */
+    function stepGallery(delta) {
+      const n = detailGalleryImages.value.length
+      if (n < 2) return
+      detailImageIndex.value = (gallerySafeIndex.value + delta + n) % n
+    }
+
+    const galleryStripRef = ref(null)
+    /**
+     * 缩略条跟着当前图滚动：主图那对箭头必须自己把选中项带进可视区，
+     * 否则切到第 7 张时下面还停在第 1 张。直接改 scrollLeft 而不是 scrollIntoView
+     * ——后者会连带滚动弹窗内容区。
+     */
+    watch(gallerySafeIndex, async (idx) => {
+      await nextTick()
+      const strip = galleryStripRef.value
+      const item = strip?.children?.[idx]
+      if (!strip || !item) return
+      const left = item.offsetLeft - strip.offsetLeft - (strip.clientWidth - item.clientWidth) / 2
+      strip.scrollTo({ left: Math.max(0, left), behavior: 'smooth' })
+    })
+
+    /**
+     * 时间轴（顺序即订单生命周期）。三个状态要分开，缺一个都会显示错：
+     *  - done：这个节点自己有时间戳 → 圆点填实
+     *  - reached：它**或它之后**任一节点有时间戳 → 轴线接通、圆点描边点亮但不填实。
+     *    中间缺一个时间戳不代表流程没走过去（例如发货时间没抓到、但确认收货时间有了），
+     *    所以点亮范围要从后往前扫一遍，不能只看自己。
+     *  - reachedNext：下一个节点 reached → 本格右半段轴线点亮
+     * 轴线由每格的左右两个半段拼成，所以 reached 管 ::before、reachedNext 管 ::after。
+     */
+    const detailTimeline = computed(() => {
+      const nodes = [
+        { key: 'order_date', label: t('orders.listingTime'), value: form.value.order_date },
+        { key: 'purchase_time', label: t('orders.purchaseTime'), value: form.value.purchase_time },
+        { key: 'packed_at', label: t('orders.packedTime'), value: form.value.packed_at },
+        { key: 'shipped_at', label: t('orders.shippedTime'), value: form.value.shipped_at },
+        { key: 'completed_at', label: t('orders.completedTime'), value: form.value.completed_at },
+      ]
+      const reached = new Array(nodes.length).fill(false)
+      let seen = false
+      for (let i = nodes.length - 1; i >= 0; i--) {
+        if (nodes[i].value) seen = true
+        reached[i] = seen
+      }
+      return nodes.map((n, i) => ({
+        ...n,
+        done: !!n.value,
+        reached: reached[i],
+        reachedNext: i + 1 < nodes.length && reached[i + 1],
+      }))
+    })
+
+    /** 金额分解：手续费 / 快递费 / 包材合计 / 净收益 */
+    const detailMoneyStats = computed(() => [
+      { label: t('orders.serviceFeeJpy'), value: orderMoneyField(form.value.service_fee) },
+      { label: t('orders.shippingFeeJpy'), value: orderMoneyField(form.value.shipping_fee) },
+      { label: t('orders.packagingTotalJpy'), value: String(formPackagingTotal.value) },
+      { label: t('orders.netIncomeJpy'), value: orderMoneyField(form.value.net_income), accent: true },
+    ])
+
+    /** 概要右栏的字段：核心 + 物流 + 标识摊平成一张自适应列数的网格（原「更多信息」页签） */
+    const detailFacts = computed(() => {
+      const row = detailRow.value
+      return [
+        { label: t('orders.orderNumber'), value: form.value.order_no || '-' },
+        // 卖出账号只显示账号名；账号 ID（data_user）仅在没有账号名时兜底
+        {
+          label: t('orders.accountCol'),
+          value: (row && row.account_name) || form.value.data_user || '-',
+        },
+        { label: t('orders.buyerId'), value: form.value.customer_name || '-' },
+        { label: t('orders.carrier'), value: form.value.carrier_display_name || '-' },
+        { label: t('orders.shippingMethod'), value: form.value.request_class_display_name || '-' },
+        { label: t('orders.trackingNo'), value: form.value.tracking_no || '-' },
+        { label: t('orders.shipConfirmCode'), value: form.value.ship_confirm_code || '-' },
+        {
+          label: t('orders.transactionEvidenceId'),
+          value:
+            form.value.transaction_evidence_id != null
+              ? String(form.value.transaction_evidence_id)
+              : '-',
+        },
+        { label: t('orders.platformUpdatedAt'), value: form.value.order_updated_at || '-' },
+      ]
+    })
+
+    // 包材选择弹窗：卡片挑选，点一张即登记（与二级展开区的下拉走同一个提交函数）
+    const packagingPickerVisible = ref(false)
+
+    async function openPackagingPicker() {
+      packagingPickerVisible.value = true
+      // 库存数量会随其它订单登记而变，每次打开都重取一次，别拿开页时的快照
+      try {
+        await loadPackagingItemOptions()
+      } catch (e) {
+        console.error('[包材选项]', e?.response?.data?.detail || e?.message || e)
+      }
+    }
+
+    async function pickPackaging(itemName) {
+      const ono = String(form.value.order_no || '').trim()
+      if (!ono) return
+      await submitInlinePackaging(ono, itemName)
+      packagingPickerVisible.value = false
+    }
+
+    /**
+     * 包材卡片：图片来自 cost_records.item_image（后端按物品名回填到支出行上），
+     * 用光库存的包材也仍然有图 —— 不能只靠 packagingItemsOptions 反查，那份列表按
+     * quantity > 0 过滤过。
+     */
+    const packagingCards = computed(() => {
+      const ono = String(form.value.order_no || '').trim()
+      const rows = packagingState.value?.[ono]?.rows || []
+      return rows.map((r) => {
+        const img = String(r?.item_image || '').trim()
+        return {
+          id: r.id,
+          item_name: r.item_name,
+          owner: r.owner,
+          quantity: r.quantity,
+          unitPrice: Math.round(Number(r.unit_price || 0)),
+          amount: Math.round(expenseAmount(r)),
+          recordTime: formatExpenseTs(r.record_time),
+          image: img ? localThumbSrc(img, 160) : '',
+          imageBig: img ? localThumbSrc(img, 900) : '',
+        }
+      })
+    })
+
+    /** 列表把整行标红，但看不出是哪一条触发的；详情里逐条摊开（与 isOrderAlertRow 同口径） */
+    const detailAlertReasons = computed(() => {
+      const row = detailRow.value
+      if (!row) return []
+      const out = []
+      if (Number(row.has_no_bound_outbound || 0) === 1) out.push(t('orders.alertNoBoundOutbound'))
+      if (Number(row.has_owner_unmatched_outbound || 0) === 1) {
+        out.push(t('orders.alertOwnerUnmatched'))
+      }
+      if (Number(row.has_packaging_pending || 0) === 1) out.push(t('orders.alertPackagingPending'))
+      if (
+        String(row.status || '').trim() === 'wait_review' &&
+        Number(row.pending_outbound_qty || 0) > 0
+      ) {
+        out.push(t('orders.alertWaitReviewPendingOutbound'))
+      }
+      if (!out.length && Number(row.order_needs_alert ?? 0) === 1) {
+        out.push(t('orders.alertNeedsHandle'))
+      }
+      return out
+    })
 
     const LIST_FILTER_STATUS_SET = new Set(LIST_FILTER_STATUS_KEYS)
 
@@ -992,7 +1174,7 @@ export default defineComponent({
 
     /** 卡片没有操作按钮，整张卡片等同表格的「编辑」（订单详情弹窗） */
     function onCardClick(row) {
-      openEdit(row)
+      openDetail(row)
     }
 
     function clearOutboundExpandCache(orderNo) {
@@ -1610,8 +1792,11 @@ export default defineComponent({
       }
     }
 
-    function openEdit(row) {
+    function openDetail(row) {
       const dbMoney = row._owner_split_money_db
+      detailRow.value = row
+      detailImageIndex.value = 0
+      detailActiveTab.value = 'lines'
       form.value = {
         id: row.id,
         order_no: row.order_no || '',
@@ -1635,11 +1820,12 @@ export default defineComponent({
         transaction_evidence_id: optionalIntFromRow(row.transaction_evidence_id),
         remark: row.remark || '',
         description: row.description || '',
-        thumbnails_text: thumbnailsToFormText(row),
       }
       // 加载该订单的包材合计金额用于展示
       loadPackagingExpenses(row.order_no)
-      // 加载该订单的对话消息（表单右侧展示）
+      // 出库明细：详情图廊的关联库存实拍图也来自这里
+      loadDetailOutboundLines(row.order_no)
+      // 加载该订单的对话消息（详情右侧展示）
       replyDraft.value = ''
       loadOrderMessages(row.order_no)
       dialogVisible.value = true
@@ -1684,59 +1870,14 @@ export default defineComponent({
       try {
         await orderApi.rematch(form.value.id)
         ElMessage.success(t('orders.rematchSuccess'))
-        clearOutboundExpandCache(String(form.value.order_no || '').trim())
+        const ono = String(form.value.order_no || '').trim()
+        clearOutboundExpandCache(ono)
+        // 重建后的出库明细就是详情「出库明细」页与图廊的数据源，得跟着换掉
+        await loadDetailOutboundLines(ono)
         load()
         loadStats()
       } finally {
         rematching.value = false
-      }
-    }
-
-    async function submit() {
-      await formRef.value?.validate()
-      if (!form.value.id) {
-        ElMessage.warning(t('orders.noOrderSelected'))
-        return
-      }
-      const orderDateSec = localFormStringToUnixSec(form.value.order_date)
-      if (orderDateSec == null) {
-        ElMessage.warning(t('orders.orderDateInvalid'))
-        return
-      }
-      submitting.value = true
-      const payload = {
-        order_no: String(form.value.order_no || '').trim(),
-        order_date: orderDateSec,
-        order_updated_at: localFormStringToUnixSec(form.value.order_updated_at),
-        purchase_time: localFormStringToUnixSec(form.value.purchase_time),
-        packed_at: localFormStringToUnixSec(form.value.packed_at),
-        shipped_at: localFormStringToUnixSec(form.value.shipped_at),
-        completed_at: localFormStringToUnixSec(form.value.completed_at),
-        data_user: String(form.value.data_user || '').trim() || null,
-        customer_name: String(form.value.customer_name || '').trim() || null,
-        status: form.value.status,
-        amount: Number(form.value.amount || 0),
-        service_fee: numOrNull(form.value.service_fee),
-        net_income: numOrNull(form.value.net_income),
-        carrier_display_name: String(form.value.carrier_display_name || '').trim() || null,
-        request_class_display_name: String(form.value.request_class_display_name || '').trim() || null,
-        shipping_fee: numOrNull(form.value.shipping_fee),
-        tracking_no: String(form.value.tracking_no || '').trim() || null,
-        ship_confirm_code: String(form.value.ship_confirm_code || '').trim() || null,
-        transaction_evidence_id: intOrNull(form.value.transaction_evidence_id),
-        remark: String(form.value.remark || '').trim() || null,
-        description: String(form.value.description || '').trim() || null,
-        thumbnails: parseThumbnailsPayload(form.value.thumbnails_text),
-      }
-      try {
-        await orderApi.update(form.value.id, payload)
-        ElMessage.success(t('orders.updateSuccess'))
-        clearOutboundExpandCache(payload.order_no)
-        dialogVisible.value = false
-        load()
-        loadStats()
-      } finally {
-        submitting.value = false
       }
     }
 
@@ -1780,6 +1921,8 @@ export default defineComponent({
       Plus,
       Minus,
       WarningFilled,
+      ArrowLeft,
+      ArrowRight,
       orderApi,
       inventoryApi,
       costExpenseApi,
@@ -1801,7 +1944,6 @@ export default defineComponent({
       loading,
       statsLoading,
       isMobile,
-      submitting,
       refreshingId,
       lineStockingKey,
       manualOutboundDialogVisible,
@@ -1841,7 +1983,29 @@ export default defineComponent({
       pageSize,
       dateRange,
       dialogVisible,
-      formRef,
+      detailRow,
+      detailImageIndex,
+      detailActiveTab,
+      detailLines,
+      detailLinesLoading,
+      detailGalleryImages,
+      detailGalleryPreviewList,
+      detailGalleryCurrent,
+      gallerySafeIndex,
+      stepGallery,
+      galleryStripRef,
+      detailTimeline,
+      detailMoneyStats,
+      detailFacts,
+      packagingCards,
+      packagingPickerVisible,
+      openPackagingPicker,
+      pickPackaging,
+      localThumbSrc,
+      detailAlertReasons,
+      outboundLineImageThumbs,
+      outboundLineImageHiddenCount,
+      outboundLineImagePreviews,
       orderMessages,
       orderMessagesLoading,
       isShowingOriginal,
@@ -1872,20 +2036,14 @@ export default defineComponent({
       tsOrLegacyToDate,
       displayTsLocal,
       tsOrLegacyToLocalForm,
-      localFormStringToUnixSec,
       optionalNumFromRow,
-      numOrNull,
       optionalIntFromRow,
-      intOrNull,
-      thumbnailsToFormText,
-      parseThumbnailsPayload,
       orderMoneyField,
       formatFeeShippingCell,
       thumbnailPreviewList,
       firstThumbUrl,
       createDefaultForm,
       form,
-      rules,
       LIST_FILTER_STATUS_SET,
       listFilterParams,
       buildOutboundLinesParams,
@@ -1951,11 +2109,10 @@ export default defineComponent({
       inventoryThumbUrl,
       inventoryPreviewSrcList,
       stockOutLine,
-      openEdit,
+      openDetail,
       refreshOrder,
       rematching,
       rematchProducts,
-      submit,
     }
   },
 })

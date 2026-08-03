@@ -542,18 +542,19 @@
 
     <el-dialog
       v-model="dialogVisible"
-      :title="form.id ? t('inventory.editItem') : t('inventory.addNewItem')"
       :width="productEditDialogWidth"
-      class="product-dialog"
+      class="product-dialog product-dialog--edit"
       destroy-on-close
       :before-close="handleProductDialogClose"
     >
+      <!-- size=small 由 el-form 向下透传给所有 input/select/cascader：
+           整表行高 32→24px，是「一屏放下」的主要来源，不用逐个控件改 -->
       <el-form
         :model="form"
         :rules="rules"
         ref="formRef"
-        label-width="92px"
-        label-position="right"
+        label-position="top"
+        size="small"
         class="product-edit-form"
       >
       <div
@@ -562,55 +563,55 @@
       >
         <div class="product-edit-dialog-layout__form">
         <!-- ===== 基础信息 ===== -->
-        <el-row :gutter="16">
-          <el-col :span="24">
-            <el-form-item :label="t('inventory.barcode')" prop="barcode">
-              <el-input
-                v-model="form.barcode"
-                :placeholder="t('inventory.barcodeRequired')"
-                class="listing-field-fullwidth"
-                clearable
-                :disabled="Boolean(form.id)"
-              >
-                <template #append>
-                  <el-button @click="openScanDialog">
-                    <el-icon><Camera /></el-icon> {{ barcodePickButtonLabel }}
-                  </el-button>
-                </template>
-              </el-input>
-            </el-form-item>
-          </el-col>
-          <el-col v-if="form.id && editFormMgmtIdCipher" :span="24">
-            <el-form-item :label="t('inventory.mgmtCipher')">
-              <el-input
-                :model-value="editFormMgmtIdCipher"
-                class="listing-field-fullwidth product-edit-mgmt-cipher-input"
-                readonly
-                disabled
-                :title="t('inventory.mgmtCipherTitle')"
-              />
-            </el-form-item>
-          </el-col>
-          <el-col :span="24">
-            <el-form-item :label="t('inventory.productNameCol')">
+        <section class="pef-section">
+          <!-- 管理番号与管理暗码都是只读派生值（暗码 = 番号的 -=~<> 五进制编码），
+               当徽标挂在标题行上，不再各占一个输入框位 -->
+          <div class="pef-section__head">
+            <span class="pef-section__title">{{ t('inventory.sectionBasic') }}</span>
+            <span v-if="form.id" class="pef-section__badge">{{ t('inventory.mgmtPrefix') }} {{ form.id }}</span>
+            <!-- 暗码要手抄进出品说明，所以整枚徽标可点即复制 -->
+            <span
+              v-if="form.id && editFormMgmtIdCipher"
+              class="pef-section__badge pef-section__badge--cipher pef-section__badge--copy"
+              :title="`${t('inventory.mgmtCipherTitle')}（${t('common.copy')}）`"
+              @click="copyMgmtIdCipher"
+            >{{ t('inventory.mgmtCipher') }} {{ editFormMgmtIdCipher }}</span>
+          </div>
+          <!-- 条码不再出现在表单里：进入弹窗的三条路径（扫码入库 / 商品入库 / 编辑已有行）
+               都已把 form.barcode 填好，没有需要人手输入的场景 -->
+          <div class="pef-inline-row">
+            <el-form-item class="pef-field--name" :label="t('inventory.productNameCol')">
               <el-input v-model="form.name" class="listing-field-fullwidth" type="text" clearable />
             </el-form-item>
-          </el-col>
-          <el-col :span="24">
-            <el-form-item :label="t('inventory.gameCategory')" prop="category_id">
+            <el-form-item class="pef-field--cat" :label="t('inventory.gameCategory')" prop="category_id">
               <div class="product-field-inline">
                 <template v-if="!categoryCreateMode">
-                  <!-- 去掉 clearable 的叉号后，改用带「未分类」节点的选项表，清空仍走下拉本身 -->
-                  <el-cascader
-                    v-model="formCategoryPath"
-                    :options="categoryCascaderOptionsWithNone"
-                    :props="categoryCascaderProps"
-                    :show-all-levels="false"
-                    filterable
-                    :placeholder="t('inventory.pleaseSelectCategory')"
-                    class="product-field-inline__main"
-                    popper-class="product-type-cascader-popper"
-                  />
+                  <!-- 与表格内联编辑同一个控件：弹层里摊开的二级 cascader-panel（公司 → 游戏），
+                       而不是需要逐级点开的 el-cascader 输入框。清空走「未分类」节点 -->
+                  <el-popover
+                    :visible="formCategoryPickerVisible"
+                    trigger="click"
+                    placement="bottom-start"
+                    width="auto"
+                    popper-class="inline-edit-popover inline-edit-popover--cascader"
+                    @update:visible="(v) => { formCategoryPickerVisible = v }"
+                  >
+                    <template #reference>
+                      <div class="product-field-inline__main pef-picker-trigger">
+                        <span
+                          class="pef-picker-trigger__text"
+                          :class="{ 'pef-picker-trigger__text--ph': !formCategoryLabel }"
+                        >{{ formCategoryLabel || t('inventory.pleaseSelectCategory') }}</span>
+                        <el-icon class="pef-picker-trigger__arrow"><ArrowDown /></el-icon>
+                      </div>
+                    </template>
+                    <el-cascader-panel
+                      :model-value="formCategoryPath"
+                      :options="categoryCascaderOptionsWithNone"
+                      :props="categoryCascaderProps"
+                      @change="pickFormCategoryFromPath"
+                    />
+                  </el-popover>
                   <el-button type="primary" plain @click="startCreateCategory">{{ t('inventory.newCategory') }}</el-button>
                 </template>
                 <template v-else>
@@ -639,9 +640,10 @@
                 </template>
               </div>
             </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="12">
-            <el-form-item :label="t('inventory.productType')" prop="product_type_id">
+          </div>
+          <!-- 第二行：两个下拉 + 两个数字 + 货架。都给定宽/上限，短字段不跟着栏宽拉长 -->
+          <div class="pef-inline-row">
+            <el-form-item class="pef-field--type" :label="t('inventory.productType')" prop="product_type_id">
               <el-select
                 v-model="form.product_type_id"
                 filterable
@@ -666,9 +668,21 @@
                 </el-option>
               </el-select>
             </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="12">
-            <el-form-item :label="t('inventory.unitPrice')" prop="price">
+            <el-form-item class="pef-field--owner" :label="t('inventory.productOwner')" prop="owner_user_id">
+              <el-select
+                v-model="form.owner_user_id"
+                :placeholder="t('inventory.pleaseSelectOwner')"
+                style="width: 100%"
+              >
+                <el-option
+                  v-for="u in formOwnerUserOptions"
+                  :key="u.id"
+                  :label="u.display_name || u.username"
+                  :value="u.id"
+                />
+              </el-select>
+            </el-form-item>
+            <el-form-item class="pef-field--price" :label="t('inventory.unitPrice')" prop="price">
               <el-input
                 v-model="priceEdit"
                 :placeholder="t('inventory.integerPlaceholder')"
@@ -677,37 +691,7 @@
                 @blur="applyPriceEditToForm"
               />
             </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="12">
-            <el-form-item :label="t('inventory.productOwner')" prop="owner_user_id">
-              <el-select
-                v-model="form.owner_user_id"
-                :placeholder="t('inventory.pleaseSelectOwner')"
-                style="width: 100%"
-              >
-                <!-- 取代 clearable 的叉号（无归属会让该行标红，但仍是合法状态，得留得回去） -->
-                <el-option :label="t('inventory.notSet')" :value="null" />
-                <el-option v-for="u in ownerUsers" :key="u.id" :label="u.display_name || u.username" :value="u.id" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col v-if="!showCombinedEditDetail" :xs="24" :sm="12">
-            <el-form-item :label="t('inventory.belongingShelf')" prop="warehouse_id">
-              <!-- 同上：不用叉号，改用带「默认仓库」节点的选项表回到未分配货位 -->
-              <el-cascader
-                v-model="warehouseCascaderPath"
-                :options="warehouseCascaderOptionsWithDefault"
-                :props="warehouseCascaderProps"
-                :show-all-levels="false"
-                :placeholder="t('inventory.warehouseShelfArrowPlaceholder')"
-                style="width: 100%"
-                popper-class="product-type-cascader-popper"
-                @change="handleWarehouseCascaderChange"
-              />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="12">
-            <el-form-item :label="t('inventory.stockQuantity')" prop="quantity">
+            <el-form-item class="pef-field--qty" :label="t('inventory.stockQuantity')" prop="quantity">
               <el-input
                 v-model="quantityEdit"
                 placeholder=""
@@ -716,123 +700,126 @@
                 @blur="applyQuantityEditToForm"
               />
             </el-form-item>
-          </el-col>
-          <!-- 三个只读计数：新建时恒为 0，照样展示，免得建档瞬间表单又长出三行 -->
-          <el-col :xs="24" :sm="12">
-            <el-form-item :label="t('inventory.onSaleQuantity')">
-              <el-input-number
-                v-model="form.on_sale_quantity"
-                :min="0"
-                :max="999999"
-                :step="1"
-                :controls="false"
-                style="width: 100%"
-                disabled
-              />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="12">
-            <el-form-item :label="t('inventory.combinedColumn')">
-              <el-input-number
-                :model-value="Number(form.combined_quantity || 0)"
-                :controls="false"
-                style="width: 100%"
-                disabled
-              />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="12">
-            <el-form-item :label="t('inventory.listableColumn')">
-              <el-input-number
-                :model-value="listableQuantity(form)"
-                :controls="false"
-                style="width: 100%"
-                disabled
-              />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <!-- 出品信息等区块过去整段 v-if="form.id"，而新建商品的 id 要等实时保存建档
-             （条码 + 至少一张图 + 合法单价齐了才触发）才回填，于是「商品入库」点开只有半张表单，
-             传完图才突然长出下半截。这里不再按 id 隐藏，新建时同样是完整表单。 -->
-          <el-row :gutter="16">
-            <el-col :span="24">
-              <el-form-item :label="t('inventory.mercariItemId')">
-                <el-collapse class="mercari-id-collapse">
-                  <el-collapse-item
-                    :title="
-                      t('inventory.mercariItemIdCount', {
-                        count: mercariIdList.filter((v) => String(v || '').trim() !== '').length
-                      })
-                    "
-                  >
-                    <div class="mercari-id-editor">
-                      <div
-                        v-for="(mid, idx) in mercariIdList.filter((v) => String(v || '').trim() !== '')"
-                        :key="idx"
-                        class="mercari-id-row"
-                      >
-                        <el-input
-                          :model-value="mid"
-                          size="small"
-                          class="mercari-id-input"
-                          readonly
-                          disabled
-                        />
-                      </div>
-                    </div>
-                  </el-collapse-item>
-                </el-collapse>
-              </el-form-item>
-            </el-col>
-          </el-row>
-          <!-- ===== 出品信息（融合自出品表单） ===== -->
-          <el-divider content-position="left" class="product-listing-divider">
-            {{ t('inventory.listingSectionTitle') }}
-          </el-divider>
-          <!-- AI 生成出品标题 / 出品说明（DeepSeek，日语；以商品名为主题） -->
-          <div class="listing-ai-row">
-            <el-button
-              type="primary"
-              plain
-              size="small"
-              :loading="aiGenerating"
-              @click="aiGenerateListing"
+            <!-- 组合商品过去不显示这一栏（旧三栏布局挤不下），可组合商品建档时是能带
+                 warehouse_id 的，藏起来就变成「建得进、看不到、改不了」。现在字段会自动
+                 换行，没有再藏的理由。
+                 所属货架独占一行，四个只读计数接在它的下拉框右边。 -->
+            <el-form-item
+              class="pef-field--shelf"
+              :label="t('inventory.belongingShelf')"
+              prop="warehouse_id"
             >
-              <el-icon v-if="!aiGenerating"><MagicStick /></el-icon>
-              {{ t('inventory.aiGenerate') }}
-            </el-button>
+              <div class="pef-shelf-line">
+                <!-- 同上：不用叉号，改用带「默认仓库」节点的选项表回到未分配货位 -->
+                <el-cascader
+                  v-model="warehouseCascaderPath"
+                  :options="warehouseCascaderOptionsWithDefault"
+                  :props="warehouseCascaderProps"
+                  :show-all-levels="false"
+                  :placeholder="t('inventory.warehouseShelfArrowPlaceholder')"
+                  class="pef-shelf-cascader"
+                  popper-class="product-type-cascader-popper"
+                  @change="handleWarehouseCascaderChange"
+                />
+                <!-- 配色与列表页同名列一一对应：
+                     在售=中性，待出>0=警告，组合>0=信息，可上=超卖红/有货绿/无货灰 -->
+                <div class="pef-stats">
+                  <div class="pef-stat">
+                    <span class="pef-stat__v">{{ Number(form.on_sale_quantity || 0) }}</span>
+                    <span class="pef-stat__k">{{ t('inventory.onSaleQuantity') }}</span>
+                  </div>
+                  <div
+                    class="pef-stat"
+                    :class="Number(form.pending_outbound_qty || 0) > 0 ? 'pef-stat--warning' : 'pef-stat--muted'"
+                  >
+                    <span class="pef-stat__v">{{ Number(form.pending_outbound_qty || 0) }}</span>
+                    <span class="pef-stat__k">{{ t('inventory.pendingOutboundQuantity') }}</span>
+                  </div>
+                  <div
+                    class="pef-stat"
+                    :class="Number(form.combined_quantity || 0) > 0 ? 'pef-stat--info' : 'pef-stat--muted'"
+                  >
+                    <span class="pef-stat__v">{{ Number(form.combined_quantity || 0) }}</span>
+                    <span class="pef-stat__k">{{ t('inventory.combinedQuantityLabel') }}</span>
+                  </div>
+                  <div
+                    class="pef-stat"
+                    :class="isInventoryOverListed(form)
+                      ? 'pef-stat--danger'
+                      : (listableQuantity(form) > 0 ? 'pef-stat--success' : 'pef-stat--muted')"
+                  >
+                    <span class="pef-stat__v">{{ listableQuantity(form) }}</span>
+                    <span class="pef-stat__k">{{ t('inventory.listableQuantityLabel') }}</span>
+                  </div>
+                </div>
+              </div>
+            </el-form-item>
           </div>
-          <el-row :gutter="16">
-            <el-col :span="24">
-              <el-form-item :label="t('inventory.listingTitle')">
-                <el-input
-                  v-model="form.listing_title"
-                  class="listing-field-fullwidth"
-                  type="text"
-                  :maxlength="40"
-                  show-word-limit
-                  clearable
-                />
-              </el-form-item>
-            </el-col>
-            <el-col :span="24">
-              <el-form-item :label="t('inventory.productDescription')">
-                <el-input
-                  v-model="form.listing_body"
-                  class="listing-field-fullwidth"
-                  type="textarea"
-                  :rows="5"
-                  :maxlength="900"
-                  show-word-limit
-                  clearable
-                />
-              </el-form-item>
-            </el-col>
-          </el-row>
-          <el-row :gutter="16">
-            <el-col :xs="24" :sm="12">
-              <el-form-item :label="t('dialogs.singleListing.productStatus')">
+        </section>
+
+        <!-- ===== 模块切换：出品设置（默认）/ 关联商品ID =====
+             关联 ID 过去是基础信息里的一行，有没有关联决定了整张表单的高度，
+             两种商品打开长得完全不一样。挪进独立标签页后表单骨架恒定。 -->
+        <section class="pef-section pef-section--tabs">
+        <el-tabs v-model="editActiveTab" class="pef-tabs">
+        <el-tab-pane name="listing">
+          <template #label>{{ t('inventory.sectionListingSettings') }}</template>
+
+          <!-- 出品信息等区块过去整段 v-if="form.id"，而新建商品的 id 要等实时保存建档
+               （条码 + 至少一张图 + 合法单价齐了才触发）才回填，于是「商品入库」点开只有半张表单，
+               传完图才突然长出下半截。这里不再按 id 隐藏，新建时同样是完整表单。 -->
+
+          <!-- 出品文案（左）与出品参数（右）并排：参数那栏的行数决定行高，
+               说明输入框再撑满剩余高度，两栏底边齐平 -->
+        <div class="pef-row2">
+        <section class="pef-subcard pef-subcard--copy">
+          <!-- AI 按钮压在「出品标题」的标签行右端：字段自带标签，
+               再多一行小标题只是重复，还白占一行高度 -->
+          <el-form-item class="pef-copy-title">
+            <template #label>
+              <div class="pef-label-row">
+                <span>{{ t('inventory.listingTitle') }}</span>
+                <!-- AI 生成出品标题 / 出品说明（DeepSeek，日语；以商品名为主题） -->
+                <el-button
+                  type="primary"
+                  plain
+                  size="small"
+                  :loading="aiGenerating"
+                  @click="aiGenerateListing"
+                >
+                  <el-icon v-if="!aiGenerating"><MagicStick /></el-icon>
+                  {{ t('inventory.aiGenerate') }}
+                </el-button>
+              </div>
+            </template>
+            <el-input
+              v-model="form.listing_title"
+              class="listing-field-fullwidth"
+              type="text"
+              :maxlength="40"
+              show-word-limit
+              clearable
+            />
+          </el-form-item>
+          <el-form-item class="pef-copy-body" :label="t('inventory.productDescription')">
+            <el-input
+              v-model="form.listing_body"
+              class="listing-field-fullwidth"
+              type="textarea"
+              :rows="6"
+              :maxlength="900"
+              show-word-limit
+              clearable
+            />
+          </el-form-item>
+        </section>
+
+        <section class="pef-subcard">
+          <div class="pef-section__head">
+            <span class="pef-section__title">{{ t('inventory.sectionListingFields') }}</span>
+          </div>
+          <div class="pef-grid">
+            <el-form-item :label="t('dialogs.singleListing.productStatus')">
                 <el-select
                   v-model="form.listing_status"
                   :placeholder="t('dialogs.singleListing.productStatusPlaceholder')"
@@ -842,8 +829,6 @@
                   <el-option v-for="s in listingStatusOptions" :key="s.value" :label="s.label" :value="s.value" />
                 </el-select>
               </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="12">
               <el-form-item :label="t('dialogs.singleListing.listingAccount')">
                 <el-select
                   v-model="form.mercari_account_id"
@@ -883,26 +868,16 @@
                   </el-option>
                 </el-select>
               </el-form-item>
-            </el-col>
-          </el-row>
-          <el-row :gutter="16">
-            <el-col :xs="24" :sm="12">
               <el-form-item :label="t('dialogs.singleListing.shippingPayer')">
                 <el-select v-model="form.shipping_payer" :placeholder="t('dialogs.singleListing.shippingPayerPlaceholder')" style="width: 100%" @change="persistListingField('shipping_payer')">
                   <el-option v-for="s in shippingPayerOptions" :key="s.value" :label="s.label" :value="s.value" />
                 </el-select>
               </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="12">
               <el-form-item :label="t('dialogs.singleListing.shippingMethod')">
                 <el-select v-model="form.shipping_method" :placeholder="t('dialogs.singleListing.shippingMethodPlaceholder')" style="width: 100%" @change="persistListingField('shipping_method')">
                   <el-option v-for="s in shippingMethodOptions" :key="s.value" :label="s.label" :value="s.value" />
                 </el-select>
               </el-form-item>
-            </el-col>
-          </el-row>
-          <el-row :gutter="16">
-            <el-col :xs="24" :sm="12">
               <el-form-item :label="t('dialogs.singleListing.shippingFrom')">
                 <el-cascader
                   v-model="shippingFromCascaderPath"
@@ -915,17 +890,11 @@
                   @change="handleShippingFromChange"
                 />
               </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="12">
               <el-form-item :label="t('dialogs.singleListing.shippingDays')">
                 <el-select v-model="form.shipping_days" :placeholder="t('dialogs.singleListing.shippingDaysPlaceholder')" style="width: 100%" @change="persistListingField('shipping_days')">
                   <el-option v-for="s in shippingDaysOptions" :key="s.value" :label="s.label" :value="s.value" />
                 </el-select>
               </el-form-item>
-            </el-col>
-          </el-row>
-          <el-row :gutter="16">
-            <el-col :xs="24" :sm="12">
               <el-form-item :label="t('dialogs.singleListing.saleType')">
                 <el-select
                   v-model="form.sale_type"
@@ -936,19 +905,19 @@
                   <el-option v-for="s in saleTypeOptions" :key="s.value" :label="s.label" :value="s.value" />
                 </el-select>
               </el-form-item>
-            </el-col>
-            <el-col :xs="24" :sm="12">
               <el-form-item :label="t('inventory.listingMethod')">
                 <el-select v-model="form.auto_listing_watermark" style="width: 100%">
                   <el-option :label="t('inventory.watermarkListing')" :value="1" />
                   <el-option :label="t('inventory.originalListing')" :value="0" />
                 </el-select>
               </el-form-item>
-            </el-col>
-          </el-row>
-          <el-row :gutter="16">
-            <el-col :xs="24" :sm="12">
-              <el-form-item :label="t('inventory.autoListing')">
+              <el-form-item v-if="form.sale_type === 'auction'" :label="t('dialogs.singleListing.auctionDuration')">
+                <el-select v-model="form.auction_duration" :placeholder="t('dialogs.singleListing.auctionDurationPlaceholder')" style="width: 100%" @change="persistListingField('auction_duration')">
+                  <el-option :label="t('dialogs.singleListing.auctionDurationNormal')" value="normal" />
+                  <el-option :label="t('dialogs.singleListing.auctionDuration3Hours')" value="3hours" />
+                </el-select>
+              </el-form-item>
+              <el-form-item class="pef-cell--switch" :label="t('inventory.autoListing')">
                 <el-tooltip
                   :disabled="canEnableAutoListing"
                   :content="autoListingDisabledReason"
@@ -964,18 +933,171 @@
                   </span>
                 </el-tooltip>
               </el-form-item>
-            </el-col>
-          </el-row>
-          <el-row v-if="form.sale_type === 'auction'" :gutter="16">
-            <el-col :xs="24" :sm="12">
-              <el-form-item :label="t('dialogs.singleListing.auctionDuration')">
-                <el-select v-model="form.auction_duration" :placeholder="t('dialogs.singleListing.auctionDurationPlaceholder')" style="width: 100%" @change="persistListingField('auction_duration')">
-                  <el-option :label="t('dialogs.singleListing.auctionDurationNormal')" value="normal" />
-                  <el-option :label="t('dialogs.singleListing.auctionDuration3Hours')" value="3hours" />
-                </el-select>
-              </el-form-item>
-            </el-col>
-          </el-row>
+          </div>
+          <!-- 表单没有保存按钮：所有字段输入即实时保存（见 script.js 的 runFormAutosave），
+               操作按钮统一收在出品参数下方 -->
+          <div class="pef-actions">
+            <el-button
+              v-if="form.id && Number(form.is_combined || 0) !== 1"
+              type="primary"
+              plain
+              @click="openSplitDialog(form)"
+            >{{ t('inventory.split') }}</el-button>
+            <!-- 出品已改为提交任务队列：不受全局同步锁阻挡；可上架为 0 时仍禁用（后端亦会二次把关） -->
+            <el-tooltip
+              v-if="form.id"
+              :disabled="!currentEditRowIsAlert"
+              :content="currentEditRowAlertReason"
+              placement="top"
+            >
+              <span class="listing-submit-buttons">
+                <el-popconfirm
+                  title=""
+                  hide-icon
+                  popper-class="listing-confirm-popper"
+                  :confirm-button-text="t('common.confirm')"
+                  :cancel-button-text="t('common.cancel')"
+                  @confirm="submitListingToPlatform('mercari', Number(form.auto_listing_watermark) === 1)"
+                >
+                  <template #reference>
+                    <el-button
+                      type="success"
+                      :loading="listingSubmitting"
+                      :disabled="inventorySaveBlockedByImageUpload || listableQuantity(form) <= 0 || currentEditRowIsAlert || !hasListingAccountFor('mercari') || !currentTypeMercariReady"
+                    >{{ t('inventory.listSubmitMercari') }}</el-button>
+                  </template>
+                </el-popconfirm>
+                <el-popconfirm
+                  title=""
+                  hide-icon
+                  popper-class="listing-confirm-popper"
+                  :confirm-button-text="t('common.confirm')"
+                  :cancel-button-text="t('common.cancel')"
+                  @confirm="submitListingToPlatform('yahoo', Number(form.auto_listing_watermark) === 1)"
+                >
+                  <template #reference>
+                    <el-button
+                      type="success"
+                      :loading="listingSubmitting"
+                      :disabled="inventorySaveBlockedByImageUpload || listableQuantity(form) <= 0 || currentEditRowIsAlert || !hasListingAccountFor('yahoo') || !currentTypeYahooReady || shippingFromIsUndecided"
+                    >{{ t('inventory.listSubmitYahoo') }}</el-button>
+                  </template>
+                </el-popconfirm>
+              </span>
+            </el-tooltip>
+          </div>
+        </section>
+        </div>
+        </el-tab-pane>
+
+        <el-tab-pane name="linked">
+          <template #label>
+            {{ t('inventory.linkedItems') }}
+            <span
+              v-if="linkedListings.length + linkedSold.length"
+              class="pef-tab-count"
+            >{{ linkedListings.length + linkedSold.length }}</span>
+          </template>
+          <!-- 只读：在售来自 on_sale_items（按 mercari_item_id 的 ID 列表匹配），
+               已出售来自出库明细认下的订单。两边都是外链卡片，点开直达平台商品页 -->
+          <div v-loading="linkedItemsLoading" class="pef-linked">
+            <template v-if="linkedListings.length">
+              <div class="pef-linked__title">
+                {{ t('inventory.linkedOnSale') }}
+                <span class="pef-tab-count">{{ linkedListings.length }}</span>
+              </div>
+              <div class="pef-linked-grid">
+                <component
+                  v-for="it in linkedListings"
+                  :is="marketItemUrl(it.item_id, it.platform) ? 'a' : 'div'"
+                  :key="`ls-${it.item_id}`"
+                  class="pef-lcard"
+                  :class="{ 'pef-lcard--dim': Number(it.is_delete || 0) === 1 }"
+                  :href="marketItemUrl(it.item_id, it.platform) || undefined"
+                  :target="marketItemUrl(it.item_id, it.platform) ? '_blank' : undefined"
+                  :rel="marketItemUrl(it.item_id, it.platform) ? 'noopener' : undefined"
+                >
+                  <div class="pef-lcard__thumb">
+                    <img v-if="it.thumbnail" :src="mercariImageUrl(it.thumbnail)" referrerpolicy="no-referrer" />
+                    <span v-else class="pef-lcard__noimg">{{ t('inventory.noImage') }}</span>
+                  </div>
+                  <div class="pef-lcard__body">
+                    <div class="pef-lcard__top">
+                      <el-tag
+                        v-if="marketPlatformOf(it.item_id, it.platform)"
+                        size="small"
+                        effect="dark"
+                        :type="marketPlatformOf(it.item_id, it.platform) === 'yahoo' ? 'warning' : 'danger'"
+                      >{{ marketPlatformOf(it.item_id, it.platform) === 'yahoo' ? t('inventory.platformNameYahoo') : t('inventory.platformNameMercari') }}</el-tag>
+                      <el-tag v-if="Number(it.is_delete || 0) === 1" size="small" type="info">
+                        {{ t('inventory.linkedDelisted') }}
+                      </el-tag>
+                      <span class="pef-lcard__price" v-if="Number(it.price || 0) > 0">¥{{ Number(it.price || 0) }}</span>
+                    </div>
+                    <div class="pef-lcard__name">{{ it.name || t('inventory.linkedNotSynced') }}</div>
+                    <div class="pef-lcard__meta">
+                      <span class="pef-lcard__id">{{ it.item_id }}</span>
+                      <span v-if="Number(it.item_pv || 0)">PV {{ Number(it.item_pv || 0) }}</span>
+                      <span v-if="Number(it.num_likes || 0)">♡ {{ Number(it.num_likes || 0) }}</span>
+                    </div>
+                  </div>
+                </component>
+              </div>
+            </template>
+
+            <template v-if="linkedSold.length">
+              <div class="pef-linked__title">
+                {{ t('inventory.linkedSold') }}
+                <span class="pef-tab-count">{{ linkedSold.length }}</span>
+              </div>
+              <div class="pef-linked-grid">
+                <component
+                  v-for="o in linkedSold"
+                  :is="marketItemUrl(o.order_no, o.platform) ? 'a' : 'div'"
+                  :key="`so-${o.order_no}`"
+                  class="pef-lcard"
+                  :href="marketItemUrl(o.order_no, o.platform) || undefined"
+                  :target="marketItemUrl(o.order_no, o.platform) ? '_blank' : undefined"
+                  :rel="marketItemUrl(o.order_no, o.platform) ? 'noopener' : undefined"
+                >
+                  <div class="pef-lcard__thumb">
+                    <img v-if="o.thumbnail" :src="mercariImageUrl(o.thumbnail)" referrerpolicy="no-referrer" />
+                    <span v-else class="pef-lcard__noimg">{{ t('inventory.noImage') }}</span>
+                  </div>
+                  <div class="pef-lcard__body">
+                    <div class="pef-lcard__top">
+                      <el-tag
+                        size="small"
+                        effect="dark"
+                        :type="marketPlatformOf(o.order_no, o.platform) === 'yahoo' ? 'warning' : 'danger'"
+                      >{{ marketPlatformOf(o.order_no, o.platform) === 'yahoo' ? t('inventory.platformNameYahoo') : t('inventory.platformNameMercari') }}</el-tag>
+                      <el-tag
+                        v-if="linkedOrderStatusMap[o.status]"
+                        size="small"
+                        :type="linkedOrderStatusMap[o.status].tag"
+                      >{{ linkedOrderStatusMap[o.status].label }}</el-tag>
+                      <span class="pef-lcard__price">¥{{ Number(o.amount || 0) }}</span>
+                    </div>
+                    <div class="pef-lcard__name">{{ o.remark || o.order_no }}</div>
+                    <div class="pef-lcard__meta">
+                      <span class="pef-lcard__id">{{ o.order_no }}</span>
+                      <span v-if="o.quantity">×{{ o.quantity }}</span>
+                      <span v-if="o.order_date">{{ String(o.order_date).slice(0, 10) }}</span>
+                      <span v-if="o.customer_name">{{ o.customer_name }}</span>
+                    </div>
+                  </div>
+                </component>
+              </div>
+            </template>
+
+            <div
+              v-if="!linkedItemsLoading && !linkedListings.length && !linkedSold.length"
+              class="pef-linked-empty"
+            >{{ t('inventory.noLinkedItems') }}</div>
+          </div>
+        </el-tab-pane>
+        </el-tabs>
+        </section>
         </div>
         <aside
           class="product-edit-dialog-layout__aside product-edit-dialog-layout__aside--images"
@@ -1013,9 +1135,6 @@
               label=""
               class="inventory-images-form-item inventory-images-form-item--combined inventory-images-form-item--combined-grid inventory-images-form-item--no-label"
             >
-              <div v-if="form.images.length > 1" class="inventory-images-reorder-hint">
-                {{ t('inventory.dragReorderHint') }}
-              </div>
               <div class="inventory-images-grid inventory-images-grid--combined">
                 <div
                   v-for="(imgUrl, imgIdx) in form.images"
@@ -1262,70 +1381,6 @@
         </aside>
       </div>
       </el-form>
-      <template #footer>
-        <div class="product-dialog-footer">
-          <div class="product-dialog-footer__left">
-            <template v-if="form.id">
-              <el-button
-                v-if="Number(form.is_combined || 0) !== 1"
-                type="primary"
-                plain
-                @click="openSplitDialog(form)"
-              >{{ t('inventory.split') }}</el-button>
-            </template>
-          </div>
-          <div class="product-dialog-footer__right">
-            <el-button
-              type="primary"
-              @click="submit"
-              :loading="submitting"
-              :disabled="inventorySaveBlockedByImageUpload"
-            >{{ t('common.save') }}</el-button>
-            <!-- 出品已改为提交任务队列：不受全局同步锁阻挡；可上架为 0 时仍禁用（后端亦会二次把关） -->
-            <el-tooltip
-              v-if="form.id"
-              :disabled="!currentEditRowIsAlert"
-              :content="currentEditRowAlertReason"
-              placement="top"
-            >
-              <span class="listing-submit-buttons">
-                <el-popconfirm
-                  title=""
-                  hide-icon
-                  popper-class="listing-confirm-popper"
-                  :confirm-button-text="t('common.confirm')"
-                  :cancel-button-text="t('common.cancel')"
-                  @confirm="submitListingToPlatform('mercari', Number(form.auto_listing_watermark) === 1)"
-                >
-                  <template #reference>
-                    <el-button
-                      type="success"
-                      :loading="listingSubmitting"
-                      :disabled="inventorySaveBlockedByImageUpload || listableQuantity(form) <= 0 || currentEditRowIsAlert || !hasListingAccountFor('mercari') || !currentTypeMercariReady"
-                    >{{ t('inventory.listSubmitMercari') }}</el-button>
-                  </template>
-                </el-popconfirm>
-                <el-popconfirm
-                  title=""
-                  hide-icon
-                  popper-class="listing-confirm-popper"
-                  :confirm-button-text="t('common.confirm')"
-                  :cancel-button-text="t('common.cancel')"
-                  @confirm="submitListingToPlatform('yahoo', Number(form.auto_listing_watermark) === 1)"
-                >
-                  <template #reference>
-                    <el-button
-                      type="success"
-                      :loading="listingSubmitting"
-                      :disabled="inventorySaveBlockedByImageUpload || listableQuantity(form) <= 0 || currentEditRowIsAlert || !hasListingAccountFor('yahoo') || !currentTypeYahooReady || shippingFromIsUndecided"
-                    >{{ t('inventory.listSubmitYahoo') }}</el-button>
-                  </template>
-                </el-popconfirm>
-              </span>
-            </el-tooltip>
-          </div>
-        </div>
-      </template>
     </el-dialog>
 
     <el-dialog

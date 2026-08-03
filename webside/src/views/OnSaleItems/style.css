@@ -230,6 +230,352 @@
   }
 }
 
+/* ===== 在售商品详情弹窗 ===== */
+/* 宽度跟着视口走：1080p(可能带 125/150% 缩放) 到 4K 都不留大片空白、也不会挤爆。
+   clamp 下限保证左右分栏塞得下，上限保证 4K 上正文不会宽到读不动。 */
+/* 注意是**同一个元素**，不能写成后代选择器：`<el-dialog class="…">` 的 class 通过 $attrs
+   落在 ElDialogContent 的根节点上，而那个根节点本身就是 .el-dialog。 */
+:deep(.on-sale-detail-dialog.el-dialog) {
+  width: clamp(880px, 62vw, 1360px) !important;
+  max-width: 94vw;
+  /* 高度封顶 + body 内部滚动：1080p 竖向只有 ~900px 可用，整窗滚动会把底部按钮顶出屏幕 */
+  margin: 6vh auto !important;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+}
+/* 无标题：标题文字去掉，但表头不能整个 display:none —— 关闭的 × 是它的子元素。
+   高度留 34px 是因为 .el-dialog__headerbtn 是 48×48 且 top:0（相对弹窗）。 */
+:deep(.on-sale-detail-dialog .el-dialog__header) {
+  padding: 0;
+  height: 34px;
+}
+:deep(.on-sale-detail-dialog .el-dialog__title) {
+  display: none;
+}
+:deep(.on-sale-detail-dialog .el-dialog__body) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.osd {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.osd-hero {
+  display: grid;
+  grid-template-columns: minmax(240px, 32%) 1fr;
+  gap: 20px;
+  align-items: start;
+}
+/* 主图用 aspect-ratio 跟着栏宽缩放，再用 max-height 封顶，避免 4K 上占掉半屏 */
+.osd-gallery__main {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  max-height: min(360px, 40vh);
+  background: #0b1220;
+  border: 1px solid #263352;
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.osd-gallery__main :deep(.el-image) {
+  width: 100%;
+  height: 100%;
+  cursor: zoom-in;
+}
+/* 左右切换压在主图上；缩略条只负责跳转 */
+.osd-gallery__nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.osd-gallery__nav:hover { background: rgba(64, 158, 255, 0.85); }
+.osd-gallery__nav--prev { left: 8px; }
+.osd-gallery__nav--next { right: 8px; }
+.osd-gallery__counter {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  font-size: 11px;
+  line-height: 17px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.osd-strip {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scroll-behavior: smooth;
+}
+/* 全局滚动条只有 6px，横向那条基本抓不住；这里单独加粗到能拖动 */
+.osd-strip::-webkit-scrollbar { height: 10px; }
+.osd-strip::-webkit-scrollbar-thumb {
+  background: #46536b;
+  border-radius: 5px;
+}
+.osd-strip::-webkit-scrollbar-thumb:hover { background: #5a6a88; }
+.osd-strip::-webkit-scrollbar-track {
+  background: #101a2e;
+  border-radius: 5px;
+}
+.osd-strip__item {
+  flex: 0 0 auto;
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  background: #0b1220;
+  border: 1px solid #263352;
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.osd-strip__item:hover { border-color: #3a4e7a; }
+.osd-strip__item.is-active { border-color: #409eff; }
+.osd-strip__item img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.osd-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.osd-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.osd-title {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: #e5eaf3;
+  word-break: break-word;
+}
+.osd-price {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #e6a23c;
+  font-variant-numeric: tabular-nums;
+}
+.osd-alert {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(245, 108, 108, 0.1);
+  border: 1px solid rgba(245, 108, 108, 0.35);
+  color: #ffd6d9;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.osd-alert .el-icon { color: #f56c6c; font-size: 16px; margin-top: 2px; }
+.osd-alert__title { font-weight: 600; color: #ff8a92; }
+.osd-perf__title {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #8a93a6;
+}
+.osd-stats { display: flex; flex-wrap: wrap; gap: 8px; }
+.osd-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: #131c31;
+  border: 1px solid #263352;
+}
+.osd-stat__v {
+  font-size: 15px;
+  font-weight: 600;
+  color: #e5eaf3;
+  font-variant-numeric: tabular-nums;
+}
+.osd-stat__k { font-size: 11px; color: #8a93a6; }
+/* 键值对自适应列数：窄弹窗一列、4K 宽弹窗自动排到三四列 */
+.osd-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px 16px;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #131c31;
+  border: 1px solid #263352;
+}
+.osd-fact { min-width: 0; }
+.osd-fact dt { font-size: 11px; line-height: 1.4; color: #8a93a6; }
+.osd-fact dd {
+  margin: 2px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #e5eaf3;
+  word-break: break-word;
+}
+.osd-info__count {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: #263352;
+  color: #cbd5e1;
+  font-size: 11px;
+  line-height: 17px;
+  font-variant-numeric: tabular-nums;
+}
+/* 商品说明：原来是只读 textarea（自带输入框边框和滚动条，很「表单」），
+   改成纯展示块，保留换行与可选中复制 */
+.osd-desc {
+  max-height: var(--osd-panel-max-h, 356px);
+  overflow-y: auto;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #131c31;
+  border: 1px solid #263352;
+  color: #cbd5e1;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* 商品信息：字段 / 说明 / 关联库存合成一块，各小节复用 hero 那套键值网格。
+   高度不再单独封顶——弹窗 body 已经在滚动，这里再套一层会出现双滚动条 */
+.osd-info {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 4px;
+  border-top: 1px solid #263352;
+}
+.osd-info__heading {
+  font-size: 15px;
+  font-weight: 600;
+  color: #e5eaf3;
+}
+/* 左栏商品说明，右栏关联库存明细 */
+.osd-info__cols {
+  /* 两栏统一封顶到「三张库存卡片」的高度（卡片约 114px + 8px 间距），超出各自内部滚动。
+     不封顶的话一段长说明能把弹窗撑到底，右边的卡片却只有一张，两栏高度差得离谱 */
+  --osd-panel-max-h: 356px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.osd-info__col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+/* 说明块撑满整栏高度，短说明也不会在下面留一条空白 */
+.osd-info__group--desc { display: flex; flex-direction: column; }
+.osd-info__group--desc .osd-desc { flex: 1 1 auto; }
+
+/* 关联库存明细：改成卡片（表格在半栏宽度里列挤成一团），不显示条码 */
+.osd-inv-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: var(--osd-panel-max-h);
+  overflow-y: auto;
+}
+.osd-inv-card {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #131c31;
+  border: 1px solid #263352;
+}
+.osd-inv-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.osd-inv-card__id {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e5eaf3;
+  font-variant-numeric: tabular-nums;
+}
+.osd-inv-card__tags { display: flex; gap: 6px; flex-wrap: wrap; }
+/* 库存名可能很长（组合商品是几件拼起来的），最多两行 */
+.osd-inv-card__name {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #cbd5e1;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.osd-inv-card__meta {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.osd-inv-card__k { flex: 0 0 auto; color: #8a93a6; }
+.osd-inv-card__v { min-width: 0; color: #cbd5e1; word-break: break-word; }
+.osd-info__title {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #8a93a6;
+}
+.osd-pre {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #0b1220;
+  border: 1px solid #263352;
+  color: #cbd5e1;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 弹窗被 max-width:94vw 压窄时（低分屏 + 高缩放）左右分栏会挤，退回单栏 */
+@media (max-width: 1000px) {
+  .osd-hero { grid-template-columns: 1fr; }
+  .osd-gallery__main { max-height: 46vh; }
+  .osd-info__cols { grid-template-columns: 1fr; }
+}
+
 .detail-section-title {
   font-size: 14px;
   font-weight: 600;
@@ -245,23 +591,8 @@
 .detail-desc {
   width: 100%;
 }
-.detail-inv-table {
-  width: 100%;
-}
 
-.detail-img-groups {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-bottom: 4px;
-}
-
-.detail-img-group__label {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  margin-bottom: 6px;
-}
-
+/* 库存详情弹窗的图片列表（在售详情的关联图已改成主图下方的轮播） */
 .detail-img-group__list {
   display: flex;
   flex-wrap: wrap;
@@ -289,6 +620,86 @@
   gap: 8px;
 }
 
+/* ===== 修改在售商品弹窗 ===== */
+.osr {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+/* 顶部上下文条：缩略图 + 标题 + 商品ID + 当前价 */
+.osr-context {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #131c31;
+  border: 1px solid #263352;
+}
+.osr-context__thumb {
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #0b1220;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.osr-context__thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.osr-context__main { min-width: 0; flex: 1 1 auto; }
+.osr-context__name {
+  font-size: 13px;
+  line-height: 1.4;
+  color: #e5eaf3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.osr-context__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #8a93a6;
+  font-variant-numeric: tabular-nums;
+}
+.osr-context__price { color: #e6a23c; font-weight: 600; }
+/* 价格 / 发货天数并排且靠左收紧：这两项一个是数字、一个是短下拉，
+   之前各占半个弹窗（约 390px），空得很。列宽按内容封顶，右侧留白不再摊给它们 */
+.osr-grid {
+  display: grid;
+  grid-template-columns: minmax(120px, 170px) minmax(160px, 230px);
+  gap: 0 12px;
+  justify-content: start;
+}
+/* 暗码：只读展示，不再占一个 disabled 输入框 */
+.osr-cipher {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin: -4px 0 16px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #101a2e;
+  border: 1px dashed #33425f;
+}
+.osr-cipher__k { font-size: 12px; color: #8a93a6; }
+.osr-cipher__v {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  color: #e6a23c;
+  word-break: break-all;
+}
 .on-sale-revise-form {
   padding-right: 8px;
 }
@@ -299,15 +710,9 @@
   width: 100%;
 }
 
+/* 暗码旁的说明；在 .osr-cipher 里是同一行的第三段，不需要 margin-top */
 .revise-cipher-hint {
   font-size: 12px;
   color: var(--el-text-color-secondary);
   line-height: 1.4;
-  margin-top: 4px;
-}
-.detail-listing-body-wrap :deep(.el-textarea__inner) {
-  font-family: inherit;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  word-break: break-word;
 }

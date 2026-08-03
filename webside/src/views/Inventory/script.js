@@ -20,6 +20,7 @@ import {
 import { submitTask } from '@/utils/taskSubmit.js'
 import { encodeMgmtId, encodeMgmtIds, stripTrailingMgmtBlock } from '@/utils/mgmtIdCipher.js'
 import { warehouseShelfLeafLabel } from '@/utils/warehouseLabel.js'
+import { mercariImageUrl } from '@/utils/mercariImage.js'
 import { useSyncLockStore } from '@/stores/syncLock.js'
 import { useViewModeStore } from '@/stores/viewMode.js'
 import {
@@ -180,7 +181,6 @@ export default defineComponent({
     const cardBottomSentinel = ref(null)
 
     const dialogVisible = ref(false)
-    const submitting = ref(false)
     /** 编辑/新建弹窗：表单数据实时保存状态 */
     const autosaving = ref(false)
     let autosaveTimer = null
@@ -648,6 +648,76 @@ export default defineComponent({
       mercariIdList.value = parseMercariIdsRaw(form.value.mercari_item_id)
     }
 
+    /** 平台判定：优先用 on_sale_items.platform；同步前的 ID 没有那行，按 ID 形态兜底
+     *  （列名仍是历史遗留的 mercari_item_id，但里面同时躺着雅虎的 ID）。 */
+    function marketPlatformOf(itemId, platform) {
+      const p = String(platform || '').trim()
+      if (p) return p
+      const id = String(itemId || '').trim()
+      if (/^m\d{6,}$/i.test(id)) return 'mercari'
+      return /^z/i.test(id) ? 'yahoo' : ''
+    }
+
+    function marketItemUrl(itemId, platform) {
+      const id = String(itemId || '').trim()
+      if (!id) return ''
+      const p = marketPlatformOf(id, platform)
+      if (p === 'mercari') return `https://jp.mercari.com/item/${id}`
+      if (p === 'yahoo') return `https://paypayfleamarket.yahoo.co.jp/item/${id}`
+      return ''
+    }
+
+    /** 订单状态展示：与订单页 statusMap 同一套文案/配色 */
+    const linkedOrderStatusMap = computed(() => ({
+      pending: { label: t('orders.statusPendingHandle'), tag: 'info' },
+      trading: { label: t('orders.statusTrading'), tag: 'warning' },
+      wait_payment: { label: t('orders.statusWaitPayment'), tag: 'warning' },
+      wait_shipping: { label: t('orders.statusPending'), tag: 'warning' },
+      wait_review: { label: t('orders.statusWaitReview'), tag: 'primary' },
+      done: { label: t('orders.statusCompleted'), tag: 'success' },
+      sold_out: { label: t('orders.statusSoldOut'), tag: 'info' },
+      cancelled: { label: t('orders.statusCancelled'), tag: 'info' },
+      cancel_request: { label: t('orders.statusCancelRequest'), tag: 'danger' },
+    }))
+
+    /** 编辑弹窗的模块切换：出品设置（默认）/ 关联商品 */
+    const editActiveTab = ref('listing')
+
+    // ---- 关联商品：平台在售商品 + 已售出订单（都由 /linked-items 一次取回）----
+    const linkedItemsLoading = ref(false)
+    const linkedListings = ref([])
+    const linkedSold = ref([])
+    let linkedItemsLoadedFor = null
+
+    async function loadLinkedItems() {
+      const id = Number(form.value?.id)
+      if (!Number.isFinite(id) || id <= 0) {
+        linkedListings.value = []
+        linkedSold.value = []
+        linkedItemsLoadedFor = null
+        return
+      }
+      if (linkedItemsLoadedFor === id) return
+      linkedItemsLoading.value = true
+      try {
+        const res = await inventoryApi.linkedItems(id)
+        linkedListings.value = Array.isArray(res?.listings) ? res.listings : []
+        linkedSold.value = Array.isArray(res?.sold) ? res.sold : []
+        linkedItemsLoadedFor = id
+      } catch (e) {
+        linkedListings.value = []
+        linkedSold.value = []
+        ElMessage.error(e?.response?.data?.detail || t('inventory.linkedItemsLoadFailed'))
+      } finally {
+        linkedItemsLoading.value = false
+      }
+    }
+
+    // 新建商品要等实时保存建档才有 id，切到标签页时补拉一次
+    watch(editActiveTab, (v) => {
+      if (v === 'linked') loadLinkedItems()
+    })
+
     function applyMercariIdListToForm() {
       form.value.mercari_item_id = mercariIdList.value
         .map((s) => String(s || '').trim())
@@ -993,25 +1063,52 @@ export default defineComponent({
       }
     })
 
-    const PRODUCT_EDIT_DIALOG_FORM_WIDTH = 580
-    const PRODUCT_EDIT_IMAGES_ASIDE_WIDTH = 300
-    const COMBINED_EDIT_ASIDE_WIDTH = 280
-    const COMBINED_EDIT_LAYOUT_GAP = 20
-
-    const productEditDialogWidth = computed(() => {
-      if (isMobile.value) return '96vw'
-      // 左侧表单 + 间距 + 右侧商品图片 aside（始终存在）
-      let total =
-        PRODUCT_EDIT_DIALOG_FORM_WIDTH +
-        COMBINED_EDIT_LAYOUT_GAP +
-        PRODUCT_EDIT_IMAGES_ASIDE_WIDTH +
-        40
-      if (showCombinedEditDetail.value || showUsedInCombos.value) {
-        // 组合商品追加「组成明细」；普通商品被组合引用时追加「所属组合」
-        total += COMBINED_EDIT_LAYOUT_GAP + COMBINED_EDIT_ASIDE_WIDTH
+    /** 点击管理暗码徽标复制。非安全上下文（http 访问）下 clipboard API 不可用，回退 execCommand */
+    async function copyMgmtIdCipher() {
+      const text = editFormMgmtIdCipher.value
+      if (!text) return
+      let ok = false
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text)
+          ok = true
+        }
+      } catch {
+        ok = false
       }
-      return `min(${total}px, 98vw)`
+      if (!ok) {
+        try {
+          const ta = document.createElement('textarea')
+          ta.value = text
+          ta.style.position = 'fixed'
+          ta.style.opacity = '0'
+          document.body.appendChild(ta)
+          ta.select()
+          ok = document.execCommand('copy')
+          document.body.removeChild(ta)
+        } catch {
+          ok = false
+        }
+      }
+      if (ok) ElMessage.success(t('common.copied'))
+      else ElMessage.error(t('inventory.copyFailed'))
+    }
+
+    /** 编辑表单的「商品归属」候选：不列出 admin / 系统管理员（种子账号不该被选成货主）。
+        已经归属到该账号的旧数据仍要保留当前项，否则打开这类商品时选择框是空的 */
+    const formOwnerUserOptions = computed(() => {
+      const currentId = Number(form.value?.owner_user_id)
+      return (ownerUsers.value || []).filter(
+        (u) => !systemAdminOwnerUserIdSet.value.has(Number(u?.id)) || Number(u?.id) === currentId
+      )
     })
+
+    // 编辑弹窗占屏幕 70% 宽 / 80% 高（高度在 style.css 里）。
+    // 再压一个 1200px 上限：4K 上 70vw 有 2600px+，字段会被拉成一条长条。
+    // 栏宽不再按内容累加：右侧图片/组成明细是定宽，剩下的都给表单栏
+    const productEditDialogWidth = computed(() =>
+      isMobile.value ? '96vw' : 'min(70vw, 1200px)'
+    )
 
     const rules = computed(() => ({
       barcode: [{ required: true, message: t('inventory.barcodeRequiredMsg'), trigger: 'blur' }],
@@ -1617,6 +1714,22 @@ export default defineComponent({
         form.value.category_id = categoryIdFromPath(path)
       },
     })
+
+    /** 编辑弹窗的游戏分类：与表格内联编辑同一套控件（弹层里的二级 el-cascader-panel） */
+    const formCategoryPickerVisible = ref(false)
+
+    const formCategoryLabel = computed(() => {
+      const id = Number(form.value?.category_id)
+      if (!Number.isFinite(id)) return ''
+      const hit = (categories.value || []).find((c) => Number(c?.id) === id)
+      return hit ? String(hit.name || '') : ''
+    })
+
+    /** cascader-panel 只在叶子节点触发 change（公司节点有 children，选不中），直接落值收起 */
+    function pickFormCategoryFromPath(path) {
+      formCategoryPath.value = path
+      formCategoryPickerVisible.value = false
+    }
 
     const DEFAULT_WH_LABEL = t('inventory.defaultWarehouse')
     /** 与后端 WarehouseModel.normalize_warehouse_key 一致 */
@@ -2876,6 +2989,11 @@ export default defineComponent({
       formAutosaveInitializing = true
       cancelFormAutosave()
       formAutosaved = false
+      // 每次打开都回到默认模块，免得上次停在「关联商品」页
+      editActiveTab.value = 'listing'
+      linkedListings.value = []
+      linkedSold.value = []
+      linkedItemsLoadedFor = null
       resetNoBarcodeImageUploadState()
       noBarcodeEntryMode.value = false
       categoryCreateMode.value = false
@@ -2963,6 +3081,8 @@ export default defineComponent({
       applyListingDefaultsToForm()
       // 每次打开都重拉：选项标签里带「在售 N」，缓存一次会一直显示开页时的旧件数
       fetchMercariAccounts()
+      // 标签页角标要显示件数，所以开窗即取，不等切到「关联商品」再拉
+      loadLinkedItems()
       dialogVisible.value = true
       // 初始填充表单引发的 watch 不应触发实时保存，下一 tick 再放开
       nextTick(() => {
@@ -2978,7 +3098,7 @@ export default defineComponent({
     watch(dialogVisible, (visible) => {
       if (!visible) {
         cancelFormAutosave()
-        // 关闭时若实时保存已写过库，刷新列表以反映最新数据（submit 自带刷新，已置 false）
+        // 关闭时若实时保存已写过库，刷新列表以反映最新数据
         if (formAutosaved) {
           formAutosaved = false
           load({ resetPage: false })
@@ -3975,44 +4095,6 @@ export default defineComponent({
       await autosaveInFlight
     }
 
-    async function submit() {
-      applyQuantityEditToForm()
-      applyPriceEditToForm()
-      applyMercariIdListToForm()
-      await formRef.value.validate()
-      submitting.value = true
-      try {
-        // 等待可能正在进行的实时保存完成（其可能刚刚回填了新建商品的 id），避免重复创建
-        cancelFormAutosave()
-        if (autosaveInFlight) {
-          try {
-            await autosaveInFlight
-          } catch (e) {}
-        }
-        formAutosaved = false
-        const { payload, imgCount } = buildFormPayload()
-        if (imgCount > MAX_INVENTORY_IMAGES) {
-          ElMessage.warning(t('inventory.maxImagesAllowed', { n: MAX_INVENTORY_IMAGES }))
-          submitting.value = false
-          return
-        }
-        if (payload.id) {
-          await inventoryApi.update(payload.id, payload)
-        } else {
-          await inventoryApi.create(payload)
-          if (noBarcodeEntryMode.value) {
-            writeNoBarcodeFormSelectionsCache(payload)
-          }
-        }
-        ElMessage.success(t('inventory.saveSuccess'))
-        dialogVisible.value = false
-        await load({ resetPage: false })
-        loadInventoryStats()
-      } finally {
-        submitting.value = false
-      }
-    }
-
     /** 关闭编辑弹窗前：冲刷尚未落库的防抖实时保存，确保最后一次编辑即时生效 */
     async function handleProductDialogClose(done) {
       const hadPending = !!autosaveTimer
@@ -4508,7 +4590,6 @@ export default defineComponent({
       cardTopSentinel,
       cardBottomSentinel,
       dialogVisible,
-      submitting,
       formRef,
       fileInputInventoryPick,
       fileInputInventoryCapture,
@@ -4606,6 +4687,14 @@ export default defineComponent({
       quantityEdit,
       priceEdit,
       mercariIdList,
+      editActiveTab,
+      linkedItemsLoading,
+      linkedListings,
+      linkedSold,
+      linkedOrderStatusMap,
+      marketPlatformOf,
+      marketItemUrl,
+      mercariImageUrl,
       syncQuantityEditFromForm,
       applyQuantityEditToForm,
       syncPriceEditFromForm,
@@ -4667,9 +4756,8 @@ export default defineComponent({
       showUsedInCombos,
       openUsedInComboEdit,
       editFormMgmtIdCipher,
-      PRODUCT_EDIT_DIALOG_FORM_WIDTH,
-      COMBINED_EDIT_ASIDE_WIDTH,
-      COMBINED_EDIT_LAYOUT_GAP,
+      copyMgmtIdCipher,
+      formOwnerUserOptions,
       productEditDialogWidth,
       rules,
       warehouseCascaderProps,
@@ -4710,6 +4798,9 @@ export default defineComponent({
       categoryCascaderPath,
       filterCategoryPath,
       formCategoryPath,
+      formCategoryPickerVisible,
+      formCategoryLabel,
+      pickFormCategoryFromPath,
       currentTypeMercariReady,
       currentTypeYahooReady,
       shippingFromIsUndecided,
@@ -4824,7 +4915,6 @@ export default defineComponent({
       retakeProductImg,
       applyProductImgConfirm,
       handleInventoryImageFileChange,
-      submit,
       handleProductDialogClose,
       openScanDialog,
       stopScan,

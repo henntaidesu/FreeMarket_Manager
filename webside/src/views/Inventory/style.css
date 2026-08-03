@@ -154,83 +154,589 @@
 .product-qty-input :deep(input) {
   text-align: center;
 }
-.product-edit-mgmt-cipher-input :deep(.el-input__inner) {
-  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
-  letter-spacing: 0.04em;
+/* ===== 编辑商品弹窗（分区卡片 + 标签置顶）===== */
+/* 宽 70vw，高**跟着内容走**、80vh 封顶：写死 height 会让内容排完后底下空一大片。
+   头/底固定，body 不滚动，滚动只作为兜底发生在左侧表单栏内部，右侧图片栏始终留在视线里。
+   注意是**同一个元素**，不能写成后代选择器：`<el-dialog class="…">` 的 class 通过 $attrs
+   落在 ElDialogContent 的根节点上，而那个根节点本身就是 .el-dialog。
+   `.product-dialog` 还挂在组合商品/拆分两个小弹窗上，那两个不该被限成 80vh，
+   所以这条按尺寸生效的规则只认编辑商品弹窗。 */
+:deep(.product-dialog.el-dialog:not(.combined-product-dialog)) {
+  margin: 10vh auto !important;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
 }
-/* 编辑商品弹窗：两栏表单统一行距与标签对齐（中线整齐） */
+:deep(.product-dialog .el-dialog__header) {
+  padding-bottom: 10px;
+}
+/* 编辑商品弹窗没有标题了，头部只需留出右上角关闭按钮的高度（EP 把它绝对定位成 48px 见方，
+   给 40px 时叉号本体仍落在头部内，只有热区多探出几像素到图片栏的内边距上） */
+:deep(.product-dialog--edit .el-dialog__header) {
+  padding: 0;
+  height: 40px;
+}
+:deep(.product-dialog .el-dialog__body) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  padding: 0 16px;
+}
+:deep(.product-dialog .el-dialog__footer) {
+  padding: 10px 16px;
+  border-top: 1px solid #263352;
+}
+.product-edit-form {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+/* 这是要逐字敲进去的表单，size=small 自带的 24px 行高 / 12px 正文太小。
+   抬到 30px / 13px：比 default 的 32px+14px 省一点高度，又不至于看不清。
+   注意 el-select 与 el-cascader 的 small 尺寸在 EP 里是写死的 24px，
+   不读 --el-component-size-small，必须单独覆盖 */
+.product-edit-form {
+  --el-component-size-small: 30px;
+}
+.product-edit-form :deep(.el-input--small),
+.product-edit-form :deep(.el-cascader--small) {
+  font-size: 13px;
+}
+.product-edit-form :deep(.el-cascader--small) {
+  line-height: 30px;
+}
+.product-edit-form :deep(.el-select--small .el-select__wrapper) {
+  min-height: 30px;
+  font-size: 13px;
+}
+.product-edit-form :deep(.el-textarea__inner) {
+  font-size: 13px;
+  line-height: 1.6;
+}
+/* 标签置顶 + 紧凑行距。校验提示是 top:100% 的绝对定位元素，
+   10px 下边距刚好容下一行 11px 的错误文案而不压到下一行标签 */
 .product-edit-form :deep(.el-form-item) {
-  margin-bottom: 16px;
-}
-.product-edit-form :deep(.el-row) {
-  width: 100%;
+  margin-bottom: 10px;
 }
 .product-edit-form :deep(.el-form-item__label) {
-  font-size: 13px;
-  color: var(--el-text-color-regular, #c0c4cc);
+  padding: 0 0 3px;
+  font-size: 12px;
+  line-height: 1.35;
+  letter-spacing: 0.02em;
+  color: #99a3b6;
 }
-/* 编辑商品弹窗：弹窗整体下移，留出上下边距 */
-:deep(.product-dialog .el-dialog) {
-  margin-top: 7vh !important;
-  margin-bottom: 7vh;
+.product-edit-form :deep(.el-form-item__error) {
+  padding-top: 1px;
+  font-size: 11px;
+  line-height: 1;
 }
 /* 编辑商品弹窗：左侧表单，右侧商品图片区（组合商品再追加组成明细 aside） */
 .product-edit-dialog-layout {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
 }
 .product-edit-dialog-layout--with-aside {
   flex-direction: row;
   /* 以左侧表单（详情）为基准高度，右侧两栏随之拉伸 */
   align-items: stretch;
-  gap: 20px;
+  gap: 12px;
 }
+/* 表单栏吃掉右侧定宽栏之外的全部宽度：70vw 越宽，字段列数越多 */
 .product-edit-dialog-layout--with-aside .product-edit-dialog-layout__form {
-  flex: 0 0 580px;
-  width: 580px;
-  max-width: 580px;
-}
-/* 左侧表单决定整体高度；过高时表单自身滚动（不超出视口） */
-.product-edit-dialog-layout--with-aside .product-edit-dialog-layout__form {
-  max-height: 70vh;
-  overflow-y: auto;
+  flex: 1 1 auto;
   padding-right: 6px;
 }
 .product-edit-dialog-layout__form {
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  /* 供 .pef-row2 的容器查询取宽度：并排还是堆叠要看表单栏实宽，
+     而不是视口——组合明细 aside 一出现，同一视口下这里就窄了 260px */
+  container-type: inline-size;
 }
 .product-edit-dialog-layout__aside {
   position: relative;
-  flex: 0 0 280px;
-  width: 280px;
+  flex: 0 0 260px;
+  width: 260px;
   max-width: 100%;
-  padding: 12px 14px 14px;
-  border-radius: 8px;
-  border: 1px solid #28354a;
-  background: #18233a;
+  padding: 10px 12px 12px;
+  border-radius: 10px;
+  border: 1px solid #263352;
+  background: #131c31;
   box-sizing: border-box;
   align-self: stretch;
-}
-.product-edit-dialog-layout__aside--images {
-  flex: 0 0 300px;
-  width: 300px;
-}
-/* 关键：aside 内容绝对定位填满整栏，使本栏不因内容多而撑高，
-   从而 align-self:stretch 让其高度恒等于左侧表单（详情）高度，
-   内容超出时在内部滚动。 */
-.product-edit-dialog-layout__aside--images > .inventory-images-aside-block,
-.product-edit-dialog-layout__aside--combined > .combined-edit-aside-inner {
-  position: absolute;
-  top: 12px;
-  right: 14px;
-  bottom: 14px;
-  left: 14px;
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
+.product-edit-dialog-layout__aside--images {
+  flex: 0 0 272px;
+  width: 272px;
+}
+/* 关键：aside 内容绝对定位填满整栏，本栏就不会因图片多/组成多而撑高弹窗。
+   配合 align-self:stretch，右侧各栏高度恒等于左侧表单栏，内容超出时在内部滚动。
+   弹窗改成 max-height 之后这一条是必须的：否则 20 张图会把弹窗顶到 80vh 满高。 */
+.product-edit-dialog-layout__aside--images > .inventory-images-aside-block,
+.product-edit-dialog-layout__aside--combined > .combined-edit-aside-inner {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* ---- 分区卡片 ---- */
+.pef-section {
+  padding: 8px 12px 0;
+  border-radius: 8px;
+  border: 1px solid #263352;
+  background: #131c31;
+  /* 自成容器：.pef-row2 要按「模块卡有多宽」决定并排还是堆叠 */
+  container-type: inline-size;
+}
+/* ---- 模块切换（出品设置 / 关联商品ID），与订单详情的 odt-tabs 同一套 ---- */
+.pef-section--tabs {
+  padding: 4px 12px 0;
+}
+.pef-tabs :deep(.el-tabs__header) {
+  margin: 0 0 8px;
+}
+.pef-tabs :deep(.el-tabs__nav-wrap::after) {
+  height: 1px;
+  background: #263352;
+}
+.pef-tabs :deep(.el-tabs__item) {
+  height: 36px;
+  font-size: 13px;
+}
+/* 内容区定高：两个标签页内容长短差很多，不锁死的话切一次标签弹窗就跳一次高度。
+   撑不满的（关联商品少）留白，超出的（字段折成一列）在这里滚。 */
+.pef-tabs :deep(.el-tabs__content) {
+  height: clamp(300px, 34vh, 440px);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+/* 标签页填满定高，好让出品文案的说明框继续吃掉剩余高度 */
+.pef-tabs :deep(.el-tab-pane) {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.pef-row2,
+.pef-linked {
+  flex: 1 1 auto;
+}
+.pef-tab-count {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: #263352;
+  color: #cbd5e1;
+  font-size: 11px;
+  line-height: 17px;
+  font-variant-numeric: tabular-nums;
+}
+/* 标签页内的子分组：只留标题，不再套一层边框，避免卡中卡 */
+.pef-subcard {
+  min-width: 0;
+}
+
+/* ---- 关联商品：在售 / 已出售 两组卡片 ---- */
+.pef-linked {
+  padding-bottom: 12px;
+  min-height: 96px;
+}
+.pef-linked__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #a4aec1;
+}
+.pef-linked__title:not(:first-child) {
+  margin-top: 14px;
+}
+.pef-linked-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 8px;
+}
+.pef-lcard {
+  display: flex;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #263352;
+  background: #0b1220;
+  text-decoration: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+a.pef-lcard:hover {
+  border-color: #3a4e7a;
+  background: #101a2e;
+}
+/* 已下架/已删除的在售行：留着但压暗，避免和在售的混为一谈 */
+.pef-lcard--dim {
+  opacity: 0.6;
+}
+.pef-lcard__thumb {
+  flex: 0 0 auto;
+  width: 52px;
+  height: 52px;
+  border-radius: 6px;
+  border: 1px solid #263352;
+  background: #131c31;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pef-lcard__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.pef-lcard__noimg {
+  font-size: 10.5px;
+  color: #64748b;
+}
+.pef-lcard__body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.pef-lcard__top {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.pef-lcard__price {
+  margin-left: auto;
+  color: #e6a23c;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.pef-lcard__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #e5eaf3;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.pef-lcard__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  color: #7c869a;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.pef-lcard__id {
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+}
+.pef-linked-empty {
+  padding: 28px 4px;
+  text-align: center;
+  font-size: 12.5px;
+  color: #7c869a;
+}
+
+/* 出品文案（左）｜出品设置（右）。窄到放不下两栏时回落成上下两张卡。
+   右栏按 .pef-grid 的两列定宽（410px）自然收窄，多出来的宽度全给左边的出品文案，
+   而不是摊在第二列右侧当留白 */
+.pef-row2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: stretch;
+}
+/* 734 = 两栏各自还能排下两列字段的下限（(734-10)/2 = 362 = 2×175+12）。
+   容器是 .pef-section--tabs。再窄就并排不划算：出品参数会掉成一列十行，
+   比上下堆叠还高 */
+@container (max-width: 734px) {
+  .pef-row2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* 出品说明撑满右栏留下的高度：标题一行固定，剩下都给文本域 */
+.pef-subcard--copy {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding-bottom: 12px;
+}
+.pef-copy-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0 !important;
+}
+/* Element Plus 的 __content 默认是 row + align-items:center，
+   照搬会把文本域按自然高度垂直居中，上方留一大片空白。
+   必须改成纵向 + stretch，文本域才真的撑满剩余高度 */
+.pef-copy-body :deep(.el-form-item__content) {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+}
+.pef-copy-body :deep(.el-textarea) {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pef-copy-body :deep(.el-textarea__inner) {
+  flex: 1 1 auto;
+  min-height: 110px;
+  resize: none;
+}
+.pef-section__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  min-height: 20px;
+}
+.pef-section__title {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #a4aec1;
+}
+.pef-section__badge {
+  padding: 0 7px;
+  border-radius: 8px;
+  background: #263352;
+  color: #cbd5e1;
+  font-size: 11.5px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+/* 字体与管理番号徽标一致，只多一个整段选中方便复制 */
+.pef-section__badge--cipher {
+  user-select: all;
+}
+/* 点击整枚徽标复制暗码 */
+.pef-section__badge--copy {
+  cursor: pointer;
+}
+.pef-section__badge--copy:hover {
+  background: #31405f;
+  color: #e5eaf3;
+}
+/* 标签行内嵌按钮：标签文字靠左、操作按钮靠右，占用的还是那一行标签的位置。
+   Element Plus 的 __label 是 inline-flex（宽度跟着文字走），不改成整行宽的话
+   里面的 space-between 没有可分配的空间，按钮只会紧跟在文字后面而不是靠右 */
+.pef-copy-title :deep(.el-form-item__label) {
+  display: block;
+  width: 100%;
+  line-height: 1.2;
+}
+.pef-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 24px;
+}
+/* 出品参数固定两列，列宽也固定：跟着容器拉伸的话，弹窗一宽下拉框就摊成 300+px，
+   两列之间隔出一大段空白（框里全是短文案：新品 / 東京都 / 2〜3日）。
+   200px 是最长的常规选项「らくらくメルカリ便」的宽度，再宽只是留白。
+   .pef-row2 把这一栏按内容定宽，所以第二列右侧不会再剩空当。
+   行距在这里再收一点——这一片全是等高的下拉，不需要按整表的 10px 留白 */
+.pef-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 200px);
+  column-gap: 10px;
+}
+.pef-grid :deep(.el-form-item) {
+  margin-bottom: 6px;
+}
+/* 游戏分类的弹层触发器：外观对齐同尺寸的 el-input，行为是打开二级 cascader-panel */
+.pef-picker-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border-radius: var(--el-border-radius-base, 4px);
+  background: var(--el-fill-color-blank);
+  box-shadow: 0 0 0 1px var(--el-border-color) inset;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: box-shadow 0.2s;
+}
+.pef-picker-trigger:hover {
+  box-shadow: 0 0 0 1px var(--el-border-color-hover) inset;
+}
+.pef-picker-trigger__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--el-text-color-regular);
+}
+.pef-picker-trigger__text--ph {
+  color: var(--el-text-color-placeholder);
+}
+.pef-picker-trigger__arrow {
+  flex: 0 0 auto;
+  font-size: 14px;
+  color: var(--el-text-color-placeholder);
+}
+
+/* 基础信息用两条 flex 行代替等宽栅格：
+   栅格会把「单价」拉得和「商品名称」一样长，短字段全是空白。
+   长文本给伸缩基准，短字段给定宽/上限 */
+.pef-inline-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  column-gap: 10px;
+}
+/* 换行后两条视觉行之间只剩表单项自带的下边距，容易看成同一行，补一点行距 */
+.pef-inline-row > :deep(.el-form-item) {
+  margin-bottom: 12px;
+}
+/* 只有商品名称/游戏分类吃剩余宽度；第二行全部 flex-grow:0——
+   让它们撑到 max-width 只会把短内容的下拉拉长（看着像字段之间空了一大截），
+   而且把右边的空间吃光，数量胶囊就挤不进这一行了 */
+/* 两个长字段仍吃剩余宽度，但给上限：弹窗一宽（1200px 时表单栏近 900px）
+   商品名称和游戏分类会各自摊到 400+px，输入框比内容长出一大截 */
+.pef-field--name {
+  flex: 1 1 280px;
+  max-width: 340px;
+  min-width: 0;
+}
+.pef-field--cat {
+  flex: 1 1 320px;
+  max-width: 380px;
+  min-width: 0;
+}
+.pef-field--type {
+  flex: 0 1 180px;
+  min-width: 0;
+}
+.pef-field--owner {
+  flex: 0 1 140px;
+  min-width: 0;
+}
+.pef-field--price {
+  flex: 0 0 120px;
+}
+.pef-field--qty {
+  flex: 0 0 100px;
+}
+/* 所属货架独占一行：下拉保持 190px 定宽，右边留给只读计数 */
+.pef-field--shelf {
+  flex: 0 0 100%;
+  min-width: 0;
+}
+.pef-shelf-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.pef-shelf-cascader {
+  flex: 0 0 190px;
+}
+.pef-cell--switch :deep(.el-form-item__content) {
+  min-height: 24px;
+  align-items: center;
+}
+
+/* ---- 只读计数：在售 / 组合 / 可上架 ---- */
+/* 接在所属货架的下拉框右边，与它垂直居中对齐；宽度不够时整组换到下一行 */
+.pef-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.pef-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: #0b1220;
+  border: 1px solid #263352;
+}
+.pef-stat__v {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e5eaf3;
+  font-variant-numeric: tabular-nums;
+}
+.pef-stat__k {
+  font-size: 11.5px;
+  color: #99a3b6;
+}
+/* 与列表页 el-tag 的 success / warning / info / danger 同一套语义色 */
+.pef-stat--success {
+  border-color: rgba(103, 194, 58, 0.4);
+  background: rgba(103, 194, 58, 0.08);
+}
+.pef-stat--success .pef-stat__v {
+  color: #85ce61;
+}
+.pef-stat--warning {
+  border-color: rgba(230, 162, 60, 0.4);
+  background: rgba(230, 162, 60, 0.08);
+}
+.pef-stat--warning .pef-stat__v {
+  color: #e6a23c;
+}
+.pef-stat--info {
+  border-color: rgba(144, 147, 153, 0.4);
+  background: rgba(144, 147, 153, 0.08);
+}
+.pef-stat--info .pef-stat__v {
+  color: #b1b3b8;
+}
+.pef-stat--danger {
+  border-color: rgba(245, 108, 108, 0.45);
+  background: rgba(245, 108, 108, 0.1);
+}
+.pef-stat--danger .pef-stat__v {
+  color: #f89898;
+}
+/* 数值为 0：不着色，避免四个胶囊全亮抢注意力 */
+.pef-stat--muted .pef-stat__v {
+  color: #7c869a;
+}
+
 .inventory-images-aside-block :deep(.el-form-item) {
   margin-bottom: 0;
   flex: 1 1 auto;
@@ -271,31 +777,37 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
-  margin-bottom: 12px;
+  gap: 6px 8px;
+  margin-bottom: 8px;
   flex: 0 0 auto;
 }
-.inventory-images-aside-block .inventory-images-reorder-hint {
-  flex: 0 0 auto;
-}
+/* 与左侧分区卡片同一套小标题 */
 .inventory-images-aside-header__label {
-  font-size: 14px;
-  color: var(--el-text-color-regular, #c0c4cc);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #a4aec1;
   line-height: 1.4;
 }
 .inventory-images-aside-header__count {
   margin-left: auto;
-  font-size: 12px;
-  color: #94a3b8;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: #263352;
+  color: #cbd5e1;
+  font-size: 11px;
+  line-height: 17px;
+  font-variant-numeric: tabular-nums;
 }
 .inventory-images-form-item--no-label :deep(.el-form-item__label) {
   display: none;
 }
 .combined-edit-aside-title {
-  font-size: 15px;
+  font-size: 12.5px;
   font-weight: 600;
-  color: #e6edf7;
-  margin-bottom: 6px;
+  letter-spacing: 0.04em;
+  color: #a4aec1;
+  margin-bottom: 10px;
   flex: 0 0 auto;
 }
 .combined-edit-aside-sub {
@@ -323,8 +835,8 @@
   gap: 10px;
   padding: 8px 10px;
   border-radius: 8px;
-  border: 1px solid #28354a;
-  background: #131c2f;
+  border: 1px solid #263352;
+  background: #0b1220;
 }
 .combined-edit-aside-item__thumb {
   flex-shrink: 0;
@@ -481,9 +993,13 @@
   text-align: center;
 }
 @media (max-width: 768px) {
-  /* 移动端三栏纵向堆叠：取消绝对定位与限高，整个弹窗内容自然滚动 */
-  :deep(.product-dialog .el-dialog) {
-    margin-bottom: 6vh;
+  /* 移动端三栏纵向堆叠：改由弹窗 body 整体滚动，各栏不再单独限高 */
+  :deep(.product-dialog .el-dialog__body) {
+    display: block;
+    overflow-y: auto;
+  }
+  .product-edit-form {
+    display: block;
   }
   .product-edit-dialog-layout--with-aside {
     flex-direction: column;
@@ -492,12 +1008,10 @@
     flex: 1 1 auto;
     width: 100%;
     max-width: none;
-    max-height: none;
     overflow-y: visible;
     padding-right: 0;
   }
   .product-edit-dialog-layout__aside {
-    position: static;
     flex: none;
     width: 100%;
     overflow: visible;
@@ -761,21 +1275,6 @@
   width: 100%;
 }
 
-/* ---- 编辑弹窗：煤炉商品ID 列表编辑器 ---- */
-.mercari-id-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 100%;
-}
-.mercari-id-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.mercari-id-input {
-  flex: 1;
-}
 .row-actions {
   display: inline-flex;
   align-items: center;
@@ -848,12 +1347,6 @@
 .inventory-images-form-item--combined-grid :deep(.el-form-item__label) {
   visibility: hidden;
 }
-.inventory-images-reorder-hint {
-  font-size: 12px;
-  color: #909399;
-  line-height: 1.5;
-  margin-bottom: 6px;
-}
 .inventory-image-cell--draggable {
   cursor: grab;
 }
@@ -899,16 +1392,17 @@
   text-align: center;
   line-height: 1.3;
 }
+/* 图片栏定宽 272px，格子按两列排：108×2 + 10 间距 正好落在内容宽内 */
 .inventory-images-form-item .inventory-image-cell,
 .inventory-images-form-item .inventory-image-cell--add {
-  width: 120px;
-  min-width: 120px;
-  max-width: 120px;
+  width: 108px;
+  min-width: 108px;
+  max-width: 108px;
 }
 .inventory-image-cell--compact {
-  width: 120px;
-  min-width: 120px;
-  max-width: 120px;
+  width: 108px;
+  min-width: 108px;
+  max-width: 108px;
 }
 .inventory-form-image-area {
   width: 100%;
@@ -1175,26 +1669,6 @@
 }
 .scan-tip { color: #9aa7be; font-size: 13px; text-align: center; }
 
-/* 编辑商品弹窗底部：一行内排完 OCR / 删除 / 取消 / 保存 */
-.product-dialog-footer {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: nowrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  width: 100%;
-  box-sizing: border-box;
-}
-.product-dialog-footer__left,
-.product-dialog-footer__right {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
 .product-price-input {
   width: 100%;
   max-width: 100%;
@@ -1267,18 +1741,8 @@
   .image-upload-area.large {
     height: 150px;
   }
-  .product-dialog-footer {
-    flex-wrap: nowrap;
-    gap: 6px;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    padding-bottom: 2px;
-  }
-  .product-dialog-footer :deep(.el-button) {
-    flex-shrink: 0;
-  }
-  :deep(.product-dialog .el-dialog),
-  :deep(.scan-dialog .el-dialog) {
+  :deep(.product-dialog.el-dialog),
+  :deep(.scan-dialog.el-dialog) {
     margin-top: 6vh !important;
   }
   :deep(.product-dialog .el-dialog__body),
@@ -1360,4 +1824,16 @@
 .listing-submit-buttons {
   display: inline-flex;
   gap: 8px;
+}
+/* 弹窗没有 footer 了：拆分 / 出品按钮排在出品参数下方，与两列字段同宽 */
+.pef-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding-bottom: 4px;
+}
+.pef-actions :deep(.el-button + .el-button) {
+  margin-left: 0;
 }

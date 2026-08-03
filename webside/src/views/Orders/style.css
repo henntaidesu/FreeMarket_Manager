@@ -329,69 +329,560 @@
   margin-top: 4px;
   line-height: 1.4;
 }
-.order-edit-dialog :deep(.el-dialog__body) {
-  max-height: 72vh;
-  overflow-y: auto;
-  padding-top: 8px;
+/* ===== 订单详情弹窗（只读） =====
+   宽度跟着视口走：1080p(可能带 125/150% 缩放) 到 4K 都不留大片空白、也不会挤爆。
+   高度是**写死的 75vh**，不是 max-height：切换标签页时弹窗不能跟着内容忽高忽低，
+   所以每个标签页的内容区自己滚，外层一律不滚。上下各留 12.5vh 使其垂直居中。 */
+/* 注意是**同一个元素**，不能写成后代选择器：`<el-dialog class="…">` 的 class 通过 $attrs
+   落在 ElDialogContent 的根节点上，而那个根节点本身就是 .el-dialog。写成
+   `.order-detail-dialog .el-dialog` 永远匹配不到，弹窗就退回默认尺寸、高度跟着内容变。 */
+:deep(.order-detail-dialog.el-dialog) {
+  width: clamp(920px, 66vw, 1420px) !important;
+  max-width: 94vw;
+  margin: 12.5vh auto !important;
+  height: 75vh;
+  display: flex;
+  flex-direction: column;
 }
-/* 编辑订单：按模块分组的平铺网格（每模块一行，紧凑） */
-.order-edit-form--tiled :deep(.el-form-item) {
-  margin-bottom: 6px;
+/* 无标题：标题文字去掉，但表头不能整个 display:none —— 关闭的 × 是它的子元素。
+   高度留 34px 是因为 .el-dialog__headerbtn 是 48×48 且 top:0（相对弹窗），
+   加上弹窗自身 16px 内边距刚好把正文推到 × 下方，否则 × 会压在状态行的按钮上。 */
+:deep(.order-detail-dialog .el-dialog__header) {
+  padding: 0;
+  height: 34px;
 }
-/* 每行最多排列 4 个字段（各占 25%） */
-.order-edit-form--tiled :deep(.order-edit-row5) > .el-col {
-  flex: 0 0 25%;
-  max-width: 25%;
+:deep(.order-detail-dialog .el-dialog__title) {
+  display: none;
 }
-.order-edit-form--tiled :deep(.el-form-item__label) {
-  padding-bottom: 2px;
-  line-height: 1.3;
-  color: var(--el-text-color-secondary);
+:deep(.order-detail-dialog .el-dialog__body) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  padding-top: 0;
 }
-/* 模块分隔标题：紧凑、低调 */
-.order-edit-form--tiled :deep(.order-edit-section.el-divider--horizontal) {
-  margin: 6px 0 12px;
-}
-.order-edit-form--tiled :deep(.order-edit-section .el-divider__text) {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--el-text-color-primary);
-  padding: 0 12px 0 0;
-  background-color: transparent;
-}
-/* 第一个分组标题去掉顶部多余间距 */
-.order-edit-form--tiled :deep(.order-edit-section:first-child) {
-  margin-top: 0;
-}
-/* 编辑订单：左表单 + 右对话两栏布局 */
-.order-edit-layout {
+/* 左信息 + 右对话两栏 */
+.odt {
   display: flex;
   gap: 16px;
-  align-items: flex-start;
+  align-items: stretch;
+  height: 100%;
+  min-height: 0;
 }
-.order-edit-form--main {
+/* 概要栏塞进了原「更多信息」的字段，矮屏上有可能把标签页挤没。
+   给标签页留 200px 下限，真的放不下时由这里整体滚动——弹窗高度依然是死的，
+   换标签页不会改变它，只是滚动区变长。 */
+.odt-main {
   flex: 1;
   min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
 }
-/* 所有数据左对齐（el-input-number 默认居中，统一改为靠左） */
-.order-edit-form--main :deep(.el-input-number .el-input__inner) {
+/* 概要区：左图廊 / 右摘要 */
+.odt-hero {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(220px, 30%) 1fr;
+  gap: 20px;
+  align-items: start;
+}
+.odt-gallery__main {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  /* 弹窗只有 75vh，主图再高就把下面的标签页挤没了 */
+  max-height: min(260px, 26vh);
+  background: #0b1220;
+  border: 1px solid #263352;
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.odt-gallery__main :deep(.el-image) {
+  width: 100%;
+  height: 100%;
+  cursor: zoom-in;
+}
+.odt-gallery__nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+}
+.odt-gallery__nav:hover { background: rgba(64, 158, 255, 0.85); }
+.odt-gallery__nav--prev { left: 6px; }
+.odt-gallery__nav--next { right: 6px; }
+.odt-gallery__counter {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  font-size: 11px;
+  line-height: 17px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.odt-strip {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+.odt-strip__item {
+  flex: 0 0 auto;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  background: #0b1220;
+  border: 1px solid #263352;
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.odt-strip__item:hover { border-color: #3a4e7a; }
+.odt-strip__item.is-active { border-color: #409eff; }
+.odt-strip__item img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.odt-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.odt-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+/* 「重新匹配商品」贴在状态行最右侧 */
+.odt-chips__action { margin-left: auto; }
+.odt-title {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: #e5eaf3;
+  word-break: break-word;
+}
+.odt-price {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #e6a23c;
+  font-variant-numeric: tabular-nums;
+}
+.odt-alert {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(245, 108, 108, 0.1);
+  border: 1px solid rgba(245, 108, 108, 0.35);
+  color: #ffd6d9;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.odt-alert .el-icon { color: #f56c6c; font-size: 16px; margin-top: 2px; }
+.odt-alert__title { font-weight: 600; color: #ff8a92; }
+.odt-stats { display: flex; flex-wrap: wrap; gap: 8px; }
+.odt-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: #131c31;
+  border: 1px solid #263352;
+}
+.odt-stat__v {
+  font-size: 15px;
+  font-weight: 600;
+  color: #e5eaf3;
+  font-variant-numeric: tabular-nums;
+}
+.odt-stat__v.is-accent { color: #67c23a; }
+.odt-stat__k { font-size: 11px; color: #8a93a6; }
+/* 键值对自适应列数：窄弹窗一列、4K 宽弹窗自动排到三四列 */
+.odt-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px 16px;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #131c31;
+  border: 1px solid #263352;
+}
+/* 卡片内嵌的字段：去掉底色和内边距，字号沿用外面那套 */
+.odt-facts--tight {
+  padding: 0;
+  background: transparent;
+  border: none;
+  gap: 6px 14px;
+}
+/* 出库明细：五项固定排一行（而不是 auto-fit 按宽度决定列数），
+   这样每条明细的同名字段在纵向也是对齐的，读起来接近表格。
+   包材卡片只有三项，仍走上面的 auto-fit，不能一起写死五列。 */
+.odt-facts--cols5 {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.odt-fact { min-width: 0; }
+.odt-fact dt { font-size: 11px; line-height: 1.4; color: #8a93a6; }
+.odt-fact dd {
+  margin: 2px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #e5eaf3;
+  word-break: break-word;
+}
+.odt-fact dd.odt-fact--alert { color: #f56c6c; }
+.odt-fact__note { color: #8a93a6; font-size: 12px; }
+/* 时间轴：五个节点等宽排一行，圆点之间连成一条轴，取到值的点亮。
+   连线不是一根横贯的长条，而是每个节点各画自己左右两个半段（::before / ::after），
+   相邻两半在格子边界处接上——这样节点数量变了不用改任何长度，
+   首尾两端把朝外的那半隐藏掉即可。 */
+.odt-timeline {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin: 0;
+  padding: 14px 14px 12px;
+  list-style: none;
+  border-radius: 8px;
+  background: #131c31;
+  border: 1px solid #263352;
+}
+.odt-tl {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 2px;
+  /* 给上方的圆点和轴线让出位置 */
+  padding: 20px 6px 0;
+  min-width: 0;
+}
+.odt-tl::before,
+.odt-tl::after {
+  content: '';
+  position: absolute;
+  top: 5px;
+  height: 2px;
+  background: #2a3446;
+}
+.odt-tl::before { left: 0; right: 50%; }
+.odt-tl::after { left: 50%; right: 0; }
+/* 两端不画朝外的半段，否则轴线会突出到容器边缘 */
+.odt-tl:first-child::before,
+.odt-tl:last-child::after { content: none; }
+/* 轴线：左半段看自己是否 reached，右半段看下一个节点是否 reached。
+   这样中间缺时间戳的节点也会被连上（后面还有数据 ⇒ 流程确实走过去了），
+   而进度真正停下的那一格只亮左半，断点位置依旧一目了然。 */
+.odt-tl.is-reached::before { background: #409eff; }
+.odt-tl.is-reached-next::after { background: #409eff; }
+.odt-tl__dot {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #131c31;
+  border: 2px solid #3a4e7a;
+  box-sizing: border-box;
+}
+/* 被跨过去的节点（自己没时间戳、但后面有）只点亮描边，中心留空，
+   一眼能看出这一步的时间是缺的，而不是流程没走到 */
+.odt-tl.is-reached .odt-tl__dot { border-color: #409eff; }
+.odt-tl.is-done .odt-tl__dot {
+  background: #409eff;
+  border-color: #409eff;
+  box-shadow: 0 0 0 3px rgba(64, 158, 255, 0.18);
+}
+.odt-tl__k { font-size: 11px; color: #8a93a6; }
+.odt-tl__v {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #5c6883;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+.odt-tl.is-done .odt-tl__v { color: #e5eaf3; }
+/* 标签页吃掉剩余高度，内容在页内滚动 —— 三个页签的内容长短差很多，
+   让它们各自撑开会使弹窗在切换时跳高跳矮。 */
+.odt-tabs {
+  flex: 1 1 auto;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+}
+.odt-tabs :deep(.el-tabs__header) { flex: 0 0 auto; margin-bottom: 12px; }
+.odt-tabs :deep(.el-tabs__content) { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.odt-tabs :deep(.el-tab-pane) { height: 100%; }
+.odt-tab-count {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: #263352;
+  color: #cbd5e1;
+  font-size: 11px;
+  line-height: 17px;
+  font-variant-numeric: tabular-nums;
+}
+/* 出库明细：一行一条，左边关联库存实拍图、右边字段 */
+.odt-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  overflow-y: auto;
+}
+.odt-line {
+  display: flex;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #131c31;
+  border: 1px solid #263352;
+}
+.odt-line.is-alert { border-color: rgba(245, 108, 108, 0.55); }
+/* 132 = 两列 63px + 6px 间距，配合最多 4 张，单行图片区封顶在 2×2 */
+.odt-line__imgs {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 132px;
+}
+.odt-line__img-cell {
+  position: relative;
+  width: 63px;
+  height: 63px;
+}
+.odt-line__img {
+  width: 100%;
+  height: 100%;
+  border-radius: 6px;
+  border: 1px solid #263352;
+  background: #0b1220;
+  cursor: zoom-in;
+}
+/* 盖在最后一格上；pointer-events:none 让点击照样落到下面的图上打开预览 */
+.odt-line__img-more {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.odt-line__noimg {
+  font-size: 11px;
+  line-height: 1.5;
+  color: #8a93a6;
+}
+.odt-line__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.odt-line__head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.odt-line__mid {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e5eaf3;
+  font-variant-numeric: tabular-nums;
+}
+.odt-line__name {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #cbd5e1;
+  word-break: break-word;
+}
+/* 商品说明：纯展示块，保留换行与可选中复制 */
+.odt-desc {
+  height: 100%;
+  overflow-y: auto;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #131c31;
+  border: 1px solid #263352;
+  color: #cbd5e1;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* 包材：卡片列表 + 底部一行「添加包装材料 / 合计」，与出库明细同一套卡片语言 */
+.odt-packaging {
+  height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.odt-pkg-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.odt-pkg {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #131c31;
+  border: 1px solid #263352;
+}
+.odt-pkg__img {
+  flex: 0 0 auto;
+  width: 64px;
+  height: 64px;
+  border-radius: 6px;
+  border: 1px solid #263352;
+  background: #0b1220;
+  cursor: zoom-in;
+}
+.odt-pkg__img--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+}
+.odt-pkg__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.odt-pkg__name {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: #e5eaf3;
+  word-break: break-word;
+}
+.odt-pkg__amount {
+  flex: 0 0 auto;
+  font-size: 16px;
+  font-weight: 700;
+  color: #e6a23c;
+  font-variant-numeric: tabular-nums;
+}
+/* 新增卡：虚线框，尺寸与上面的包材卡对齐（与店铺账号页的新增卡同一套做法） */
+.odt-pkg-add-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 86px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px dashed #3a4a65;
+  background: rgba(19, 28, 47, 0.85);
+  color: #a8b4c8;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+.odt-pkg-add-card:hover:not(:disabled) {
+  border-color: #409eff;
+  background: #1b2942;
+  color: #69b1ff;
+}
+.odt-pkg-add-card:disabled { cursor: not-allowed; opacity: 0.6; }
+.odt-pkg-add-card__icon { font-size: 20px; }
+/* 包材选择弹窗：卡片网格，点一张即登记。
+   这个弹窗 append-to-body（会被 teleport 走），所以只用挂在自己元素上的类名，
+   不要写 :deep(...) 开头的祖先选择器——teleport 之后没有 data-v 祖先可匹配。 */
+.pkg-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 2px;
+}
+.pkg-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid #263352;
+  background: #131c31;
+  cursor: pointer;
   text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
-/* 只读详情：字段文本不显示底色（禁用态输入框背景透明） */
-.order-edit-form--main :deep(.el-input.is-disabled .el-input__wrapper),
-.order-edit-form--main :deep(.el-textarea.is-disabled .el-textarea__inner) {
-  background-color: transparent;
+.pkg-pick:hover:not(:disabled) {
+  border-color: #409eff;
+  background: #17223c;
 }
-/* 时间字段：去掉输入框左侧的时钟/日历前缀图标 */
-.order-edit-form--main :deep(.order-row-plain--date .el-input__prefix) {
-  display: none;
+.pkg-pick:disabled { cursor: not-allowed; opacity: 0.6; }
+.pkg-pick__thumb {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+  border: 1px solid #263352;
+  background: #0b1220;
+  object-fit: cover;
+  display: block;
+}
+.pkg-pick__thumb--empty,
+.pkg-pick__thumb--none {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #8a93a6;
+  font-size: 22px;
+}
+.pkg-pick--none { border-style: dashed; }
+.pkg-pick__name {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #e5eaf3;
+  word-break: break-word;
+}
+.pkg-pick__meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: #8a93a6;
+  font-variant-numeric: tabular-nums;
+}
+.pkg-pick__price {
+  font-size: 13px;
+  font-weight: 700;
+  color: #e6a23c;
 }
 .order-conversation {
   flex: 0 0 360px;
   width: 360px;
-  align-self: stretch;
-  position: sticky;
-  top: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
   border-left: 1px solid var(--el-border-color-lighter);
@@ -411,9 +902,8 @@
   color: var(--el-text-color-primary);
 }
 .order-conversation-body {
-  flex: 1;
-  min-height: 120px;
-  max-height: 64vh;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
 }
 /* 对话消息气泡（与待办「处理」面板一致） */
@@ -488,30 +978,77 @@
   text-decoration: underline;
 }
 .order-conversation-reply {
+  position: relative;
   margin-top: 10px;
   border-top: 1px dashed var(--el-border-color-lighter);
   padding-top: 10px;
-  flex-shrink: 0;
+  flex: 0 0 auto;
 }
-.order-conversation-reply-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 8px;
+/* 给按钮腾出落脚的内边距，否则它会压在最后一行文字上 */
+.order-conversation-reply-input :deep(.el-textarea__inner) {
+  padding-bottom: 40px;
+}
+.order-conversation-reply-send {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+}
+/* 窄弹窗（或窄屏）下堆叠成单栏，对话面板落到信息下面。
+   弹窗高度仍然是固定的，此时改由外层整体滚动——单栏里再套两个各自滚动的区域没法用。 */
+@media (max-width: 1100px) {
+  .odt {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .odt-hero { grid-template-columns: 1fr; }
+  /* 五列横排在窄栏里放不下（日期会挤成三行），改成竖向轴：
+     圆点落在左侧，连线由横的半段转成竖的半段，接法不变。 */
+  .odt-timeline { grid-template-columns: minmax(0, 1fr); padding: 4px 14px; }
+  .odt-tl {
+    align-items: flex-start;
+    text-align: left;
+    flex-direction: row;
+    flex-wrap: wrap;
+    column-gap: 10px;
+    padding: 8px 0 8px 22px;
+  }
+  .odt-tl::before,
+  .odt-tl::after {
+    top: auto;
+    left: 5px;
+    right: auto;
+    width: 2px;
+    height: auto;
+  }
+  .odt-tl::before { top: 0; bottom: 50%; }
+  .odt-tl::after { top: 50%; bottom: 0; }
+  .odt-tl__dot { top: 50%; left: 0; transform: translate(0, -50%); }
+  /* 窄栏里五列会把每格压到 100px 以内，退回按宽度决定列数 */
+  .odt-facts--cols5 { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+  .odt-main {
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+  .odt-tabs { flex: 0 0 auto; min-height: 0; }
+  .odt-tabs :deep(.el-tabs__content) { overflow: visible; }
+  .odt-lines,
+  .odt-desc,
+  .odt-packaging {
+    height: auto;
+    max-height: 46vh;
+  }
+  .order-conversation {
+    flex: 0 0 auto;
+    width: 100%;
+    height: auto;
+    border-left: none;
+    border-top: 1px solid var(--el-border-color-lighter);
+    padding-left: 0;
+    padding-top: 12px;
+  }
+  .order-conversation-body { max-height: 50vh; }
 }
 
-.order-dialog-footer {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  width: 100%;
-}
-.order-dialog-footer-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-left: auto;
-}
 .manual-outbound-inv-filter-item :deep(.el-form-item__content) {
   flex: 1;
   min-width: 0;

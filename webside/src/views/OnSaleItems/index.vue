@@ -455,94 +455,186 @@
 
     <el-dialog
       v-model="detailViewVisible"
-      :title="t('onSaleItems.detailTitle')"
-      width="760px"
       class="on-sale-detail-dialog"
       destroy-on-close
       @closed="onDetailViewClosed"
     >
-      <div v-loading="detailViewLoading" class="detail-view-body">
+      <div v-loading="detailViewLoading" class="detail-view-body osd">
         <template v-if="detailViewBase">
-          <div class="detail-section-title">{{ t('onSaleItems.mercariSideInfo') }}</div>
-          <el-descriptions :column="2" border size="small" class="detail-desc">
-            <el-descriptions-item :label="t('onSaleItems.itemIdLabel')" :span="1">{{ detailViewBase.item_id || '-' }}</el-descriptions-item>
-            <el-descriptions-item :label="t('onSaleItems.statusColumn')" :span="1">
-              <el-tag :type="onSaleStatusTagType(detailViewBase.status)" size="small" effect="light">
-                {{ onSaleStatusLabel(detailViewBase.status) }}
-              </el-tag>
-            </el-descriptions-item>
-            <el-descriptions-item :label="t('onSaleItems.titleColumn')" :span="2">{{ detailViewBase.name || '-' }}</el-descriptions-item>
-            <el-descriptions-item :label="t('onSaleItems.priceJpy')" :span="1">{{ Number(detailViewBase.price || 0) }}</el-descriptions-item>
-            <el-descriptions-item :label="t('onSaleItems.seller')" :span="1">
-              {{ detailViewBase.seller_name || '-' }}
-              <span v-if="detailViewBase.seller_id" class="cell-muted">（{{ detailViewBase.seller_id }}）</span>
-            </el-descriptions-item>
-            <el-descriptions-item :label="t('onSaleItems.mercariUpdated')" :span="1">{{ displayTs(detailViewBase.updated) }}</el-descriptions-item>
-            <el-descriptions-item :label="t('onSaleItems.localSynced')" :span="1">{{ displayTs(detailViewBase.synced_at) }}</el-descriptions-item>
-            <el-descriptions-item :label="t('onSaleItems.shippingDuration')" :span="1">{{ detailViewBase.shipping_duration_name || '-' }}</el-descriptions-item>
-            <el-descriptions-item :label="t('onSaleItems.shippingPayerLabel')" :span="1">{{ detailViewBase.shipping_payer_name || '-' }}</el-descriptions-item>
-          </el-descriptions>
-
-          <div class="detail-section-title">{{ t('onSaleItems.listingDescription') }}</div>
-          <div v-if="detailListingBodyText" class="detail-listing-body-wrap">
-            <el-input
-              type="textarea"
-              :model-value="detailListingBodyText"
-              readonly
-              :autosize="{ minRows: 10, maxRows: 22 }"
-            />
-          </div>
-          <el-empty v-else :description="t('onSaleItems.descEmpty')" :image-size="48" />
-
-          <div class="detail-section-title">{{ t('onSaleItems.linkedProductImages') }}</div>
-          <div v-if="detailLinkedImageGroups.length" class="detail-img-groups">
-            <div v-for="grp in detailLinkedImageGroups" :key="grp.management_id" class="detail-img-group">
-              <div class="detail-img-group__label">
-                {{ t('onSaleItems.mgmtIdLabel') }}: {{ grp.management_id }}
-                <span v-if="grp.inventory_name" class="cell-muted">（{{ grp.inventory_name }}）</span>
-              </div>
-              <div class="detail-img-group__list">
+          <!-- 上半：左图廊 / 右概要。窄屏（或窄弹窗）下自动堆叠成单栏 -->
+          <div class="osd-hero">
+            <!-- 图廊：出品图 + 关联库存实拍图合成一条。主图上左右切换，下方缩略条点选 -->
+            <div class="osd-gallery">
+              <div class="osd-gallery__main">
                 <el-image
-                  v-for="(img, idx) in grp.images"
-                  :key="idx"
-                  class="detail-linked-img"
-                  :src="img.thumb"
-                  :preview-src-list="grp.previewList"
-                  :initial-index="idx"
-                  fit="cover"
+                  v-if="detailGalleryCurrent"
+                  :src="detailGalleryCurrent.big"
+                  :preview-src-list="detailGalleryPreviewList"
+                  :initial-index="gallerySafeIndex"
+                  fit="contain"
                   preview-teleported
                   hide-on-click-modal
                   :z-index="4000"
                   referrerpolicy="no-referrer"
-                  lazy
                 >
                   <template #error><span class="thumb-fallback">-</span></template>
                 </el-image>
+                <span v-else class="thumb-fallback">{{ t('onSaleItems.noListingImages') }}</span>
+                <template v-if="detailGalleryImages.length > 1">
+                  <button
+                    type="button"
+                    class="osd-gallery__nav osd-gallery__nav--prev"
+                    @click.stop="stepGallery(-1)"
+                  >
+                    <el-icon><ArrowLeft /></el-icon>
+                  </button>
+                  <button
+                    type="button"
+                    class="osd-gallery__nav osd-gallery__nav--next"
+                    @click.stop="stepGallery(1)"
+                  >
+                    <el-icon><ArrowRight /></el-icon>
+                  </button>
+                  <span class="osd-gallery__counter">
+                    {{ gallerySafeIndex + 1 }} / {{ detailGalleryImages.length }}
+                  </span>
+                </template>
+              </div>
+              <div v-if="detailGalleryImages.length > 1" ref="galleryStripRef" class="osd-strip">
+                <button
+                  v-for="(img, idx) in detailGalleryImages"
+                  :key="idx"
+                  type="button"
+                  class="osd-strip__item"
+                  :class="{ 'is-active': idx === gallerySafeIndex }"
+                  @click="detailImageIndex = idx"
+                >
+                  <img :src="img.thumb" alt="" referrerpolicy="no-referrer" />
+                </button>
+              </div>
+            </div>
+
+            <div class="osd-summary">
+              <div class="osd-chips">
+                <el-tag :type="platformTagType(detailViewBase)" size="small" effect="dark">
+                  {{ platformLabel(detailViewBase) }}
+                </el-tag>
+                <el-tag :type="onSaleStatusTagType(detailViewBase.status)" size="small" effect="dark">
+                  {{ onSaleStatusLabel(detailViewBase.status) }}
+                </el-tag>
+                <el-tag v-if="detailIsAuction" size="small" type="info" effect="plain">
+                  {{ t('onSaleItems.auction') }}
+                </el-tag>
+              </div>
+
+              <div class="osd-title">{{ detailViewBase.name || '-' }}</div>
+              <div class="osd-price">¥{{ Number(detailViewBase.price || 0).toLocaleString('ja-JP') }}</div>
+
+              <!-- 标红原因原先只在列表悬停 tooltip 里能看到，详情页直接摊开 -->
+              <div v-if="isOnSaleAlertRow(detailViewBase)" class="osd-alert">
+                <el-icon><WarningFilled /></el-icon>
+                <div>
+                  <div class="osd-alert__title">{{ t('onSaleItems.alertReasonTitle') }}</div>
+                  <div v-for="(reason, i) in onSaleAlertReasons(detailViewBase)" :key="i">{{ reason }}</div>
+                </div>
+              </div>
+
+              <div class="osd-perf">
+                <div class="osd-perf__title">{{ t('onSaleItems.infoGroupPerformance') }}</div>
+                <div class="osd-stats">
+                  <div v-for="s in detailPerfStats" :key="s.label" class="osd-stat">
+                    <span class="osd-stat__v">{{ s.value }}</span>
+                    <span class="osd-stat__k">{{ s.label }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <dl class="osd-facts">
+                <div class="osd-fact">
+                  <dt>{{ t('onSaleItems.itemIdLabel') }}</dt>
+                  <dd>{{ detailViewBase.item_id || '-' }}</dd>
+                </div>
+                <div class="osd-fact">
+                  <dt>{{ t('onSaleItems.seller') }}</dt>
+                  <dd>{{ detailViewBase.seller_name || '-' }}</dd>
+                </div>
+                <div class="osd-fact">
+                  <dt>{{ t('onSaleItems.shippingDuration') }}</dt>
+                  <dd>{{ detailViewBase.shipping_duration_name || '-' }}</dd>
+                </div>
+                <div class="osd-fact">
+                  <dt>{{ t('onSaleItems.shippingPayerLabel') }}</dt>
+                  <dd>{{ detailViewBase.shipping_payer_name || '-' }}</dd>
+                </div>
+                <div class="osd-fact">
+                  <dt>{{ t('onSaleItems.mercariUpdated') }}</dt>
+                  <dd>{{ displayTs(detailViewBase.updated) }}</dd>
+                </div>
+                <div class="osd-fact">
+                  <dt>{{ t('onSaleItems.localSynced') }}</dt>
+                  <dd>{{ displayTs(detailViewBase.synced_at) }}</dd>
+                </div>
+              </dl>
+
+              <!-- 出品信息：接在关键字段卡下面，填满概要栏 -->
+              <dl class="osd-facts">
+                <div v-for="it in detailListingFacts" :key="it.label" class="osd-fact">
+                  <dt>{{ it.label }}</dt>
+                  <dd>{{ it.value }}</dd>
+                </div>
+              </dl>
+            </div>
+          </div>
+
+          <!-- 下半：商品信息。左栏放库存侧（绑定字段 + 关联明细），右栏整块留给商品说明 -->
+          <div class="osd-info">
+            <div class="osd-info__heading">{{ t('onSaleItems.infoTab') }}</div>
+
+            <div class="osd-info__cols">
+              <div class="osd-info__col">
+                <section class="osd-info__group osd-info__group--desc">
+                  <div class="osd-info__title">{{ t('onSaleItems.listingDescription') }}</div>
+                  <div v-if="detailListingBodyText" class="osd-desc">{{ detailListingBodyText }}</div>
+                  <el-empty v-else :description="t('onSaleItems.descEmpty')" :image-size="48" />
+                </section>
+              </div>
+
+              <div class="osd-info__col">
+                <section v-if="detailAuctionInfoText" class="osd-info__group">
+                  <div class="osd-info__title">{{ t('onSaleItems.auctionInfo') }}</div>
+                  <pre class="osd-pre">{{ detailAuctionInfoText }}</pre>
+                </section>
+
+                <section class="osd-info__group">
+                  <div class="osd-info__title">
+                    {{ t('onSaleItems.linkedInventoryDetail') }}
+                    <span v-if="detailInventoryLines.length" class="osd-info__count">{{ detailInventoryLines.length }}</span>
+                  </div>
+                  <div v-if="detailInventoryLines.length" class="osd-inv-cards">
+                    <div v-for="(ln, idx) in detailInventoryLines" :key="idx" class="osd-inv-card">
+                      <div class="osd-inv-card__head">
+                        <span class="osd-inv-card__id">#{{ ln.management_id }}</span>
+                        <div class="osd-inv-card__tags">
+                          <el-tag size="small" effect="plain">
+                            {{ t('onSaleItems.inventoryQuantity') }} {{ ln.quantity ?? 0 }}
+                          </el-tag>
+                          <el-tag size="small" effect="plain" type="warning">
+                            {{ t('onSaleItems.onSaleQuantity') }} {{ ln.on_sale_quantity ?? 0 }}
+                          </el-tag>
+                        </div>
+                      </div>
+                      <div class="osd-inv-card__name">{{ ln.inventory_name || '-' }}</div>
+                      <div class="osd-inv-card__meta">
+                        <span class="osd-inv-card__k">{{ t('onSaleItems.location') }}</span>
+                        <span class="osd-inv-card__v">{{ ln.location || '-' }}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <el-empty v-else :description="t('onSaleItems.invLinesEmpty')" :image-size="56" />
+                </section>
               </div>
             </div>
           </div>
-          <el-empty v-else :description="t('onSaleItems.noLinkedImages')" :image-size="48" />
-
-          <div class="detail-section-title">{{ t('onSaleItems.linkedInventoryDetail') }}</div>
-          <el-table
-            v-if="detailInventoryLines.length"
-            :data="detailInventoryLines"
-            border
-            stripe
-            size="small"
-            max-height="320"
-            class="detail-inv-table"
-          >
-            <el-table-column prop="management_id" :label="t('onSaleItems.mgmtIdLabel')" width="100" align="center" />
-            <el-table-column prop="barcode" :label="t('onSaleItems.barcode')" min-width="140" show-overflow-tooltip />
-            <el-table-column prop="inventory_name" :label="t('onSaleItems.inventoryName')" min-width="160" show-overflow-tooltip />
-            <el-table-column prop="location" :label="t('onSaleItems.location')" min-width="140" show-overflow-tooltip />
-            <el-table-column prop="quantity" :label="t('onSaleItems.inventoryQuantity')" width="88" align="center">
-              <template #default="{ row: r }">{{ r.quantity ?? 0 }}</template>
-            </el-table-column>
-            <el-table-column prop="on_sale_quantity" :label="t('onSaleItems.onSaleQuantity')" width="88" align="center" />
-          </el-table>
-          <el-empty v-else :description="t('onSaleItems.invLinesEmpty')" :image-size="56" />
         </template>
       </div>
       <template #footer>
@@ -563,7 +655,6 @@
             </el-tooltip>
           </div>
           <div class="detail-footer__right">
-            <el-button @click="detailViewVisible = false">{{ t('common.close') }}</el-button>
             <el-tooltip v-if="detailViewBase && detailIsStopped" :disabled="!syncLockStore.locked" :content="syncLockStore.label" placement="top">
               <span>
                 <el-button
@@ -679,61 +770,95 @@
     <el-dialog
       v-model="reviseDialogVisible"
       :title="t('onSaleItems.reviseDialogTitle')"
-      width="600px"
       append-to-body
       destroy-on-close
       class="on-sale-revise-dialog"
     >
-      <el-form label-width="110px" class="on-sale-revise-form">
-        <el-form-item :label="t('onSaleItems.titleColumn')">
-          <el-input
-            v-model="reviseForm.name"
-            type="textarea"
-            :rows="2"
-            resize="none"
-            maxlength="80"
-            show-word-limit
-            style="width: 100%"
-          />
-        </el-form-item>
-        <el-form-item :label="t('onSaleItems.listingDescriptionEdit')">
-          <el-input
-            v-model="reviseForm.listing_description"
-            type="textarea"
-            :autosize="{ minRows: 6, maxRows: 18 }"
-            maxlength="900"
-            show-word-limit
-          />
-        </el-form-item>
-        <el-form-item :label="t('onSaleItems.priceLabel')">
-          <el-input-number
-            v-model="reviseForm.price"
-            :min="0"
-            :precision="0"
-            :controls="false"
-            style="width: 100%"
-          />
-        </el-form-item>
-        <!-- 运费负担 / 发货地区：暂时屏蔽（保留代码，仅隐藏 UI 选项） -->
-        <el-form-item v-if="false" :label="t('onSaleItems.shippingPayerLabel')">
-          <el-select v-model="reviseForm.shipping_payer" :placeholder="t('onSaleItems.keepUnchanged')" clearable style="width: 100%">
-            <el-option v-for="o in shippingPayerEditOptions" :key="o.value" :label="o.label" :value="o.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="false" :label="t('onSaleItems.shippingFromAreaLabel')">
-          <el-select v-model="reviseForm.shipping_from_area_id" :placeholder="t('onSaleItems.keepUnchanged')" clearable filterable style="width: 100%">
-            <el-option v-for="o in shippingFromAreaOptions" :key="o.value" :label="o.label" :value="o.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="t('onSaleItems.shippingDuration')">
-          <el-select v-model="reviseForm.shipping_duration" :placeholder="t('onSaleItems.keepUnchanged')" clearable style="width: 100%">
-            <el-option v-for="o in shippingDurationEditOptions" :key="o.value" :label="o.label" :value="o.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="reviseDescCipher" :label="t('onSaleItems.secretCodeLabel')">
-          <el-input :model-value="reviseDescCipher" disabled />
-        </el-form-item>
-      </el-form>
+      <div class="osr">
+        <!-- 改的是哪一件：原来的表单里完全看不出来，只能靠记忆 -->
+        <div v-if="detailViewBase" class="osr-context">
+          <div class="osr-context__thumb">
+            <img
+              v-if="firstThumb(detailViewBase)"
+              :src="firstThumb(detailViewBase)"
+              alt=""
+              referrerpolicy="no-referrer"
+            />
+            <span v-else class="thumb-fallback">-</span>
+          </div>
+          <div class="osr-context__main">
+            <div class="osr-context__name">{{ detailViewBase.name || '-' }}</div>
+            <div class="osr-context__meta">
+              <span>{{ detailViewBase.item_id }}</span>
+              <span class="osr-context__price">
+                ¥{{ Number(detailViewBase.price || 0).toLocaleString('ja-JP') }}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <el-form label-position="top" class="on-sale-revise-form">
+          <el-form-item :label="t('onSaleItems.titleColumn')">
+            <el-input
+              v-model="reviseForm.name"
+              type="textarea"
+              :rows="2"
+              resize="none"
+              maxlength="40"
+              show-word-limit
+            />
+          </el-form-item>
+
+          <el-form-item :label="t('onSaleItems.listingDescriptionEdit')">
+            <el-input
+              v-model="reviseForm.listing_description"
+              type="textarea"
+              :autosize="{ minRows: 8, maxRows: 16 }"
+              maxlength="900"
+              show-word-limit
+            />
+          </el-form-item>
+
+          <!-- 末行暗码：只读展示，不再占一个输入框的位置 -->
+          <div v-if="reviseDescCipher" class="osr-cipher">
+            <span class="osr-cipher__k">{{ t('onSaleItems.secretCodeLabel') }}</span>
+            <code class="osr-cipher__v">{{ reviseDescCipher }}</code>
+            <span class="revise-cipher-hint">{{ t('onSaleItems.secretCodeHint') }}</span>
+          </div>
+
+          <div class="osr-grid">
+            <el-form-item :label="t('onSaleItems.priceLabel')">
+              <el-input-number
+                v-model="reviseForm.price"
+                :min="0"
+                :precision="0"
+                :controls="false"
+              />
+            </el-form-item>
+            <el-form-item :label="t('onSaleItems.shippingDuration')">
+              <el-select
+                v-model="reviseForm.shipping_duration"
+                :placeholder="t('onSaleItems.keepUnchanged')"
+                clearable
+              >
+                <el-option v-for="o in shippingDurationEditOptions" :key="o.value" :label="o.label" :value="o.value" />
+              </el-select>
+            </el-form-item>
+          </div>
+
+          <!-- 运费负担 / 发货地区：暂时屏蔽（保留代码，仅隐藏 UI 选项） -->
+          <el-form-item v-if="false" :label="t('onSaleItems.shippingPayerLabel')">
+            <el-select v-model="reviseForm.shipping_payer" :placeholder="t('onSaleItems.keepUnchanged')" clearable>
+              <el-option v-for="o in shippingPayerEditOptions" :key="o.value" :label="o.label" :value="o.value" />
+            </el-select>
+          </el-form-item>
+          <el-form-item v-if="false" :label="t('onSaleItems.shippingFromAreaLabel')">
+            <el-select v-model="reviseForm.shipping_from_area_id" :placeholder="t('onSaleItems.keepUnchanged')" clearable filterable>
+              <el-option v-for="o in shippingFromAreaOptions" :key="o.value" :label="o.label" :value="o.value" />
+            </el-select>
+          </el-form-item>
+        </el-form>
+      </div>
       <template #footer>
         <el-button @click="reviseDialogVisible = false">{{ t('common.cancel') }}</el-button>
         <el-button type="primary" :loading="reviseSaving" @click="submitReviseDetail">
