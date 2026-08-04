@@ -451,18 +451,39 @@ export default defineComponent({
       price: 0,
       description: ''
     })
-    /** 拆分商品弹窗 */
+    /** 拆分 / 复制商品弹窗。
+     *  两者都是「照着这条商品派生出一个新管理番号」，要填的东西（归属 + 数量）和版式一模一样，
+     *  只有数量的来路不同：拆分把来源的货挪过去、来源等额减少，复制是这次新到的货、来源不动。
+     *  所以共用一个弹窗，由 splitDialogMode 决定文案、数量上限和提交到哪个接口。 */
     const splitDialogVisible = ref(false)
+    /** 'split' | 'copy' */
+    const splitDialogMode = ref('split')
     const splitSubmitting = ref(false)
     const splitSourceId = ref(null)
     const splitSourceName = ref('')
     const splitSourceQuantity = ref(0)
-    /** 拆分数量上限：被组合引用时为「可上数量」，否则为全部库存 */
+    /** 拆分数量上限：被组合引用时为「可上数量」，否则为全部库存。复制不扣来源，只留一个兜底上限 */
     const splitMaxQuantity = ref(0)
+    const COPY_MAX_QUANTITY = 9999
     const splitForm = ref({
       owner_user_id: null,
       split_quantity: 0
     })
+    const splitIsCopy = computed(() => splitDialogMode.value === 'copy')
+    const splitDialogHeading = computed(() =>
+      splitIsCopy.value ? t('inventory.copyDialogTitle') : t('inventory.splitDialogTitle')
+    )
+    const splitQuantityLabel = computed(() =>
+      splitIsCopy.value ? t('inventory.copyQuantity') : t('inventory.splitQuantity')
+    )
+    const splitQuantityHintText = computed(() =>
+      splitIsCopy.value
+        ? t('inventory.copyQuantityHint')
+        : t('inventory.splitQuantityHint', { max: splitMaxQuantity.value })
+    )
+    const splitConfirmText = computed(() =>
+      splitIsCopy.value ? t('inventory.confirmCopy') : t('inventory.confirmSplit')
+    )
     const splitCanSubmit = computed(() => {
       const qty = Number(splitForm.value.split_quantity ?? 0)
       if (!Number.isFinite(qty) || qty < 0) return false
@@ -476,6 +497,7 @@ export default defineComponent({
         ElMessage.warning(t('inventory.splitCombinedForbidden'))
         return
       }
+      splitDialogMode.value = 'split'
       splitSourceId.value = row.id
       splitSourceName.value = row.name || ''
       splitSourceQuantity.value = Number(row.quantity ?? 0)
@@ -490,7 +512,27 @@ export default defineComponent({
       splitDialogVisible.value = true
     }
 
-    async function submitSplit() {
+    function openCopyDialog(row) {
+      if (!row || !row.id) return
+      // 组合商品的构成明细不在复制范围内，照抄出来会是个引用着别人库存却没有预留的空壳
+      if (Number(row.is_combined || 0) === 1) {
+        ElMessage.warning(t('inventory.copyCombinedForbidden'))
+        return
+      }
+      splitDialogMode.value = 'copy'
+      splitSourceId.value = row.id
+      splitSourceName.value = row.name || ''
+      splitSourceQuantity.value = Number(row.quantity ?? 0)
+      splitMaxQuantity.value = COPY_MAX_QUANTITY
+      splitForm.value = {
+        owner_user_id: null,
+        // 复制是「新到了货」，默认按 1 件起，省掉最常见的一次输入
+        split_quantity: 1
+      }
+      splitDialogVisible.value = true
+    }
+
+    async function submitSplitOrCopy() {
       if (!splitSourceId.value) return
       const qty = Math.max(0, Math.round(Number(splitForm.value.split_quantity ?? 0)))
       if (qty > Number(splitMaxQuantity.value || 0)) {
@@ -503,12 +545,20 @@ export default defineComponent({
       }
       splitSubmitting.value = true
       try {
-        const res = await inventoryApi.split(splitSourceId.value, {
-          owner_user_id: splitForm.value.owner_user_id,
-          split_quantity: qty
-        })
+        const isCopy = splitIsCopy.value
+        const res = isCopy
+          ? await inventoryApi.copy(splitSourceId.value, {
+            owner_user_id: splitForm.value.owner_user_id,
+            quantity: qty
+          })
+          : await inventoryApi.split(splitSourceId.value, {
+            owner_user_id: splitForm.value.owner_user_id,
+            split_quantity: qty
+          })
         const newId = res?.id ?? ''
-        ElMessage.success(t('inventory.splitSuccess', { id: newId }))
+        ElMessage.success(
+          t(isCopy ? 'inventory.copySuccess' : 'inventory.splitSuccess', { id: newId })
+        )
         splitDialogVisible.value = false
         dialogVisible.value = false
         await load({ resetPage: false })
@@ -4643,8 +4693,13 @@ export default defineComponent({
       splitMaxQuantity,
       splitForm,
       splitCanSubmit,
+      splitDialogHeading,
+      splitQuantityLabel,
+      splitQuantityHintText,
+      splitConfirmText,
       openSplitDialog,
-      submitSplit,
+      openCopyDialog,
+      submitSplitOrCopy,
       listingPickMode,
       listingPickIds,
       listingCategoryMappings,

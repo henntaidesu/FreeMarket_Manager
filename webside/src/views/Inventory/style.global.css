@@ -30,6 +30,18 @@
   max-width: 100%;
 }
 
+/* 库存数量最多一两位，定宽压掉数字右边的空白；表单项本身 flex:0 0 auto，
+   于是「库存数量 / Stock quantity」这行标签仍能撑开它，不会被截成两行 */
+.product-dialog .product-qty-input {
+  width: 64px !important;
+}
+
+/* 所属货架显示「仓库-货架名-货架号」完整路径，级联选择器内部的 .el-input 得跟着
+   表单项宽度走，停在全局那条 180px 上会把路径截掉 */
+.product-dialog .pef-shelf-cascader .el-input {
+  width: 100% !important;
+}
+
 .inventory-inline-select {
   width: 100% !important;
 }
@@ -307,6 +319,72 @@
   flex: 0 0 auto;
 }
 
+/* ---- 拆分商品弹窗 ----
+   这个弹窗 append-to-body，被 teleport 到 <body> 之外，Inventory 组件的 :deep() 规则
+   （祖先带 data-v）够不着，样式一律写在这里 */
+/* 弹窗 body 是 display:flex，整块内容必须收在一个子元素里，否则信息带与表单会左右并列 */
+.split-dialog-body {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+}
+/* 只读的拆分源信息带：管理番号 + 商品名一行，当前库存一枚 tag */
+.split-source {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  margin-bottom: 14px;
+  border: 1px solid #263352;
+  border-radius: 8px;
+  background: #0b1220;
+}
+.split-source__main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.split-source__id {
+  font-size: 12px;
+  color: #94a3b8;
+}
+.split-source__name {
+  margin-top: 2px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #e6edf7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 目标归属与拆分数量并排；480px 的弹窗放得下，窄屏再各自换行 */
+.split-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  column-gap: 12px;
+}
+.split-form-row > .el-form-item {
+  margin-bottom: 0;
+}
+.split-field--owner {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+/* 数量栏按「输入框 + 上限提示」的自身宽度走，不跟着归属栏一起拉长 */
+.split-field--qty {
+  flex: 0 0 auto;
+}
+/* 覆盖 App.vue 的 `.el-select{width:180px!important}`，让下拉吃满归属栏 */
+.split-product-form .split-owner-select {
+  width: 100% !important;
+}
+/* 拆分上限最多也就几件，去掉箭头后宽度按三位数留。
+   内层 .el-input 也要一起写死：它挂着全局那条 180px !important，光收窄外层
+   .el-input-number 只会让里面的输入框顶出去 */
+.split-product-form .split-quantity-input,
+.split-product-form .split-quantity-input .el-input {
+  width: 72px !important;
+}
 .split-product-form .split-quantity-hint {
   margin-left: 10px;
   color: #94a3b8;

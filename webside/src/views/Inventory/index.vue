@@ -704,57 +704,57 @@
             <!-- 组合商品过去不显示这一栏（旧三栏布局挤不下），可组合商品建档时是能带
                  warehouse_id 的，藏起来就变成「建得进、看不到、改不了」。现在字段会自动
                  换行，没有再藏的理由。
-                 所属货架独占一行，四个只读计数接在它的下拉框右边。 -->
+                 紧跟在库存数量右边，并显示「仓库-货架名-货架号」完整路径：只显示末级的
+                 货架号（"01"、"A-3"）在多个仓库里会重复，光看选中值分不出是哪个仓库的。 -->
             <el-form-item
               class="pef-field--shelf"
               :label="t('inventory.belongingShelf')"
               prop="warehouse_id"
             >
-              <div class="pef-shelf-line">
-                <!-- 同上：不用叉号，改用带「默认仓库」节点的选项表回到未分配货位 -->
-                <el-cascader
-                  v-model="warehouseCascaderPath"
-                  :options="warehouseCascaderOptionsWithDefault"
-                  :props="warehouseCascaderProps"
-                  :show-all-levels="false"
-                  :placeholder="t('inventory.warehouseShelfArrowPlaceholder')"
-                  class="pef-shelf-cascader"
-                  popper-class="product-type-cascader-popper"
-                  @change="handleWarehouseCascaderChange"
-                />
-                <!-- 配色与列表页同名列一一对应：
-                     在售=中性，待出>0=警告，组合>0=信息，可上=超卖红/有货绿/无货灰 -->
-                <div class="pef-stats">
-                  <div class="pef-stat">
-                    <span class="pef-stat__v">{{ Number(form.on_sale_quantity || 0) }}</span>
-                    <span class="pef-stat__k">{{ t('inventory.onSaleQuantity') }}</span>
-                  </div>
-                  <div
-                    class="pef-stat"
-                    :class="Number(form.pending_outbound_qty || 0) > 0 ? 'pef-stat--warning' : 'pef-stat--muted'"
-                  >
-                    <span class="pef-stat__v">{{ Number(form.pending_outbound_qty || 0) }}</span>
-                    <span class="pef-stat__k">{{ t('inventory.pendingOutboundQuantity') }}</span>
-                  </div>
-                  <div
-                    class="pef-stat"
-                    :class="Number(form.combined_quantity || 0) > 0 ? 'pef-stat--info' : 'pef-stat--muted'"
-                  >
-                    <span class="pef-stat__v">{{ Number(form.combined_quantity || 0) }}</span>
-                    <span class="pef-stat__k">{{ t('inventory.combinedQuantityLabel') }}</span>
-                  </div>
-                  <div
-                    class="pef-stat"
-                    :class="isInventoryOverListed(form)
-                      ? 'pef-stat--danger'
-                      : (listableQuantity(form) > 0 ? 'pef-stat--success' : 'pef-stat--muted')"
-                  >
-                    <span class="pef-stat__v">{{ listableQuantity(form) }}</span>
-                    <span class="pef-stat__k">{{ t('inventory.listableQuantityLabel') }}</span>
-                  </div>
-                </div>
-              </div>
+              <!-- 同上：不用叉号，改用带「默认仓库」节点的选项表回到未分配货位 -->
+              <el-cascader
+                v-model="warehouseCascaderPath"
+                :options="warehouseCascaderOptionsWithDefault"
+                :props="warehouseCascaderProps"
+                separator="-"
+                :placeholder="t('inventory.warehouseShelfArrowPlaceholder')"
+                class="pef-shelf-cascader"
+                popper-class="product-type-cascader-popper"
+                @change="handleWarehouseCascaderChange"
+              />
             </el-form-item>
+            <!-- 四个只读计数接在货架右边，放不下时整组换到下一行。
+                 配色与列表页同名列一一对应：
+                 在售=中性，待出>0=警告，组合>0=信息，可上=超卖红/有货绿/无货灰 -->
+            <div class="pef-stats">
+              <div class="pef-stat">
+                <span class="pef-stat__v">{{ Number(form.on_sale_quantity || 0) }}</span>
+                <span class="pef-stat__k">{{ t('inventory.onSaleQuantity') }}</span>
+              </div>
+              <div
+                class="pef-stat"
+                :class="Number(form.pending_outbound_qty || 0) > 0 ? 'pef-stat--warning' : 'pef-stat--muted'"
+              >
+                <span class="pef-stat__v">{{ Number(form.pending_outbound_qty || 0) }}</span>
+                <span class="pef-stat__k">{{ t('inventory.pendingOutboundQuantity') }}</span>
+              </div>
+              <div
+                class="pef-stat"
+                :class="Number(form.combined_quantity || 0) > 0 ? 'pef-stat--info' : 'pef-stat--muted'"
+              >
+                <span class="pef-stat__v">{{ Number(form.combined_quantity || 0) }}</span>
+                <span class="pef-stat__k">{{ t('inventory.combinedQuantityLabel') }}</span>
+              </div>
+              <div
+                class="pef-stat"
+                :class="isInventoryOverListed(form)
+                  ? 'pef-stat--danger'
+                  : (listableQuantity(form) > 0 ? 'pef-stat--success' : 'pef-stat--muted')"
+              >
+                <span class="pef-stat__v">{{ listableQuantity(form) }}</span>
+                <span class="pef-stat__k">{{ t('inventory.listableQuantityLabel') }}</span>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -946,6 +946,15 @@
               size="default"
               @click="openSplitDialog(form)"
             >{{ t('inventory.split') }}</el-button>
+            <!-- 复制：同一份商品资料再开一个管理番号，但来源库存不动——新到的货沿用旧资料时用它，
+                 拆分是把已有的货挪出去，两件事 -->
+            <el-button
+              v-if="form.id && Number(form.is_combined || 0) !== 1"
+              type="primary"
+              plain
+              size="default"
+              @click="openCopyDialog(form)"
+            >{{ t('inventory.copyProduct') }}</el-button>
             <!-- 出品已改为提交任务队列：不受全局同步锁阻挡；可上架为 0 时仍禁用（后端亦会二次把关） -->
             <el-tooltip
               v-if="form.id"
@@ -1600,73 +1609,70 @@
       </template>
     </el-dialog>
 
+    <!-- 拆分与复制共用这一个弹窗：要填的东西完全一样，只有数量的来路不同（见 script.js） -->
     <el-dialog
       v-model="splitDialogVisible"
-      :title="t('inventory.splitDialogTitle')"
+      :title="splitDialogHeading"
       :width="isMobile ? '94vw' : '480px'"
       append-to-body
       destroy-on-close
       class="product-dialog"
     >
-      <el-form :model="splitForm" label-width="112px" class="split-product-form">
-        <el-form-item :label="t('inventory.managementId')">
-          <el-input
-            :model-value="splitSourceId != null ? String(splitSourceId) : ''"
-            readonly
-            disabled
-          />
-        </el-form-item>
-        <el-form-item :label="t('inventory.productNameCol')">
-          <el-input
-            :model-value="splitSourceName || ''"
-            readonly
-            disabled
-          />
-        </el-form-item>
-        <el-form-item :label="t('inventory.currentStock')">
-          <el-input
-            :model-value="String(splitSourceQuantity)"
-            readonly
-            disabled
-          />
-        </el-form-item>
-        <el-form-item :label="t('inventory.splitTargetOwner')" required>
-          <el-select
-            v-model="splitForm.owner_user_id"
-            :placeholder="t('inventory.pleaseSelectOwner')"
-            clearable
-            style="width: 100%"
-          >
-            <el-option
-              v-for="u in ownerUsers"
-              :key="u.id"
-              :label="u.display_name || u.username"
-              :value="u.id"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="t('inventory.splitQuantity')" required>
-          <el-input-number
-            v-model="splitForm.split_quantity"
-            :min="0"
-            :max="splitMaxQuantity"
-            :step="1"
-            controls-position="right"
-            style="width: 160px"
-          />
-          <span class="split-quantity-hint">
-            {{ t('inventory.splitQuantityHint', { max: splitMaxQuantity }) }}
-          </span>
-        </el-form-item>
-      </el-form>
+      <!-- 单独包一层：`.product-dialog .el-dialog__body` 是 display:flex，
+           信息带和表单直接并列会被排成左右两栏 -->
+      <div class="split-dialog-body">
+        <!-- 拆分源（管理番号 / 商品名 / 当前库存）是纯只读信息，过去是三个 disabled 输入框，
+             各占一整行，看着像能填、点下去又填不了。压成一条信息带，真正要填的只剩下面两栏 -->
+        <div class="split-source">
+          <div class="split-source__main">
+            <div class="split-source__id">{{ t('inventory.mgmtPrefix') }} {{ splitSourceId ?? '-' }}</div>
+            <div class="split-source__name">{{ splitSourceName || '-' }}</div>
+          </div>
+          <el-tag type="info" size="small">
+            {{ t('inventory.currentStockPieces', { qty: splitSourceQuantity }) }}
+          </el-tag>
+        </div>
+        <el-form :model="splitForm" label-position="top" class="split-product-form">
+          <div class="split-form-row">
+            <el-form-item class="split-field--owner" :label="t('inventory.splitTargetOwner')" required>
+              <el-select
+                v-model="splitForm.owner_user_id"
+                :placeholder="t('inventory.pleaseSelectOwner')"
+                clearable
+                class="split-owner-select"
+              >
+                <el-option
+                  v-for="u in ownerUsers"
+                  :key="u.id"
+                  :label="u.display_name || u.username"
+                  :value="u.id"
+                />
+              </el-select>
+            </el-form-item>
+            <el-form-item class="split-field--qty" :label="splitQuantityLabel" required>
+              <!-- 上下箭头占掉的那截宽度对一个上限只有几件的数字没有意义，:controls=false
+                   去掉按钮的同时也把 wrapper 的右内边距收回来 -->
+              <el-input-number
+                v-model="splitForm.split_quantity"
+                :min="0"
+                :max="splitMaxQuantity"
+                :step="1"
+                :controls="false"
+                class="split-quantity-input"
+              />
+              <span class="split-quantity-hint">{{ splitQuantityHintText }}</span>
+            </el-form-item>
+          </div>
+        </el-form>
+      </div>
       <template #footer>
         <el-button @click="splitDialogVisible = false">{{ t('common.cancel') }}</el-button>
         <el-button
           type="primary"
           :loading="splitSubmitting"
           :disabled="!splitCanSubmit"
-          @click="submitSplit"
-        >{{ t('inventory.confirmSplit') }}</el-button>
+          @click="submitSplitOrCopy"
+        >{{ splitConfirmText }}</el-button>
       </template>
     </el-dialog>
 

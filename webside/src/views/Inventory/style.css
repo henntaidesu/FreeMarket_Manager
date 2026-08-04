@@ -148,8 +148,9 @@
   width: 150px;
   min-width: 0;
 }
+/* 定宽写在 style.global.css：要 !important 才盖得过 App.vue 的 `.el-input{width:180px!important}` */
 .product-qty-input {
-  width: 100%;
+  width: 64px;
 }
 .product-qty-input :deep(input) {
   text-align: center;
@@ -661,23 +662,18 @@ a.pef-lcard:hover {
 .pef-field--price {
   flex: 0 0 120px;
 }
+/* 库存数量基本只有一两位，输入框按内容给定宽（见 .product-qty-input），
+   表单项本身收成 auto，这样它不会窄过「库存数量 / Stock quantity」这行标签 */
 .pef-field--qty {
-  flex: 0 0 100px;
+  flex: 0 0 auto;
 }
-/* 所属货架独占一行：下拉保持 190px 定宽，右边留给只读计数 */
+/* 所属货架接在库存数量右边：要装下「仓库-货架名-货架号」完整路径，给 260px */
 .pef-field--shelf {
-  flex: 0 0 100%;
+  flex: 0 1 260px;
   min-width: 0;
 }
-.pef-shelf-line {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-}
 .pef-shelf-cascader {
-  flex: 0 0 190px;
+  width: 100%;
 }
 .pef-cell--switch :deep(.el-form-item__content) {
   min-height: 24px;
@@ -685,11 +681,17 @@ a.pef-lcard:hover {
 }
 
 /* ---- 只读计数：在售 / 组合 / 可上架 ---- */
-/* 接在所属货架的下拉框右边，与它垂直居中对齐；宽度不够时整组换到下一行 */
+/* 与第二行的字段同为 .pef-inline-row 的子项：接在所属货架右边，放不下时整组换到下一行。
+   不设 flex-grow，四个胶囊保持自身宽度。
+   同行的表单项高出一截顶部标签，胶囊靠 align-self 沉到行底、下边距取同样的 12px，
+   底边就和输入框对齐了——比按标签行高算一个魔法 margin-top 稳。 */
 .pef-stats {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
+  flex: 0 1 auto;
+  align-self: flex-end;
+  margin-bottom: 12px;
 }
 .pef-stat {
   display: flex;

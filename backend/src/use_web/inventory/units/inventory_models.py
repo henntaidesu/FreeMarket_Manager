@@ -86,6 +86,11 @@ class InventorySplitRequest(PydanticModel):
     split_quantity: int = 0
 
 
+class InventoryCopyRequest(PydanticModel):
+    owner_user_id: Optional[int] = None
+    quantity: int = 0
+
+
 class InventoryUpdate(PydanticModel):
     name: Optional[str] = None
     barcode: Optional[str] = None
