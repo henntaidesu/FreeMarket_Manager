@@ -464,56 +464,6 @@
             </div>
           </section>
 
-          <!-- 包材（待发货时，放在发货之前；已打包后不再展示） -->
-          <section v-if="!isReviewedSeller && isWaitShipping && !isPackedDetail && !isShipQrActive" class="detail-section">
-            <div class="detail-section-title">{{ t('todos.packaging') }}</div>
-            <div v-if="invMatch.loading" class="detail-empty">{{ t('todos.matching') }}</div>
-            <div v-else-if="!hasInventoryMatch" class="detail-empty-hint">{{ t('todos.updateOrderFirst') }}</div>
-            <div v-else class="detail-ship-commit">
-              <div class="detail-ship-pack">
-                <div
-                  v-for="(row, idx) in shipPackagingRows"
-                  :key="idx"
-                  class="detail-ship-pack-row"
-                >
-                  <el-select
-                    v-model="row.item_name"
-                    clearable
-                    size="large"
-                    class="detail-ship-pack-select"
-                    :placeholder="t('orders.packagingItemPlaceholder')"
-                    @change="onShipPackagingChange"
-                  >
-                    <el-option :label="t('orders.noPackaging')" :value="PACKAGING_ITEM_NONE" />
-                    <el-option
-                      v-for="item in packagingItemsOptions"
-                      :key="item.item_name"
-                      :label="`${item.item_name}（${t('orders.stockLabel')}:${Number(item.quantity || 0)}）`"
-                      :value="item.item_name"
-                    />
-                  </el-select>
-                  <!-- 选好一个后，行尾出现「+」新增一个下拉；多行时其余行显示「−」可删除 -->
-                  <el-button
-                    v-if="canAddPackagingRow(idx, row)"
-                    class="detail-ship-pack-btn"
-                    size="large"
-                    :icon="Plus"
-                    circle
-                    @click="onAddPackagingRow"
-                  />
-                  <el-button
-                    v-else-if="shipPackagingRows.length > 1"
-                    class="detail-ship-pack-btn"
-                    size="large"
-                    :icon="Minus"
-                    circle
-                    @click="onRemovePackagingRow(idx)"
-                  />
-                </div>
-              </div>
-            </div>
-          </section>
-
           <section v-if="!isReviewedSeller && !isWaitReply" class="detail-section">
             <!-- 已发行二维码/条形码时：确认发送 + 修改发货方式 并排放到标题右上角 -->
             <div class="detail-section-head">
@@ -610,9 +560,10 @@
                 <div class="detail-empty-hint">{{ t('todos.yahoo.shipWarning') }}</div>
                 <div class="detail-method-row">
                   <div class="detail-shipping-actions">
+                    <!-- 包材不再在表单里选：点「発送」先弹包材卡片，选完才真正提交 -->
                     <el-tooltip
-                      :disabled="hasInventoryMatch && hasPackagingSelected"
-                      :content="!hasInventoryMatch ? t('todos.updateOrderFirst') : t('todos.pickPackagingFirst')"
+                      :disabled="hasInventoryMatch"
+                      :content="t('todos.updateOrderFirst')"
                       placement="top"
                     >
                       <span>
@@ -620,7 +571,7 @@
                           type="primary"
                           size="default"
                           :loading="yahooShipLoading"
-                          :disabled="!canSubmitYahooShip || !hasInventoryMatch || !hasPackagingSelected"
+                          :disabled="!canSubmitYahooShip || !hasInventoryMatch"
                           @click="onSubmitYahooShip"
                         >
                           {{ t('todos.yahoo.submitShip') }}
@@ -771,15 +722,16 @@
                     <span class="detail-method-name">{{ detail.shipping_method_name }}</span>
                   </div>
                   <div class="detail-shipping-actions">
+                    <!-- 「发货」是三步向导的入口：包材 → 商品尺寸 → 发送方法 -->
                     <el-tooltip
-                      :disabled="!isWaitShipping || (hasInventoryMatch && hasPackagingSelected)"
-                      :content="!hasInventoryMatch ? t('todos.updateOrderFirst') : t('todos.pickPackagingFirst')"
+                      :disabled="!isWaitShipping || hasInventoryMatch"
+                      :content="t('todos.updateOrderFirst')"
                       placement="top"
                     >
                       <span>
                         <el-button
                           size="default"
-                          :disabled="isWaitShipping && (!hasInventoryMatch || !hasPackagingSelected)"
+                          :disabled="isWaitShipping && !hasInventoryMatch"
                           @click="onClickShippingSizeLocation"
                         >
                           {{ t('todos.pickSizeAndLocation') }}
@@ -972,14 +924,79 @@
       </div>
     </el-dialog>
 
-    <!-- 选择商品尺寸：纯前端硬编码列表，按当前配送方式区分 -->
+    <!-- 发货向导：包材 → 商品尺寸 → 发送方法。三页共用这一个弹窗（翻页不关闭再开启），
+         顶部 el-steps 显示并可点击切换当前页；页面主体固定尺寸，三页大小一致。 -->
     <el-dialog
       v-model="shippingDialogVisible"
-      :title="t('todos.pickShippingSize')"
-      width="780px"
+      :title="t('todos.pickSizeAndLocation')"
+      width="820px"
       :close-on-click-modal="false"
       destroy-on-close
+      @close="onShipFlowClose"
     >
+      <el-steps
+        v-if="shipFlowSteps.length > 1"
+        :active="shipFlowStepIndex"
+        finish-status="success"
+        align-center
+        class="ship-flow-steps"
+      >
+        <el-step
+          v-for="s in shipFlowSteps"
+          :key="s.key"
+          :title="s.label"
+          class="ship-flow-step"
+          @click="onShipStepClick(s.key)"
+        />
+      </el-steps>
+
+      <!-- 雅虎在包材页点完卡片就直接提交发货，提交期间锁住这一页 -->
+      <div class="ship-flow-body" v-loading="yahooShipLoading">
+      <!-- 第 1 步：选择包材。卡片挑选（与订单管理的包材卡片同一形态），
+           点中一张即选定并直接进下一步，无需再点确认按钮。 -->
+      <template v-if="shippingStep === 'packaging'">
+        <!-- 「不选择包材」始终在列：包材库存为空时也要能照常发货 -->
+        <div class="pkg-picker">
+          <div
+            :class="['pkg-pick', 'pkg-pick--none', packagingIsNone ? 'pkg-pick-active' : '']"
+            @click="onPickNoPackaging"
+          >
+            <span class="pkg-pick__thumb pkg-pick__thumb--none">
+              <el-icon><Minus /></el-icon>
+            </span>
+            <span class="pkg-pick__name">{{ t('orders.noPackaging') }}</span>
+          </div>
+          <div
+            v-for="pkg in packagingItemsOptions"
+            :key="pkg.item_name"
+            :class="['pkg-pick', packagingPickedName === pkg.item_name ? 'pkg-pick-active' : '']"
+            @click="onPickPackagingCard(pkg.item_name)"
+          >
+            <img
+              v-if="pkg.item_image"
+              :src="inventoryThumbUrl(pkg.item_image)"
+              alt=""
+              class="pkg-pick__thumb"
+            />
+            <span v-else class="pkg-pick__thumb pkg-pick__thumb--empty">
+              <span class="thumb-fallback">-</span>
+            </span>
+            <span class="pkg-pick__name">{{ pkg.item_name }}</span>
+            <span class="pkg-pick__meta">
+              <span>{{ t('orders.stockLabel') }} {{ Number(pkg.quantity || 0) }}</span>
+              <span class="pkg-pick__price">{{ Math.round(Number(pkg.amount || 0)) }}</span>
+            </span>
+          </div>
+        </div>
+        <el-empty
+          v-if="!packagingItemsOptions.length"
+          :description="t('orders.packagingOptionsEmpty')"
+          :image-size="48"
+        />
+      </template>
+
+      <!-- 第 2 步：商品尺寸（纯前端硬编码列表，按当前配送方式区分）。点中即翻页 -->
+      <template v-else-if="shippingStep === 'size'">
       <el-radio-group v-if="shippingOptions.length" v-model="shippingPickedIdx" class="ship-radio-group">
         <div
           v-for="(opt, idx) in shippingOptions"
@@ -1016,9 +1033,10 @@
         </div>
       </el-radio-group>
       <div v-else class="detail-empty">{{ t('todos.noSizeList') }}</div>
+      </template>
 
-      <div v-if="shippingNeedsFacility" class="ship-facility-section">
-        <div class="ship-facility-title">{{ t('todos.shippingFacilityTitle') }}</div>
+      <!-- 第 3 步：发送方法（发货场所） -->
+      <div v-else-if="shippingStep === 'facility'" class="ship-facility-section">
         <!-- 新式：按尺寸下发的发货地卡片（带图标），点击选中 -->
         <div v-if="shippingFacilities.length" class="ship-facility-cards">
           <div
@@ -1041,62 +1059,57 @@
           <el-radio value="post_office" border>{{ t('todos.postOffice') }}</el-radio>
           <el-radio value="lawson" border>{{ t('todos.lawson') }}</el-radio>
         </el-radio-group>
-      </div>
-      <template #footer>
-        <el-button @click="shippingDialogVisible = false">{{ t('common.cancel') }}</el-button>
-        <el-button
-          type="primary"
-          :disabled="shippingPickedIdx == null"
-          :loading="shippingConfirmLoading"
-          @click="onConfirmShippingSelection"
-        >
-          {{ shippingNeedsFacility ? t('todos.generateShipCode') : t('todos.scanShipCode') }}
-        </el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 发货扫码：本机摄像头取景 → 拍一张含二维码的照片 → 提交进任务队列后台执行 -->
-    <el-dialog
-      v-model="qrScanVisible"
-      :title="t('todos.qrScanTitle')"
-      width="720px"
-      :close-on-click-modal="false"
-      destroy-on-close
-      @close="onQrScanDialogClose"
-    >
-      <div class="qr-scan-stage">
-        <!-- 取景（未拍照时） -->
-        <video
-          v-show="!qrShot"
-          ref="qrVideoEl"
-          class="qr-scan-video"
-          autoplay
-          playsinline
-          muted
-        ></video>
-        <!-- 已拍照：显示留存的照片供确认 -->
-        <img v-if="qrShot" :src="qrShot" class="qr-scan-video" :alt="t('todos.qrShotPreview')" />
-        <div v-if="qrCamError" class="qr-scan-error">
-          {{ t('todos.cameraOpenFailed') }}: {{ qrCamError }}
+        <!-- 唯一保留的按钮：点它才真的拉起浏览器在煤炉发行发货码，不可撤回，不做点卡即发。
+             弹窗没有 footer 槽（否则前两页会剩一条空白按钮栏），所以按钮放在页内。 -->
+        <div class="ship-facility-actions">
+          <el-button
+            type="primary"
+            :disabled="!shippingFacility"
+            :loading="shippingConfirmLoading"
+            @click="onConfirmShippingSelection"
+          >
+            {{ t('todos.generateShipCode') }}
+          </el-button>
         </div>
       </div>
-      <div class="qr-scan-tip">{{ qrShot ? t('todos.qrShotTip') : t('todos.qrAimTip') }}</div>
-      <template #footer>
-        <el-button @click="onQrScanDialogClose">{{ t('common.close') }}</el-button>
-        <el-button v-if="qrShot" @click="retakeQrShot">{{ t('todos.qrRetake') }}</el-button>
-        <el-button
-          v-if="!qrShot"
-          type="primary"
-          :disabled="!!qrCamError"
-          @click="takeQrShot"
-        >{{ t('todos.qrTakeShot') }}</el-button>
-        <el-button
-          v-else
-          type="primary"
-          :loading="qrSubmitting"
-          @click="submitQrShot"
-        >{{ t('todos.qrSubmit') }}</el-button>
-      </template>
+
+      <!-- 第 3 步（ゆうパケットポスト / ポストmini）：本机摄像头拍一张含二维码的照片 →
+           提交进任务队列后台执行。喂图/等读取/抓发货信息都在后台跑，提交完这个弹窗即关闭。 -->
+      <div v-else class="qr-scan-step">
+        <div class="qr-scan-stage">
+          <!-- 取景（未拍照时） -->
+          <video
+            v-show="!qrShot"
+            ref="qrVideoEl"
+            class="qr-scan-video"
+            autoplay
+            playsinline
+            muted
+          ></video>
+          <!-- 已拍照：显示留存的照片供确认 -->
+          <img v-if="qrShot" :src="qrShot" class="qr-scan-video" :alt="t('todos.qrShotPreview')" />
+          <div v-if="qrCamError" class="qr-scan-error">
+            {{ t('todos.cameraOpenFailed') }}: {{ qrCamError }}
+          </div>
+        </div>
+        <div class="qr-scan-tip">{{ qrShot ? t('todos.qrShotTip') : t('todos.qrAimTip') }}</div>
+        <div class="qr-scan-actions">
+          <el-button v-if="qrShot" @click="retakeQrShot">{{ t('todos.qrRetake') }}</el-button>
+          <el-button
+            v-if="!qrShot"
+            type="primary"
+            :disabled="!!qrCamError"
+            @click="takeQrShot"
+          >{{ t('todos.qrTakeShot') }}</el-button>
+          <el-button
+            v-else
+            type="primary"
+            :loading="qrSubmitting"
+            @click="submitQrShot"
+          >{{ t('todos.qrSubmit') }}</el-button>
+        </div>
+      </div>
+      </div>
     </el-dialog>
 
     <!-- 发货二次确认：展示读取到的发送確認符号 / 追跡番号，用户确认后发送通知 -->

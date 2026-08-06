@@ -416,31 +416,6 @@
   font-size: 11px;
   margin-top: 6px;
 }
-.detail-ship-commit {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.detail-ship-pack {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-/* 每行：下拉占满剩余宽度（不再做半栏限制）+ 行尾「+ / −」按钮 */
-.detail-ship-pack-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-}
-.detail-ship-pack-select {
-  flex: 1 1 auto;
-  min-width: 0;
-  width: 100%;
-}
-.detail-ship-pack-btn {
-  flex: 0 0 auto;
-}
 .detail-photo-wrap {
   margin-top: 8px;
 }
@@ -460,9 +435,9 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  /* 固定高度：约可容纳 2 个关联商品卡片（单卡 ~118px + 间距 10px），高度恒定便于定位；
-     超过 2 个时列表内部滚动，避免撑高整列把下方「包材 / 发货」操作区顶出视野 */
-  height: 250px;
+  /* 固定高度：约可容纳 3 个关联商品卡片（单卡 ~118px + 间距 10px），高度恒定便于定位；
+     超过 3 个时列表内部滚动，避免撑高整列把下方「发货」操作区顶出视野 */
+  height: 378px;
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -810,6 +785,87 @@
   background: var(--el-fill-color);
   border-radius: 4px;
 }
+/* 发货向导：顶部步骤条 + 固定尺寸的页面主体（三页大小一致，内容多的页内部滚动） */
+.ship-flow-steps {
+  margin-bottom: 18px;
+}
+.ship-flow-step {
+  cursor: pointer;
+}
+/* 不设固定高度/内部滚动：内容多少就撑多高，表单里不出现滚动条。
+   min-height 只是给三页一个统一的下限，免得页与页之间弹窗高度跳动。
+   竖向 flex 是为了让页内的操作按钮能用 margin-top:auto 贴到表单右下角 */
+.ship-flow-body {
+  min-height: 420px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 发货第 1 步：包材卡片挑选（形态参考订单管理的包材卡片） */
+.pkg-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+  padding: 2px;
+}
+.pkg-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 10px;
+  background: var(--el-bg-color);
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.pkg-pick:hover {
+  border-color: var(--el-color-primary-light-5);
+}
+.pkg-pick-active {
+  border-color: var(--el-color-primary);
+  box-shadow: 0 0 0 1px var(--el-color-primary) inset;
+}
+.pkg-pick--none {
+  border-style: dashed;
+}
+.pkg-pick__thumb {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+  border: 1px solid var(--el-border-color-lighter);
+  background: var(--el-fill-color-light);
+  object-fit: cover;
+  display: block;
+}
+.pkg-pick__thumb--empty,
+.pkg-pick__thumb--none {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--el-text-color-placeholder);
+  font-size: 22px;
+}
+.pkg-pick__name {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  word-break: break-word;
+}
+.pkg-pick__meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.pkg-pick__price {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--el-color-warning);
+}
 .ship-radio-group {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -960,18 +1016,23 @@
   color: #a8b4ce;
   text-align: center;
 }
-
+/* 页内操作按钮（生成发货码 / 拍照 / 重拍 / 提交扫码）。向导没有 footer 槽，
+   靠这两条把按钮压到表单右下角：整页撑满 body，按钮 margin-top:auto 吸底 */
+.qr-scan-step,
 .ship-facility-section {
-  margin-top: 16px;
-  padding: 12px;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 6px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
-.ship-facility-title {
-  font-weight: 600;
-  font-size: 13px;
-  margin-bottom: 10px;
+.qr-scan-actions,
+.ship-facility-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 16px;
 }
+
 .ship-facility-radio {
   display: flex;
   gap: 12px;

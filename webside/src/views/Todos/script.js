@@ -2,7 +2,7 @@ import { defineComponent, watch, computed, nextTick, onBeforeUnmount, onMounted,
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
 import { ElMessage } from '@/utils/notify'
-import { Loading, Plus, Minus, Printer, Setting } from '@element-plus/icons-vue'
+import { Loading, Minus, Printer, Setting } from '@element-plus/icons-vue'
 import { todosApi, costRecordApi, costExpenseApi, orderApi, TASK_TYPES, newClientToken } from '@/api'
 import { submitTask } from '@/utils/taskSubmit.js'
 import { useMercariAccountStore } from '@/stores/mercariAccount.js'
@@ -17,7 +17,6 @@ export default defineComponent({
   components: {
     SyncOverlay,
     Loading,
-    Plus,
     Minus,
   },
   setup() {
@@ -353,8 +352,15 @@ export default defineComponent({
     // ===== 待发货：包材选择 + 关联订单出库（发货成功后同步到 /#/orders） =====
     const PACKAGING_ITEM_NONE = '__PACKAGING_NONE__'
     const packagingItemsOptions = ref([])
-    // 用户选定的包材列表（可多个、可同种重复；每行数量固定 1）。末尾始终保留一个空行供继续添加
+    // 用户选定的包材列表（可多个、可同种重复；每行数量固定 1）
     const shipPackagingRows = ref([{ item_name: '' }])
+    // 发货向导：包材 → 商品尺寸 → 发送方法，三页共用一个弹窗（见 shippingDialogVisible）。
+    // shipFlowTarget 决定选完包材后往哪走：'mercari' → 尺寸页；'yahoo' → 直接提交发货表单。
+    // shipFlowHasPackaging：本次是否包含包材页（非待发货不记包材，重扫已记过账，都跳过）
+    const shipFlowTarget = ref('mercari')
+    const shipFlowHasPackaging = ref(true)
+    // 重扫（更换相片并重新扫码）：尺寸已经记在待办行上，向导只剩拍照这一页
+    const shipFlowScanOnly = ref(false)
     // 关联订单的出库明细（发货成功后逐条出库）
     const shipOutbound = reactive({ loading: false, lines: [] })
 
@@ -403,24 +409,24 @@ export default defineComponent({
       const filled = rows.filter((r) => r.item_name.trim())
       shipPackagingRows.value = filled.length ? filled : [{ item_name: '' }]
     }
-    function onShipPackagingChange() {
-      normalizePackagingRows()
+    // ── 包材卡片选择（发货第 1 步的弹窗）──
+    // 一张卡片 = 一种包材，点中即选定并直接进下一步（弹窗没有确认按钮）。
+    // 上次的选择会从 localStorage 恢复，重开弹窗时对应卡片高亮。
+    const packagingPickedName = computed(() => {
+      const row = (shipPackagingRows.value || []).find((r) => String(r?.item_name || '').trim())
+      return String(row?.item_name || '')
+    })
+    const packagingIsNone = computed(() => packagingPickedName.value === PACKAGING_ITEM_NONE)
+    function onPickPackagingCard(itemName) {
+      shipPackagingRows.value = [{ item_name: String(itemName) }]
       savePackagingSelection()
+      proceedAfterPackaging()
     }
-    // 该行是否显示「+」（新增下拉）：仅最后一行且已选了具体包材时显示，点击追加一个空下拉
-    function canAddPackagingRow(idx, row) {
-      const name = String(row?.item_name || '').trim()
-      const isLast = idx === (shipPackagingRows.value || []).length - 1
-      return isLast && !!name && name !== PACKAGING_ITEM_NONE
-    }
-    function onAddPackagingRow() {
-      shipPackagingRows.value = [...(shipPackagingRows.value || []), { item_name: '' }]
-    }
-    function onRemovePackagingRow(idx) {
-      const rows = [...(shipPackagingRows.value || [])]
-      rows.splice(idx, 1)
-      shipPackagingRows.value = rows.length ? rows : [{ item_name: '' }]
+    /** 「不选择包材」：与具体包材互斥 */
+    function onPickNoPackaging() {
+      shipPackagingRows.value = [{ item_name: PACKAGING_ITEM_NONE }]
       savePackagingSelection()
+      proceedAfterPackaging()
     }
     // ── 包材选择缓存（按 item_id / todo 持久化到 localStorage，重开详情时恢复） ──
     const PACKAGING_CACHE_PREFIX = 'todos:packaging:'
@@ -765,8 +771,10 @@ export default defineComponent({
       return isShippedState.value ? REPLY_PLACEHOLDER_SHIPPED : t('todos.replyPlaceholder')
     })
 
-    // 选择尺寸 dialog（不再走 MITM 抓取，纯前端硬编码列表）
+    // 发货向导 dialog（尺寸不再走 MITM 抓取，纯前端硬编码列表）
     const shippingDialogVisible = ref(false)
+    // 当前页：'packaging' 选包材 → 'size' 选商品尺寸 →（该尺寸需要发货场所时）'facility' 选发送方法
+    const shippingStep = ref('size')
     const shippingConfirmLoading = ref(false)
     const shippingPickedIdx = ref(null)
     const shippingFacility = ref(null) // 'post_office' | 'lawson' | null
@@ -787,10 +795,40 @@ export default defineComponent({
       const opt = shippingOptions.value[shippingPickedIdx.value]
       return Array.isArray(opt?.facilities) ? opt.facilities : []
     })
-    // 选择尺寸：切换后重置已选发货地（不同尺寸可选发货地不同）
+    // 顶部步骤条。第三步是发送方法还是拍照，取决于所选尺寸要不要发货场所：
+    // 还没选尺寸时先按「发送方法」显示，选中 ゆうパケットポスト 系后换成「拍照」
+    const shipFlowSteps = computed(() => {
+      if (shipFlowScanOnly.value) return [{ key: 'qrscan', label: t('todos.qrScanTitle') }]
+      const steps = []
+      if (shipFlowHasPackaging.value) steps.push({ key: 'packaging', label: t('todos.pickPackagingTitle') })
+      if (shipFlowTarget.value === 'yahoo') return steps
+      steps.push({ key: 'size', label: t('todos.pickShippingSize') })
+      steps.push(
+        shippingPickedIdx.value != null && !shippingNeedsFacility.value
+          ? { key: 'qrscan', label: t('todos.qrScanTitle') }
+          : { key: 'facility', label: t('todos.shippingFacilityTitle') },
+      )
+      return steps
+    })
+    const shipFlowStepIndex = computed(() =>
+      Math.max(0, shipFlowSteps.value.findIndex((s) => s.key === shippingStep.value)),
+    )
+    /** 点步骤条切换页面：只允许跳到前置条件已满足的页。
+     *  拍照页不让点进来——它由选中尺寸时统一入口开摄像头，直接跳会是一片黑画面。 */
+    function onShipStepClick(key) {
+      if (key === shippingStep.value || key === 'qrscan') return
+      if (key === 'size' && !hasPackagingSelected.value) return
+      if (key === 'facility' && (shippingPickedIdx.value == null || !shippingNeedsFacility.value)) return
+      // 离开拍照页要把摄像头关掉，否则相机灯一直亮着
+      if (shippingStep.value === 'qrscan') resetQrScanState()
+      shippingStep.value = key
+    }
+
+    // 选择尺寸：切换后重置已选发货地（不同尺寸可选发货地不同），点中即直接翻到下一页
     function onPickShipping(idx) {
       shippingPickedIdx.value = idx
       shippingFacility.value = null
+      onShippingSizeNext()
     }
     // 发货地图标：public/static/post_hukuro/<img>.png
     function facilityImageUrl(img) {
@@ -1316,16 +1354,16 @@ export default defineComponent({
       if (!row?.id) return
       // 不按 ship_qr_state 硬拦：真有任务在跑时由后端 dedup 兜底（提交会 409）。
       if (row.ship_qr_class_text) {
-        // 记得上次选的尺寸 → 直接开相机，任务用它重走完整流程
+        // 记得上次选的尺寸 → 向导只开拍照这一页，任务用它重走完整流程
+        openShipFlow({ target: 'mercari', withPackaging: false, scanOnly: true })
         qrPendingSelection.value = { class_text: row.ship_qr_class_text, facility: null }
         await startQrScanMirror(row.id)
       } else {
         // 旧数据没记尺寸（加 ship_qr_class_text 列之前提交的）：弹尺寸选择框重选，
         // 选完由 onConfirmShippingSelection 的扫码分支开相机——没尺寸就直接喂图，
         // 浏览器又是新开且没进扫描页，必然「浏览器未打开」失败。
-        shippingPickedIdx.value = null
-        shippingFacility.value = null
-        shippingDialogVisible.value = true
+        // 包材在第一次提交时已记账，重扫不再走包材页。
+        openShipFlow({ target: 'mercari', withPackaging: false })
       }
     }
 
@@ -1719,19 +1757,23 @@ export default defineComponent({
       }
     }
 
-    /** 雅虎发货：填完品名/尺寸/发货场所一次提交，雅虎当场发行配送コード（不可撤回）。 */
-    async function onSubmitYahooShip() {
+    /** 雅虎「発送情報を送信」：先弹包材选择，选完由 doSubmitYahooShip 真正提交 */
+    function onSubmitYahooShip() {
       const row = currentRow.value
       if (!row?.id || !canSubmitYahooShip.value || yahooShipLoading.value) return
-      // 与煤炉同一道闸：未关联本地库存 / 未选包材都不许发货（按钮 :disabled 之外再拦一层）
+      // 与煤炉同一道闸：未关联本地库存不许发货（按钮 :disabled 之外再拦一层）
       if (!hasInventoryMatch.value) {
         ElMessage.warning(t('todos.updateOrderFirst'))
         return
       }
-      if (!hasPackagingSelected.value) {
-        ElMessage.warning(t('todos.pickPackagingFirst'))
-        return
-      }
+      openShipFlow({ target: 'yahoo', withPackaging: true })
+    }
+
+    /** 雅虎发货：填完品名/尺寸/发货场所一次提交，雅虎当场发行配送コード（不可撤回）。
+     *  返回是否真正发货成功——包材弹窗据此决定关闭还是留着让用户重试。 */
+    async function doSubmitYahooShip() {
+      const row = currentRow.value
+      if (!row?.id || !canSubmitYahooShip.value || yahooShipLoading.value) return false
       try {
         await ElMessageBox.confirm(
           t('todos.yahoo.confirmShip', { size: yahooForm.size, location: yahooForm.location }),
@@ -1739,10 +1781,10 @@ export default defineComponent({
           { type: 'warning' },
         )
       } catch {
-        return
+        return false
       }
       // 发行配送码后雅虎侧不可撤回：出发前先确认所选包材仍存在且库存足够
-      if (!(await validatePackagingBeforeShip())) return
+      if (!(await validatePackagingBeforeShip())) return false
       yahooShipLoading.value = true
       try {
         const data = await todosApi.yahooShip(row.id, {
@@ -1756,7 +1798,7 @@ export default defineComponent({
         if (!data?.submitted || data?.code_uncertain) {
           ElMessage.warning(t('todos.yahoo.shipUncertain'))
           if (data?.state) applyYahooDetail(data.state)
-          return
+          return false
         }
         ElMessage.success(t('todos.yahoo.shipped'))
         if (data.state) applyYahooDetail(data.state)
@@ -1771,11 +1813,42 @@ export default defineComponent({
           }
         }
         load({ inPlace: true })
+        return true
       } catch (e) {
         if (!e?.response) ElMessage.error(e?.message || t('todos.yahoo.shipFailed'))
+        return false
       } finally {
         yahooShipLoading.value = false
       }
+    }
+
+    /** 打开发货向导。尺寸页仅是本地选择框，不开浏览器；尺寸列表是前端硬编码
+     *  （按 shipping_method_name 区分）。用户选好尺寸/发货地点「确认并发送」后，才由
+     *  confirmShippingSelection 一并打开浏览器、点「商品サイズと発送場所を選択する」
+     *  入口并完成后续选择。 */
+    function openShipFlow({ target, withPackaging, scanOnly = false }) {
+      shipFlowTarget.value = target
+      shipFlowHasPackaging.value = withPackaging
+      shipFlowScanOnly.value = scanOnly
+      shippingPickedIdx.value = null
+      shippingFacility.value = null
+      shippingStep.value = scanOnly ? 'qrscan' : withPackaging ? 'packaging' : 'size'
+      shippingDialogVisible.value = true
+    }
+
+    /** 关闭发货向导：拍照页可能还开着摄像头，必须收掉 */
+    function onShipFlowClose() {
+      resetQrScanState()
+    }
+
+    /** 点中包材卡片后自动翻到下一页：煤炉进尺寸页，雅虎直接提交发货表单 */
+    async function proceedAfterPackaging() {
+      if (shipFlowTarget.value === 'yahoo') {
+        // 提交失败（配送码未确认 / 接口报错 / 取消确认）时留在包材页，用户可改选后重试
+        if (await doSubmitYahooShip()) shippingDialogVisible.value = false
+        return
+      }
+      shippingStep.value = 'size'
     }
 
     function onClickShippingSizeLocation() {
@@ -1785,18 +1858,19 @@ export default defineComponent({
         ElMessage.warning(t('todos.updateOrderFirst'))
         return
       }
-      // 必须先选包材（或显式选「不选择包材」）。按钮 :disabled 已拦一层，
-      // 这里函数级再拦一层，防止键盘/编程路径绕过
-      if (isWaitShipping.value && !hasPackagingSelected.value) {
-        ElMessage.warning(t('todos.pickPackagingFirst'))
+      // 非待发货（无需记包材/出库）时跳过包材页，直接进尺寸页
+      openShipFlow({ target: 'mercari', withPackaging: isWaitShipping.value })
+    }
+
+    /** 点中尺寸卡片后自动翻到下一页：需要发货场所的尺寸进发送方法页；
+     *  ゆうパケットポスト系（auto_finish_no_facility）没有发送方法页，下一页就是扫码拍照 */
+    function onShippingSizeNext() {
+      if (shippingPickedIdx.value == null) return
+      if (!shippingNeedsFacility.value) {
+        onConfirmShippingSelection()
         return
       }
-      // 仅弹本地尺寸选择框，不开浏览器；尺寸列表是前端硬编码（按 shipping_method_name 区分）。
-      // 用户选好尺寸/发货地点「确认并发送」后，才由 confirmShippingSelection 一并打开浏览器、
-      // 点「商品サイズと発送場所を選択する」入口并完成后续选择。
-      shippingPickedIdx.value = null
-      shippingFacility.value = null
-      shippingDialogVisible.value = true
+      shippingStep.value = 'facility'
     }
 
     async function onConfirmShippingSelection() {
@@ -1825,7 +1899,7 @@ export default defineComponent({
       // 就是卡在 confirmShippingSelection 上，现在没有了。
       if (wantScanQr) {
         qrPendingSelection.value = { class_text: classText, facility: null }
-        shippingDialogVisible.value = false
+        // 就在同一个向导里翻到拍照页，不关闭再开一个弹窗
         startQrScanMirror(currentRow.value.id)
         return
       }
@@ -1894,7 +1968,7 @@ export default defineComponent({
     // 过去是按 ~15fps 持续把摄像头帧推给后端喂虚拟摄像头，用户必须一直开着弹窗盯到读出，
     // 页面被占住、关掉就中断。现在只拍一张：后端当场校验二维码可读（读不出立刻要求重拍），
     // 通过后入队，喂图/等读取/抓发货信息都在后台跑，弹窗随手就能关。
-    const qrScanVisible = ref(false)
+    // 取景/拍照就在发货向导的最后一页（shippingStep === 'qrscan'），不再是独立弹窗。
     const qrCamError = ref('')
     const qrVideoEl = ref(null)
     /** 已拍下的照片（JPEG dataURL）；为空表示仍在取景 */
@@ -1943,12 +2017,13 @@ export default defineComponent({
       }
     }
 
-    /** 打开扫码弹窗并启动本机摄像头取景 */
+    /** 翻到向导的拍照页并启动本机摄像头取景 */
     async function startQrScanMirror(/* todoId */) {
       stopQrCamera()
       qrShot.value = ''
       qrSubmitting.value = false
-      qrScanVisible.value = true
+      shippingStep.value = 'qrscan'
+      shippingDialogVisible.value = true
       await openQrCamera()
     }
 
@@ -2004,10 +2079,13 @@ export default defineComponent({
             ElMessage.warning(t('todos.packagingSyncFailed'))
           }
         }
-        qrScanVisible.value = false
-        stopQrCamera()
-        qrShot.value = ''
-        qrPendingSelection.value = null
+        resetQrScanState()
+        shippingDialogVisible.value = false
+        // 扫码流程（ゆうパケットポスト / ポストmini）到此为止：喂图、等读取、抓发货信息
+        // 都在后台任务里跑，详情页已经没有可操作的东西了 —— 直接关掉回列表。
+        // 必须放在上面记账之后：onDetailDialogClose 会清空 currentRow / invMatch。
+        detailDialogVisible.value = false
+        load({ inPlace: true })
       } catch (e) {
         // 二维码读不出来 → 后端 400，拦截器已弹出原因；停在当前照片让用户重拍
         if (!e?.response) ElMessage.error(e?.message || t('todos.submitFailed'))
@@ -2016,11 +2094,11 @@ export default defineComponent({
       }
     }
 
-    function onQrScanDialogClose() {
+    /** 收摄像头 + 丢弃已拍照片/待提交选择（离开拍照页或关闭向导时调用） */
+    function resetQrScanState() {
       stopQrCamera()
       qrShot.value = ''
       qrPendingSelection.value = null
-      qrScanVisible.value = false
     }
 
     // ─── 发货二次确认（読み取り成功後の発送確認符号 / 追跡番号 → 用户确认 → 発送通知） ───
@@ -2127,11 +2205,10 @@ export default defineComponent({
         } else {
           ElMessage.warning(t('todos.shipNotifyUnconfirmed'))
         }
-        // 完成后关闭本流程所有弹窗/表单：二次确认 → 扫码镜像 → 尺寸选择 → 交易详情
+        // 完成后关闭本流程所有弹窗/表单：二次确认 → 发货向导（含拍照页）→ 交易详情
         // （关交易详情会触发 closeDetailBrowser 关闭有头浏览器会话）
         stopQrCamera()
         shipConfirmVisible.value = false
-        qrScanVisible.value = false
         shippingDialogVisible.value = false
         detailDialogVisible.value = false
         load({ inPlace: true })
@@ -2535,16 +2612,12 @@ export default defineComponent({
       hasInventoryMatch,
       hasLocalInventoryImages,
       showMercariPhoto,
-      PACKAGING_ITEM_NONE,
       packagingItemsOptions,
-      shipPackagingRows,
       shipOutbound,
-      hasPackagingSelected,
-      onShipPackagingChange,
-      canAddPackagingRow,
-      onAddPackagingRow,
-      onRemovePackagingRow,
-      Plus,
+      packagingIsNone,
+      packagingPickedName,
+      onPickPackagingCard,
+      onPickNoPackaging,
       Minus,
       replyLoading,
       reviewLoading,
@@ -2564,11 +2637,15 @@ export default defineComponent({
       isShippedState,
       replyPlaceholder,
       shippingDialogVisible,
+      shippingStep,
+      shipFlowSteps,
+      shipFlowStepIndex,
+      onShipStepClick,
+      onShipFlowClose,
       shippingConfirmLoading,
       shippingPickedIdx,
       shippingFacility,
       shippingOptions,
-      shippingNeedsFacility,
       shippingFacilities,
       onPickShipping,
       facilityImageUrl,
@@ -2626,16 +2703,13 @@ export default defineComponent({
       onDetailRefresh,
       onClickShippingSizeLocation,
       onConfirmShippingSelection,
-      qrScanVisible,
       qrCamError,
       qrVideoEl,
       qrShot,
       qrSubmitting,
-      startQrScanMirror,
       takeQrShot,
       retakeQrShot,
       submitQrShot,
-      onQrScanDialogClose,
       shipConfirmVisible,
       shipConfirmLoading,
       shipConfirmInfo,
