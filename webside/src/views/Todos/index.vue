@@ -371,6 +371,8 @@
       v-model="detailDialogVisible"
       :title="`${t('todos.transactionDetail')}  ${detail.item_id || ''}`"
       width="1080px"
+      class="todo-detail-dialog"
+      align-center
       :close-on-click-modal="false"
       destroy-on-close
       @close="onDetailDialogClose"
@@ -930,6 +932,8 @@
       v-model="shippingDialogVisible"
       :title="t('todos.pickSizeAndLocation')"
       width="820px"
+      class="todo-ship-dialog"
+      align-center
       :close-on-click-modal="false"
       destroy-on-close
       @close="onShipFlowClose"

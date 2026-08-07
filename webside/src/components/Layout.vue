@@ -381,8 +381,11 @@ const handleLogout = async () => {
 </script>
 
 <style scoped>
+/* 外壳高度必须等于「当前可见」视口高度（见 App.vue 的 --app-vh）：
+   写 100vh 时移动端外壳会比可见区域高，整页被顶出一截需要下拉，
+   而滚动本该只发生在 .main-content 内部。 */
 .layout-container {
-  height: 100vh;
+  height: calc(100 * var(--app-vh));
   overflow: hidden;
 }
 

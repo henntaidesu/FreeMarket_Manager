@@ -24,7 +24,15 @@ import { buildEscposRaster } from './commands/escpos.js'
 /** 打印一张发货码图片（url 已经过 mercariImageUrl 处理） */
 function buildOptions(cfg) {
   const dpmm = (Number(cfg.dpi) || 203) / 25.4
-  return { density: cfg.density, feedDots: Math.round((Number(cfg.feedMm) || 0) * dpmm) }
+  const feedMm = Number(cfg.feedMm) || 0
+  const gapMm = Number(cfg.gapMm) || 0
+  // 每张实际走纸 = 标签高 + 走纸距离，而下一张要对齐就只该走一个标签间距（标签高 + 间隙）。
+  // 两者之差 = 走纸距离 − 间隙，就是打印下一张前要回缩的量（标签高在两边抵消掉了）。
+  return {
+    density: cfg.density,
+    feedDots: Math.round(feedMm * dpmm),
+    retractDots: Math.round((feedMm - gapMm) * dpmm),
+  }
 }
 
 export async function printLabelImage(url) {

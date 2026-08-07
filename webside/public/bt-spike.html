@@ -89,6 +89,17 @@ const KNOWN_SERVICES = [
   'e7810a71-73ae-499d-8c15-faa9aef0c3f2',
 ];
 
+// 16-bit 数字/短写法 → 128-bit 规范 UUID。Chrome/Edge 自己会归一化，Bluefy(iOS) 不会：
+// optionalServices 里留 0xFEE7 这种数字，它比对不上设备上报的 0000fee7-…，服务发现就是空的
+function canonUuid(v) {
+  if (typeof v === 'number') return '0000' + v.toString(16).padStart(4, '0') + '-0000-1000-8000-00805f9b34fb';
+  const s = String(v).trim().toLowerCase();
+  if (/^(0x)?[0-9a-f]{1,4}$/.test(s)) return canonUuid(parseInt(s, 16));
+  return s;
+}
+// Bluefy 的原生桥直接抛 CoreBluetooth 错误码（如 -2），既无 name 也无 message
+const errText = e => e?.message || (e === undefined || e === null ? '未知错误' : String(e));
+
 let device = null, server = null, writeChar = null;
 let selCharUuid = null, selSvcUuid = null;
 const chars = new Map();   // uuid -> characteristic
@@ -107,6 +118,22 @@ function log(msg, cls) {
 }
 $('btnClear').onclick = () => $('log').innerHTML = '';
 
+// ---------- 列服务：Bluefy(iOS) 的无参 getPrimaryServices() 会抛错/返回空，回退逐个探测 ----------
+async function listServices(optionalServices) {
+  try {
+    const all = await server.getPrimaryServices();
+    if (all && all.length) return all;
+    log('getPrimaryServices() 返回空，改为逐个 UUID 探测…', 'warn');
+  } catch (e) {
+    log('getPrimaryServices() 失败(' + errText(e) + ')，改为逐个 UUID 探测…', 'warn');
+  }
+  const out = [];
+  for (const uuid of optionalServices) {
+    try { out.push(await server.getPrimaryService(uuid)); } catch (e) { /* 设备没有该服务 */ }
+  }
+  return out;
+}
+
 // ---------- 连接 + 服务发现 ----------
 $('btnConnect').onclick = async () => {
   if (!navigator.bluetooth) {
@@ -114,9 +141,9 @@ $('btnConnect').onclick = async () => {
     return;
   }
   try {
-    const optionalServices = KNOWN_SERVICES.slice();
+    const optionalServices = KNOWN_SERVICES.map(canonUuid);
     const extra = $('extraService').value.trim().toLowerCase();
-    if (extra) optionalServices.push(/^0x|^[0-9a-f]{1,8}$/.test(extra) && extra.length <= 8 ? parseInt(extra, 16) : extra);
+    if (extra) optionalServices.push(canonUuid(extra));
 
     log('弹出设备选择框…');
     device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices });
@@ -127,13 +154,13 @@ $('btnConnect').onclick = async () => {
 
     chars.clear();
     $('charSelect').innerHTML = '';
-    const services = await server.getPrimaryServices();
+    const services = await listServices(optionalServices);
     log(`发现 ${services.length} 个服务：`, 'ok');
     let writableCount = 0;
     for (const s of services) {
       log('  Service ' + s.uuid);
       let cs = [];
-      try { cs = await s.getCharacteristics(); } catch (e) { log('    (读取特征失败: ' + e.message + ')', 'warn'); }
+      try { cs = await s.getCharacteristics(); } catch (e) { log('    (读取特征失败: ' + errText(e) + ')', 'warn'); }
       for (const c of cs) {
         const p = c.properties;
         const flags = [p.write && 'write', p.writeWithoutResponse && 'writeNR', p.notify && 'notify', p.read && 'read'].filter(Boolean).join(',');
@@ -160,7 +187,7 @@ $('btnConnect').onclick = async () => {
     }
     $('btnDisconnect').disabled = false;
   } catch (e) {
-    log('连接失败: ' + e.message, 'err');
+    log('连接失败: ' + errText(e), 'err');
   }
 };
 $('charSelect').onchange = () => {
@@ -195,7 +222,7 @@ async function send(bytes, tag) {
   if (!selCharUuid) { log('未选择可写特征', 'err'); return; }
   const chunk = parseInt($('chunk').value) || 180;
   try { await ensureConnected(); }
-  catch (e) { log(`[${tag}] 重连失败: ` + e.message, 'err'); return; }
+  catch (e) { log(`[${tag}] 重连失败: ` + errText(e), 'err'); return; }
   log(`[${tag}] 开始发送 ${bytes.length} 字节，分片 ${chunk}…`);
   try {
     for (let i = 0; i < bytes.length; i += chunk) {
@@ -206,7 +233,7 @@ async function send(bytes, tag) {
     }
     log(`[${tag}] 发送完成 ✔`, 'ok');
   } catch (e) {
-    log(`[${tag}] 发送出错: ` + e.message, 'err');
+    log(`[${tag}] 发送出错: ` + errText(e), 'err');
   }
 }
 

@@ -18,12 +18,28 @@
                 <div class="header-overview-value">{{ mergedWarehouse.total_quantity }}</div>
                 <div class="header-overview-label">{{ t('system.totalQuantity') }}</div>
               </div>
+              <div
+                v-if="mergedWarehouse.hidden_count"
+                class="header-overview-item header-overview-item--muted"
+              >
+                <div class="header-overview-value">{{ mergedWarehouse.hidden_count }}</div>
+                <div class="header-overview-label">{{ t('system.hiddenBadge') }}</div>
+              </div>
             </div>
           </div>
-          <el-button type="primary" class="header-primary-btn" @click="openAddWarehouseNameDialog">
-            <el-icon><Plus /></el-icon>
-            {{ t('system.addWarehouse') }}
-          </el-button>
+          <div class="header-actions">
+            <!-- 关掉这个开关就没有「取消隐藏」的入口了，所以它必须一直摆在页面上 -->
+            <el-switch
+              v-model="showHidden"
+              size="small"
+              :active-text="t('system.showHiddenShelves')"
+              class="header-hidden-switch"
+            />
+            <el-button type="primary" class="header-primary-btn" @click="openAddWarehouseNameDialog">
+              <el-icon><Plus /></el-icon>
+              {{ t('system.addWarehouse') }}
+            </el-button>
+          </div>
         </div>
       </template>
       <el-collapse v-if="groupedByWarehouse.length" v-model="activeCollapse" class="warehouse-collapse">
@@ -114,19 +130,83 @@
                   </div>
                 </div>
               </template>
-              <el-table :data="sub.shelves" border stripe size="small" class="shelf-subtable shelf-no-table">
-                <el-table-column :label="t('system.shelfPrimaryKey')" prop="id" width="88" align="center" />
-                <el-table-column :label="t('system.shelfNumber')" prop="name" min-width="120" />
-                <el-table-column :label="t('system.locationField')" prop="location" min-width="130" />
-                <el-table-column :label="t('common.description')" prop="description" min-width="160" show-overflow-tooltip />
-                <el-table-column :label="t('system.productTypes')" prop="product_types" width="100" align="center" />
-                <el-table-column :label="t('system.totalQuantity')" prop="total_quantity" width="100" align="center" />
-                <el-table-column :label="t('common.actions')" width="100" fixed="right">
-                  <template #default="{ row }">
-                    <el-button size="small" type="primary" link @click="openDialog(row)">{{ t('common.edit') }}</el-button>
-                  </template>
-                </el-table-column>
-              </el-table>
+              <!-- 货架号卡片网格。空货架号（库存 0）置灰并给出「隐藏」入口；
+                   已隐藏的仅在勾选「显示已隐藏」时出现，用虚线边框区分。 -->
+              <div v-if="sub.shelves.length" class="shelf-no-grid">
+                <div
+                  v-for="row in sub.shelves"
+                  :key="row.id"
+                  :class="[
+                    'shelf-no-card',
+                    Number(row.total_quantity || 0) === 0 ? 'shelf-no-card--empty' : '',
+                    isHiddenRow(row) ? 'shelf-no-card--hidden' : '',
+                  ]"
+                >
+                  <div class="shelf-no-card__head">
+                    <span class="shelf-no-card__name" :title="row.name">{{ row.name || '—' }}</span>
+                    <el-tag v-if="isHiddenRow(row)" size="small" type="info" effect="plain">
+                      {{ t('system.hiddenBadge') }}
+                    </el-tag>
+                  </div>
+
+                  <div class="shelf-no-card__metrics">
+                    <div class="shelf-no-metric">
+                      <span class="shelf-no-metric__value">{{ Number(row.total_quantity || 0) }}</span>
+                      <span class="shelf-no-metric__label">{{ t('system.totalStock') }}</span>
+                    </div>
+                    <div class="shelf-no-metric">
+                      <span class="shelf-no-metric__value">{{ Number(row.product_types || 0) }}</span>
+                      <span class="shelf-no-metric__label">{{ t('system.productTypes') }}</span>
+                    </div>
+                  </div>
+
+                  <div class="shelf-no-card__meta">
+                    <div v-if="row.location" class="shelf-no-card__row" :title="row.location">
+                      <span class="shelf-no-card__key">{{ t('system.locationField') }}</span>
+                      <span class="shelf-no-card__val">{{ row.location }}</span>
+                    </div>
+                    <div v-if="row.description" class="shelf-no-card__row" :title="row.description">
+                      <span class="shelf-no-card__key">{{ t('common.description') }}</span>
+                      <span class="shelf-no-card__val">{{ row.description }}</span>
+                    </div>
+                  </div>
+
+                  <div class="shelf-no-card__actions">
+                    <span class="shelf-no-card__id">#{{ row.id }}</span>
+                    <div class="shelf-no-card__btns">
+                      <!-- 隐藏只对空货架号开放：还有货就隐藏，这批库存在本页凭空消失，
+                           库存页却照样显示，两边对不上 -->
+                      <el-tooltip
+                        v-if="!isHiddenRow(row)"
+                        :disabled="Number(row.total_quantity || 0) === 0"
+                        :content="t('system.hideNeedsEmptyStock')"
+                        placement="top"
+                      >
+                        <span>
+                          <el-button
+                            size="small"
+                            link
+                            :disabled="Number(row.total_quantity || 0) !== 0"
+                            :loading="hidingId === row.id"
+                            @click="toggleShelfHidden(row)"
+                          >{{ t('system.hideShelf') }}</el-button>
+                        </span>
+                      </el-tooltip>
+                      <el-button
+                        v-else
+                        size="small"
+                        link
+                        :loading="hidingId === row.id"
+                        @click="toggleShelfHidden(row)"
+                      >{{ t('system.unhideShelf') }}</el-button>
+                      <el-button size="small" type="primary" link @click="openDialog(row)">
+                        {{ t('common.edit') }}
+                      </el-button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div v-else class="shelf-no-empty">{{ t('system.noShelfNumberHint') }}</div>
             </el-collapse-item>
           </el-collapse>
         </el-collapse-item>

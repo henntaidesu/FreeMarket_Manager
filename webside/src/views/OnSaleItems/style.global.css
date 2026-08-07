@@ -106,8 +106,8 @@
 .on-sale-revise-dialog.el-dialog {
   width: clamp(560px, 44vw, 820px) !important;
   max-width: 94vw;
-  margin: 7vh auto !important;
-  max-height: 86vh;
+  margin: calc(7 * var(--app-vh)) auto !important;
+  max-height: calc(86 * var(--app-vh));
   display: flex;
   flex-direction: column;
   /* 与页面卡片同为 8px（默认 --el-border-radius-base 是 4px，太直） */

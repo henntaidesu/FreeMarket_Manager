@@ -163,8 +163,8 @@
    `.product-dialog` 还挂在组合商品/拆分两个小弹窗上，那两个不该被限成 80vh，
    所以这条按尺寸生效的规则只认编辑商品弹窗。 */
 :deep(.product-dialog.el-dialog:not(.combined-product-dialog)) {
-  margin: 10vh auto !important;
-  max-height: 80vh;
+  margin: calc(10 * var(--app-vh)) auto !important;
+  max-height: calc(80 * var(--app-vh));
   display: flex;
   flex-direction: column;
 }
@@ -330,7 +330,7 @@
 /* 内容区定高：两个标签页内容长短差很多，不锁死的话切一次标签弹窗就跳一次高度。
    撑不满的（关联商品少）留白，超出的（字段折成一列）在这里滚。 */
 .pef-tabs :deep(.el-tabs__content) {
-  height: clamp(300px, 34vh, 440px);
+  height: clamp(300px, calc(34 * var(--app-vh)), 440px);
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -1517,7 +1517,7 @@ a.pef-lcard:hover {
   line-height: 1.5;
 }
 .combined-link-image-dialog__body {
-  max-height: min(60vh, 480px);
+  max-height: min(calc(60 * var(--app-vh)), 480px);
   overflow-y: auto;
 }
 .combined-link-image-dialog__group {
@@ -1752,7 +1752,7 @@ a.pef-lcard:hover {
   }
   :deep(.product-dialog.el-dialog),
   :deep(.scan-dialog.el-dialog) {
-    margin-top: 6vh !important;
+    margin-top: calc(6 * var(--app-vh)) !important;
   }
   :deep(.product-dialog .el-dialog__body),
   :deep(.scan-dialog .el-dialog__body) {

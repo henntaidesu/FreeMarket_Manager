@@ -277,7 +277,7 @@
   color: #7d8da6;
 }
 .mercari-form {
-  max-height: 70vh;
+  max-height: calc(70 * var(--app-vh));
   overflow-y: auto;
   padding-right: 8px;
 }

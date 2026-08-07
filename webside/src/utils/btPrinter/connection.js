@@ -28,6 +28,40 @@ const writableChars = new Map()
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+/**
+ * 16-bit 数字 / 短写法 → 128-bit 规范 UUID 字符串。
+ * Chrome/Edge 会自己做这层归一化，iPad 的 Bluefy 不会：optionalServices 里留
+ * `0xfee7` 这种数字形式，它比对不上设备上报的 `0000fee7-…`，于是选完设备、GATT 也
+ * 连上了，服务发现却拿不到打印机的服务。全部先转成规范字符串再传。
+ */
+function canonUuid(v) {
+  if (typeof v === 'number') {
+    return '0000' + v.toString(16).padStart(4, '0') + '-0000-1000-8000-00805f9b34fb'
+  }
+  const s = String(v).trim().toLowerCase()
+  if (/^(0x)?[0-9a-f]{1,4}$/.test(s)) return canonUuid(parseInt(s, 16))
+  return s
+}
+
+/** 本次连接允许访问的服务列表（已规范化、去重） */
+function optionalServiceList(cfg) {
+  const out = KNOWN_SERVICES.map(canonUuid)
+  if (cfg.serviceUuid) out.push(canonUuid(cfg.serviceUuid))
+  return [...new Set(out)]
+}
+
+/**
+ * 把任意 reject 原因包成能定位到步骤的错误。
+ * Bluefy 的原生桥会直接抛出 CoreBluetooth 的错误码（如 `-2`），既没有 name 也没有
+ * 可读消息，只显示一个数字根本无从判断挂在哪一步。
+ */
+function stepError(label, e) {
+  const detail = e?.message || (e === undefined || e === null ? '未知错误' : String(e))
+  const err = new Error(label + '失败：' + detail)
+  if (e?.name) err.name = e.name
+  return err
+}
+
 export function isBluetoothSupported() {
   return typeof navigator !== 'undefined' && !!navigator.bluetooth
 }
@@ -54,11 +88,7 @@ export async function connectPrinter() {
   if (!isBluetoothSupported()) {
     throw new Error('当前浏览器不支持网页蓝牙：请用 Chrome/Edge（HTTPS）打开；iPhone/iPad 请用 Bluefy 浏览器')
   }
-  const cfg = loadPrinterConfig()
-  const optionalServices = KNOWN_SERVICES.slice()
-  if (cfg.serviceUuid && !optionalServices.includes(cfg.serviceUuid)) {
-    optionalServices.push(cfg.serviceUuid)
-  }
+  const optionalServices = optionalServiceList(loadPrinterConfig())
   device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices })
   attachDisconnectListener(device)
   await discoverAndPick()
@@ -113,16 +143,41 @@ async function tryReconnectSaved() {
   }
 }
 
+/**
+ * 列出设备上的服务。
+ * Chrome/Edge 走无参 `getPrimaryServices()` 一次拿全；Bluefy 上这个调用会抛错
+ * （原生桥只吐一个数字错误码）或返回空数组，此时回退成按允许列表逐个
+ * `getPrimaryService(uuid)` 探测——设备没有的服务会抛，忽略即可。
+ */
+async function listServices(server, cfg) {
+  try {
+    const all = await server.getPrimaryServices()
+    if (all?.length) return all
+  } catch {
+    // 回退逐个探测
+  }
+  const out = []
+  for (const uuid of optionalServiceList(cfg)) {
+    try { out.push(await server.getPrimaryService(uuid)) } catch { /* 设备没有该服务 */ }
+  }
+  return out
+}
+
 /** GATT 连接 + 特征发现；优先取已保存特征，否则整表发现自动选第一个可写并持久化 */
 async function discoverAndPick() {
   const cfg = loadPrinterConfig()
-  const server = await device.gatt.connect()
+  let server
+  try {
+    server = await device.gatt.connect()
+  } catch (e) {
+    throw stepError('连接打印机(GATT)', e)
+  }
 
   // 快路径：按保存的 UUID 直取
   if (cfg.serviceUuid && cfg.charUuid) {
     try {
-      const svc = await server.getPrimaryService(cfg.serviceUuid)
-      writeChar = await svc.getCharacteristic(cfg.charUuid)
+      const svc = await server.getPrimaryService(canonUuid(cfg.serviceUuid))
+      writeChar = await svc.getCharacteristic(canonUuid(cfg.charUuid))
       savePrinterConfig({ deviceId: device.id || '', deviceName: device.name || '' })
       return
     } catch {
@@ -131,10 +186,11 @@ async function discoverAndPick() {
   }
 
   writableChars.clear()
-  const services = await server.getPrimaryServices()
+  const services = await listServices(server, cfg)
+  let charErr = null
   for (const s of services) {
     let cs = []
-    try { cs = await s.getCharacteristics() } catch { continue }
+    try { cs = await s.getCharacteristics() } catch (e) { charErr = charErr || e; continue }
     for (const c of cs) {
       const p = c.properties
       if (p.write || p.writeWithoutResponse) {
@@ -144,7 +200,11 @@ async function discoverAndPick() {
     }
   }
   if (!writableChars.size) {
-    throw new Error('未发现可写特征：请确认打印机已开机，或先用 bt-spike.html 排查')
+    // 带上「连上了谁、扫到几个服务、读特征报了什么」——只说「未发现可写特征」时
+    // 无法区分「打印机没开机」和「服务不在 optionalServices 里」
+    const detail = '已连上 ' + (device.name || '设备') + '，扫描到 ' + services.length + ' 个服务'
+      + (charErr ? '，读取特征报错：' + (charErr.message || charErr) : '')
+    throw new Error('未发现可写特征（' + detail + '）：请确认打印机已开机，或先用 bt-spike.html 排查')
   }
   const first = writableChars.entries().next().value
   const [uuid, v] = first
@@ -180,8 +240,7 @@ export async function ensureConnected() {
     await connectPrinter()
     return
   }
-  await device.gatt.connect()
-  await discoverAndPick()
+  await discoverAndPick() // 内部自带 gatt.connect()
   await sleep(200) // 给打印机一点缓冲
 }
 
@@ -202,7 +261,12 @@ export function sendBytes(bytes) {
         await writeChar.writeValueWithoutResponse(slice)
       } catch {
         if (!writeChar) throw new Error('打印机连接已断开，发送中止')
-        await writeChar.writeValue(slice)
+        try {
+          await writeChar.writeValue(slice)
+        } catch (e) {
+          // 分片大小超过对端单次写入上限时 iOS 就在这里失败，报出分片号/大小才看得出来
+          throw stepError('发送数据(第 ' + (i / chunk + 1) + ' 片，' + slice.length + ' 字节)', e)
+        }
       }
       await sleep(20)
     }

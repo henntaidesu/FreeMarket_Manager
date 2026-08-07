@@ -14,6 +14,7 @@ from .units.warehouses_handler import (
     migrate_inventory_to_shelf,
     rename_shelf_name_group,
     rename_warehouse_group,
+    set_warehouse_hidden,
     update_warehouse,
 )
 
@@ -24,5 +25,6 @@ router.add_api_route("", create_warehouse, methods=["POST"])
 router.add_api_route("/rename-group", rename_warehouse_group, methods=["PUT"])
 router.add_api_route("/rename-shelf-name-group", rename_shelf_name_group, methods=["PUT"])
 router.add_api_route("/{wid}/migrate-inventory", migrate_inventory_to_shelf, methods=["POST"])
+router.add_api_route("/{wid}/hidden", set_warehouse_hidden, methods=["PUT"])
 router.add_api_route("/{wid}", update_warehouse, methods=["PUT"])
 router.add_api_route("/{wid}", delete_warehouse, methods=["DELETE"])

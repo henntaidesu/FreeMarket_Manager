@@ -39,6 +39,11 @@ class MigrateInventoryBody(PydanticModel):
     target_warehouse_id: int
 
 
+class WarehouseHiddenBody(PydanticModel):
+    """货架号隐藏开关。仅货架号可隐藏，且必须库存归零。"""
+    is_hidden: bool
+
+
 class RenameShelfNameGroupBody(PydanticModel):
     """同一仓库下、同一货架名称（shelf_name）分组批量改为新名称"""
     warehouse: str
@@ -60,10 +65,29 @@ def _norm_shelf_name_key(s: Optional[str]) -> Optional[str]:
     return t if t else None
 
 
+def _row_node_type(w: WarehouseModel) -> str:
+    """行节点类型。与前端 script.js::rowType 同口径：node_type 缺省时按字段推断
+    （历史数据是在加 node_type 列之前写入的，没有这一列的值）。"""
+    t = (getattr(w, 'node_type', None) or "").strip().lower()
+    if t in ("warehouse", "shelf", "shelf_no"):
+        return t
+    if _norm_shelf_code(w.name):
+        return "shelf_no"
+    if _norm_shelf_name_key(w.shelf_name):
+        return "shelf"
+    return "warehouse"
+
+
+def _norm_hidden(d: dict) -> dict:
+    """is_hidden 统一成 0/1：SQLite 存布尔、MySQL 存 int、老行是 NULL，前端只想要一种。"""
+    d['is_hidden'] = 1 if int(d.get('is_hidden') or 0) else 0
+    return d
+
+
 def _serialize(wh: WarehouseModel) -> dict:
     d = wh.to_dict()
     d.update(WarehouseModel.get_stats(wh.id))
-    return d
+    return _norm_hidden(d)
 
 
 def list_warehouses():
@@ -72,8 +96,30 @@ def list_warehouses():
     for w in WarehouseModel.find_all(order_by="id ASC"):
         d = w.to_dict()
         d.update(stats.get(int(w.id), {'total_quantity': 0, 'product_types': 0}))
-        out.append(d)
+        out.append(_norm_hidden(d))
     return out
+
+
+def set_warehouse_hidden(wid: int, data: WarehouseHiddenBody):
+    """隐藏 / 取消隐藏一个货架号。
+
+    隐藏只是把它从仓库管理页的默认视图里拿掉，货架本身和它的历史关联都还在。
+    但仍然只允许对**库存归零**的货架号隐藏：隐藏一个还有货的货架号，会让那批库存
+    在这个页面上凭空消失，而库存页照样显示它们——两边对不上就是找不回来的货。
+    """
+    wh = WarehouseModel.find_by_id(id=wid)
+    if not wh:
+        raise HTTPException(status_code=404, detail="货架不存在")
+    if _row_node_type(wh) != "shelf_no":
+        raise HTTPException(status_code=400, detail="只有货架号可以隐藏")
+    if data.is_hidden:
+        stats = WarehouseModel.get_stats(wh.id)
+        if int(stats.get('total_quantity') or 0) != 0:
+            raise HTTPException(status_code=400, detail="该货架号仍有库存，无法隐藏")
+    wh.is_hidden = 1 if data.is_hidden else 0
+    if not wh.save():
+        raise HTTPException(status_code=500, detail="保存失败")
+    return _serialize(wh)
 
 
 def _row_wh_key(w: WarehouseModel) -> str:

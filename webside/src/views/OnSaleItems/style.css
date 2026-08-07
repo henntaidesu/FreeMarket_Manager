@@ -241,8 +241,8 @@
   /* 与页面卡片同为 8px（默认 --el-border-radius-base 是 4px，太直） */
   --el-dialog-border-radius: 8px;
   /* 高度封顶 + body 内部滚动：1080p 竖向只有 ~900px 可用，整窗滚动会把底部按钮顶出屏幕 */
-  margin: 6vh auto !important;
-  max-height: 88vh;
+  margin: calc(6 * var(--app-vh)) auto !important;
+  max-height: calc(88 * var(--app-vh));
   display: flex;
   flex-direction: column;
 }
@@ -271,7 +271,7 @@
   position: relative;
   width: 100%;
   aspect-ratio: 1 / 1;
-  max-height: min(360px, 40vh);
+  max-height: min(360px, calc(40 * var(--app-vh)));
   background: #0b1220;
   border: 1px solid #263352;
   border-radius: 10px;
@@ -569,7 +569,7 @@
 /* 弹窗被 max-width:94vw 压窄时（低分屏 + 高缩放）左右分栏会挤，退回单栏 */
 @media (max-width: 1000px) {
   .osd-hero { grid-template-columns: 1fr; }
-  .osd-gallery__main { max-height: 46vh; }
+  .osd-gallery__main { max-height: calc(46 * var(--app-vh)); }
   .osd-info__cols { grid-template-columns: 1fr; }
 }
 

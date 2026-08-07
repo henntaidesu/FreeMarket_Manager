@@ -434,6 +434,14 @@
                 </div>
               </div>
               <div class="sc-field">
+                <div class="sc-label">{{ t('qrPrint.gap') }}</div>
+                <div class="sc-inline">
+                  <el-input-number v-model="printerCfg.gapMm" :min="0" :max="30" :precision="1" :step="0.5" :controls="false" class="sc-num" @change="savePrinterCfg" />
+                  <span class="sc-unit">mm</span>
+                </div>
+                <div class="sc-hint">{{ t('qrPrint.gapHint') }}</div>
+              </div>
+              <div class="sc-field">
                 <div class="sc-label">{{ t('qrPrint.density') }}</div>
                 <el-input-number v-model="printerCfg.density" :min="1" :max="31" :controls="false" class="sc-num" @change="savePrinterCfg" />
               </div>
@@ -1001,6 +1009,7 @@ function savePrinterCfg() {
     dpi: Number(printerCfg.dpi) || 203,
     chunk: Number(printerCfg.chunk) || 180,
     feedMm: Math.max(0, Number(printerCfg.feedMm) || 0),
+    gapMm: Math.max(0, Number(printerCfg.gapMm) || 0),
     density: Number(printerCfg.density) || 10,
     threshold: Number(printerCfg.threshold) || 128,
   })
@@ -1322,6 +1331,12 @@ onUnmounted(() => {
 .sc-unit {
   flex: none;
   font-size: 12px;
+  color: var(--sc-text-mute);
+}
+.sc-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.4;
   color: var(--sc-text-mute);
 }
 .sc-actions {

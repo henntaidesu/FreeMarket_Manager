@@ -29,6 +29,19 @@ export default defineComponent({
       return 'warehouse'
     }
 
+    function isHiddenRow(row) {
+      return Number(row?.is_hidden || 0) === 1
+    }
+
+    /** 该货架号是否出现在页面上。
+     *  隐藏时只允许库存归零（后端校验），但库存管理/出入库那边的仓位选择器并不排除已隐藏
+     *  的货架号——货还是可能被放进来。真发生了就无条件显示出来：库存绝不能因为隐藏而在
+     *  这个页面上凭空消失，否则两边数字对不上还找不到货。 */
+    function isVisibleLeaf(row) {
+      if (!isHiddenRow(row) || showHidden.value) return true
+      return Number(row?.total_quantity || 0) > 0
+    }
+
     /** 三级结构：在同一仓库下按 shelf_name 分组成二级（货架），每组内为货架号（叶子行） */
     function buildShelfNameGroups(shelves) {
       const m = new Map()
@@ -45,8 +58,11 @@ export default defineComponent({
             shelves: []
           })
         }
-        // 货架占位行(shelf)仅建立分区；只有货架号(shelf_no)进入表格
-        if (type === 'shelf_no') m.get(key).shelves.push(row)
+        // 货架占位行(shelf)仅建立分区；只有货架号(shelf_no)进入卡片列表
+        if (type !== 'shelf_no') continue
+        // 已隐藏的货架号默认不进列表（勾「显示已隐藏」才带出来，否则没有取消隐藏的入口）
+        if (!isVisibleLeaf(row)) continue
+        m.get(key).shelves.push(row)
       }
       const list = [...m.values()].map((g) => {
         const productTypes = g.shelves.reduce((s, i) => s + Number(i.product_types || 0), 0)
@@ -68,6 +84,10 @@ export default defineComponent({
     }
 
     const list = ref([])
+    /** 是否把已隐藏的货架号一并显示出来（关掉就没有取消隐藏的入口了）。
+     *  仅影响本页展示，不写回后端。 */
+    const showHidden = ref(false)
+    const hidingId = ref(null)
     const activeCollapse = ref([])
     /** 二级折叠（货架名称）每组展开的 name，按仓库分 key */
     const activeShelfNameByWh = ref({})
@@ -163,7 +183,8 @@ export default defineComponent({
       return names.map((name) => {
         const shelves = map.get(name)
         const shelfNameGroups = buildShelfNameGroups(shelves)
-        const leafRows = shelves.filter((r) => rowType(r) === 'shelf_no')
+        // 统计口径 = 页面上看得见的货架号：隐藏后计数要跟着减，否则数字和列表对不上
+        const leafRows = shelves.filter((r) => rowType(r) === 'shelf_no' && isVisibleLeaf(r))
         const productTypes = leafRows.reduce((s, i) => s + Number(i.product_types || 0), 0)
         const totalQuantity = leafRows.reduce((s, i) => s + Number(i.total_quantity || 0), 0)
         return {
@@ -178,20 +199,28 @@ export default defineComponent({
     })
 
     const mergedWarehouse = computed(() => {
-      const leaves = list.value.filter((r) => rowType(r) === 'shelf_no')
+      const allLeaves = list.value.filter((r) => rowType(r) === 'shelf_no')
+      const leaves = allLeaves.filter(isVisibleLeaf)
       const productTypes = leaves.reduce((sum, item) => sum + Number(item.product_types || 0), 0)
       const totalQuantity = leaves.reduce((sum, item) => sum + Number(item.total_quantity || 0), 0)
       return {
         shelf_count: leaves.length,
         product_types: productTypes,
-        total_quantity: totalQuantity
+        total_quantity: totalQuantity,
+        hidden_count: allLeaves.filter(isHiddenRow).length,
       }
     })
 
     const migrateInventoryOptions = computed(() => {
       const sid = migrateSourceWarehouseId.value
       return list.value
-        .filter((w) => w.id != null && Number(w.id) !== Number(sid) && rowType(w) === 'shelf_no')
+        .filter(
+          (w) =>
+            w.id != null &&
+            Number(w.id) !== Number(sid) &&
+            rowType(w) === 'shelf_no' &&
+            !isHiddenRow(w),
+        )
         .map((w) => ({
           value: Number(w.id),
           label: `${normalizeWarehouseName(w.warehouse)} · ${warehouseShelfLabel(w)}`,
@@ -214,6 +243,7 @@ export default defineComponent({
         const id = Number(row?.id)
         if (!Number.isFinite(id) || id === sid) continue
         if (rowType(row) !== 'shelf_no') continue // 仅货架号可作为迁移目标
+        if (isHiddenRow(row)) continue // 已隐藏的货架号不作为迁移目标：迁进去等于把货藏起来
         const wh = normalizeWarehouseName(row.warehouse)
         if (!byWh.has(wh)) byWh.set(wh, [])
         byWh.get(wh).push(row)
@@ -327,6 +357,29 @@ export default defineComponent({
     async function load() {
       const rows = await warehouseApi.list()
       list.value = rows.map((item) => ({ ...item, warehouse: normalizeWarehouseName(item.warehouse) }))
+    }
+
+    /** 隐藏 / 取消隐藏一个货架号。只有库存归零的才允许隐藏——按钮已经拦了一层，
+     *  后端还会再校验一次（页面上的库存数可能是几分钟前拉的，期间可能已经入货）。 */
+    async function toggleShelfHidden(row) {
+      const id = row?.id
+      if (id == null || hidingId.value != null) return
+      const next = !isHiddenRow(row)
+      if (next && Number(row?.total_quantity || 0) !== 0) {
+        ElMessage.warning(t('system.hideNeedsEmptyStock'))
+        return
+      }
+      hidingId.value = id
+      try {
+        await warehouseApi.setHidden(id, next)
+        ElMessage.success(next ? t('system.shelfHidden') : t('system.shelfUnhidden'))
+        await load()
+      } catch (e) {
+        // axios 拦截器已弹出后端 detail；这里只兜网络层错误
+        if (!e?.response) ElMessage.error(e?.message || t('system.hideFailed'))
+      } finally {
+        hidingId.value = null
+      }
     }
 
     function onAddWarehouseNameDialogClosed() {
@@ -623,6 +676,10 @@ export default defineComponent({
       EMPTY_SHELF_NAME_KEY,
       buildShelfNameGroups,
       list,
+      showHidden,
+      hidingId,
+      isHiddenRow,
+      toggleShelfHidden,
       activeCollapse,
       activeShelfNameByWh,
       dialogVisible,

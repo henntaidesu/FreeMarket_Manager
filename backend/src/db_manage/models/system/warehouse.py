@@ -55,6 +55,14 @@ class WarehouseModel(BaseModel):
                 'not_null': False,
                 'default': None,
             },
+            # 货架号隐藏标记：仅 node_type=shelf_no 且库存归零的行可置 1（见 warehouses_handler
+            # .set_warehouse_hidden）。隐藏只影响仓库管理页的默认展示，不影响任何库存口径——
+            # 库存/出入库仍照常按 warehouse_id 关联，页面勾选「显示已隐藏」即可取回。
+            'is_hidden': {
+                'type': 'INTEGER',
+                'not_null': False,
+                'default': 0,
+            },
             'created_at': {
                 'type': 'DATETIME',
                 'not_null': False,

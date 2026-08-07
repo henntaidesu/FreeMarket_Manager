@@ -267,9 +267,150 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.shelf-subtable {
-  width: 100%;
+/* ── 三级：货架号卡片网格（原来是 el-table） ── */
+.shelf-no-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px;
 }
-.shelf-no-table {
-  margin-top: 0;
+.shelf-no-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #253149;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #141d30 0%, #111828 100%);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.shelf-no-card:hover {
+  border-color: #3c72c4;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  transform: translateY(-1px);
+}
+/* 空货架号：整卡压暗，一眼能挑出可以清理/隐藏的位 */
+.shelf-no-card--empty {
+  background: #101725;
+  border-color: #222c40;
+}
+.shelf-no-card--empty .shelf-no-metric__value {
+  color: #6b7890;
+}
+/* 已隐藏（只有开了「显示已隐藏」才会出现）：虚线框 + 半透明 */
+.shelf-no-card--hidden {
+  border-style: dashed;
+  opacity: 0.62;
+}
+.shelf-no-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.shelf-no-card__name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #e6edf7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.shelf-no-card__metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.shelf-no-metric {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 6px;
+  border-radius: 8px;
+  background: #0d1422;
+  border: 1px solid #212c40;
+}
+.shelf-no-metric__value {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: #409eff;
+  font-variant-numeric: tabular-nums;
+}
+.shelf-no-metric__label {
+  font-size: 11px;
+  color: #8b98b0;
+  line-height: 1.2;
+}
+.shelf-no-card__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.shelf-no-card__row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+}
+.shelf-no-card__key {
+  flex: 0 0 auto;
+  color: #7b879e;
+}
+.shelf-no-card__val {
+  min-width: 0;
+  color: #c3cee0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.shelf-no-card__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px dashed #212c40;
+}
+.shelf-no-card__id {
+  font-size: 11px;
+  color: #6b7890;
+  font-variant-numeric: tabular-nums;
+}
+.shelf-no-card__btns {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.shelf-no-empty {
+  padding: 14px;
+  text-align: center;
+  font-size: 12px;
+  color: #7b879e;
+  border: 1px dashed #253149;
+  border-radius: 8px;
+}
+/* 顶部：显示已隐藏开关 + 新建仓库 */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.header-hidden-switch {
+  --el-switch-off-color: #2a3446;
+}
+.header-hidden-switch :deep(.el-switch__label) {
+  color: #9ba8bf;
+  font-size: 12px;
+}
+.header-hidden-switch :deep(.el-switch__label.is-active) {
+  color: #409eff;
+}
+.header-overview-item--muted .header-overview-value {
+  color: #8b98b0;
 }

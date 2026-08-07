@@ -318,6 +318,26 @@
     height: 34px;
   }
 }
+/* ─── 交易详情面板 / 发货向导：两个弹窗都限制在可见视口内 ───
+   EP 默认弹窗从顶部 15vh 起往下排、高度随内容走，iPad 上一旦比屏幕高就得整页下拉才能
+   看到底部按钮。这里配合模板上的 align-center（垂直居中）把高度按 --app-vh 封顶，
+   剩下的在 body 内部滚动；宽度也按视口封顶，免得竖屏 iPad 上还要横向拉。
+   注意是**同一个元素**：class 经 $attrs 落在 ElDialogContent 的根节点上，而那个根节点
+   本身就是 .el-dialog，写成后代选择器 `.todo-detail-dialog .el-dialog` 匹配不到。 */
+:deep(.todo-detail-dialog.el-dialog),
+:deep(.todo-ship-dialog.el-dialog) {
+  max-width: 94vw;
+  max-height: calc(92 * var(--app-vh));
+  display: flex;
+  flex-direction: column;
+}
+:deep(.todo-detail-dialog .el-dialog__body),
+:deep(.todo-ship-dialog .el-dialog__body) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 /* ─── 交易详情面板 ─── */
 .detail-header {
   display: flex;
@@ -340,8 +360,10 @@
   /* 单行高度限制为容器高度（消息多时让列内 overflow 生效而非撑高弹窗） */
   grid-template-rows: minmax(0, 1fr);
   gap: 16px;
-  min-height: 560px;
-  max-height: 70vh;
+  /* 560px 是给两栏一个统一下限、免得内容少时弹窗忽高忽低；但矮屏（iPad 横屏可见高度
+     只有 ~690px）上它会连同页头页脚一起把弹窗顶出屏幕，所以按可见高度让步。 */
+  min-height: min(560px, calc(58 * var(--app-vh)));
+  max-height: calc(70 * var(--app-vh));
   overflow: hidden;
 }
 .detail-col {
@@ -796,7 +818,8 @@
    min-height 只是给三页一个统一的下限，免得页与页之间弹窗高度跳动。
    竖向 flex 是为了让页内的操作按钮能用 margin-top:auto 贴到表单右下角 */
 .ship-flow-body {
-  min-height: 420px;
+  /* 同 .detail-body：矮屏上这个下限要让步，否则步骤条 + 表单 + 底部按钮会超出可见高度 */
+  min-height: min(420px, calc(46 * var(--app-vh)));
   display: flex;
   flex-direction: column;
 }
@@ -992,7 +1015,7 @@
 .qr-scan-video {
   width: 100%;
   height: auto;
-  max-height: 70vh;
+  max-height: calc(70 * var(--app-vh));
   display: block;
   object-fit: contain;
   background: #000;
