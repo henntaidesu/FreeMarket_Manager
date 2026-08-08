@@ -434,12 +434,21 @@
                 </div>
               </div>
               <div class="sc-field">
-                <div class="sc-label">{{ t('qrPrint.gap') }}</div>
+                <div class="sc-label">{{ t('qrPrint.retract') }}</div>
                 <div class="sc-inline">
-                  <el-input-number v-model="printerCfg.gapMm" :min="0" :max="30" :precision="1" :step="0.5" :controls="false" class="sc-num" @change="savePrinterCfg" />
+                  <el-input-number v-model="printerCfg.retractMm" :min="0" :max="60" :precision="1" :step="0.5" :controls="false" class="sc-num" @change="savePrinterCfg" />
                   <span class="sc-unit">mm</span>
                 </div>
-                <div class="sc-hint">{{ t('qrPrint.gapHint') }}</div>
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">{{ t('qrPrint.retractCmd') }}</div>
+                <el-select v-model="printerCfg.retractCmd" @change="savePrinterCfg">
+                  <el-option label="FF" value="ff" />
+                  <el-option label="GS FF" value="gsff" />
+                  <el-option label="ESC K" value="escK" />
+                  <el-option label="ESC e" value="escE" />
+                  <el-option label="TSPL BACKFEED" value="tspl" />
+                </el-select>
               </div>
               <div class="sc-field">
                 <div class="sc-label">{{ t('qrPrint.density') }}</div>
@@ -533,6 +542,7 @@ import {
   printTestLabel,
   loadPrinterConfig,
   savePrinterConfig,
+  fetchPrinterConfig,
   isBluetoothSupported,
   supportsAutoReconnect,
   getPrinterState,
@@ -1001,6 +1011,11 @@ const connecting = ref(false)
 const qrTesting = ref(false)
 const autoReconnectOk = supportsAutoReconnect()
 
+// 打印参数存数据库，进页面时以库里的为准刷新表单（拉不到就保持本地镜像值）
+async function loadPrinterParams() {
+  Object.assign(printerCfg, await fetchPrinterConfig())
+}
+
 function savePrinterCfg() {
   savePrinterConfig({
     labelWmm: Number(printerCfg.labelWmm) || 30,
@@ -1009,7 +1024,8 @@ function savePrinterCfg() {
     dpi: Number(printerCfg.dpi) || 203,
     chunk: Number(printerCfg.chunk) || 180,
     feedMm: Math.max(0, Number(printerCfg.feedMm) || 0),
-    gapMm: Math.max(0, Number(printerCfg.gapMm) || 0),
+    retractMm: Math.max(0, Number(printerCfg.retractMm) || 0),
+    retractCmd: printerCfg.retractCmd || 'escK',
     density: Number(printerCfg.density) || 10,
     threshold: Number(printerCfg.threshold) || 128,
   })
@@ -1072,6 +1088,7 @@ onMounted(() => {
   load()
   loadListingDefaults()
   loadDbConfig()
+  loadPrinterParams()
 
   scrollRoot = pageRef.value?.closest('.main-content') || null
   ;(scrollRoot || window).addEventListener('scroll', syncActiveSection, { passive: true })
@@ -1331,12 +1348,6 @@ onUnmounted(() => {
 .sc-unit {
   flex: none;
   font-size: 12px;
-  color: var(--sc-text-mute);
-}
-.sc-hint {
-  margin-top: 4px;
-  font-size: 11px;
-  line-height: 1.4;
   color: var(--sc-text-mute);
 }
 .sc-actions {

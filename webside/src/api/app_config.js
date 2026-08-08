@@ -9,5 +9,8 @@ export const configApi = {
   putMgmtCipherMode: (mode) => http.put('/use_web/system/mgmt-cipher-mode', { mode }),
   // 系统配置（DeepSeek AI）：{ api_key, model, base_url }
   getDeepseekConfig: () => http.get('/use_web/system/deepseek-config'),
-  putDeepseekConfig: (data) => http.put('/use_web/system/deepseek-config', data)
+  putDeepseekConfig: (data) => http.put('/use_web/system/deepseek-config', data),
+  // 二维码打印参数（标签尺寸/打印质量），整体读写；蓝牙设备绑定仍在 localStorage
+  getPrinterParams: () => http.get('/use_web/system/printer-params'),
+  putPrinterParams: (data) => http.put('/use_web/system/printer-params', data)
 }
