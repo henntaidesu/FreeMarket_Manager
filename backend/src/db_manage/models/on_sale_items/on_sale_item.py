@@ -290,6 +290,14 @@ class OnSaleItemModel(BaseModel):
                 "not_null": False,
                 "default": None,
             },
+            # 回国模式标记：1=这件是「开启回国模式」时由本模式暂停的，关闭回国模式时才恢复出售。
+            # 开启前就已是暂停出售（stop）的商品不会被打标，因此永远不会被误恢复。
+            # 仅由 src/homecoming.py 维护；同步的 upsert 只写它带来的字段，故不会重置本列。
+            "homecoming_suspended": {
+                "type": "INTEGER",
+                "not_null": True,
+                "default": 0,
+            },
         }
 
     @classmethod

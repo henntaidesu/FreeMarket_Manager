@@ -77,6 +77,13 @@ async def run_auto_relist_for_orders(
     nos = [str(x).strip() for x in (order_nos or []) if str(x or "").strip()]
     if not nos:
         return
+    # 回国模式：一件都不补挂。在这里就返回而不是等入队被拒——否则每笔售出都要写一条
+    # 「补挂入队失败」的 error 级系统日志，把真正的失败淹掉。
+    from ..homecoming import is_on as _homecoming_on
+
+    if _homecoming_on():
+        log.info("[auto_relist] 回国模式开启，跳过 %d 笔订单的补挂", len(nos))
+        return
     # 账号级「自动上架」开关：传入了 account_id 且未开启 → 直接跳过
     if account_id is not None and not _account_relist_enabled(account_id):
         return

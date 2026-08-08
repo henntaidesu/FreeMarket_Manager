@@ -25,7 +25,8 @@ export const TASK_TYPES = {
   TODOS_SYNC: 'todos.sync',
   TODOS_SHIPPING_QR: 'todos.shipping_qr',
   TODOS_CONFIRM_CANCELLATION: 'todos.confirm_cancellation',
-  ACCOUNT_SYNC_DATA: 'account.sync_data'
+  ACCOUNT_SYNC_DATA: 'account.sync_data',
+  SYSTEM_HOMECOMING: 'system.homecoming'
 }
 
 /** 每次点击生成一个 token：双击 / 网络重发时后端凭它幂等，不会重复排队 */

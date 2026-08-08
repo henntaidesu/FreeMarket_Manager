@@ -12,5 +12,9 @@ export const configApi = {
   putDeepseekConfig: (data) => http.put('/use_web/system/deepseek-config', data),
   // 二维码打印参数（标签尺寸/打印质量），整体读写；蓝牙设备绑定仍在 localStorage
   getPrinterParams: () => http.get('/use_web/system/printer-params'),
-  putPrinterParams: (data) => http.put('/use_web/system/printer-params', data)
+  putPrinterParams: (data) => http.put('/use_web/system/printer-params', data),
+  // 回国模式：{ enabled, on_sale_count, suspended_count, task_id }
+  // PUT 立即写开关（上架随即被禁），暂停/恢复整批商品由 system.homecoming 任务执行
+  getHomecoming: () => http.get('/use_web/system/homecoming'),
+  putHomecoming: (enable) => http.put('/use_web/system/homecoming', { enable })
 }

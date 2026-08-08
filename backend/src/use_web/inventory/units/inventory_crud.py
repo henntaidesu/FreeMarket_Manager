@@ -151,7 +151,9 @@ def update_inventory(pid: int, data: InventoryUpdate, _claims: dict = Depends(re
     allowed_fields = {
         "name", "barcode", "category_id", "product_type_id", "owner_user_id", "warehouse_id", "price",
         "quantity",
-        "mercari_item_id", "on_sale_quantity", "auto_listing_enabled", "auto_listing_watermark",
+        # on_sale_quantity 刻意不在白名单：见 InventoryUpdate 上的说明，它由 inventory_counters
+        # 事件驱动维护，任何表单写入都会覆盖同步结果。老客户端仍会带上该字段，在此丢弃。
+        "mercari_item_id", "auto_listing_enabled", "auto_listing_watermark",
         "description", "listing_title", "listing_body",
         "listing_status", "listing_account_id", "shipping_payer", "shipping_method",
         "shipping_from_area_id", "shipping_days", "sale_type", "auction_duration",
@@ -171,9 +173,9 @@ def update_inventory(pid: int, data: InventoryUpdate, _claims: dict = Depends(re
             raise
         except Exception:
             raise HTTPException(status_code=400, detail="更新失败，条形码可能重复")
-        # 改动库存/在售会改变本商品可上架；组合商品套数变化还会改变来源商品被「拉走」的件数，
+        # 改动库存会改变本商品可上架；组合商品套数变化还会改变来源商品被「拉走」的件数，
         # 一并重算来源可上架（组合不扣减来源库存）。
-        if "quantity" in update_data or "on_sale_quantity" in update_data:
+        if "quantity" in update_data:
             from ....use_mercari.inventory_counters import recompute_listable_quantity
             touched = [pid]
             if old_is_combined and "quantity" in update_data:

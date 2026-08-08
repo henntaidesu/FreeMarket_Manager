@@ -225,6 +225,42 @@
           </div>
         </section>
 
+        <!-- 回国模式：开启=全部在售暂停出售 + 禁止上架；关闭=只恢复本模式暂停的那些 -->
+        <section id="sc-homecoming" class="sc-panel">
+          <div class="sc-panel-head">
+            <span class="sc-ic sc-ic--rose"><el-icon :size="17"><Suitcase /></el-icon></span>
+            <div class="sc-head-text">
+              <div class="sc-panel-title">{{ t('homecoming.section') }}</div>
+              <div class="sc-panel-desc">{{ t('homecoming.desc') }}</div>
+            </div>
+            <el-switch
+              v-model="homecoming.enabled"
+              :loading="homecomingSubmitting"
+              :disabled="homecomingLoading || homecomingSubmitting"
+              @change="onHomecomingChange"
+            />
+          </div>
+          <div class="sc-panel-body" v-loading="homecomingLoading">
+            <el-alert
+              v-if="homecoming.enabled"
+              :title="t('homecoming.onNotice')"
+              type="warning"
+              :closable="false"
+              show-icon
+            />
+            <div class="sc-hc-stats">
+              <span>{{ t('homecoming.onSaleCount', { n: homecoming.on_sale_count }) }}</span>
+              <span>{{ t('homecoming.suspendedCount', { n: homecoming.suspended_count }) }}</span>
+            </div>
+            <div class="sc-actions">
+              <el-button :loading="homecomingSubmitting" @click="retryHomecoming">
+                {{ t('homecoming.retry') }}
+              </el-button>
+              <span class="sc-note">{{ t('homecoming.retryTip') }}</span>
+            </div>
+          </div>
+        </section>
+
         <!-- 数据库管理（连接 / 切换 + 备份） -->
         <section id="sc-database" class="sc-panel">
           <div class="sc-panel-head">
@@ -533,7 +569,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
-import { Plus, User, Lock, MagicStick, Sell, Coin, Tickets, Printer, Compass } from '@element-plus/icons-vue'
+import { Plus, User, Lock, MagicStick, Sell, Coin, Tickets, Printer, Compass, Suitcase } from '@element-plus/icons-vue'
 import { ElMessage } from '@/utils/notify'
 import { setLocale, SUPPORTED_LOCALES } from '@/i18n'
 import { authApi, configApi } from '@/api/index.js'
@@ -566,6 +602,7 @@ const SECTIONS = [
   { id: 'password', icon: 'Lock', labelKey: 'system.changeMyPassword' },
   { id: 'ai', icon: 'MagicStick', labelKey: 'systemConfig.deepseekSection' },
   { id: 'listing', icon: 'Sell', labelKey: 'system.listingDefaults' },
+  { id: 'homecoming', icon: 'Suitcase', labelKey: 'homecoming.section' },
   { id: 'database', icon: 'Coin', labelKey: 'systemConfig.databaseSection' },
   { id: 'qrparams', icon: 'Tickets', labelKey: 'qrPrint.paramsSection' },
   { id: 'printer', icon: 'Printer', labelKey: 'qrPrint.connSection' },
@@ -837,6 +874,65 @@ async function saveListingDefaults() {
   }
 }
 
+// ===== 回国模式 =====
+// 开关本身在 PUT 返回时就已生效（后端立刻禁止上架）；暂停/恢复整批在售商品是后台任务，
+// 进度看 /#/tasks。两个计数用来判断是否还有漏网之鱼：开启后「在售中」应为 0，
+// 关闭后「待恢复」应为 0，不为 0 时点「重试」再跑一轮（只处理剩下的）。
+const homecoming = reactive({ enabled: false, on_sale_count: 0, suspended_count: 0 })
+const homecomingLoading = ref(false)
+const homecomingSubmitting = ref(false)
+
+function applyHomecoming(res) {
+  homecoming.enabled = !!res?.enabled
+  homecoming.on_sale_count = Number(res?.on_sale_count) || 0
+  homecoming.suspended_count = Number(res?.suspended_count) || 0
+}
+
+async function loadHomecoming() {
+  homecomingLoading.value = true
+  try {
+    applyHomecoming(await configApi.getHomecoming())
+  } catch {
+    /* 拦截器已提示 */
+  } finally {
+    homecomingLoading.value = false
+  }
+}
+
+async function submitHomecoming(enable) {
+  homecomingSubmitting.value = true
+  try {
+    applyHomecoming(await configApi.putHomecoming(enable))
+    ElMessage.success(t('homecoming.submitted'))
+  } catch {
+    // 提交失败（例如已有同类任务在排队）→ 回到后端的真实开关状态，不留下假开关
+    await loadHomecoming()
+  } finally {
+    homecomingSubmitting.value = false
+  }
+}
+
+/** el-switch 已经把值改掉了，确认框取消时要手工改回去 */
+async function onHomecomingChange(val) {
+  const target = !!val
+  try {
+    await ElMessageBox.confirm(
+      target ? t('homecoming.confirmOnMsg', { n: homecoming.on_sale_count }) : t('homecoming.confirmOffMsg', { n: homecoming.suspended_count }),
+      target ? t('homecoming.confirmOnTitle') : t('homecoming.confirmOffTitle'),
+      { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') }
+    )
+  } catch {
+    homecoming.enabled = !target
+    return
+  }
+  await submitHomecoming(target)
+}
+
+/** 重试：按当前开关方向再跑一轮，只处理上一轮没做完的商品 */
+function retryHomecoming() {
+  return submitHomecoming(homecoming.enabled)
+}
+
 // ===== 数据库管理 =====
 /** 数据库卡片内的分栏：connect = 连接/切换，backup = 备份 */
 const dbPane = ref('connect')
@@ -1087,6 +1183,7 @@ onMounted(() => {
   loadUsers()
   load()
   loadListingDefaults()
+  loadHomecoming()
   loadDbConfig()
   loadPrinterParams()
 
@@ -1359,6 +1456,15 @@ onUnmounted(() => {
 }
 .sc-note {
   font-size: 12px;
+  color: var(--sc-text-mute);
+}
+/* 回国模式的两个计数 */
+.sc-hc-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin-top: 14px;
+  font-size: 13px;
   color: var(--sc-text-mute);
 }
 .sc-result {

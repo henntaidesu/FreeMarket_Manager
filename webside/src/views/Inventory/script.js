@@ -4064,12 +4064,12 @@ export default defineComponent({
       if (payload.mercari_item_id !== undefined && payload.mercari_item_id !== null) {
         payload.mercari_item_id = String(payload.mercari_item_id).trim() || null
       }
-      if (payload.on_sale_quantity != null) {
-        payload.on_sale_quantity = Math.max(0, Math.round(Number(payload.on_sale_quantity)))
-      }
       delete payload.is_combined
       delete payload.combined_items
       delete payload.combined_quantity
+      // 在售/待出都是后端事件驱动维护的派生计数，弹窗里只读展示。form 里的值是打开那一刻的
+      // 快照，跟着自动保存回传会把期间在售同步写下的新值覆盖掉（在售虚高、可上架永远差一件）。
+      delete payload.on_sale_quantity
       delete payload.pending_outbound_qty
       delete payload.sku
       // 出品设置：表单字段映射为库存列名后写入数据库（供自动出品逻辑使用）

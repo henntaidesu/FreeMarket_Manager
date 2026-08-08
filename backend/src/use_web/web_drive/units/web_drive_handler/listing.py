@@ -123,6 +123,13 @@ async def post_to_market(
     from .....web_drive.listing.units.post_to_yahoo import post_to_yahoo as _do_post_yahoo
     from .....ssl_mitm_proxy.runner import default_mitm_proxy_url
 
+    # 回国模式闸门。入队时已拦过一次（task_queue.submit_task），这里再拦一次是为了
+    # 「入队时还没开启、轮到执行时已经开启」的那批任务——它们必须失败而不是照常挂牌。
+    from .....homecoming import is_on as _homecoming_on, BLOCKED_MESSAGE
+
+    if _homecoming_on():
+        raise HTTPException(status_code=400, detail=BLOCKED_MESSAGE)
+
     jid = (body.progress_job_id or "").strip() or None
     if jid and not _LISTING_JOB_ID_RE.fullmatch(jid):
         raise HTTPException(status_code=400, detail="invalid progress_job_id")

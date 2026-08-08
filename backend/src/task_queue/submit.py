@@ -70,10 +70,17 @@ def submit_task(
     :raises UnknownTaskTypeError: task_type 未注册
     :raises TaskDuplicateError: 同语义任务已在队列中
     :raises InsufficientListableError: 出品时可上架数量不足
+    :raises ValueError: 回国模式开启期间提交出品
     """
     spec = registry.get_spec(task_type)
     if spec is None:
         raise UnknownTaskTypeError(f"未知的任务类型：{task_type}")
+
+    if spec.task_type == registry.INVENTORY_LISTING:
+        # 回国模式期间一件都不许上架：手动出品、批量出品、售出补挂全部经此入队
+        from ..homecoming import assert_listing_allowed
+
+        assert_listing_allowed()
 
     data: Dict[str, Any] = dict(payload or {})
     account_id = _resolve_account_id(spec.task_type, data)

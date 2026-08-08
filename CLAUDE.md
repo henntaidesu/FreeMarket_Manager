@@ -544,8 +544,9 @@ The frontend submits and returns immediately; progress is watched on `/#/tasks`.
 
 Queued operations (see `registry.py` for the authoritative list): inventory listing; orders
 update-list / update-status / single-row refresh; on-sale sync / full-update / revise / delist /
-suspend / resume; todos sync / bulk-review / bulk-confirm-ship / shipping-QR; and the account
-card's 同步数据 (`account.sync_data`). **Batch revise is not a separate type** — the frontend
+suspend / resume; todos sync / bulk-review / bulk-confirm-ship / shipping-QR; the account
+card's 同步数据 (`account.sync_data`); and 回国模式 (`system.homecoming`, see below).
+**Batch revise is not a separate type** — the frontend
 submits N `on_sale.revise` tasks, so closing the page no longer aborts halfway.
 
 `account.sync_data` dedups **per account** (`account.sync_data:{id}`), so different accounts can
@@ -584,6 +585,25 @@ the message instead of `404: …`.
 - On restart, `running` tasks are marked failed but their listing reservations are **kept**
   (released only by the TTL sweep) — a hard crash cannot tell whether 出品する was already
   clicked, and browser automation is never auto-retried.
+
+### 回国模式 (`src/homecoming.py`)
+
+System 配置页的一个开关：开启后把**全部在售商品**逐件暂停出售，并在开启期间禁止任何上架；
+关闭后只把**本模式暂停的那些**恢复出售。
+
+- **"只恢复自己暂停的"落在数据库上**：暂停成功即写 `on_sale_items.homecoming_suspended=1`，
+  关闭时只处理带标记的行。开启前就已是 `stop` 的商品从不打标，因此永远不会被误恢复。
+  同步的 upsert (`upsert_on_sale_item_row`) 只写它自己带来的字段，不会重置这一列。
+- **上架闸门只有两个开关位**，覆盖全部路径：`task_queue.submit_task`（入队时，抛
+  `ValueError` → 400）与 `post_to_market`（执行时，400）。`auto_relist` 另在
+  `run_auto_relist_for_orders` 开头直接返回——否则每笔售出都要写一条 error 级系统日志。
+- 批量执行是**一条** `system.homecoming` 任务（不是 N 条 `on_sale.suspend`），因为限速必须由
+  同一个循环控制。商品按账号分组：**组间并发**（各账号的浏览器/串行队列本就互不相干，
+  `account_serial_queue` 的锁是 per-queue-key 的），**组内逐件**，每件之间随机等待
+  `HOMECOMING_ITEM_DELAY_MIN_SEC` ~ `..._MAX_SEC`（默认 30/90 秒）——限速按账号计，因为被平台
+  盯上的是单账号的连续快速操作。sleep 同时是取消点。注意整条任务会长时间占住全局单 worker。
+- 两个方向都**幂等**：目标集合每次按当前 DB 状态重算，中途失败后再 PUT 一次同样的 `enable`
+  就只处理剩下的（系统配置页的「重试」按钮）。开关先写后入队，入队失败即回滚开关。
 
 ### Auxiliary Subsystems
 
@@ -660,6 +680,9 @@ lets the user choose SQLite/MySQL, test the MySQL connection, and switch backend
   fails `PRECACHE_MAX_FAILURES` (3) times in a row leaves the candidate set entirely — without that,
   a permanently unfetchable todo is retried on *every* tick forever. Manual 刷新抓取 still works, and
   a successful fetch resets the counter.
+- `HOMECOMING_ITEM_DELAY_MIN_SEC` / `HOMECOMING_ITEM_DELAY_MAX_SEC` (default 30 / 90): random wait
+  between two items **of the same account** in a 回国模式 batch; different accounts run in parallel
+  and are not paced against each other. See 回国模式 above.
 - `WEB_DRIVE_QUEUE_IDLE_CLOSE_SEC` / `WEB_DRIVE_PROFILE_RELEASE_DELAY_SEC` / `WEB_DRIVE_PROFILES_DIR` / `WEB_DRIVE_LAUNCH_RETRY_DELAYS_SEC` / `MERCARI_BROWSER_TASK_TIMEOUT_SEC`: Playwright session lifetime, profile storage and retry tuning.
 - `WEB_DRIVE_FORCE_HEADED_DEBUG`: Force **every** automation browser headed. Overrides the `WEB_DRIVE_FORCE_HEADED_DEBUG` constant at the top of `main.py`.
 - `SSL_MITM_LISTEN_PORT` / `SSL_MITM_AUTO_TRUST_WINDOWS` / `MERCARI_SSL_MITM_DIR`: mitmproxy port, cert trust and working directory.

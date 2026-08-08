@@ -112,7 +112,9 @@ class InventoryUpdate(PydanticModel):
     sale_type: Optional[str] = None
     auction_duration: Optional[str] = None
     mercari_item_id: Optional[str] = None
-    on_sale_quantity: Optional[int] = None
+    # on_sale_quantity 不在此列：在售是 inventory_counters 事件驱动维护的派生计数，
+    # 编辑表单只读地展示它。开放为可写字段会让「弹窗开着跨过一次在售同步」的保存
+    # 用旧快照覆盖掉同步刚写下的值（lost update），在售虚高 → 可上架永远差一件。
     auto_listing_enabled: Optional[int] = None
     auto_listing_watermark: Optional[int] = None
     image_front: Optional[str] = None

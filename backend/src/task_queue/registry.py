@@ -28,6 +28,7 @@ TODOS_SHIPPING_QR = "todos.shipping_qr"
 TODOS_SYNC = "todos.sync"
 TODOS_CONFIRM_CANCELLATION = "todos.confirm_cancellation"
 ACCOUNT_SYNC_DATA = "account.sync_data"
+SYSTEM_HOMECOMING = "system.homecoming"
 
 
 @dataclass(frozen=True)
@@ -158,6 +159,15 @@ _SPECS: Dict[str, TaskSpec] = {
         title=lambda p: "账号同步数据："
         + (str(p.get("account_name") or "").strip() or f"账号#{p.get('account_id')}"),
     ),
+    SYSTEM_HOMECOMING: TaskSpec(
+        task_type=SYSTEM_HOMECOMING,
+        label_zh="回国模式",
+        # 开启与关闭改的是同一批在售商品，同时只允许排一条（重试也走这条去重位）
+        dedup_key=lambda p: SYSTEM_HOMECOMING,
+        title=lambda p: (
+            "回国模式：暂停全部在售商品" if p.get("enable") else "回国模式：恢复出售暂停的商品"
+        ),
+    ),
 }
 
 
@@ -221,4 +231,7 @@ def resolve_handler(task_type: str) -> Callable:
     if tt == ACCOUNT_SYNC_DATA:
         from .handlers.account import handle_sync_account_data
         return handle_sync_account_data
+    if tt == SYSTEM_HOMECOMING:
+        from .handlers.homecoming import handle_homecoming
+        return handle_homecoming
     raise KeyError(f"未注册的任务类型：{task_type}")

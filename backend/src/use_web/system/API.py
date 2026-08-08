@@ -29,6 +29,11 @@ from .units.app_config_handler import (
     get_mgmt_cipher_mode,
     put_mgmt_cipher_mode,
 )
+from .units.homecoming_handler import (
+    HomecomingStatusOut,
+    get_homecoming,
+    put_homecoming,
+)
 from .units.ai_config_handler import (
     DeepSeekConfigOut,
     get_deepseek_config,
@@ -90,6 +95,10 @@ router.add_api_route("/listing-defaults", get_listing_defaults, methods=["GET"],
 router.add_api_route("/listing-defaults", put_listing_defaults, methods=["PUT"], response_model=ListingDefaultsOut)
 router.add_api_route("/printer-params", get_printer_params, methods=["GET"], response_model=PrinterParams)
 router.add_api_route("/printer-params", put_printer_params, methods=["PUT"], response_model=PrinterParams)
+
+# 回国模式（开启=全部在售暂停出售 + 禁止上架；关闭=恢复本模式暂停的那些）
+router.add_api_route("/homecoming", get_homecoming, methods=["GET"], response_model=HomecomingStatusOut)
+router.add_api_route("/homecoming", put_homecoming, methods=["PUT"], response_model=HomecomingStatusOut)
 
 # 管理番号暗号编码模式（隐藏页 /x9 切换：二进制 ◇◆ / 五进制 -=~<>）
 router.add_api_route("/mgmt-cipher-mode", get_mgmt_cipher_mode, methods=["GET"], response_model=MgmtCipherModeOut)
