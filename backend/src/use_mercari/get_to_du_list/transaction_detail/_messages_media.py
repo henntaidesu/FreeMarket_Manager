@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from typing import Any, Dict, List, Optional, Tuple
 
 from ....mercari_cdn_fetch import (
@@ -21,7 +20,7 @@ from ....mercari_cdn_fetch import (
     ext_from_url_or_type,
     fetch_image,
 )
-from ....use_web.image_storage import delete_image_file, get_image_root, save_image_bytes
+from ....use_web.image_storage import delete_image_file, save_image_bytes
 
 log = logging.getLogger(__name__)
 
@@ -49,16 +48,6 @@ def _download(url: str) -> Tuple[bytes, Optional[str]]:
     )
 
 
-def _imges_abs(path: str) -> Optional[str]:
-    """把 /imges/xxx 形式的可访问路径转成磁盘绝对路径；非该前缀返回 None。"""
-    if not isinstance(path, str) or not path.startswith("/imges/"):
-        return None
-    name = path.split("/imges/", 1)[1].strip("/")
-    if not name:
-        return None
-    return os.path.join(get_image_root(), name)
-
-
 def _load_old_messages(order_no: str) -> List[Dict[str, Any]]:
     """读取该订单上次已存的消息（transaction_messages 表，用于复用已下载的本地图）。"""
     from ._messages_store import load_order_messages
@@ -67,17 +56,20 @@ def _load_old_messages(order_no: str) -> List[Dict[str, Any]]:
 
 
 def _old_local_by_id(old_messages: List[Dict[str, Any]]) -> Dict[str, List[str]]:
-    """消息 id → 上次已落地的本地 /imges 路径列表（文件须仍存在）。"""
+    """消息 id → 上次已落地的 /imges 路径列表（图片须仍取得到）。
+
+    存在性判断走 ``image_exists`` 而不是 ``os.path.exists``：图片搬到图床之后本地文件已经
+    删掉，用文件存在性来判断会把每张图都当成「没了」，于是回头去重新下载——而消息图片的
+    源地址是**会过期的签名 URL**，下不回来就被丢弃，等于把历史消息里的图片全删了。
+    """
+    from ....use_web.image_storage import image_exists
+
     out: Dict[str, List[str]] = {}
     for m in old_messages:
         mid = str(m.get("id") or "").strip()
         if not mid:
             continue
-        locals_: List[str] = []
-        for p in m.get("images") or []:
-            ap = _imges_abs(p) if isinstance(p, str) else None
-            if ap and os.path.exists(ap):
-                locals_.append(p)
+        locals_ = [p for p in (m.get("images") or []) if isinstance(p, str) and image_exists(p)]
         if locals_:
             out[mid] = locals_
     return out

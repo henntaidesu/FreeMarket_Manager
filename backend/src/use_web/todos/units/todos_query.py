@@ -48,12 +48,22 @@ _CANCELLATION_COND = (
 # 本条件不再成立，行自动退回「待发货」并带上当时那张照片。
 _SHIPPING_IN_PROGRESS_COND = "IFNULL(t.[ship_qr_state], '') = 'shipping'"
 
+# 「虚拟发货」判定：平台侧的发货流程已整套跑完（配送コード已发行、買家已收到発送通知），
+# 只差把实物投进邮筒。见 todos_sync/virtual_ship.py。
+# 这类行必须移出「待发货」：平台那边已经没有任何待办动作了，留在待发货里会被当成还没发。
+# 它们同时也是 ``is_delete=1``（发货成功即按普通发货收尾软删），所以「虚拟发货」筛选
+# 与「已扫码」一样**故意不套用 is_delete**，否则一条都看不见。
+_VIRTUAL_SHIPPED_COND = "IFNULL(t.[virtual_ship_state], '') = 'shipped'"
+
 # 前端「待发货 / 待回复 / 待评价 / 待收货 / 退货 / 其他」分类筛选（chip）。
 # 「其他」= 上述具名分类都不是的行——每加一个分类，这里必须同步排除，否则该分类的行
 # 会同时出现在自己的 chip 和「其他」里。
 # 传入多个分类时取并集；未传（默认）不做分类过滤，全部显示。
 _CATEGORY_CONDS = {
-    "wait_shipping": f"{_WAIT_SHIPPING_COND} AND NOT ({_SHIPPING_IN_PROGRESS_COND})",
+    "wait_shipping": (
+        f"{_WAIT_SHIPPING_COND} AND NOT ({_SHIPPING_IN_PROGRESS_COND})"
+        f" AND NOT ({_VIRTUAL_SHIPPED_COND})"
+    ),
     "wait_reply": _WAIT_REPLY_COND,
     "wait_review": _WAIT_REVIEW_COND,
     "wait_receipt": _WAIT_RECEIPT_COND,
@@ -107,6 +117,8 @@ _LIST_COLS = (
     "ship_qr_state",
     "ship_qr_class_text",
     "ship_qr_text",
+    "virtual_ship_state",
+    "virtual_shipped_at",
 )
 
 
@@ -192,6 +204,7 @@ def _build_todo_where(
     include_deleted: bool = False,
     packed_only: bool = False,
     scanned_only: bool = False,
+    virtual_only: bool = False,
     categories: Optional[str] = None,
     platform: Optional[str] = None,
 ) -> Tuple[str, List[Any]]:
@@ -201,7 +214,11 @@ def _build_todo_where(
     """
     where = ["1=1"]
     params: List[Any] = []
-    if scanned_only:
+    if virtual_only:
+        # 与 scanned_only 同一处理：这些行发货成功时已按普通发货收尾软删（is_delete=1），
+        # 套用默认的 is_delete / 已打包两个条件就一条都看不见了。
+        where.append(f"({_VIRTUAL_SHIPPED_COND})")
+    elif scanned_only:
         # 只看「还没办完」的：排队中/执行中(shipping) 与 出错(failed)。
         # 成功的已 finalize，不该再出现在这里。
         where.append("IFNULL(t.[ship_qr_state], '') IN ('shipping', 'failed')")
@@ -252,6 +269,7 @@ _CHIP_FILTERS: Dict[str, Dict[str, Any]] = {
     "cancellation": {"categories": "cancellation"},
     "packed": {"packed_only": True},
     "scanned": {"scanned_only": True},
+    "virtual": {"virtual_only": True},
     "other": {"categories": "other"},
 }
 
@@ -323,6 +341,7 @@ def list_todos(
     include_deleted: bool = False,
     packed_only: bool = False,
     scanned_only: bool = False,
+    virtual_only: bool = False,
     categories: Optional[str] = None,
     page: int = 1,
     page_size: int = 20,
@@ -338,6 +357,9 @@ def list_todos(
       ``shipping`` 排队/执行中 或 ``failed`` 出错）。已成功发出発送通知的不再显示——
       那些单子已经办完了，留在这里只会干扰判断「还有哪些要我管」。
       此筛选下不套用 is_delete 与「已打包」两个默认条件，否则中间态的行一条都看不到。
+    - ``virtual_only=True`` 只显示「虚拟发货」行：平台侧已整套发完、只差把实物投进邮筒
+      （见 ``todos_sync/virtual_ship.py``）。同样不套用上面两个默认条件——这些行在平台侧
+      已经办完，本地是按普通发货收尾软删过的。
     - ``categories`` 逗号分隔的分类筛选（``wait_shipping`` / ``wait_reply`` / ``other``），
       多个取并集；为空（默认）不做分类过滤，全部显示
     - ``keyword`` 匹配 title / message / item_id / item_name
@@ -353,6 +375,7 @@ def list_todos(
         include_deleted=include_deleted,
         packed_only=packed_only,
         scanned_only=scanned_only,
+        virtual_only=virtual_only,
         categories=categories,
         platform=platform,
     )

@@ -154,6 +154,7 @@ async def yahoo_ship_qr_endpoint(
         parse_material_code,
         resolve_ship_method,
     )
+    from . import virtual_ship
     from .qr_photo import cleanup_photo, decode_qr, mark_shipping, save_photo
 
     aid, todo = _yahoo_todo_of(todo_id)
@@ -170,6 +171,10 @@ async def yahoo_ship_qr_endpoint(
             status_code=400,
             detail=f"「{req.size}」不是投函型（ゆうパケットポスト / mini），请走网页发货表单",
         )
+    # 投函型与虚拟发货的白名单本就是同两项，这里再走一遍是为了两个平台**用同一句错误文案**
+    # 拒绝同一件事；哪天雅虎多出一档投函型，虚拟发货也不会跟着自动放行。
+    if req.virtual:
+        virtual_ship.ensure_size_allowed(req.size)
 
     qr_text = decode_qr(req.photo)
     if not qr_text:
@@ -211,6 +216,7 @@ async def yahoo_ship_qr_endpoint(
 
     if created:
         mark_shipping(int(todo_id), photo_path, req.size, qr_text)
+        virtual_ship.set_intent(int(todo_id), bool(req.virtual))
 
     return {"success": True, "data": {"task": task, "created": created}}
 

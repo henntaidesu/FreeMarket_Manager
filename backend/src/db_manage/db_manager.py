@@ -43,6 +43,7 @@ from .models import (
     GotionColumnModel,
     GotionRowModel,
     ImageEmbeddingModel,
+    ImageAssetModel,
 )
 
 
@@ -671,6 +672,7 @@ class DBManager:
             GotionColumnModel,  # Gotion 表格管理：列定义（依赖 gotion_tables，仅顺序习惯）
             GotionRowModel,     # Gotion 表格管理：行数据（依赖 gotion_tables，仅顺序习惯）
             ImageEmbeddingModel,  # 商品图片特征向量（图片搜索索引，依赖 inventory，仅顺序习惯）
+            ImageAssetModel,  # 图片资产映射：/imges/xxx → 本地还是图床（无外键依赖）
         ]
 
     def _assert_accounts_table_renamed(self) -> None:

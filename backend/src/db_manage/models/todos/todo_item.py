@@ -215,6 +215,31 @@ class TodoItemModel(BaseModel):
                 "not_null": False,
                 "default": None,
             },
+            # ── 虚拟发货 ──
+            # 「虚拟发货」= 用手头的 専用箱 / 発送用シール / 専用封筒 先把**平台侧的发货流程
+            # 整套跑完**（发行配送コード + 発送通知），实物晚些再投进邮筒。平台侧与普通发货
+            # 走的是同一条 ``todos.shipping_qr`` 链路，一步不少；下面两列纯粹是本地账，
+            # 盯住「平台已办完、实物还没寄出」这段空窗，别让它随发货成功一起消失。
+            # 只对 ゆうパケットポスト / ゆうパケットポストmini 开放：也只有这两种能在家里
+            # 凭手上的箱子/シール 完成登记，其余方式要把包裹交到柜台才算发出。
+            #   'pending' = 已按虚拟发货提交（意图）。任务失败退回待发货时要保住它，
+            #               否则「重新扫码」重跑一遍就变成普通发货了。
+            #   'shipped' = 平台流程已跑完 → 进「虚拟发货」筛选，等实物投函
+            #   'done'    = 已点「已实际发货」，本单收尾
+            #   NULL      = 普通发货
+            # 不在 ``todolist_sync._UPSERT_COLS`` 里，故平台同步不会重置它。
+            "virtual_ship_state": {
+                "type": "TEXT",
+                "not_null": False,
+                "default": None,
+            },
+            # virtual_shipped_at: 平台侧发货流程跑完（转入 'shipped'）的时刻，unix 秒。
+            # 「虚拟了多久还没真发出去」只能靠它算，所以点「已实际发货」后也不清。
+            "virtual_shipped_at": {
+                "type": "INTEGER",
+                "not_null": False,
+                "default": None,
+            },
         }
 
     @classmethod

@@ -64,6 +64,19 @@ from .units.ssl_mitm_handler import (
     post_start,
     post_stop,
 )
+from .units.image_hosting_handler import (
+    ImageHostingConfigOut,
+    ImageHostingTestOut,
+    MigrationStatusOut,
+    get_image_hosting_config,
+    get_image_hosting_migration,
+    post_image_hosting_migrate,
+    post_image_hosting_migration_cancel,
+    post_image_hosting_rollback,
+    put_image_hosting_backend,
+    put_image_hosting_config,
+    test_image_hosting,
+)
 from .units.db_admin_handler import (
     DbConfigOut,
     TestResult,
@@ -140,6 +153,19 @@ router.add_api_route("/database/migrate", migrate_database, methods=["POST"], re
 router.add_api_route("/database/hot-switch", hot_switch_mysql_database, methods=["POST"], response_model=HotSwitchOut, dependencies=_ADMIN)
 # 数据库备份（当前库整库覆盖到目标 MySQL，可能较久，放宽超时）
 router.add_api_route("/database/backup", backup_database, methods=["POST"], response_model=SwitchOut, dependencies=_ADMIN)
+
+# ===== 图床存储（商品图存本地盘还是存图床） =====
+# 写操作全部限管理员：这几个端点能改「图片往哪存」，并能把几千张历史图片整体搬走。
+router.add_api_route("/image-hosting/config", get_image_hosting_config, methods=["GET"], response_model=ImageHostingConfigOut)
+router.add_api_route("/image-hosting/config", put_image_hosting_config, methods=["PUT"], response_model=ImageHostingConfigOut, dependencies=_ADMIN)
+router.add_api_route("/image-hosting/test", test_image_hosting, methods=["POST"], response_model=ImageHostingTestOut, dependencies=_ADMIN)
+# 只切后端、不搬图：立即生效，不重启（历史图片仍从本地读，直到搬运跑完）
+router.add_api_route("/image-hosting/backend", put_image_hosting_backend, methods=["PUT"], response_model=ImageHostingConfigOut, dependencies=_ADMIN)
+# 搬运作业：立刻返回，进度轮询 GET /image-hosting/migration
+router.add_api_route("/image-hosting/migrate", post_image_hosting_migrate, methods=["POST"], response_model=MigrationStatusOut, dependencies=_ADMIN)
+router.add_api_route("/image-hosting/rollback", post_image_hosting_rollback, methods=["POST"], response_model=MigrationStatusOut, dependencies=_ADMIN)
+router.add_api_route("/image-hosting/migration", get_image_hosting_migration, methods=["GET"], response_model=MigrationStatusOut)
+router.add_api_route("/image-hosting/migration/cancel", post_image_hosting_migration_cancel, methods=["POST"], response_model=MigrationStatusOut, dependencies=_ADMIN)
 
 # SSL MITM 代理控制（start/stop 限管理员）
 router.add_api_route("/ssl-mitm/status", get_status, methods=["GET"])

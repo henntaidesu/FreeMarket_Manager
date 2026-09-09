@@ -16,6 +16,7 @@ from .system_log import SystemLogModel
 from .task_queue import TaskQueueModel
 from .user import UserModel
 from .config_entry import ConfigEntryModel
+from .image_asset import ImageAssetModel
 
 __all__ = [
     "TransactionModel",
@@ -33,4 +34,5 @@ __all__ = [
     "TaskQueueModel",
     "UserModel",
     "ConfigEntryModel",
+    "ImageAssetModel",
 ]

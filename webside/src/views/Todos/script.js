@@ -253,6 +253,8 @@ export default defineComponent({
     const filters = ref({
       packed_only: false,
       scanned_only: false,
+      // 虚拟发货：平台侧已发完、实物还没投函的行（见后端 todos_sync/virtual_ship.py）
+      virtual_only: false,
       // 分类筛选 chip（单选，互斥）；默认选中「待发货」
       categories: ['wait_shipping'],
       // 平台筛选：煤炉 / 雅虎（空=全部）
@@ -424,11 +426,13 @@ export default defineComponent({
     // **怎么显示和怎么排序**才走上面的文本表。
     // 表里没有的名字照样出卡片（只是没有插图和规格行）并排在最后，保持页面原序——
     // 雅虎哪天加一档新尺寸，至少还能选，不会凭空消失。
-    const yahooSizeCards = computed(() =>
-      yahooSizeOptions.value
+    const yahooSizeCards = computed(() => {
+      // 虚拟发货只留投函型（走 App API 的那两项）——与煤炉同一条口径
+      const names = shipFlowVirtual.value ? yahooAppSizeOptions.value : yahooSizeOptions.value
+      return names
         .map((name, idx) => ({ name, ...(YAHOO_SIZE_SPECS[name] || {}), _idx: idx }))
-        .sort((a, b) => (a.order ?? 900 + a._idx) - (b.order ?? 900 + b._idx)),
-    )
+        .sort((a, b) => (a.order ?? 900 + a._idx) - (b.order ?? 900 + b._idx))
+    })
     const yahooLocationOptions = computed(() => detail.yahoo_ship_form?.location_options || [])
     // 选中的是投函型：没有発送場所可选（投进邮筒），但必须先扫专用箱/シール 的二维码
     const isYahooPostBoxSize = computed(() => yahooAppSizeOptions.value.includes(yahooForm.size))
@@ -511,6 +515,9 @@ export default defineComponent({
     const shipFlowHasPackaging = ref(true)
     // 重扫（重新拍照）：尺寸已经记在待办行上，向导只剩拍照这一页
     const shipFlowScanOnly = ref(false)
+    // 本次走的是「虚拟发货」：平台侧的流程一步不改（同一条扫码发货链路），差别只在
+    // ①尺寸只能选投函型两种 ②提交时带 virtual=true，后端事后把行留在「虚拟发货」筛选里。
+    const shipFlowVirtual = ref(false)
     // 关联订单的出库明细（发货成功后逐条出库）
     const shipOutbound = reactive({ loading: false, lines: [] })
 
@@ -959,9 +966,14 @@ export default defineComponent({
     const shippingFacility = ref(null) // 'post_office' | 'lawson' | null
     const shippingOptions = computed(() => {
       const method = (detail.shipping_method_name || '').trim()
-      if (SHIPPING_OPTIONS[method]) return SHIPPING_OPTIONS[method]
-      // 未识别配送方式时把两套都列出来，让用户自行判断
-      return [...(SHIPPING_OPTIONS['ゆうゆうメルカリ便'] || []), ...(SHIPPING_OPTIONS['らくらくメルカリ便'] || [])]
+      const all = SHIPPING_OPTIONS[method]
+        ? SHIPPING_OPTIONS[method]
+        // 未识别配送方式时把两套都列出来，让用户自行判断
+        : [...(SHIPPING_OPTIONS['ゆうゆうメルカリ便'] || []), ...(SHIPPING_OPTIONS['らくらくメルカリ便'] || [])]
+      // 虚拟发货只留投函型（auto_finish_no_facility，即 ゆうパケットポスト / mini）：
+      // 其余方式要把包裹交到柜台才算发出，先通知后寄出这件事根本不成立。后端也会再拦一道，
+      // 这里收窄是为了别让人选完一路走到提交才被拒。
+      return shipFlowVirtual.value ? all.filter((o) => o.auto_finish_no_facility) : all
     })
     const shippingNeedsFacility = computed(() => {
       if (shippingPickedIdx.value == null) return false
@@ -1104,6 +1116,7 @@ export default defineComponent({
       const p = {}
       if (filters.value.packed_only) p.packed_only = true
       if (filters.value.scanned_only) p.scanned_only = true
+      if (filters.value.virtual_only) p.virtual_only = true
       if (filters.value.categories.length) p.categories = filters.value.categories.join(',')
       if (filters.value.platform) p.platform = filters.value.platform
       return p
@@ -1372,13 +1385,14 @@ export default defineComponent({
     // 点某项只显示该项。**始终有且只有一项选中**——再点当前项不取消（否则会落到「无筛选」
     // 这个没有对应 chip 的状态，界面上看不出正在看什么）。
     // 已打包用 packed_only、已扫码用 scanned_only，其余用 categories。
-    const CHIP_FLAGS = { packed: 'packed_only', scanned: 'scanned_only' }
+    const CHIP_FLAGS = { packed: 'packed_only', scanned: 'scanned_only', virtual: 'virtual_only' }
     function selectFilterChip(chip) {
       const flag = CHIP_FLAGS[chip]
       const active = flag ? filters.value[flag] : filters.value.categories.includes(chip)
       if (active) return
       filters.value.packed_only = false
       filters.value.scanned_only = false
+      filters.value.virtual_only = false
       filters.value.categories = []
       if (flag) filters.value[flag] = true
       else filters.value = { ...filters.value, categories: [chip] }
@@ -1514,6 +1528,9 @@ export default defineComponent({
       // 'failed' 表示出错 → 退回可操作状态，需要重拍。
       if (isRow && kindOrRow.ship_qr_state === 'shipping') return t('todos.kind.scanned')
       if (isRow && kindOrRow.ship_qr_state === 'failed') return t('todos.kind.shipFailed')
+      // 虚拟发货：平台侧已经发完了（买家已收到发货通知），只差实物投函 —— 显示成「待发货」
+      // 会让人以为平台那边还有事要做，实际上再点一次发货只会被平台拒绝。
+      if (isRow && kindOrRow.virtual_ship_state === 'shipped') return t('todos.kind.virtualShipped')
       // 待发货：若已发行发货二维码/条形码（qr_image_path），类型显示映射为「已打包」（仅改名称）
       const isWaitShippingKind =
         title === WAIT_SHIPPING_TITLE || KIND_LABEL_KEYS[kind] === 'todos.kind.waitShipping'
@@ -1534,6 +1551,7 @@ export default defineComponent({
       if (isRow && kindOrRow.awaiting_feedback) return 'success'
       if (isRow && kindOrRow.ship_qr_state === 'shipping') return 'success'
       if (isRow && kindOrRow.ship_qr_state === 'failed') return 'danger'
+      if (isRow && kindOrRow.virtual_ship_state === 'shipped') return 'warning'
       if (kind === 'Shipped') return KIND_TAG_TYPES.Shipped
       if (title === WAIT_SHIPPING_TITLE) return 'warning'
       return KIND_TAG_TYPES[kind] || 'info'
@@ -1600,9 +1618,12 @@ export default defineComponent({
       const row = currentRow.value
       if (!row?.id) return
       // 不按 ship_qr_state 硬拦：真有任务在跑时由后端 dedup 兜底（提交会 409）。
+      // 上次是按虚拟发货提交的（意图还留在行上），重拍必须照旧带着它——否则重来一次
+      // 就悄悄变成普通发货，这单办完直接消失，没人再记得实物还没投出去。
+      const wasVirtual = row.virtual_ship_state === 'pending'
       if (row.ship_qr_class_text) {
         // 记得上次选的尺寸 → 向导只开拍照这一页，任务用它重走完整流程
-        openShipFlow({ target: 'mercari', withPackaging: false, scanOnly: true })
+        openShipFlow({ target: 'mercari', withPackaging: false, scanOnly: true, virtual: wasVirtual })
         qrPendingSelection.value = { class_text: row.ship_qr_class_text, facility: null }
         await startQrScanMirror(row.id)
       } else {
@@ -1610,7 +1631,7 @@ export default defineComponent({
         // 选完由 onConfirmShippingSelection 的扫码分支开相机——没尺寸就直接喂图，
         // 浏览器又是新开且没进扫描页，必然「浏览器未打开」失败。
         // 包材在第一次提交时已记账，重扫不再走包材页。
-        openShipFlow({ target: 'mercari', withPackaging: false })
+        openShipFlow({ target: 'mercari', withPackaging: false, virtual: wasVirtual })
       }
     }
 
@@ -1749,6 +1770,10 @@ export default defineComponent({
     function shipDeadlineTs(row) {
       // 仅对「待发货」行计算：shipping_duration 抓取时写入同交易的所有待办行，
       // 待回复/待评价行也带该值——那不是它们的期限，不显示倒计时也不参与排序
+      // 虚拟发货完成的行也还挂着待发货的 title/kind，但発送までの日数 这条期限平台侧
+      // 早已满足（配送码已发行、买家已收到发货通知）。再给它算倒计时会一路红成「已超时」，
+      // 那是假的——真正待办的是把实物投进邮筒，而那件事没有平台期限。
+      if (row?.virtual_ship_state === 'shipped') return 0
       const title = String(row?.title || '').trim()
       const isWaitShipping =
         title === WAIT_SHIPPING_TITLE ||
@@ -2140,6 +2165,7 @@ export default defineComponent({
           item_name: yahooForm.item_name.trim(),
           size: yahooForm.size,
           photo: qrShot.value,
+          virtual: shipFlowVirtual.value,
           client_token: newClientToken(),
         })
         ElMessage.success(t('todos.yahoo.shipQueued'))
@@ -2171,10 +2197,12 @@ export default defineComponent({
      *  （按 shipping_method_name 区分）。用户选好尺寸/发货地点「确认并发送」后，才由
      *  confirmShippingSelection 一并打开浏览器、点「商品サイズと発送場所を選択する」
      *  入口并完成后续选择。 */
-    function openShipFlow({ target, withPackaging, scanOnly = false }) {
+    function openShipFlow({ target, withPackaging, scanOnly = false, virtual = false }) {
       shipFlowTarget.value = target
       shipFlowHasPackaging.value = withPackaging
       shipFlowScanOnly.value = scanOnly
+      // 先于 shippingPickedIdx 归零：尺寸列表随它收窄，旧的下标会指到另一档尺寸上
+      shipFlowVirtual.value = virtual
       shippingPickedIdx.value = null
       shippingFacility.value = null
       const firstStep = target === 'yahoo' ? 'ysize' : 'size'
@@ -2214,6 +2242,62 @@ export default defineComponent({
         return
       }
       if (await doSubmitYahooShip()) shippingDialogVisible.value = false
+    }
+
+    /** 虚拟发货完成：平台侧已经发完（买家已收到发货通知），只差把实物投进邮筒。
+     *  此时这行没有任何发货动作可做了——再点一次发货只会被平台以「已发行配送码」拒绝——
+     *  所以发货栏收成一句说明 + 「已实际发货」。 */
+    const isVirtualShipped = computed(() => currentRow.value?.virtual_ship_state === 'shipped')
+    /** 虚拟发货时刻（后端存 unix 秒，displayTs 收毫秒） */
+    const virtualShippedAtText = computed(() => {
+      const sec = Number(currentRow.value?.virtual_shipped_at || 0)
+      return sec ? displayTs(sec * 1000) : ''
+    })
+    const actualShipLoading = ref(false)
+
+    /** 「虚拟发货」入口。走的就是普通发货那条扫码链路（同一个向导、同一个任务），
+     *  差别只有两处：尺寸只剩投函型两种，提交时带 virtual=true 让后端事后把行留在
+     *  「虚拟发货」筛选里，而不是跟普通发货一样办完即消失。 */
+    function onClickVirtualShip() {
+      if (!currentRow.value?.id) return
+      // 与普通发货同一道闸：未关联本地库存不许发货（包材/出库都要挂到那张订单上）
+      if (isWaitShipping.value && !hasInventoryMatch.value) {
+        ElMessage.warning(t('todos.updateOrderFirst'))
+        return
+      }
+      resetQrScanState()
+      openShipFlow({
+        target: isYahoo.value ? 'yahoo' : 'mercari',
+        withPackaging: isWaitShipping.value,
+        virtual: true,
+      })
+    }
+
+    /** 「已实际发货」：包裹真的投出去了 → 本单收尾。平台侧早在虚拟发货那步就发完了，
+     *  这里只是一次本地写，不开浏览器、不再碰平台。 */
+    async function onConfirmActualShipped() {
+      const id = currentRow.value?.id
+      if (!id || actualShipLoading.value) return
+      try {
+        await ElMessageBox.confirm(
+          t('todos.actualShippedConfirm'),
+          t('todos.actualShippedTitle'),
+          { type: 'warning' },
+        )
+      } catch {
+        return
+      }
+      actualShipLoading.value = true
+      try {
+        await todosApi.confirmActualShipped(id)
+        ElMessage.success(t('todos.actualShippedDone'))
+        detailDialogVisible.value = false
+        load({ inPlace: true })
+      } catch (e) {
+        if (!e?.response) ElMessage.error(e?.message || t('todos.submitFailed'))
+      } finally {
+        actualShipLoading.value = false
+      }
     }
 
     function onClickShippingSizeLocation() {
@@ -2430,6 +2514,7 @@ export default defineComponent({
           photo: qrShot.value,
           class_text: sel.class_text || null,
           facility: sel.facility || null,
+          virtual: shipFlowVirtual.value,
           client_token: newClientToken(),
         })
         ElMessage.success(t('tasks.enqueued'))
@@ -3108,6 +3193,12 @@ export default defineComponent({
       onProcess,
       onDetailRefresh,
       onClickShippingSizeLocation,
+      shipFlowVirtual,
+      isVirtualShipped,
+      virtualShippedAtText,
+      actualShipLoading,
+      onClickVirtualShip,
+      onConfirmActualShipped,
       onConfirmShippingSelection,
       qrCamError,
       qrVideoEl,

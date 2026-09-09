@@ -231,6 +231,7 @@ async def handle_shipping_qr(task: Dict[str, Any]) -> Dict[str, Any]:
     （``ship_qr_state='failed'``）并**保留照片**，用户能在列表里看到当时扫的是哪个码。
     """
     from ...db_manage.models.todos.todo_item import TodoItemModel
+    from ...use_web.todos.units.todos_sync import virtual_ship
     from ...use_web.todos.units.todos_sync.qr_photo import mark_ship_failed
 
     payload = task.get("payload") or {}
@@ -248,12 +249,20 @@ async def handle_shipping_qr(task: Dict[str, Any]) -> Dict[str, Any]:
 
     try:
         if platform == "yahoo":
-            return await _run_yahoo_shipping_qr(task, todo_id, account_id, photo_path)
-        return await _run_mercari_shipping_qr(task, todo_id, account_id, photo_path)
+            result = await _run_yahoo_shipping_qr(task, todo_id, account_id, photo_path)
+        else:
+            result = await _run_mercari_shipping_qr(task, todo_id, account_id, photo_path)
     except Exception:
         # 任何一步失败：把行退回「待发货」并**保留照片**，用户在列表里能看到当时扫的是哪个码。
+        # 虚拟发货的意图（``virtual_ship_state='pending'``）**不清**：失败后的「重新扫码」
+        # 是从库里重新入队的，清掉它这单就悄悄变成普通发货了。
         mark_ship_failed(todo_id)
         raise
+
+    # 平台侧已确认通知买家。是不是虚拟发货看**库里的意图**，不看 payload——入队与执行之间
+    # 隔着队列，且重试入队走的是库里那份。非虚拟的行状态为 NULL，这一步是空操作。
+    virtual_ship.mark_shipped(todo_id)
+    return result
 
 
 async def _run_yahoo_shipping_qr(

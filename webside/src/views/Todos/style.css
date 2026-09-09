@@ -1554,3 +1554,8 @@
   margin-bottom: 8px;
 }
 
+
+/* 发货向导里的「虚拟发货」提示条：贴在步骤条与页面主体之间 */
+.ship-virtual-hint {
+  margin-bottom: 12px;
+}

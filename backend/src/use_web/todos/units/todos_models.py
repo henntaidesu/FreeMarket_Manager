@@ -76,6 +76,9 @@ class ShippingQrPhotoRequest(PydanticModel):
     facility: Optional[str] = Field(default=None, max_length=40)
     #: 喂图等待煤炉读出的超时秒数；留空用默认 90s
     timeout_sec: Optional[float] = None
+    #: 虚拟发货：平台侧照常跑完（这条链路一步不改），但本地不收尾——行转「虚拟发货」
+    #: 状态等实物投函。仅 ゆうパケットポスト / mini 可用，端点会校验 ``class_text``。
+    virtual: bool = False
     #: 前端一次点击生成的幂等 token
     client_token: Optional[str] = Field(default=None, max_length=128)
 
@@ -169,6 +172,9 @@ class YahooShipQrRequest(PydanticModel):
     size: str = Field(..., min_length=1, max_length=60)
     # 専用箱 / 発送用シール / 専用封筒 上二维码的照片（data URL）
     photo: str = Field(..., min_length=1)
+    # 虚拟发货：平台侧照常发行配送コード + 発送通知，本地转「虚拟发货」等实物投函。
+    # 投函型本来就只有这两个尺寸，端点仍会再校验一次。
+    virtual: bool = False
     # 前端一次点击生成的幂等 token
     client_token: Optional[str] = Field(default=None, max_length=128)
 

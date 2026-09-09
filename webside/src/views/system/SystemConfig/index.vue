@@ -480,6 +480,186 @@
           </div>
         </section>
 
+        <!-- 图床存储：商品图存本机 imges 目录，还是存独立图床服务 -->
+        <section id="sc-image-hosting" class="sc-panel">
+          <div class="sc-panel-head">
+            <span class="sc-ic sc-ic--emerald"><el-icon :size="17"><Picture /></el-icon></span>
+            <div class="sc-head-text">
+              <div class="sc-panel-title">{{ t('systemConfig.imageHostingSection') }}</div>
+              <div class="sc-panel-desc">{{ t('systemConfig.descImageHosting') }}</div>
+            </div>
+          </div>
+
+          <div class="sc-panel-body">
+            <div class="sc-label">图片存储位置</div>
+            <div class="sc-choices">
+              <button
+                type="button"
+                class="sc-choice"
+                :class="{ 'is-on': ihForm.backend === 'local' }"
+                @click="ihForm.backend = 'local'"
+              >
+                <span class="sc-choice-title">本地存储</span>
+                <span class="sc-choice-sub">默认 · backend/imges 目录</span>
+                <span v-if="ih.backend === 'local'" class="sc-choice-flag">当前</span>
+              </button>
+              <button
+                type="button"
+                class="sc-choice"
+                :class="{ 'is-on': ihForm.backend === 'remote' }"
+                @click="ihForm.backend = 'remote'"
+              >
+                <span class="sc-choice-title">图床存储</span>
+                <span class="sc-choice-sub">独立图床服务 · 浏览器直连取图</span>
+                <span v-if="ih.backend === 'remote'" class="sc-choice-flag">当前</span>
+              </button>
+            </div>
+
+            <div class="sc-grid sc-grid--tight">
+              <div class="sc-field">
+                <div class="sc-label">图床地址</div>
+                <el-input v-model="ihForm.base_url" placeholder="http://127.0.0.1:9990" />
+                <span class="sc-note">后端访问图床用的地址，只填协议 + 域名（可带端口）</span>
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">对外地址</div>
+                <el-input v-model="ihForm.public_base" placeholder="留空 = 与图床地址相同" />
+                <span class="sc-note">浏览器访问图片用的地址。后端走内网直连、浏览器走对外域名时才需要单独填</span>
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">项目 slug</div>
+                <el-input v-model="ihForm.project" placeholder="project-xxxxxxxxxxxx" />
+                <span class="sc-note">在图床「项目详情」页地址栏里的那一段</span>
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">API Token</div>
+                <el-input
+                  v-model="ihForm.token"
+                  type="password"
+                  show-password
+                  :placeholder="ih.token_set ? '••••••••（留空 = 不修改）' : '在图床项目详情页复制'"
+                />
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">请求超时（秒）</div>
+                <el-input-number v-model="ihForm.timeout" :min="3" :max="300" :controls="false" class="sc-num" />
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">图片投递方式</div>
+                <el-select v-model="ihForm.delivery">
+                  <el-option label="跳转（浏览器直连图床）" value="redirect" />
+                  <el-option label="代理（本服务转发）" value="proxy" />
+                </el-select>
+                <span class="sc-note">图床只在内网可达时选「代理」；跳转不占本服务带宽，是推荐值</span>
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">校验 HTTPS 证书</div>
+                <el-switch v-model="ihForm.verify_tls" />
+                <span class="sc-note">图床用自签名证书时才关闭</span>
+              </div>
+            </div>
+
+            <div class="sc-actions">
+              <el-button :loading="ihSaving" @click="onSaveImageHosting">保存连接信息</el-button>
+              <el-button :loading="ihTesting" :disabled="!ih.configured" @click="onTestImageHosting">测试连接</el-button>
+              <el-button
+                v-if="ihForm.backend !== ih.backend"
+                type="primary"
+                :disabled="ihForm.backend === 'remote' && !ih.configured"
+                :loading="ihSwitching"
+                @click="onSwitchImageHosting"
+              >
+                切换到{{ ihForm.backend === 'remote' ? '图床' : '本地' }}存储（立即生效）
+              </el-button>
+              <span v-if="ihTestResult" class="sc-result" :class="{ 'is-ok': ihTestResult.ok }">
+                <span class="sc-dot" :class="ihTestResult.ok ? 'is-ok' : 'is-bad'" />
+                {{ ihTestResult.message }}
+                <template v-if="ihTestResult.ok">
+                  · 单文件上限 {{ ihTestResult.max_upload_mb }} MB
+                </template>
+              </span>
+            </div>
+
+            <!-- 混合内容：HTTPS 页面加载 http:// 图片会被浏览器直接拦掉，而且只在控制台报错，
+                 页面上看到的是一片裂图。这个错配值得在保存前就说清楚。 -->
+            <el-alert
+              v-if="ihMixedContentWarning"
+              type="warning"
+              :closable="false"
+              show-icon
+              title="当前页面是 HTTPS，但图床对外地址是 http://"
+              description="浏览器会拦截 HTTPS 页面里的 http 图片（混合内容），图片会全部显示不出来。请把图床也配成 HTTPS，或把「图片投递方式」改为「代理」由本服务转发。"
+              style="margin-top: 12px"
+            />
+            <el-alert
+              v-if="ihTestResult && ihTestResult.ok && !ihTestResult.public_base_url && !ihForm.public_base"
+              type="info"
+              :closable="false"
+              show-icon
+              title="图床未配置「公开访问基地址」"
+              description="此时图床返回的图片 URL 由它收到的请求地址推导而来，可能是内网地址。请在图床的系统设置里填写公开访问基地址，或在上面的「对外地址」里填写浏览器能访问到的地址。"
+              style="margin-top: 12px"
+            />
+          </div>
+
+          <!-- 图片搬运：切换后端是瞬时的，历史图片的搬运在后台跑 -->
+          <div class="sc-panel-body sc-panel-body--sub">
+            <div class="sc-sub-title">历史图片搬运</div>
+            <div class="sc-note" style="margin-bottom: 10px">
+              切换存储位置只决定「新图片往哪写」，立即生效、不需要重启。历史图片由下面的搬运作业在后台处理：
+              还没搬过去的图片继续从原处读取，页面不会出现裂图；中断后再次点击会接着搬剩下的。
+            </div>
+            <div class="sc-inline" style="flex-wrap: wrap; gap: 10px">
+              <el-tag size="small" effect="plain" round>本地 {{ ih.local_files }} 张</el-tag>
+              <el-tag size="small" effect="plain" round type="success">图床 {{ ih.remote_records }} 张</el-tag>
+              <el-tag v-if="ih.pending_upload > 0" size="small" effect="dark" round type="warning">
+                待迁移 {{ ih.pending_upload }} 张 · {{ formatBytes(ih.pending_bytes) }}
+              </el-tag>
+            </div>
+
+            <div class="sc-actions">
+              <el-button
+                type="primary"
+                :disabled="!ih.configured || ihJob.running"
+                :loading="ihMigrating"
+                @click="onMigrateImages"
+              >
+                迁移图片到图床{{ ih.pending_upload > 0 ? `（${ih.pending_upload} 张）` : '' }}
+              </el-button>
+              <el-button
+                :disabled="!ih.configured || ihJob.running || ih.remote_records === 0"
+                :loading="ihRollingBack"
+                @click="onRollbackImages"
+              >
+                回迁到本地（{{ ih.remote_records }} 张）
+              </el-button>
+              <el-button v-if="ihJob.running" type="danger" plain @click="onCancelImageJob">停止搬运</el-button>
+            </div>
+
+            <div v-if="ihJob.direction" class="sc-field" style="margin-top: 6px">
+              <el-progress
+                :percentage="ihJob.percent"
+                :status="ihJob.running ? undefined : (ihJob.failed ? 'warning' : 'success')"
+                :stroke-width="14"
+              />
+              <span class="sc-note">
+                {{ ihJob.direction === 'to_host' ? '正在迁移到图床' : '正在回迁到本地' }}
+                · 成功 {{ ihJob.done }} · 跳过 {{ ihJob.skipped }} · 失败 {{ ihJob.failed }} / 共 {{ ihJob.total }}
+                <template v-if="ihJob.running && ihJob.current"> · {{ ihJob.current }}</template>
+              </span>
+              <span v-if="ihJob.message" class="sc-note">{{ ihJob.message }}</span>
+            </div>
+
+            <div v-if="ihJob.errors.length" class="sc-field" style="margin-top: 6px">
+              <div class="sc-sub-title">失败明细（最多 100 条，这些图片仍留在原处，可再次搬运）</div>
+              <el-table :data="ihJob.errors" size="small" max-height="240" class="sc-table">
+                <el-table-column prop="path" label="图片" min-width="240" show-overflow-tooltip />
+                <el-table-column prop="error" label="原因" min-width="280" show-overflow-tooltip />
+              </el-table>
+            </div>
+          </div>
+        </section>
+
         <!-- 二维码打印参数：存 localStorage（跟随浏览器，蓝牙配对本身也是按浏览器授权的） -->
         <section id="sc-qrparams" class="sc-panel">
           <div class="sc-panel-head">
@@ -659,11 +839,12 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
-import { Plus, User, Lock, MagicStick, Sell, Coin, Tickets, Printer, Compass, Suitcase, Timer, Link } from '@element-plus/icons-vue'
+import { Plus, User, Lock, MagicStick, Sell, Coin, Tickets, Printer, Compass, Suitcase, Timer, Link, Picture } from '@element-plus/icons-vue'
 import { ElMessage } from '@/utils/notify'
 import { setLocale, SUPPORTED_LOCALES } from '@/i18n'
 import { authApi, configApi, shopAccountApi } from '@/api/index.js'
 import { databaseApi } from '@/api/database'
+import { imageHostingApi } from '@/api/image_hosting'
 import {
   printTestLabel,
   loadPrinterConfig,
@@ -695,6 +876,7 @@ const SECTIONS = [
   { id: 'homecoming', icon: 'Suitcase', labelKey: 'homecoming.section' },
   { id: 'shipping-duration', icon: 'Timer', labelKey: 'shippingDurationBatch.section' },
   { id: 'database', icon: 'Coin', labelKey: 'systemConfig.databaseSection' },
+  { id: 'image-hosting', icon: 'Picture', labelKey: 'systemConfig.imageHostingSection' },
   { id: 'qrparams', icon: 'Tickets', labelKey: 'qrPrint.paramsSection' },
   { id: 'printer', icon: 'Printer', labelKey: 'qrPrint.connSection' },
   { id: 'proxy', icon: 'Link', labelKey: 'systemConfig.proxySection' },
@@ -1181,6 +1363,192 @@ const dbForm = reactive({
 // 备份目标：默认沿用当前 MySQL 服务器，库名留空由用户填写
 const backup = reactive({ host: '127.0.0.1', port: 3306, user: 'root', password: '', database: '' })
 
+// ===== 图床存储 =====
+// ih   = 服务端当前状态（生效的存储位置 + 图片数量概览）
+// ihForm = 表单草稿；backend 只有点「切换」才会真正生效，改选项本身不做任何事
+const ih = reactive({
+  backend: 'local', token_set: false, configured: false,
+  local_files: 0, remote_records: 0, pending_upload: 0, pending_bytes: 0
+})
+const ihForm = reactive({
+  backend: 'local', base_url: '', public_base: '', project: '', token: '',
+  timeout: 30, verify_tls: true, delivery: 'redirect'
+})
+const ihJob = reactive({
+  running: false, direction: null, total: 0, done: 0, skipped: 0, failed: 0,
+  percent: 0, current: '', message: '', errors: []
+})
+const ihSaving = ref(false)
+const ihTesting = ref(false)
+const ihSwitching = ref(false)
+const ihMigrating = ref(false)
+const ihRollingBack = ref(false)
+const ihTestResult = ref(null)
+let ihPollTimer = null
+
+/** HTTPS 页面 + http 图床 + 跳转投递 = 浏览器按混合内容拦截，图片全裂。代理投递不受影响。 */
+const ihMixedContentWarning = computed(() => {
+  if (ihForm.delivery !== 'redirect') return false
+  if (window.location.protocol !== 'https:') return false
+  const base = (ihForm.public_base || ihForm.base_url || '').trim()
+  return base.startsWith('http://')
+})
+
+function formatBytes(value) {
+  let amount = Number(value) || 0
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  for (const unit of units) {
+    if (amount < 1024 || unit === 'TB') return `${amount.toFixed(1)} ${unit}`
+    amount /= 1024
+  }
+  return `${amount.toFixed(1)} TB`
+}
+
+async function loadImageHosting() {
+  const cfg = await imageHostingApi.getConfig()
+  Object.assign(ih, {
+    backend: cfg.backend, token_set: cfg.token_set, configured: cfg.configured,
+    local_files: cfg.local_files, remote_records: cfg.remote_records,
+    pending_upload: cfg.pending_upload, pending_bytes: cfg.pending_bytes
+  })
+  // Token 永远留空：服务端不回传明文，留空提交即「不修改」
+  Object.assign(ihForm, {
+    backend: cfg.backend, base_url: cfg.base_url, public_base: cfg.public_base,
+    project: cfg.project, token: '', timeout: cfg.timeout,
+    verify_tls: cfg.verify_tls, delivery: cfg.delivery
+  })
+}
+
+/** 拉一次搬运进度；作业还在跑就安排下一次轮询，跑完则刷新概览数字 */
+async function pollImageJob() {
+  clearTimeout(ihPollTimer)
+  let job
+  try {
+    job = await imageHostingApi.getMigration()
+  } catch (e) {
+    return  // 错误提示已由 http 拦截器统一处理，不要因为一次轮询失败就把轮询停掉
+  } finally {
+    ihMigrating.value = false
+    ihRollingBack.value = false
+  }
+  Object.assign(ihJob, job, { errors: job.errors || [] })
+  if (job.running) {
+    ihPollTimer = setTimeout(pollImageJob, 1500)
+  } else {
+    loadImageHosting()
+  }
+}
+
+async function onSaveImageHosting() {
+  ihSaving.value = true
+  ihTestResult.value = null
+  try {
+    // token 留空不提交：提交空串会被当成「清空 Token」
+    const payload = {
+      base_url: ihForm.base_url, public_base: ihForm.public_base,
+      project: ihForm.project, timeout: ihForm.timeout,
+      verify_tls: ihForm.verify_tls, delivery: ihForm.delivery
+    }
+    if (ihForm.token) payload.token = ihForm.token
+    await imageHostingApi.saveConfig(payload)
+    await loadImageHosting()
+    ElMessage.success('图床连接信息已保存')
+  } catch (e) {
+    // 错误消息已由 http 拦截器统一提示
+  } finally {
+    ihSaving.value = false
+  }
+}
+
+async function onTestImageHosting() {
+  ihTesting.value = true
+  ihTestResult.value = null
+  try {
+    ihTestResult.value = await imageHostingApi.test()
+  } catch (e) {
+    // 错误消息已由 http 拦截器统一提示
+  } finally {
+    ihTesting.value = false
+  }
+}
+
+async function onSwitchImageHosting() {
+  const target = ihForm.backend === 'remote' ? '图床' : '本地'
+  try {
+    await ElMessageBox.confirm(
+      `将把新产生的图片改为存到${target}。立即生效、无需重启；已有图片仍从原处读取，需要另外点击搬运按钮才会挪动。是否继续？`,
+      '确认切换图片存储位置',
+      { type: 'warning' }
+    )
+  } catch { return }
+  ihSwitching.value = true
+  try {
+    await imageHostingApi.setBackend(ihForm.backend)
+    await loadImageHosting()
+    ElMessage.success(`已切换到${target}存储，已即时生效`)
+  } catch (e) {
+    // 错误消息已由 http 拦截器统一提示
+  } finally {
+    ihSwitching.value = false
+  }
+}
+
+async function onMigrateImages() {
+  try {
+    await ElMessageBox.confirm(
+      `将把本地 ${ih.pending_upload} 张图片上传到图床，并把存储位置切换为图床（立即生效）。` +
+      '搬运在后台进行，未搬完的图片继续从本地读取，页面不会出现裂图；中断后再次点击会接着搬剩下的。是否继续？',
+      '确认迁移图片到图床',
+      { type: 'warning' }
+    )
+  } catch { return }
+  ihMigrating.value = true
+  try {
+    await imageHostingApi.migrate({ activate: true })
+    pollImageJob()
+  } catch (e) {
+    ihMigrating.value = false
+  }
+}
+
+async function onRollbackImages() {
+  let deleteRemote = false
+  try {
+    // 「取消」按钮改成第二个动作：回迁 + 删除图床副本。默认（确定）只回迁、保留副本。
+    const action = await ElMessageBox.confirm(
+      `将把图床上的 ${ih.remote_records} 张图片下载回本地 imges 目录，并把存储位置切回本地（立即生效）。` +
+      '图床上的副本默认保留；如需一并删除，请选「回迁并删除图床副本」。',
+      '确认回迁图片到本地',
+      {
+        type: 'warning',
+        confirmButtonText: '回迁并保留图床副本',
+        cancelButtonText: '回迁并删除图床副本',
+        distinguishCancelAndClose: true
+      }
+    ).then(() => 'keep').catch((reason) => {
+      if (reason === 'cancel') return 'delete'
+      throw reason
+    })
+    deleteRemote = action === 'delete'
+  } catch { return }
+  ihRollingBack.value = true
+  try {
+    await imageHostingApi.rollback({ activate: true, delete_remote: deleteRemote })
+    pollImageJob()
+  } catch (e) {
+    ihRollingBack.value = false
+  }
+}
+
+async function onCancelImageJob() {
+  try {
+    await imageHostingApi.cancelMigration()
+    pollImageJob()
+  } catch (e) {
+    // 错误消息已由 http 拦截器统一提示
+  }
+}
+
 async function loadDbConfig() {
   const cfg = await databaseApi.getConfig()
   activeBackend.value = cfg.backend
@@ -1411,6 +1779,8 @@ onMounted(() => {
   loadSdAccounts()
   loadSdPreview()
   loadDbConfig()
+  loadImageHosting()
+  pollImageJob()
   loadPrinterParams()
   loadProxyBase()
 
@@ -1421,6 +1791,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   ;(scrollRoot || window).removeEventListener('scroll', syncActiveSection)
+  // 离开页面就停掉搬运进度轮询：作业在后端继续跑，回来时 onMounted 会重新拉一次进度
+  clearTimeout(ihPollTimer)
 })
 </script>
 

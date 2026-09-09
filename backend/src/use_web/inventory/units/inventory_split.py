@@ -6,9 +6,7 @@
 
 两者都不继承来源的货位（warehouse_id 恒为 NULL = 默认仓库），也都会把图片物理复制一份。
 """
-import os
 import time
-import shutil
 import uuid
 from fastapi import HTTPException, Depends
 
@@ -19,7 +17,7 @@ from ....use_mercari.inventory_counters import (
     recompute_listable_quantity,
     _listable_sql_expr,
 )
-from ...image_storage import get_image_root
+from ...image_storage import duplicate_image
 
 from .inventory_helpers import (
     images_json_from_paths,
@@ -34,23 +32,12 @@ db = DatabaseManager()
 
 
 def _duplicate_image_file(path: str) -> str:
-    """物理复制一张 /imges/xxx 图片，返回新路径，避免拆分后两条记录共享同一文件导致删除冲突。"""
-    if not path or not isinstance(path, str) or not path.startswith("/imges/"):
-        return path
-    filename = path.split("/imges/", 1)[1].strip("/")
-    if not filename:
-        return path
-    src_abs = os.path.join(get_image_root(), filename)
-    if not os.path.exists(src_abs):
-        return path
-    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
-    new_name = f"inv_split_{uuid.uuid4().hex}.{ext}"
-    dst_abs = os.path.join(get_image_root(), new_name)
-    try:
-        shutil.copyfile(src_abs, dst_abs)
-    except Exception:
-        return path
-    return f"/imges/{new_name}"
+    """复制一张 /imges/xxx 图片，返回新路径，避免拆分后两条记录共享同一文件导致删除冲突。
+
+    实现搬到了 ``image_storage.duplicate_image``：复制的方式取决于图片现在在哪
+    （本地是一次 copy，图床是下载再上传），而那个判断只应该有一处。
+    """
+    return duplicate_image(path, prefix="inv_split")
 
 
 def split_inventory(pid: int, data: InventorySplitRequest, _claims: dict = Depends(require_auth)):

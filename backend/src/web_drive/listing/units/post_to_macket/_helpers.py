@@ -19,6 +19,25 @@ def _backend_imges_root() -> str:
     """返回 backend/imges 目录的绝对路径。"""
     return os.path.join(backend_root_str(), "imges")
 
+def _materialize_remote(rel_path: str, filename: str) -> Optional[str]:
+    """把图床上的图片取回来落成临时文件，返回绝对路径；取不到返回 None。"""
+    from src.use_web.image_storage import read_image_bytes
+
+    content = read_image_bytes(rel_path)
+    if content is None:
+        log.warning("图片既不在本地也取不回图床副本：%s", rel_path)
+        return None
+    ext = os.path.splitext(filename)[1] or ".jpg"
+    try:
+        tf = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+        tf.write(content)
+        tf.close()
+    except OSError as exc:
+        log.warning("图床图片落临时文件失败 %s: %s", rel_path, exc)
+        return None
+    return tf.name
+
+
 def _resolve_image_to_local(url_or_path: str) -> Optional[str]:
     """将图片 URL / 路径解析为本地绝对路径（供 Playwright set_input_files 使用）。"""
     s = (url_or_path or "").strip()
@@ -30,7 +49,11 @@ def _resolve_image_to_local(url_or_path: str) -> Optional[str]:
         if not filename:
             return None
         abs_path = os.path.join(_backend_imges_root(), filename)
-        return abs_path if os.path.isfile(abs_path) else None
+        if os.path.isfile(abs_path):
+            return abs_path
+        # 本地没有 = 这张图已经搬到图床上了。Playwright 的 set_input_files 只认磁盘文件，
+        # 所以必须先把字节取回来落成临时文件——否则出品会静默地一张图都不带。
+        return _materialize_remote(s, filename)
 
     if os.path.isabs(s):
         return s if os.path.isfile(s) else None

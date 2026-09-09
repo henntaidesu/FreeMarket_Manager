@@ -35,6 +35,7 @@ from .units.todos_sync import (
     confirm_cancellation_receipt_endpoint,
     confirm_change_shipping_method_endpoint,
     close_detail_browser,
+    confirm_actual_shipped,
     confirm_shipping_selection_endpoint,
     fetch_todo_transaction_detail,
     get_cached_todo_transaction_detail,
@@ -69,6 +70,7 @@ def _list_todos_endpoint(
     include_deleted: bool = False,
     packed_only: bool = False,
     scanned_only: bool = False,
+    virtual_only: bool = False,
     categories: Optional[str] = None,
     page: int = 1,
     page_size: int = 20,
@@ -81,6 +83,7 @@ def _list_todos_endpoint(
         include_deleted=include_deleted,
         packed_only=packed_only,
         scanned_only=scanned_only,
+        virtual_only=virtual_only,
         categories=categories,
         page=page,
         page_size=page_size,
@@ -172,6 +175,8 @@ router.add_api_route("/{todo_id}/camera-frame", camera_frame_endpoint, methods=[
 router.add_api_route("/{todo_id}/scan-qr-photo", _scan_qr_photo_endpoint, methods=["POST"])
 # 扫码失败后重试：照片与解出的码都还在库里，直接重新入队，不用再拍一张一模一样的
 router.add_api_route("/{todo_id}/retry-ship-qr", _retry_ship_qr_endpoint, methods=["POST"])
+# 虚拟发货收尾：平台侧早已发完，这里只是确认实物真的投进邮筒了 → 本单结束（纯本地写）
+router.add_api_route("/{todo_id}/confirm-actual-shipped", confirm_actual_shipped, methods=["POST"])
 router.add_api_route("/{todo_id}/post-shipping-info", post_shipping_info_endpoint, methods=["GET"])
 router.add_api_route("/{todo_id}/finalize-post-shipping", finalize_post_shipping_endpoint, methods=["POST"])
 router.add_api_route("/close-detail-browser/{account_id}", close_detail_browser, methods=["POST"])

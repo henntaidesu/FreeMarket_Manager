@@ -28,10 +28,10 @@ if getattr(_sys, "frozen", False) and _sys.platform == "win32":
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from src.use_web.image_storage import ensure_image_dir
 from src.API import router as v2_router
+from src.image_route import register_image_routes
 from src.lifecycle import register_lifecycle
 from src.web_static import mount_spa, register_health
 
@@ -68,18 +68,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class _NoCacheStaticFiles(StaticFiles):
-    """图片目录禁用浏览器缓存：发货二维码在「修改发货方式」后会被删除并重新发行，
-    启发式缓存会让别的页签/设备把已作废的旧码从缓存里读出来打印（去店里扫不上）。
-    文件名含每次发行的 UUID，禁缓存的代价只是重复加载，正确性优先。"""
-
-    async def get_response(self, path, scope):
-        response = await super().get_response(path, scope)
-        response.headers["Cache-Control"] = "no-store"
-        return response
-
-
-app.mount("/imges", _NoCacheStaticFiles(directory=ensure_image_dir()), name="imges")
+# /imges 由 src/image_route.py 提供：它先查图片资产映射，落在图床上的跳转过去，
+# 仍在本地的照旧读盘。这里仍先建目录——本地后端与各类缓存（缩略图、煤炉图片）都要用它。
+ensure_image_dir()
+register_image_routes(app)
 
 # 注册 V2 根路由 → /mercariV2/src/...
 app.include_router(v2_router, prefix="/mercariV2")

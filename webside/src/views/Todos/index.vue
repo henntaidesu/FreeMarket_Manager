@@ -80,6 +80,19 @@
             class="search-filter-chip__count"
             :class="{ 'search-filter-chip__count--zero': !chipCount('scanned') }"
           >{{ chipCount('scanned') }}</span></div>
+          <!-- 虚拟发货：平台侧已经发完、实物还没投进邮筒的单子。它们在平台那边已经不是待办了
+               （本地也按普通发货收尾软删过），只有这个 chip 看得到，漏掉就再没人记得寄。 -->
+          <div
+            class="search-filter-chip"
+            :class="{ 'search-filter-chip--active': filters.virtual_only }"
+            role="button"
+            tabindex="0"
+            @click="selectFilterChip('virtual')"
+            @keyup.enter="selectFilterChip('virtual')"
+          >{{ t('todos.virtualOnly') }}<span
+            class="search-filter-chip__count"
+            :class="{ 'search-filter-chip__count--zero': !chipCount('virtual') }"
+          >{{ chipCount('virtual') }}</span></div>
           <div
             class="search-filter-chip"
             :class="{ 'search-filter-chip--active': filters.categories.includes('other') }"
@@ -506,10 +519,34 @@
                 </el-button>
               </div>
             </div>
+            <!-- 虚拟发货完成：平台侧已发行配送码并通知买家（买家的受取期限已经在走），
+                 只差把实物投进邮筒。此时没有任何发货动作可做——再发一次会被平台以
+                 「已发行配送码」拒绝——所以整栏收成一句说明 + 「已实际发货」。 -->
+            <template v-if="isVirtualShipped">
+              <div class="detail-ship-form">
+                <div v-if="virtualShippedAtText" class="detail-row">
+                  <span class="detail-label">{{ t('todos.virtualShippedAt') }}</span>
+                  <span class="detail-value">{{ virtualShippedAtText }}</span>
+                </div>
+                <div class="detail-empty-hint">{{ t('todos.virtualShippedHint') }}</div>
+                <div class="detail-method-row">
+                  <div class="detail-shipping-actions">
+                    <el-button
+                      type="primary"
+                      size="default"
+                      :loading="actualShipLoading"
+                      @click="onConfirmActualShipped"
+                    >
+                      {{ t('todos.actualShipped') }}
+                    </el-button>
+                  </div>
+                </div>
+              </div>
+            </template>
             <!-- 雅虎：整笔交易就在一张页面上，发货是「品名 + サイズ + 発送場所」一次提交，
                  提交即发行配送コード。尺寸/发货场所的候选项随配送会社变化，由后端从交易页
                  读回来（见 web_drive/yahoo_trade），前端不写死。 -->
-            <template v-if="isYahoo">
+            <template v-else-if="isYahoo">
               <div v-if="yahooShipped" class="detail-ship-form">
                 <div class="detail-method-head detail-method-head--solo">
                   <img
@@ -570,6 +607,23 @@
                     <span class="detail-method-name">{{ yahooCarrierName || dash }}</span>
                   </div>
                   <div class="detail-shipping-actions">
+                    <!-- 虚拟发货：与右边的「发货」走同一条链路，只是尺寸只剩投函型两种，
+                         且办完后本单留在「虚拟发货」筛选里等实物投函。 -->
+                    <el-tooltip
+                      :disabled="hasInventoryMatch"
+                      :content="t('todos.updateOrderFirst')"
+                      placement="top"
+                    >
+                      <span>
+                        <el-button
+                          size="default"
+                          :disabled="!hasInventoryMatch"
+                          @click="onClickVirtualShip"
+                        >
+                          {{ t('todos.virtualShip') }}
+                        </el-button>
+                      </span>
+                    </el-tooltip>
                     <!-- 点它进多级向导：包材 → 品名/尺寸 → 発送場所（或上传二维码）。
                          没有「修改」——雅虎的配送公司在出品时就定了，交易页改不了。 -->
                     <el-tooltip
@@ -795,6 +849,23 @@
                     <span class="detail-method-name">{{ mercariCarrierName }}</span>
                   </div>
                   <div class="detail-shipping-actions">
+                    <!-- 虚拟发货：与右边的「发货」走同一条链路，只是尺寸只剩投函型两种，
+                         且办完后本单留在「虚拟发货」筛选里等实物投函。 -->
+                    <el-tooltip
+                      :disabled="!isWaitShipping || hasInventoryMatch"
+                      :content="t('todos.updateOrderFirst')"
+                      placement="top"
+                    >
+                      <span>
+                        <el-button
+                          size="default"
+                          :disabled="isWaitShipping && !hasInventoryMatch"
+                          @click="onClickVirtualShip"
+                        >
+                          {{ t('todos.virtualShip') }}
+                        </el-button>
+                      </span>
+                    </el-tooltip>
                     <!-- 「发货」是三步向导的入口：包材 → 商品尺寸 → 发送方法 -->
                     <el-tooltip
                       :disabled="!isWaitShipping || hasInventoryMatch"
@@ -1064,7 +1135,7 @@
          顶部 el-steps 显示并可点击切换当前页；页面主体固定尺寸，三页大小一致。 -->
     <el-dialog
       v-model="shippingDialogVisible"
-      :title="t('todos.pickSizeAndLocation')"
+      :title="shipFlowVirtual ? t('todos.virtualShipTitle') : t('todos.pickSizeAndLocation')"
       width="820px"
       class="todo-ship-dialog"
       align-center
@@ -1090,6 +1161,19 @@
 
       <!-- 雅虎在包材页点完卡片就直接提交发货，提交期间锁住这一页 -->
       <div class="ship-flow-body" v-loading="yahooShipLoading">
+      <!-- 虚拟发货：整条向导与普通发货完全一样（同一个任务、同样要拍二维码），差别只有
+           尺寸只剩投函型两种。挂在最外层是为了每一页都能看到——尤其是拍照那页，人在那里
+           最容易忘了自己走的是「先登记、后寄出」。 -->
+      <el-alert
+        v-if="shipFlowVirtual"
+        type="warning"
+        :closable="false"
+        show-icon
+        :title="t('todos.virtualShipDesc')"
+        class="ship-virtual-hint"
+      >
+        <div>{{ t('todos.virtualShipSizeHint') }}</div>
+      </el-alert>
       <!-- 第 1 步：选择包材。卡片挑选（与订单管理的包材卡片同一形态），
            点中一张即选定并直接进下一步，无需再点确认按钮。 -->
       <template v-if="shippingStep === 'packaging'">

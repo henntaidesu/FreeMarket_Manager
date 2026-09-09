@@ -14,6 +14,7 @@ from .system.pending_settlement_item import PendingSettlementItemModel
 from .system.product_type_category_mapping import ProductTypeCategoryMappingModel
 from .system.yahoo_category_mapping import YahooCategoryMappingModel
 from .system.config_entry import ConfigEntryModel
+from .system.image_asset import ImageAssetModel
 from .system.talk_script import TalkScriptModel
 from .system.system_log import SystemLogModel
 from .system.task_queue import TaskQueueModel
@@ -53,6 +54,7 @@ __all__ = [
     'ProductTypeCategoryMappingModel',
     'YahooCategoryMappingModel',
     'ConfigEntryModel',
+    'ImageAssetModel',
     'TodoItemModel',
     'TransactionMessageModel',
     'NotificationModel',

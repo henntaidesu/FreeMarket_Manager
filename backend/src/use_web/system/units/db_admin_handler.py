@@ -279,6 +279,15 @@ async def hot_switch_mysql_database(body: HotSwitchIn) -> HotSwitchOut:
     finally:
         sync_lock.end(token)
 
+    # 图片资产映射（/imges/xxx → 本地还是图床）缓存在进程内，而它的数据源就在刚被换掉的
+    # 那个库里。不清掉的话，切库后的图片解析仍然按旧库的映射走——测试库的图片路径会被
+    # 解析成正式库的图床地址（反之亦然）。
+    from ....image_hosting import assets as image_assets
+    from ....image_hosting import settings as image_hosting_settings
+
+    image_assets.clear_cache()
+    image_hosting_settings.reload()
+
     return HotSwitchOut(
         ok=True, database=target,
         message=f"已热切换到数据库 `{target}`（无需重启）",

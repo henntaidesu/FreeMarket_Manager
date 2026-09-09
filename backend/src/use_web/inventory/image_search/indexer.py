@@ -8,9 +8,9 @@
 
 from __future__ import annotations
 
+import io
 import json
 import logging
-import os
 import queue
 import threading
 import time
@@ -19,7 +19,7 @@ from typing import Dict, Optional
 from PIL import Image
 
 from ....db_manage.database import DatabaseManager
-from ...image_storage import get_image_root
+from ...image_storage import read_image_bytes
 from . import index_store
 from .embedder import embed_image, get_load_error
 
@@ -91,11 +91,13 @@ def _desired_paths(where_sql: str = "", params: tuple = ()) -> Dict[str, int]:
 
 
 def _embed_path(path: str, inventory_id: int) -> bool:
-    abs_path = os.path.join(get_image_root(), path.split("/imges/", 1)[1].strip("/"))
-    if not os.path.exists(abs_path):
+    # read_image_bytes 本地/图床都能读：图片搬到图床后本地已经没有可 open() 的文件，
+    # 但建索引必须真正看到像素，绕不开把字节取回来这一步。
+    content = read_image_bytes(path)
+    if content is None:
         return False
     try:
-        with Image.open(abs_path) as img:
+        with Image.open(io.BytesIO(content)) as img:
             vec = embed_image(img)
     except RuntimeError:
         raise  # 模型不可用，向上传递终止本轮

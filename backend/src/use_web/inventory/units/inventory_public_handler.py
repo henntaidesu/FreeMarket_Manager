@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from PIL import Image, ImageOps
 
 from ....rate_limit import check_public_rate_limit
-from ...image_storage import get_image_root
+from ...image_storage import get_image_root, public_image_url
 from ..._path_safety import resolve_within_imges
 
 # 防解压炸弹：显式设定像素上限，越限 Pillow 抛 DecompressionBombError
@@ -21,7 +21,7 @@ def get_image_thumb(request: Request, path: str, size: int = 300):
     - size: 最长边像素（默认 300，列表小图用 200 即可）
 
     限速只压在**真正要生成**的那一次上（见下方 check_public_rate_limit 的位置）：
-    命中缓存时这里只是 FileResponse 一个小文件，而那个文件本身就躺在 /imges 静态挂载下、
+    命中缓存时这里只是 FileResponse 一个小文件，而那个文件本身通过 /imges 路由、
     无需认证也无限速就能直接取到——对命中缓存计费挡不住任何东西，只会让卡片视图
     （一屏 30 张图）在自家页面上被判成滥用。
     """
@@ -32,6 +32,15 @@ def get_image_thumb(request: Request, path: str, size: int = 300):
     except ValueError:
         raise HTTPException(status_code=400, detail="无效路径")
     size = max(50, min(size, 1200))
+
+    # 已经搬到图床的图片：直接用图床自己的缩略图端点。这里**不**把原图拉回来再缩放——
+    # 那等于每张小图都要先走一遍完整原图的下载，把搬到图床省下的带宽原样还回去，
+    # 而且缩略图缓存会在本地重新堆起来（正是当初 imges/ 里 5,192 个 _thumbs 的由来）。
+    from ....image_route import deliver_remote
+
+    remote_url = public_image_url(clean, width=size)
+    if remote_url:
+        return deliver_remote(remote_url, "image/jpeg")
 
     filename = clean.split("/imges/", 1)[1].strip("/")
     if not os.path.isfile(orig_abs):

@@ -76,6 +76,12 @@ server {
     # 扫描流量根本到不了这台机器，也不用维护 htpasswd）。
     # 没有 Access 时，用这一层 Basic 兜底 —— 它同时覆盖了 /imges：
     #   htpasswd -c /etc/nginx/fmm.htpasswd <user>
+    #
+    # ⚠ 启用「图床存储」后这层保护对已迁移的图片失效：/imges 会 302 到图床域名，
+    # 浏览器直接去那边取图，根本不经过这台 nginx。图床的公开地址按设计就是无认证的
+    # （文件名是随机 UUID，属于「知道地址才能访问」）。若这些图片不能对外可见，
+    # 要么给图床域名也套上同样的 Access / Basic，要么在系统配置里把「图片投递方式」
+    # 改成「代理」——那样图片仍由本服务转发，重新落回这层保护之内（但不省带宽）。
     auth_basic           "FreeMarket Manager";
     auth_basic_user_file /etc/nginx/fmm.htpasswd;
 

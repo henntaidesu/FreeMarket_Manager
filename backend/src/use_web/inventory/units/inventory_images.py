@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """库存图片相关辅助函数与图片相关端点。"""
 import io
-import os
 import base64
 from typing import Optional, List
 from fastapi import HTTPException, UploadFile, File
@@ -13,6 +12,7 @@ from ...image_storage import (
     save_base64_image,
     delete_image_file,
     get_image_root,
+    read_image_bytes,
     save_upload_image,
 )
 from ..._path_safety import resolve_within_imges
@@ -167,17 +167,23 @@ def _load_image_for_match(image_value: Optional[str]) -> Optional[Image.Image]:
             b64 = val.split(",", 1)[1] if "," in val else val
             return Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB")
         if val.startswith("/imges/"):
-            # 包含性校验，拦截 ..、盘符、UNC 等越界读取（存在性预言/SMB 强制）
-            abs_path = resolve_within_imges(val, get_image_root())
-            if os.path.isfile(abs_path):
-                return Image.open(abs_path).convert("RGB")
+            # 包含性校验在 read_image_bytes 内部完成（拦截 ..、盘符、UNC 等越界读取）；
+            # 图片已搬到图床时它会把字节取回来，本地没有文件也照样能比对
+            content = read_image_bytes(val)
+            if content is not None:
+                return Image.open(io.BytesIO(content)).convert("RGB")
     except Exception:
         return None
     return None
 
 
 async def find_by_image(file: UploadFile = File(...)):
-    """根据上传的正面照片匹配最相近库存商品"""
+    """根据上传的正面照片匹配最相近库存商品。
+
+    ⚠ 这是全表扫描式的 dHash 比对：每次调用都要把**所有**库存图片解码一遍。图片搬到图床
+    之后，「解码一遍」变成了「下载一遍」——几千张图片的往返，这个端点会慢到不可用。
+    正式的按图搜索请走 ``inventory/image_search``（CLIP 向量索引，只在建索引时读一次图）。
+    """
     if not (file.content_type or "").startswith("image/"):
         raise HTTPException(status_code=400, detail="请上传图片文件")
     content = await file.read()

@@ -7,14 +7,13 @@
 """
 
 import base64
-import os
 from typing import Optional
 
 from pydantic import BaseModel
 
 from ....ai.deepseek_client import generate_listing
 from ....db_manage.database import DatabaseManager
-from ...image_storage import get_image_root
+from ...image_storage import read_image_bytes
 from .inventory_helpers import _paths_from_images_json
 
 db = DatabaseManager()
@@ -63,16 +62,13 @@ def _main_image_data_url(inventory_id: Optional[int]) -> Optional[str]:
     if not first.startswith("/imges/") or ".." in first:
         return None
     filename = first.split("/imges/", 1)[1].strip("/")
-    abs_path = os.path.join(get_image_root(), filename)
-    if not os.path.exists(abs_path):
+    # 本地/图床都能读：图片搬到图床后本地没有文件，但要喂给模型就必须把字节取回来
+    content = read_image_bytes(first)
+    if content is None:
         return None
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
     mime = _EXT_MIME.get(ext, "image/jpeg")
-    try:
-        with open(abs_path, "rb") as f:
-            b64 = base64.b64encode(f.read()).decode("ascii")
-    except OSError:
-        return None
+    b64 = base64.b64encode(content).decode("ascii")
     return f"data:{mime};base64,{b64}"
 
 

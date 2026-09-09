@@ -99,7 +99,9 @@ def save_photo(data_url: str) -> str:
     """
     from ....image_storage import get_image_root, save_base64_image
 
-    rel = save_base64_image(data_url, prefix="ship_qr")  # 形如 /imges/ship_qr_xxx.jpg
+    # local_only：这张照片解码完就删，送上图床纯属浪费；而且下面几步全是按绝对路径
+    # open() 它，转存会把本地副本删掉，那些 open() 当场就失败。
+    rel = save_base64_image(data_url, prefix="ship_qr", local_only=True)  # /imges/ship_qr_xxx.jpg
     return os.path.join(get_image_root(), os.path.basename(rel))
 
 
@@ -367,6 +369,7 @@ async def submit_shipping_qr_photo(
     from .....db_manage.models.todos.todo_item import TodoItemModel
     from .....task_queue import TaskDuplicateError, submit_task
     from .....task_queue.registry import TODOS_SHIPPING_QR
+    from . import virtual_ship
 
     todo = TodoItemModel.find_by_id(id=int(todo_id))
     if not todo:
@@ -374,6 +377,11 @@ async def submit_shipping_qr_photo(
     aid = int(getattr(todo, "account_id", 0) or 0)
     if not aid:
         raise HTTPException(status_code=400, detail="待办事项缺少 account_id")
+
+    # 虚拟发货的尺寸白名单要在**落盘入队之前**拦：进了队列再发现尺寸不对，配送コード
+    # 可能已经发行出去，而那一步不可撤回。
+    if req.virtual:
+        virtual_ship.ensure_size_allowed(req.class_text)
 
     stored = validate_and_store(req.photo)
 
@@ -410,5 +418,8 @@ async def submit_shipping_qr_photo(
         mark_shipping(
             int(todo_id), stored["photo_path"], str(req.class_text or ""), stored["qr_text"]
         )
+        # 意图落库而不是只放进 payload：任务失败后的「重新扫码」是从库里重新入队的
+        # （见 qr_retry），payload 里的 virtual 到不了那一步。
+        virtual_ship.set_intent(int(todo_id), bool(req.virtual))
 
     return {"success": True, "data": {"task": task, "created": created}}

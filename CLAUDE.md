@@ -47,7 +47,7 @@ you have to follow, not something the code will stop you from breaking.
 | Backend | Python 3.11+, FastAPI, Uvicorn | Port 9601 (dev) / 9600 (frozen); `/docs` off by default |
 | Database | SQLite WAL mode (default) / MySQL 8.0+ | backend/mercariDB.db (auto-created); MySQL via `DB_BACKEND=mysql` |
 | Authentication | JWT (Bearer tokens) | **No expiry by default** (`JWT_EXPIRE_HOURS=0`); revoked via `token_version` |
-| Image Storage | Local filesystem | backend/imges/ directory |
+| Image Storage | Local filesystem (default) / Image Hosting | `backend/imges/`; switchable to a remote image host at runtime — see 图床存储 below |
 | Browser Automation | Playwright | Edge/Chromium; drives both Mercari and Yahoo |
 | Request Inspection | mitmproxy | SSL/TLS interception (Windows) |
 | ML/Vision | EasyOCR, OpenCV, CLIP (ONNX Runtime) | Barcode/text recognition + image search |
@@ -115,9 +115,9 @@ There is **no `src/routes/` package** — the HTTP layer is `use_web/`, one fold
 ```
 backend/
 ├── main.py                          # Thin entry: mitmdump self-dispatch, console/log window,
-│                                    #   FastAPI app, CORS, /imges mount, router + lifecycle
+│                                    #   FastAPI app, CORS, /imges route, router + lifecycle
 ├── mercariDB.db                     # SQLite business data (WAL); system.db = bootstrap config
-├── imges/                           # Product image storage
+├── imges/                           # Product image storage (local backend; also thumb/CDN caches)
 ├── models/                          # Downloaded ML weights (CLIP ONNX) — not DB models
 ├── tools/                           # sqlite_to_mysql.py, clone_mysql_to_test.py (run via -m)
 └── src/
@@ -208,6 +208,8 @@ Key tables in `backend/src/db_manage/models/`:
 - **on_sale_items**: Listing records synced from Mercari/Yahoo
 - **orders**: Orders synced from Mercari/Yahoo
 - **image_embeddings**: CLIP vectors for inventory image search (see Auxiliary Subsystems)
+- **image_assets**: `/imges/<file>` → where that image actually lives. Only images that were moved
+  to the image host get a row; no row = still a local file. See 图床存储 below.
 - **task_queue**: Background job rows (see Task Queue)
 - **config**: Generic key/value app settings — DeepSeek credentials live here, not in env vars
 - **system_logs**, **memos**, **talk_scripts**, **settlement_records**, **desired_price_offers**,
@@ -216,6 +218,52 @@ Key tables in `backend/src/db_manage/models/`:
 - **transactions**: In/out stock movements with warehouse tracking
 - **cost_records**: Packaging material inventory
 - **cost_expenses**: Packaging material usage per order
+
+## 图床存储 (Image Hosting)
+
+Product images live in `backend/imges/` by default. They can be moved wholesale to a separate
+[Image Hosting](../Image_hosting) service, configured under System Config → 图床存储.
+
+**`/imges/<file>` is a logical identifier, never rewritten.** Those strings sit in seven business
+columns (`inventory.images_json`, `memos.images_json`, `transaction_messages.images_json`,
+`image_embeddings.image_path`, `todo_items.qr_image_path`, `todo_items.ship_qr_photo_path`, plus
+`shop_accounts.avatar`), and ~20 backend call sites and 5 frontend pages branch on
+`startswith('/imges/')`. Rewriting them to absolute host URLs would mean touching every one of those
+and would leave no way back. Instead, `image_assets` maps each logical path to where its bytes
+actually are, and the switch changes only how that path is *resolved*.
+
+```
+src/image_hosting/
+├── settings.py    # connection config + active backend, cached in-process (this is the hot-reload point)
+├── client.py      # HTTP client for the host's /api/v1
+├── assets.py      # image_assets read/write + hot-path cache
+└── migration.py   # background local ⇄ host transfer (resumable, cancellable, reversible)
+src/image_route.py # GET /imges/{path} — 302 to the host, or read from disk
+src/use_web/image_storage.py  # the facade; THE ONLY module that knows which backend is active
+```
+
+- **Switching is instant and needs no restart.** The backend setting only decides where *new*
+  images are written and how paths resolve; both are read per call through the cached settings.
+- **Migration is a repeatable reconciliation, not a one-shot.** Its work set is "local file exists
+  and has no mapping row", so a re-run picks up whatever is left. `external_key` (the logical path)
+  makes the host side idempotent, so re-running never creates duplicates.
+- **Not-yet-migrated images keep working**: no mapping row means "read from local disk". There is no
+  window where an image 404s.
+- **Upload failure degrades to local**: `_persist()` always writes to disk first, then tries to push
+  to the host. If the host is down, the image stays local and the next migration run picks it up —
+  a flaky image host must never fail a "save product".
+- **Anything needing real pixels** (CLIP indexing, AI listing, watermarking, Playwright
+  `set_input_files`) must go through `image_storage.read_image_bytes()`, and existence checks
+  through `image_storage.image_exists()`. `os.path.exists` on an `/imges/` path is a bug once the
+  image host is active.
+- **Short-lived working files stay local** (`local_only=True` + `migration._SKIP_PREFIXES`): the
+  `ship_qr_*` photo is opened by absolute path and deleted when the task ends.
+
+**Deployment consequences.** With `delivery: redirect` (the default), the browser fetches images
+straight from the image host, so nginx's `auth_basic` / Cloudflare Access no longer covers them —
+the host's public URLs are unauthenticated by design (random UUID filenames). Protect the image
+host's domain too, or set `delivery: proxy` to route bytes back through this service. Also, an
+HTTPS page cannot load `http://` images (mixed content); the settings page warns about this.
 
 ## Key Architectural Patterns
 

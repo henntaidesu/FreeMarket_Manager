@@ -66,6 +66,10 @@ export const todosApi = {
   /** 发货扫码失败后重试：照片与解出的码都还在库里，直接重新入队，不用重拍 */
   retryShipQr: (todoId, body = {}, axiosConfig = {}) =>
     http.post(`/use_web/todos/${encodeURIComponent(todoId)}/retry-ship-qr`, body || {}, { timeout: 60000, ...axiosConfig }),
+  /** 虚拟发货收尾：实物真的投出去了 → 本单结束。平台侧早在虚拟发货那步就发完了，
+   *  这里是纯本地写，不开浏览器 */
+  confirmActualShipped: (todoId, axiosConfig = {}) =>
+    http.post(`/use_web/todos/${encodeURIComponent(todoId)}/confirm-actual-shipped`, {}, { timeout: 20000, ...axiosConfig }),
   cameraFrame: (todoId, data, axiosConfig = {}) =>
     http.post(`/use_web/todos/${encodeURIComponent(todoId)}/camera-frame`, data || {}, { timeout: 15000, ...axiosConfig }),
   /** QR 读取成功后读取「発送確認符号 / 追跡番号」供二次确认 */

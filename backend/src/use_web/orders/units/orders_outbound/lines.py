@@ -240,28 +240,10 @@ def convert_outbound_line_owner(
     if not holds_stock and src_quantity < qty:
         raise HTTPException(status_code=400, detail=f"原库存不足以转化，当前库存：{src_quantity}")
 
-    import uuid as _uuid
-    from ....image_storage import get_image_root
-    import os as _os
-    import shutil as _shutil
-
-    def _dup(path):
-        if not path or not isinstance(path, str) or not path.startswith("/imges/"):
-            return path
-        fn = path.split("/imges/", 1)[1].strip("/")
-        if not fn:
-            return path
-        s = _os.path.join(get_image_root(), fn)
-        if not _os.path.exists(s):
-            return path
-        ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else "jpg"
-        new_name = f"inv_split_{_uuid.uuid4().hex}.{ext}"
-        d = _os.path.join(get_image_root(), new_name)
-        try:
-            _shutil.copyfile(s, d)
-        except Exception:
-            return path
-        return f"/imges/{new_name}"
+    # 图片复制统一走 image_storage.duplicate_image：这里原本有一份和
+    # inventory_split._duplicate_image_file 逐行相同的拷贝，而「图片现在在本地还是图床」
+    # 这个判断只应该有一处。
+    from ....image_storage import duplicate_image as _dup
 
     import json as _json
     src_images_json = src[11]
