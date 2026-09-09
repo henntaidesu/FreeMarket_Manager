@@ -215,8 +215,19 @@ class _SessionsMixin:
         key = validate_account_key(account_key)
         was_alive = self.has_alive_session(key)
         # 确保有一个存活的上下文：已开（含用户手动有头）则复用，否则临时无头打开。
+        #
+        # 新开时必须显式给 about:blank + 最小化：读 Cookie 用不到任何页面，但
+        # ``set_force_headed_debug(True)`` 会在 _open_session_impl 里把这个本该无头的会话
+        # 兜底改成有头。届时既没有 start_url（不触发单标签收敛）、interactive 又是 False
+        # （拿不到 --disable-features=RestoreSession），持久化 profile 的「继续浏览上次页面」
+        # 就会把主 profile 上次停留的页面连同 launch 自带的空白页一起弹到前台——看起来
+        # 就像自动化打开错了页面。
+        #
+        # 已开的会话**不能**传 start_url：那会把用户手动打开的浏览器导航走，
+        # 违背本函数「既不关闭也不抢占」的承诺。
+        launch_kw = {} if was_alive else {"start_url": "about:blank", "start_minimized": True}
         await self.open_session(
-            key, headless=True, interactive=False, restore_tabs=False
+            key, headless=True, interactive=False, restore_tabs=False, **launch_kw
         )
         s = self._prepare_async()
         async with s.lock:  # type: ignore[union-attr]
@@ -299,7 +310,10 @@ class _SessionsMixin:
         start_minimized: bool = False,
         block_images: bool = False,
     ) -> Dict[str, Any]:
-        # 全局调试开关：强制有头时，最底层兜底——无论调用方传入什么，一律有头
+        # 全局调试开关：强制有头时，最底层兜底——无论调用方传入什么，一律有头。
+        # 兜底只改「窗口可不可见」，不改「调用方要的是不是一个自动化会话」——后者由
+        # wants_headless 记住，用于决定是否恢复上次的标签页（见下面的 launch_args）。
+        wants_headless = bool(headless)
         if force_headed_debug_enabled() and headless:
             headless = False
         s = self._prepare_async()
@@ -356,12 +370,18 @@ class _SessionsMixin:
                 "--disable-session-crashed-bubble",
                 "--disable-infobars",
             ]
+            # 「继续浏览上次页面」只对用户手动打开的主 profile 有意义。自动化会话——
+            # 调用方要的是无头（wants_headless，哪怕被强制有头兜底翻成了可见窗口），
+            # 或虽有头但最小化在后台跑——恢复出来的旧标签纯属噪声：它是异步冒出来的，
+            # 可能赶在 _navigate_one_tab 的单标签收敛之后，让 pages[-1] 指到一个空白页
+            # 或上次那个页面上，自动化就点在了错的页面里。
+            if wants_headless or start_minimized:
+                launch_args.append("--disable-features=RestoreSession")
             if interactive and not headless:
                 # start_minimized 与 interactive 同时为真:跳过 --start-maximized,
                 # 启动后窗口在任务栏最小化(后台运行)。
                 if start_minimized:
                     launch_args.append("--start-minimized")
-                    launch_args.append("--disable-features=RestoreSession")
                 else:
                     launch_args.extend(self._interactive_launch_args())
             elif start_minimized and not headless:
