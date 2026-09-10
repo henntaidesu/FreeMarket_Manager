@@ -252,6 +252,28 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* 一单多件的提醒：实心红底 + 加粗，压在图左下角。整张卡片其余文字都是细体浅色，
+   这里刻意反着来，扫一屏卡片时能第一眼跳出来 */
+.todo-card-bundle {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  max-width: calc(100% - 12px);
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #f56c6c;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 18px;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
 /* 发货码缩略图压在图右下角，沿用表格的模糊处理（防误扫），点击才出清晰大图 */
 .todo-card-qr {
   position: absolute;
@@ -323,6 +345,11 @@
   .todo-card-qr {
     width: 66px;
     height: 34px;
+  }
+  .todo-card-bundle {
+    font-size: 12px;
+    padding: 1px 6px;
+    line-height: 16px;
   }
 
   /* 八个 chip 是这页的主筛选器，也是拇指最常点的地方：32px 偏小 */

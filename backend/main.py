@@ -35,10 +35,10 @@ from src.image_route import register_image_routes
 from src.lifecycle import register_lifecycle
 from src.web_static import mount_spa, register_health
 
-WEB_DRIVE_FORCE_HEADED_DEBUG = False
+WEB_DRIVE_FORCE_HEADED_DEBUG = True
   # 强制启用 headed 模式以兼容部分环境（如 Windows 打包后）无法正常使用无头模式的情况  
 
-# /docs、/openapi.json 默认关闭（避免向 LAN 未认证暴露完整路由/参数）；
+# /docs、/openapi.json 默认关闭（避免向 LAN 未认证暴露完整路由/参数）； 
 # 需要时设 MERCARI_ENABLE_DOCS=1 开启。
 _ENABLE_DOCS = (_os.environ.get("MERCARI_ENABLE_DOCS") or "").strip().lower() in ("1", "true", "yes")
 app = FastAPI(

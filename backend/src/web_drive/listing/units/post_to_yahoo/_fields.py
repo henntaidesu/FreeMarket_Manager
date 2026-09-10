@@ -43,12 +43,37 @@ log = logging.getLogger(__name__)
 #: 底部弹层的开合完全靠内联样式：打开是 ``bottom: 0px``，关闭是 ``bottom:-100dvh``
 #: （关闭态仍在 DOM 里且有尺寸，所以不能用 getBoundingClientRect 判可见）。
 #: 分类的条目是 ``li``、商品状態的条目是 ``div>p``，故一律按「首行文案」在弹层内找。
+#:
+#: 「内联 bottom:0」这个特征本身**认不准弹层**，两处都会误判成「有弹层开着」：
+#: ① 属性名没锚定时 ``padding-bottom:0px`` / ``margin-bottom:0`` 也命中——雅虎的内联样式
+#:    是 React 序列化的 ``a:b;c:d`` 形式，所以按 ``^`` 或 ``;`` 锚定属性名即可排除；
+#: ② 页面底部那条**固定操作栏**（装着「出品する」「下書きに保存する」）同样是 bottom:0，
+#:    编辑页早就踩过（见 ``yahoo_item/units/_page.py``），出品页是同一套表单组件。
+#:    它没有弹层的关闭按钮，于是「先关掉上一个弹层」永远关不掉，第一个弹层字段（分类）
+#:    就直接中止；而 openSheet 取的是最后一个，它若排在真弹层之后还会让后续点选全落空。
+#:    用「弹层里不会出现整页的动作按钮」把它剔掉。
 _SHEET_PRELUDE = """
-const openSheet = () => [...document.querySelectorAll('div[style]')]
-  .filter((el) => /bottom:\\s*0/.test(el.getAttribute('style') || ''))
-  .pop() || null;
 const firstLine = (el) => (el.innerText || '').trim().split('\\n')[0].trim();
+const PAGE_ACTION_TEXTS = ['出品する', '下書きに保存する'];
+const isActionBar = (el) => [...el.querySelectorAll('button')]
+  .some((b) => PAGE_ACTION_TEXTS.includes(firstLine(b)));
+const sheetCandidates = () => [...document.querySelectorAll('div[style]')]
+  .filter((el) => /(?:^|;)\\s*bottom:\\s*0/.test(el.getAttribute('style') || ''));
+const openSheet = () => sheetCandidates().filter((el) => !isActionBar(el)).pop() || null;
 """
+
+#: 关不掉弹层时把候选层原样报出来——雅虎一改页面结构，这里就是唯一线索
+_SHEET_DEBUG_JS = (
+    "() => {"
+    + _SHEET_PRELUDE
+    + """
+    return sheetCandidates().map((el) => ({
+      style: (el.getAttribute('style') || '').slice(0, 100),
+      action_bar: isActionBar(el),
+      text: (el.innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 60),
+    }));
+}"""
+)
 
 _SHEET_OPEN_JS = "() => {" + _SHEET_PRELUDE + "return !!openSheet();}"
 
@@ -117,7 +142,8 @@ _SHEET_CLICK_JS = (
 }"""
 )
 
-#: 关掉当前弹层（表头右上角的关闭按钮）
+#: 关掉当前弹层：选择弹层的关闭键是表头右上角的图标，而「画像を追加」小窗只有文字
+#: 「閉じる」——两种都要认，否则图片小窗没自动关掉时后面每个弹层字段都会被它挡死。
 _SHEET_CLOSE_JS = (
     "() => {"
     + _SHEET_PRELUDE
@@ -125,7 +151,11 @@ _SHEET_CLOSE_JS = (
     const sheet = openSheet();
     if (!sheet) return true;
     const img = sheet.querySelector('img[alt="閉じるボタン"]');
-    const btn = img ? (img.closest('button') || img) : null;
+    let btn = img ? (img.closest('button') || img) : null;
+    if (!btn) {
+      btn = [...sheet.querySelectorAll('button, [role="button"]')]
+        .filter((el) => firstLine(el) === '閉じる').pop() || null;
+    }
     if (!btn) return false;
     btn.click();
     return true;
@@ -196,6 +226,21 @@ async def _sheet_is_open(page: Any) -> bool:
         return False
 
 
+async def _sheet_debug(page: Any) -> str:
+    """报错用：列出所有内联 bottom:0 的层（含被判为固定操作栏的），一行一个。"""
+    try:
+        rows = await page.evaluate(_SHEET_DEBUG_JS) or []
+    except Exception as exc:
+        return f"（读取失败：{exc}）"
+    if not rows:
+        return "（无）"
+    return "；".join(
+        f"[{'操作栏' if r.get('action_bar') else '弹层'}] style={r.get('style')!r} "
+        f"text={r.get('text')!r}"
+        for r in rows[:5]
+    )
+
+
 async def _wait_sheet_closed(page: Any, *, timeout_ms: int) -> bool:
     """等弹层自己收起（选到叶子会自动关）；超时则点关闭按钮兜底。"""
     waited = 0
@@ -231,6 +276,7 @@ async def _open_field_sheet(page: Any, label: str, *, element_timeout_ms: int) -
         if not await _wait_sheet_closed(page, timeout_ms=3000):
             raise RuntimeError(
                 f"打开「{label}」前，上一个选择弹层没能关闭；继续操作会选到错误的弹层，已中止。"
+                f"当前 bottom:0 的层：{await _sheet_debug(page)}"
             )
     if not await page.evaluate(_FIELD_OPEN_JS, label):
         raise RuntimeError(f"未找到「{label}」的选择入口")

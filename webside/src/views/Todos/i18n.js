@@ -21,6 +21,8 @@ export default {
       platformFilterPlaceholder: "平台",
       cardLoading: "加载中…",
       cardEmpty: "没有符合条件的待办",
+      bundleCount: "{n} 件商品",
+      bundleNoCount: "多件商品",
       yahooNoItemId: "该待办缺少商品ID，无法打开雅虎交易页",
       yahoo: {
         carrierJapanPost: "日本邮便",
@@ -320,6 +322,8 @@ export default {
       platformFilterPlaceholder: "サイト",
       cardLoading: "読み込み中…",
       cardEmpty: "該当するやることがありません",
+      bundleCount: "{n}点まとめ",
+      bundleNoCount: "まとめ商品",
       yahooNoItemId: "商品IDがないため取引画面を開けません",
       yahoo: {
         carrierJapanPost: "日本郵便",
@@ -618,6 +622,8 @@ export default {
       platformFilterPlaceholder: "Platform",
       cardLoading: "Loading…",
       cardEmpty: "No matching todos",
+      bundleCount: "{n} items",
+      bundleNoCount: "Bundle",
       yahooNoItemId: "This todo has no item ID, cannot open the Yahoo trade page",
       yahoo: {
         carrierJapanPost: "Japan Post",

@@ -313,12 +313,16 @@
             @click="onCardClick(row)"
           >
             <div class="todo-card-thumb">
+              <!-- 点图看大图，不触发卡片的处理动作；卡片 overflow:hidden，viewer 必须 teleport 出去 -->
               <el-image
                 v-if="row.photo_url"
                 :src="mercariImageUrl(row.photo_url)"
+                :preview-src-list="[mercariImageUrl(row.photo_url)]"
+                :preview-teleported="true"
                 fit="cover"
                 lazy
                 referrerpolicy="no-referrer"
+                @click.stop
               >
                 <template #error><span class="thumb-fallback">-</span></template>
               </el-image>
@@ -335,6 +339,8 @@
               >
                 {{ kindLabel(row) }}
               </el-tag>
+              <!-- 一单多件的提醒压在图左下角（右下角是发货码）：装箱时别漏发 -->
+              <div v-if="bundleBadgeText(row)" class="todo-card-bundle">{{ bundleBadgeText(row) }}</div>
               <!-- 卡片没有条件列，发货码/扫码照片压在图右下角；点它看大图，不触发卡片的处理动作 -->
               <el-image
                 v-if="cardQrSrc(row)"

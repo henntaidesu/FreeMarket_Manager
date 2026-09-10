@@ -1354,6 +1354,21 @@ export default defineComponent({
       await setupCardObserver()
     })
 
+    /** 「まとめ商品」提醒：一单多件时在卡片左下角标出件数，提醒装箱别漏发。
+     *  取卡片上显示的那行文字（item_name 优先，与 todo-card-name 同口径）。
+     *  「N点」给出确切件数；只写了「まとめ」没写件数的，退回一个不带数字的提醒。 */
+    function bundleBadgeText(row) {
+      const name = row?.item_name || row?.title || ''
+      const m = name.match(/(\d+)\s*点/)
+      if (m) {
+        const n = Number(m[1])
+        // 「1点」是单件，本来就不用提醒
+        if (n >= 2) return t('todos.bundleCount', { n })
+      }
+      if (name.includes('まとめ')) return t('todos.bundleNoCount')
+      return ''
+    }
+
     /** 卡片上的发货码 / 扫码照片：与表格的条件列同口径，只在对应筛选下出现 */
     function cardQrSrc(row) {
       if (filters.value.packed_only && row?.qr_image_path) return mercariImageUrl(row.qr_image_path)
@@ -3150,6 +3165,7 @@ export default defineComponent({
       cardTopSentinel,
       cardBottomSentinel,
       cardQrSrc,
+      bundleBadgeText,
       onCardQrClick,
       onCardClick,
       onFilterChange,
