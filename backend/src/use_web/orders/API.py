@@ -9,6 +9,7 @@ from fastapi import APIRouter
 
 from .units.orders_crud import create_order, delete_order, rematch_order_products, update_order
 from .units.orders_messages import send_order_message
+from .units.orders_note import get_order_note, save_order_note
 from .units.orders_outbound import (
     bind_outbound_line_inventory,
     convert_outbound_line_owner,
@@ -37,6 +38,8 @@ router.add_api_route("/outbound-lines/{line_id}/convert-owner", convert_outbound
 router.add_api_route("/outbound-lines/{line_id}/stock-out", stock_out_order_outbound_line, methods=["POST"])
 router.add_api_route("/outbound-lines/manual", create_manual_outbound_line, methods=["POST"])
 router.add_api_route("/outbound-lines/manual/batch", create_manual_outbound_lines, methods=["POST"])
+router.add_api_route("/order-note", get_order_note, methods=["GET"])
+router.add_api_route("/order-note", save_order_note, methods=["PUT"])
 router.add_api_route("", list_orders, methods=["GET"])
 router.add_api_route("/packaging-waive", waive_order_packaging, methods=["POST"])
 router.add_api_route("/refresh-info", refresh_order_info, methods=["POST"])

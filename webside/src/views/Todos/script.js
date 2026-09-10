@@ -1381,6 +1381,38 @@ export default defineComponent({
       else openShipQrPhoto(row)
     }
 
+    // ── 订单备注 ────────────────────────────────────────────────────
+    // 与订单管理页共用同一条（按订单号存放，待办的 item_id 就是订单号）。列表接口已经把
+    // order_note 带回来了，所以卡片/表格的红标不用额外请求；处理面板里改完直接写回内存里
+    // 那一行，红标立刻更新，不必整页重载。
+    const orderNoteText = ref('')
+    const orderNoteSaved = ref('')   // 上次落库的值，用来判断「有没有改动」
+    const orderNoteSaving = ref(false)
+    const orderNoteDirty = computed(() => orderNoteText.value.trim() !== orderNoteSaved.value.trim())
+
+    function orderNoteOf(row) {
+      return (row?.order_note || '').trim()
+    }
+
+    async function onSaveOrderNote() {
+      const orderNo = String(currentRow.value?.item_id || '').trim()
+      if (!orderNo || orderNoteSaving.value) return
+      orderNoteSaving.value = true
+      try {
+        const res = await orderApi.saveOrderNote(orderNo, orderNoteText.value)
+        const saved = (res?.note ?? orderNoteText.value.trim()) || ''
+        orderNoteText.value = saved
+        orderNoteSaved.value = saved
+        // currentRow 就是列表/卡片里渲染的那个对象，改它即可让红标同步
+        if (currentRow.value) currentRow.value.order_note = saved
+        ElMessage.success(t('todos.orderNoteSaved'))
+      } catch (e) {
+        ElMessage.error(e?.response?.data?.detail || t('todos.orderNoteSaveFailed'))
+      } finally {
+        orderNoteSaving.value = false
+      }
+    }
+
     /** 卡片点击 = 表格操作列那颗按钮：申请退货行走「确认签收」（自带二次确认），其余进处理弹窗 */
     function onCardClick(row) {
       if (isCancellationReceiptRow(row)) {
@@ -2005,6 +2037,10 @@ export default defineComponent({
       })
       resetInvMatch()
       resetYahooShipForm()
+      // 列表已带回 order_note，直接用，不再发一次请求
+      orderNoteText.value = orderNoteOf(row)
+      orderNoteSaved.value = orderNoteOf(row)
+      orderNoteSaving.value = false
       detailDialogVisible.value = true
       // 待发货（含雅虎 発送依頼）与 待回复（两个平台）：按商品 ID 反查本地库存图片与关联订单号
       if (isWaitShipping.value || isWaitReplyKind(row.kind)) {
@@ -3166,6 +3202,11 @@ export default defineComponent({
       cardBottomSentinel,
       cardQrSrc,
       bundleBadgeText,
+      orderNoteText,
+      orderNoteSaving,
+      orderNoteDirty,
+      orderNoteOf,
+      onSaveOrderNote,
       onCardQrClick,
       onCardClick,
       onFilterChange,

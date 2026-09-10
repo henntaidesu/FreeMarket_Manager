@@ -155,6 +155,7 @@ class _QueryMixin:
                    q.service_fee, q.net_income, q.carrier_display_name, q.request_class_display_name,
                    q.shipping_fee, q.tracking_no, q.ship_confirm_code, q.transaction_evidence_id, q.remark, q.description,
                    q.inventory_synced, q.inventory_synced_quantity, q.thumbnails, q.packaging_waived,
+                   q.order_note,
                    q.pending_outbound_qty, q.has_owner_unmatched_outbound, q.has_no_bound_outbound,
                    q.has_packaging_pending,
                    CASE WHEN q.has_owner_unmatched_outbound = 1
@@ -174,6 +175,9 @@ class _QueryMixin:
                        o.shipping_fee, o.tracking_no, o.ship_confirm_code, o.transaction_evidence_id, o.remark, o.description,
                        o.inventory_synced, o.inventory_synced_quantity, o.thumbnails,
                        COALESCE(o.[packaging_waived], 0) AS packaging_waived,
+                       -- 备注不在 orders 上：待办页要在订单行还没同步出来时就能写，见 order_note.py
+                       (SELECT n.[note] FROM [order_notes] n
+                         WHERE n.[order_no] = o.[order_no] LIMIT 1) AS order_note,
                        {pending_case_sql} AS pending_outbound_qty,
                        {owner_unmatched_sql} AS has_owner_unmatched_outbound,
                        {no_bound_outbound_sql} AS has_no_bound_outbound,
@@ -206,6 +210,7 @@ class _QueryMixin:
             'service_fee', 'net_income', 'carrier_display_name', 'request_class_display_name',
             'shipping_fee', 'tracking_no', 'ship_confirm_code', 'transaction_evidence_id', 'remark', 'description',
             'inventory_synced', 'inventory_synced_quantity', 'thumbnails', 'packaging_waived',
+            'order_note',
             'pending_outbound_qty', 'has_owner_unmatched_outbound', 'has_no_bound_outbound',
             'has_packaging_pending', 'order_needs_alert',
         ]

@@ -274,6 +274,59 @@
   pointer-events: none;
 }
 
+/* 订单备注红标：压在图右下角。与左下角的「一单多件」同一套视觉语言（实心红底 + 加粗），
+   两者可以同时出现，各占一角互不遮挡 */
+.todo-card-note {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  /* 页面没有全局 border-box（Element Plus 只给自己的组件加），这里必须自己声明，
+     否则下面的 max-width 会被 padding 撑出去、算漏 16px */
+  box-sizing: border-box;
+  max-width: calc(100% - 12px);
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #f56c6c;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 18px;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+}
+/* 发货码（88×44，同样在右下角）在场时上移一格，避免两块牌子叠在一起 */
+.todo-card-note.is-above-qr {
+  bottom: 56px;
+}
+/* 左下角的「一单多件」在场时给它让出 88px：那块牌子文案固定且短
+   （「N 件商品」/「まとめ商品」/「Bundle」，13px 加粗下最宽约 75px），88px 含间隙足够。
+   不让位的话长备注会直接压到它身上——量过，重叠约 9px。 */
+.todo-card-note.has-bundle {
+  max-width: calc(100% - 12px - 88px);
+}
+
+/* 表格图片列只有 56px，放不下文字：改成右下角一颗红点，全文走 title 悬停 */
+.todo-thumb-wrap {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+}
+.todo-thumb-note {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #f56c6c;
+  border: 2px solid var(--el-bg-color, #fff);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
 /* 发货码缩略图压在图右下角，沿用表格的模糊处理（防误扫），点击才出清晰大图 */
 .todo-card-qr {
   position: absolute;
@@ -346,10 +399,15 @@
     width: 66px;
     height: 34px;
   }
-  .todo-card-bundle {
+  .todo-card-bundle,
+  .todo-card-note {
     font-size: 12px;
     padding: 1px 6px;
     line-height: 16px;
+  }
+  /* 发货码在移动端是 66×34，红标的避让高度跟着改 */
+  .todo-card-note.is-above-qr {
+    bottom: 44px;
   }
 
   /* 八个 chip 是这页的主筛选器，也是拇指最常点的地方：32px 偏小 */

@@ -383,6 +383,7 @@ def list_todos(
     sel_cols = (
         ", ".join(f"t.[{c}]" for c in _LIST_COLS)
         + ", a.[account_name] AS account_name, o.[purchase_time] AS purchase_time"
+        + ", n.[note] AS order_note"
     )
     # 按「发货期限剩余时间」升序（越紧急越前）排序。截止时刻要由 shipping_duration
     # 文本（「4~7日で発送」）解析天数再与购入时间相加，SQLite / MySQL 的字符串函数不通用，
@@ -393,12 +394,15 @@ def list_todos(
         FROM [todo_items] t
         LEFT JOIN [shop_accounts] a ON a.[id] = t.[account_id]
         LEFT JOIN [orders] o ON o.[order_no] = t.[item_id]
+        -- 订单备注独立于 orders 存放：待办常常先于订单同步出现，挂在 orders 上的话
+        -- 那些还没有订单行的待办（实测约半数）连备注都存不下。见 models/orders/order_note.py
+        LEFT JOIN [order_notes] n ON n.[order_no] = t.[item_id]
         WHERE {where_sql}
         ORDER BY t.[id] ASC
         """,
         tuple(params),
     )
-    keys = list(_LIST_COLS) + ["account_name", "purchase_time"]
+    keys = list(_LIST_COLS) + ["account_name", "purchase_time", "order_note"]
     items = [dict(zip(keys, row)) for row in rows]
     # 稳定排序：推算不出发货期限的行保持原有 id 升序垫底
     items.sort(key=_ship_deadline_sort_key)

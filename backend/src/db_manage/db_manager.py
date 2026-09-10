@@ -23,6 +23,7 @@ from .models import (
     SettlementRecordModel,
     PendingSettlementItemModel,
     OrderModel,
+    OrderNoteModel,
     OrderOutboundLineModel,
     ShopAccountModel,
     YahooAppTokenModel,
@@ -654,6 +655,7 @@ class DBManager:
             PendingSettlementItemModel,  # 待结算物品（依赖 settlement_records，仅顺序习惯）
             OrderModel,       # 订单管理
             OrderOutboundLineModel,  # 订单解析出的待出库明细（依赖 orders / inventory 逻辑）
+            OrderNoteModel,  # 订单备注（待办页/订单页共用，按订单号独立存放）
             ShopAccountModel,  # 店铺账号（煤炉 / 雅虎）
             YahooAppTokenModel,  # 雅虎 App API 令牌（依赖 shop_accounts，仅顺序习惯）
             OnSaleItemModel,  # 在售商品缓存

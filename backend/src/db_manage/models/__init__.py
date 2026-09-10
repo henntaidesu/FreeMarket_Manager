@@ -21,6 +21,7 @@ from .system.task_queue import TaskQueueModel
 from .inventory.inventory import InventoryModel
 from .inventory.image_embedding import ImageEmbeddingModel
 from .orders.order import OrderModel
+from .orders.order_note import OrderNoteModel
 from .orders.order_outbound_line import OrderOutboundLineModel
 from .on_sale_items.on_sale_item import OnSaleItemModel
 from .todos.todo_item import TodoItemModel
@@ -50,6 +51,7 @@ __all__ = [
     'ShopAccountModel',
     'YahooAppTokenModel',
     'OnSaleItemModel',
+    'OrderNoteModel',
     'OrderOutboundLineModel',
     'ProductTypeCategoryMappingModel',
     'YahooCategoryMappingModel',

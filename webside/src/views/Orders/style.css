@@ -550,6 +550,16 @@
 }
 .odt-alert .el-icon { color: #f56c6c; font-size: 16px; margin-top: 2px; }
 .odt-alert__title { font-weight: 600; color: #ff8a92; }
+/* 订单备注：与待办页共用同一条。摆在金额与统计之间，展开详情就能看到 */
+.odt-note { display: flex; flex-direction: column; gap: 6px; }
+.odt-note__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.odt-note__k { font-size: 12.5px; color: var(--el-text-color-secondary); }
+
 .odt-stats { display: flex; flex-wrap: wrap; gap: 8px; }
 .odt-stat {
   display: flex;

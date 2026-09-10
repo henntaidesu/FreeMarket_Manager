@@ -23,6 +23,10 @@ export default {
       cardEmpty: "没有符合条件的待办",
       bundleCount: "{n} 件商品",
       bundleNoCount: "多件商品",
+      orderNote: "订单备注",
+      orderNotePlaceholder: "写给自己看的提醒，例如「多放一张卡」。留空即删除备注",
+      orderNoteSaved: "备注已保存",
+      orderNoteSaveFailed: "备注保存失败",
       yahooNoItemId: "该待办缺少商品ID，无法打开雅虎交易页",
       yahoo: {
         carrierJapanPost: "日本邮便",
@@ -324,6 +328,10 @@ export default {
       cardEmpty: "該当するやることがありません",
       bundleCount: "{n}点まとめ",
       bundleNoCount: "まとめ商品",
+      orderNote: "取引メモ",
+      orderNotePlaceholder: "自分用のメモ（例：カードを1枚追加）。空にすると削除されます",
+      orderNoteSaved: "メモを保存しました",
+      orderNoteSaveFailed: "メモの保存に失敗しました",
       yahooNoItemId: "商品IDがないため取引画面を開けません",
       yahoo: {
         carrierJapanPost: "日本郵便",
@@ -624,6 +632,10 @@ export default {
       cardEmpty: "No matching todos",
       bundleCount: "{n} items",
       bundleNoCount: "Bundle",
+      orderNote: "Order note",
+      orderNotePlaceholder: "A reminder for yourself, e.g. \"add one extra card\". Empty clears the note",
+      orderNoteSaved: "Note saved",
+      orderNoteSaveFailed: "Failed to save note",
       yahooNoItemId: "This todo has no item ID, cannot open the Yahoo trade page",
       yahoo: {
         carrierJapanPost: "Japan Post",

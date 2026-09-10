@@ -37,5 +37,10 @@ export const orderApi = {
   getRefreshProgress: (jobId, axiosConfig = {}) =>
     http.get(`/use_web/orders/refresh-progress/${encodeURIComponent(jobId)}`, axiosConfig),
   /** 待评价/已完成：确认本单不使用包材 */
-  waivePackaging: (data) => http.post('/use_web/orders/packaging-waive', data)
+  waivePackaging: (data) => http.post('/use_web/orders/packaging-waive', data),
+  /** 订单备注：待办页与订单管理页共用同一条（按订单号存放，与订单行是否已同步无关） */
+  orderNote: (orderNo) =>
+    http.get('/use_web/orders/order-note', { params: { order_no: orderNo } }),
+  saveOrderNote: (orderNo, note) =>
+    http.put('/use_web/orders/order-note', { order_no: orderNo, note })
 }

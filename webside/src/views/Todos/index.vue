@@ -138,21 +138,30 @@
         </el-table-column>
         <el-table-column :label="t('todos.colImage')" width="80" align="center" header-align="center">
           <template #default="{ row }">
-            <el-image
-              v-if="row.photo_url"
-              class="todo-thumb"
-              :src="mercariImageUrl(row.photo_url)"
-              :preview-src-list="[mercariImageUrl(row.photo_url)]"
-              :preview-teleported="true"
-              fit="cover"
-              referrerpolicy="no-referrer"
-              lazy
-            >
-              <template #error>
-                <span class="thumb-fallback">-</span>
-              </template>
-            </el-image>
-            <span v-else class="thumb-fallback">-</span>
+            <!-- 与卡片同一口径：有订单备注就在图右下角标红。表格这格只有 56px，
+                 放不下文字，用一个红点 + 悬停显示全文 -->
+            <div class="todo-thumb-wrap">
+              <el-image
+                v-if="row.photo_url"
+                class="todo-thumb"
+                :src="mercariImageUrl(row.photo_url)"
+                :preview-src-list="[mercariImageUrl(row.photo_url)]"
+                :preview-teleported="true"
+                fit="cover"
+                referrerpolicy="no-referrer"
+                lazy
+              >
+                <template #error>
+                  <span class="thumb-fallback">-</span>
+                </template>
+              </el-image>
+              <span v-else class="thumb-fallback">-</span>
+              <span
+                v-if="orderNoteOf(row)"
+                class="todo-thumb-note"
+                :title="`${t('todos.orderNote')}: ${orderNoteOf(row)}`"
+              ></span>
+            </div>
           </template>
         </el-table-column>
 
@@ -341,6 +350,14 @@
               </el-tag>
               <!-- 一单多件的提醒压在图左下角（右下角是发货码）：装箱时别漏发 -->
               <div v-if="bundleBadgeText(row)" class="todo-card-bundle">{{ bundleBadgeText(row) }}</div>
+              <!-- 订单备注红标：有备注才出现，压在图右下角。发货码也在右下角，同时出现时
+                   本标上移一格避开它。纯标记（pointer-events:none），改备注在处理面板里 -->
+              <div
+                v-if="orderNoteOf(row)"
+                class="todo-card-note"
+                :class="{ 'is-above-qr': !!cardQrSrc(row), 'has-bundle': !!bundleBadgeText(row) }"
+                :title="orderNoteOf(row)"
+              >{{ orderNoteOf(row) }}</div>
               <!-- 卡片没有条件列，发货码/扫码照片压在图右下角；点它看大图，不触发卡片的处理动作 -->
               <el-image
                 v-if="cardQrSrc(row)"
@@ -499,6 +516,33 @@
                 </div>
               </div>
             </div>
+          </section>
+
+          <!-- 订单备注：与订单管理页共用同一条（按订单号存放，见 db_manage/models/orders/order_note.py）。
+               摆在发货表单正上方——装箱前一定会扫到它。列表/卡片上有备注即在图右下角标红。 -->
+          <section v-if="detail.item_id" class="detail-section">
+            <div class="detail-section-head">
+              <div class="detail-section-title">{{ t('todos.orderNote') }}</div>
+              <div class="detail-section-head-actions">
+                <el-button
+                  size="small"
+                  type="primary"
+                  plain
+                  :loading="orderNoteSaving"
+                  :disabled="!orderNoteDirty"
+                  @click="onSaveOrderNote"
+                >{{ t('common.save') }}</el-button>
+              </div>
+            </div>
+            <el-input
+              v-model="orderNoteText"
+              type="textarea"
+              :rows="2"
+              :maxlength="500"
+              show-word-limit
+              resize="none"
+              :placeholder="t('todos.orderNotePlaceholder')"
+            />
           </section>
 
           <section v-if="!isReviewedSeller && !isWaitReply && !isBuyerReceiptTodo" class="detail-section">

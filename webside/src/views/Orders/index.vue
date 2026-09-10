@@ -577,6 +577,31 @@
                 </div>
               </div>
 
+              <!-- 订单备注：与待办页共用同一条（按订单号存放，见 backend 的 order_note.py）。
+                   两页任一边改完，另一边刷新即可见；待办卡片上有备注会在图右下角标红。 -->
+              <div class="odt-note">
+                <div class="odt-note__head">
+                  <span class="odt-note__k">{{ t('orders.orderNote') }}</span>
+                  <el-button
+                    size="small"
+                    type="primary"
+                    plain
+                    :loading="orderNoteSaving"
+                    :disabled="!orderNoteDirty"
+                    @click="onSaveOrderNote"
+                  >{{ t('common.save') }}</el-button>
+                </div>
+                <el-input
+                  v-model="orderNoteText"
+                  type="textarea"
+                  :rows="2"
+                  :maxlength="500"
+                  show-word-limit
+                  resize="none"
+                  :placeholder="t('orders.orderNotePlaceholder')"
+                />
+              </div>
+
               <div class="odt-stats">
                 <div v-for="s in detailMoneyStats" :key="s.label" class="odt-stat">
                   <span class="odt-stat__v" :class="{ 'is-accent': s.accent }">{{ s.value ?? '-' }}</span>

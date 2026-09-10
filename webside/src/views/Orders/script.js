@@ -644,6 +644,33 @@ export default defineComponent({
     // ===== 订单详情弹窗（只读） =====
     /** 打开详情的原始列表行：缩略图、预警标记等只在行上、不进 form */
     const detailRow = ref(null)
+
+    // ── 订单备注 ────────────────────────────────────────────────────
+    // 与待办页共用同一条（按订单号独立存表，不是 orders.remark——那列存的是商品名，
+    // 每轮同步都会被重写）。列表接口已带回 order_note，打开详情不用再请求一次。
+    const orderNoteText = ref('')
+    const orderNoteSaved = ref('')
+    const orderNoteSaving = ref(false)
+    const orderNoteDirty = computed(() => orderNoteText.value.trim() !== orderNoteSaved.value.trim())
+
+    async function onSaveOrderNote() {
+      const orderNo = String(detailRow.value?.order_no || form.value.order_no || '').trim()
+      if (!orderNo || orderNoteSaving.value) return
+      orderNoteSaving.value = true
+      try {
+        const res = await orderApi.saveOrderNote(orderNo, orderNoteText.value)
+        const saved = (res?.note ?? orderNoteText.value.trim()) || ''
+        orderNoteText.value = saved
+        orderNoteSaved.value = saved
+        // detailRow 就是列表里渲染的那个对象，改它列表即同步
+        if (detailRow.value) detailRow.value.order_note = saved
+        ElMessage.success(t('orders.orderNoteSaved'))
+      } catch (e) {
+        ElMessage.error(e?.response?.data?.detail || t('orders.orderNoteSaveFailed'))
+      } finally {
+        orderNoteSaving.value = false
+      }
+    }
     const detailImageIndex = ref(0)
     const detailActiveTab = ref('lines')
     /** 详情内的出库明细：与二级展开同接口，但独立一份，避免和展开行的缓存互相清空 */
@@ -1831,6 +1858,10 @@ export default defineComponent({
         remark: row.remark || '',
         description: row.description || '',
       }
+      // 备注：列表已带回 order_note，直接用
+      orderNoteText.value = (row.order_note || '').trim()
+      orderNoteSaved.value = (row.order_note || '').trim()
+      orderNoteSaving.value = false
       // 加载该订单的包材合计金额用于展示
       loadPackagingExpenses(row.order_no)
       // 出库明细：详情图廊的关联库存实拍图也来自这里
@@ -1996,6 +2027,10 @@ export default defineComponent({
       timeFieldOptions,
       dialogVisible,
       detailRow,
+      orderNoteText,
+      orderNoteSaving,
+      orderNoteDirty,
+      onSaveOrderNote,
       detailImageIndex,
       detailActiveTab,
       detailLines,
