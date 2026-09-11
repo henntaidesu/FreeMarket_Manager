@@ -61,6 +61,15 @@ class ImageHostingClient:
             )
         except requests.RequestException as exc:
             raise ImageHostingError(f"无法连接图床（{url}）：{exc}") from exc
+        if response.status_code == 413:
+            # 图床自己（Flask 的 MAX_CONTENT_LENGTH）和它前面的反代都会在这里拦下来，回的是
+            # 一张 HTML 错误页。落到下面的「非 JSON 响应」分支只会把 <!doctype html> 原样贴给
+            # 用户，看不出该去改哪个上限，所以单独认一下这个状态码。
+            raise ImageHostingError(
+                "图片体积超过图床允许的上传大小（HTTP 413）：请在图床「系统设置」里调大单文件上限，"
+                "或放宽图床前置反向代理的请求体限制。",
+                413,
+            )
         try:
             payload = response.json()
         except ValueError:

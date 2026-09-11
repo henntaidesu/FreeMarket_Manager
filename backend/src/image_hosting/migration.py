@@ -191,10 +191,22 @@ def summary() -> Dict[str, Any]:
 # ── 上行：本地 → 图床 ─────────────────────────────────────────────────── #
 
 
-def _upload_one(rel_path: str, root: str) -> Dict[str, Any]:
-    """在工作线程里跑：只做读文件 + 上传，绝不碰数据库。"""
+def _upload_one(rel_path: str, root: str, max_upload_bytes: int) -> Dict[str, Any]:
+    """在工作线程里跑：只做读文件 + 上传，绝不碰数据库。
+
+    超过图床单文件上限的图片在**本地**就拦下来：图床那边是 Flask 的 ``MAX_CONTENT_LENGTH``，
+    超限时连请求体都不收完就回一张 HTML 的 413 错误页。与其把整张图推上去换一条看不出所以然
+    的报错，不如先比一下大小，把「哪张图、多大、上限多少」直接写进失败明细。
+    """
     filename = rel_path.split("/imges/", 1)[1]
     abs_path = os.path.join(root, filename)
+    if max_upload_bytes:
+        size = os.path.getsize(abs_path)
+        if size > max_upload_bytes:
+            raise ImageHostingError(
+                f"图片 {size / 1048576:.1f} MB，超过图床单文件上限 {max_upload_bytes / 1048576:.0f} MB"
+                "（在图床「系统设置」里调大上限后可重跑本作业）"
+            )
     with open(abs_path, "rb") as f:
         content = f.read()
     from ..use_web.image_storage import content_type_for
@@ -209,7 +221,7 @@ def _upload_one(rel_path: str, root: str) -> Dict[str, Any]:
     return payload
 
 
-def _run_to_host() -> None:
+def _run_to_host(max_upload_bytes: int = 0) -> None:
     from ..use_web.image_storage import get_image_root
 
     root = get_image_root()
@@ -224,7 +236,7 @@ def _run_to_host() -> None:
             if _cancelled():
                 break
             batch = targets[start:start + _UPLOAD_WORKERS]
-            futures = [(path, pool.submit(_upload_one, path, root)) for path in batch]
+            futures = [(path, pool.submit(_upload_one, path, root, max_upload_bytes)) for path in batch]
             for rel_path, future in futures:
                 with _LOCK:
                     _STATE["current"] = rel_path
@@ -347,7 +359,12 @@ def start_to_host(activate: bool = True) -> Dict[str, Any]:
         raise ValueError("图床连接信息不完整，请先填写并测试连接")
     # 先探一次：连不上就别开始搬，否则用户看到的是几千条一模一样的失败。
     # 放在占坑之前——探测失败时状态还没被改动，不必回滚。
-    ImageHostingClient().ping()
+    # 顺带把图床的单文件上限带回来，用于逐张预检（见 _upload_one）；图床没报就是 0 = 不预检。
+    ping = ImageHostingClient().ping()
+    try:
+        max_upload_bytes = int(ping.get("max_upload_mb") or 0) * 1024 * 1024
+    except (TypeError, ValueError):
+        max_upload_bytes = 0
     _claim("to_host")
     try:
         if activate:
@@ -356,7 +373,7 @@ def start_to_host(activate: bool = True) -> Dict[str, Any]:
     except Exception:
         _release()
         raise
-    _spawn(_run_to_host)
+    _spawn(_run_to_host, max_upload_bytes)
     return {"started": True, "backend": settings.active_backend()}
 
 
