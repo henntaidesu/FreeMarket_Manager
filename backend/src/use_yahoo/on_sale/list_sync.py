@@ -24,14 +24,19 @@ log = logging.getLogger(__name__)
 
 SELLING_URL = f"{YAHOO_BASE_URL}/my/item/selling"
 
-#: 页面上「出品数： 6/100」中的当前在售件数
+#: 页面上「出品数： 6/100」里的数字。**它只数公开在售的那些**，不含公開停止中——
+#: 实测 28 张卡片（10 公开 + 18 停止）时这里写的是 10。两个口径不同，别拿它跟卡片数比。
 _TOTAL_RE = re.compile(r"出品数[：:]\s*(\d+)\s*/\s*\d+")
 
-#: 一次同步最多翻多少页，防止页面结构变化导致死循环
-_MAX_PAGES = 20
+#: 卡片上表示「已暂停出售」的角标文案，占据公开商品显示「N日前に出品/更新」的那一行
+_STOP_BADGE_TEXT = "公開停止中"
+
+#: 滚到底的最多轮数（卡片数不再增长就提前收工）
+_MAX_SCROLL_ROUNDS = 30
 
 _CARDS_JS = r"""
 () => {
+  const STOP_BADGE_TEXT = '公開停止中';
   const parseParams = (raw) => {
     const out = {};
     (raw || '').split(';').forEach((seg) => {
@@ -59,6 +64,10 @@ _CARDS_JS = r"""
       srchcnt: p.srchcnt || '0',
       tradstat: p.tradstat || '',
       itmcnd: p.itmcnd || '',
+      // 暂停出售的卡片把「N日前に出品」那一行换成「公開停止中」。data-cl-params 里的
+      // itmcnd 在实测样本中与它完全吻合（公开 0 / 停止 1），但那个字段的含义没有旁证
+      // （也可能是商品状態），所以以页面文案为准。
+      stopped: lines.includes(STOP_BADGE_TEXT),
       thumbnail: img ? img.src : null,
     });
   });
@@ -94,8 +103,12 @@ def _opt_int(value: Any) -> Optional[int]:
 def yahoo_card_to_list_item(card: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """卡片 → 与煤炉 list.json 同形状的 item（交给 mercari_list_item_to_row 落库）。
 
-    ``status`` 按煤炉口径：仍挂在「出品中」列表里的一律 ``on_sale``；已成交的商品
-    不在这个列表里（在 ``/my/item/sold``），所以这里不会出现 sold_out。
+    ``status`` 按煤炉口径取 ``on_sale`` / ``stop``：「出品中」这一页**同时装着公开在售和
+    公開停止中两种**，全写成 ``on_sale`` 的话，本地看不出哪些已暂停，而且会砸掉回国模式的
+    安身立命之处——它靠「开启前就已是 stop 的商品不打标」保证关闭时不会误恢复用户自己停掉的
+    商品；本地状态若全是 on_sale，这些商品就会被当成本模式暂停的，关闭时一并重新上架。
+    在售计数不受影响（``LISTED_STATUSES`` 本来就同时含 on_sale 与 stop）。
+    已成交的商品不在这一页（在 ``/my/item/sold``），所以这里不会出现 sold_out。
     """
     iid = str(card.get("id") or "").strip()
     if not iid:
@@ -104,7 +117,7 @@ def yahoo_card_to_list_item(card: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return {
         "id": iid,
         "platform": "yahoo",
-        "status": "on_sale",
+        "status": "stop" if card.get("stopped") else "on_sale",
         "name": (card.get("title") or "").strip() or None,
         "price": _int_or_zero(card.get("price")),
         "num_likes": _int_or_zero(card.get("wl")),
@@ -117,49 +130,61 @@ def yahoo_card_to_list_item(card: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
+async def _load_all_cards(page: Any) -> List[Dict[str, Any]]:
+    """滚到底直到卡片数不再增长，返回最后一次读到的全部卡片。
+
+    ``?page=N`` **不是这一页的翻页方式**：实测 ``/my/item/selling?page=2`` 渲染出 0 张卡片、
+    连「出品数」那一行都没有，所以原来那套按页 goto 的循环从第二页起必然空手而归。
+    列表只有一页，长了是往下续；滚到底在不懒加载时也只是白滚两下，代价可忽略。
+    """
+    cards: List[Dict[str, Any]] = []
+    last = -1
+    for _ in range(_MAX_SCROLL_ROUNDS):
+        cards = await page.evaluate(_CARDS_JS) or []
+        if len(cards) == last:
+            break
+        last = len(cards)
+        await page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+        await page.wait_for_timeout(1200)
+    return cards
+
+
 async def fetch_yahoo_selling_items(account_id: int) -> Dict[str, Any]:
-    """打开在售列表并翻页抓取全部商品。返回 ``{"items": [...], "meta": {...}}``。"""
+    """打开在售列表抓取全部商品（公开 + 公開停止中）。返回 ``{"items": [...], "meta": {...}}``。"""
     items: List[Dict[str, Any]] = []
     seen: set[str] = set()
-    total_expected = 0
 
     async with yahoo_automation_browser(int(account_id), start_url=SELLING_URL) as (mgr, key):
         page = await mgr.active_tab_page(key)
-        for page_no in range(1, _MAX_PAGES + 1):
-            if page_no > 1:
-                await page.goto(f"{SELLING_URL}?page={page_no}", wait_until="domcontentloaded")
-            try:
-                await page.wait_for_load_state("networkidle", timeout=20000)
-            except Exception:
-                pass
-            await page.wait_for_timeout(1200)
+        try:
+            await page.wait_for_load_state("networkidle", timeout=20000)
+        except Exception:
+            pass
+        await page.wait_for_timeout(1200)
 
-            if page_no == 1:
-                body = await page.inner_text("body")
-                m = _TOTAL_RE.search(body or "")
-                total_expected = int(m.group(1)) if m else 0
+        body = await page.inner_text("body")
+        m = _TOTAL_RE.search(body or "")
+        total_public = int(m.group(1)) if m else 0
 
-            cards = await page.evaluate(_CARDS_JS)
-            fresh = 0
-            for card in cards or []:
-                item = yahoo_card_to_list_item(card)
-                if not item or item["id"] in seen:
-                    continue
-                seen.add(item["id"])
-                items.append(item)
-                fresh += 1
-            log.info("[yahoo_on_sale] 第 %d 页新增 %d 件（累计 %d/%s）",
-                     page_no, fresh, len(items), total_expected or "?")
-            # 这一页没带来新商品（含 ?page= 被忽略的情况）或已抓满 → 收工
-            if fresh == 0 or (total_expected and len(items) >= total_expected):
-                break
+        for card in await _load_all_cards(page):
+            item = yahoo_card_to_list_item(card)
+            if not item or item["id"] in seen:
+                continue
+            seen.add(item["id"])
+            items.append(item)
+
+    public_collected = sum(1 for i in items if i.get("status") == "on_sale")
+    log.info("[yahoo_on_sale] 抓到 %d 件（公开 %d / 停止 %d），页面「出品数」= %s",
+             len(items), public_collected, len(items) - public_collected, total_public or "?")
 
     return {
         "items": items,
         "meta": {
-            "total_item_count": total_expected,
-            # 抓够了才允许「本地有、雅虎没有」的软删除，避免漏抓把在售商品整批误下架
-            "has_next": bool(total_expected and len(items) < total_expected),
+            "total_item_count": total_public,
+            # 抓够了才允许「本地有、雅虎没有」的软删除，否则漏抓会把在售商品整批误下架。
+            # ⚠ 比的必须是**公开件数对公开件数**：页面的「出品数」只数公开在售的，
+            # 而 items 里公开 + 停止都有，拿两者直接比（旧写法）永远成立，这道闸门形同虚设。
+            "has_next": bool(total_public and public_collected < total_public),
         },
     }
 

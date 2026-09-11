@@ -22,7 +22,6 @@ from ._constants import (
     IMAGE_MAX_COUNT,
     LABEL_CATEGORY,
     LABEL_CONDITION,
-    LABEL_SHIPPING_METHOD,
     NAME_INPUT_PLACEHOLDER,
     NAME_MAX_LEN,
     PREFECTURE_BY_AREA_ID,
@@ -32,7 +31,8 @@ from ._constants import (
     SHIPPING_DAYS_SELECT_NAME,
     SHIPPING_DAYS_VALUE,
     SHIPPING_FROM_SELECT_NAME,
-    SHIPPING_METHOD_JA,
+    SHIPPING_VENDOR_JA,
+    SHIPPING_VENDOR_RADIO,
     UNSELECTED_PLACEHOLDER,
 )
 
@@ -40,38 +40,72 @@ log = logging.getLogger(__name__)
 
 # ── 页面内脚本：弹层条目 / 字段读写 ────────────────────────────────────── #
 
-#: 底部弹层的开合完全靠内联样式：打开是 ``bottom: 0px``，关闭是 ``bottom:-100dvh``
-#: （关闭态仍在 DOM 里且有尺寸，所以不能用 getBoundingClientRect 判可见）。
-#: 分类的条目是 ``li``、商品状態的条目是 ``div>p``，故一律按「首行文案」在弹层内找。
+#: 弹层的开合**只能按「这一层现在能不能点」判**，别的信号全不可靠。实测（1280x800 PC）：
 #:
-#: 「内联 bottom:0」这个特征本身**认不准弹层**，两处都会误判成「有弹层开着」：
-#: ① 属性名没锚定时 ``padding-bottom:0px`` / ``margin-bottom:0`` 也命中——雅虎的内联样式
-#:    是 React 序列化的 ``a:b;c:d`` 形式，所以按 ``^`` 或 ``;`` 锚定属性名即可排除；
-#: ② 页面底部那条**固定操作栏**（装着「出品する」「下書きに保存する」）同样是 bottom:0，
-#:    编辑页早就踩过（见 ``yahoo_item/units/_page.py``），出品页是同一套表单组件。
-#:    它没有弹层的关闭按钮，于是「先关掉上一个弹层」永远关不掉，第一个弹层字段（分类）
-#:    就直接中止；而 openSheet 取的是最后一个，它若排在真弹层之后还会让后续点选全落空。
-#:    用「弹层里不会出现整页的动作按钮」把它剔掉。
+#: - 雅虎 PC 版把选择弹层做成**居中模态**，关闭态照样 ``position:fixed``、照样有尺寸
+#:   600x536、``opacity`` 恒为 1、``visibility`` 恒为 visible——唯一变的是
+#:   ``pointer-events``（关 ``none`` ↔ 开 ``auto``）；
+#: - 手机版才是底部弹层，关闭态靠 ``bottom:-100dvh``（旧）或
+#:   ``bottom:0`` + ``transform:translateY(calc(100% + 1px))``（新）推出视口；
+#: - **两份同时在 DOM 里**（``sc-91807614-12`` / ``-13``），靠 CSS 媒体查询显示其中一份，
+#:   PC 上带内联 ``bottom`` 的恰好是被 ``display:none`` 的手机版那份。
+#:
+#: 所以按内联 ``bottom:0`` 找，在 PC 上永远只找到隐藏的手机版 → 弹层明明开着却判成没开；
+#: 只加「落在视口里」也不够，PC 版关闭态本来就在视口里。命中测试把这些一次覆盖掉：
+#: 取元素中心点 ``elementFromPoint``，落在自己内部才算真开着。它顺带解决了整屏遮罩
+#: （``sc-91807614-2``，开弹层时同样变 ``pointer-events:auto``）——遮罩中心点命中的是
+#: 压在它上面的面板，不在自己内部，于是自动出局。
+#:
+#: 分类的条目是 ``li``、商品状態的条目是 ``div>p``，故一律按「首行文案」在弹层内找。
+#: 另外保留**固定操作栏**的文案排除：编辑页底部那条装着「出品する」的 fixed 栏同样能通过
+#: 上面所有判据（见 ``yahoo_item/units/_page.py``），它没有弹层的关闭按钮，认错的话
+#: 「先关掉上一个弹层」永远关不掉。
 _SHEET_PRELUDE = """
 const firstLine = (el) => (el.innerText || '').trim().split('\\n')[0].trim();
 const PAGE_ACTION_TEXTS = ['出品する', '下書きに保存する'];
 const isActionBar = (el) => [...el.querySelectorAll('button')]
   .some((b) => PAGE_ACTION_TEXTS.includes(firstLine(b)));
-const sheetCandidates = () => [...document.querySelectorAll('div[style]')]
-  .filter((el) => /(?:^|;)\\s*bottom:\\s*0/.test(el.getAttribute('style') || ''));
-const openSheet = () => sheetCandidates().filter((el) => !isActionBar(el)).pop() || null;
+const layerVisible = (el) => {
+  const cs = getComputedStyle(el);
+  if (cs.position !== 'fixed' || cs.pointerEvents === 'none') return false;
+  if (cs.visibility === 'hidden' || parseFloat(cs.opacity || '1') < 0.05) return false;
+  const r = el.getBoundingClientRect();
+  if (r.width < 8 || r.height < 8) return false;
+  return r.top < innerHeight && r.bottom > 0 && r.left < innerWidth && r.right > 0;
+};
+const hitsSelf = (el) => {
+  const r = el.getBoundingClientRect();
+  const cx = Math.min(Math.max(r.left + r.width / 2, 1), innerWidth - 1);
+  const cy = Math.min(Math.max(r.top + r.height / 2, 1), innerHeight - 1);
+  const hit = document.elementFromPoint(cx, cy);
+  return !!hit && el.contains(hit);
+};
+const sheetCandidates = () => [...document.querySelectorAll('div')].filter(layerVisible);
+const openSheet = () => sheetCandidates()
+  .filter((el) => hitsSelf(el) && !isActionBar(el)).pop() || null;
 """
 
-#: 关不掉弹层时把候选层原样报出来——雅虎一改页面结构，这里就是唯一线索
+#: 认不出弹层时把**所有** fixed 层连同判据一起报出来——雅虎一改页面结构，这里就是唯一线索
 _SHEET_DEBUG_JS = (
     "() => {"
     + _SHEET_PRELUDE
     + """
-    return sheetCandidates().map((el) => ({
-      style: (el.getAttribute('style') || '').slice(0, 100),
-      action_bar: isActionBar(el),
-      text: (el.innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 60),
-    }));
+    return [...document.querySelectorAll('div')]
+      .filter((el) => getComputedStyle(el).position === 'fixed')
+      .map((el) => {
+        const cs = getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        return {
+          cls: (el.className || '').toString().slice(0, 40),
+          pe: cs.pointerEvents, opacity: cs.opacity, vis: cs.visibility,
+          rect: [Math.round(r.top), Math.round(r.left),
+                 Math.round(r.width), Math.round(r.height)],
+          open: layerVisible(el) && hitsSelf(el),
+          action_bar: isActionBar(el),
+          text: (el.innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 40),
+        };
+      })
+      .filter((x) => x.rect[2] > 2 && x.rect[3] > 2);
 }"""
 )
 
@@ -118,7 +152,12 @@ _CATEGORY_NTH_JS = (
     if (!pos || pos < 1 || pos > items.length) {
       return { total: items.length, labels, skipped: start, label: null, clicked: false };
     }
-    items[pos - 1].el.click();
+    // 点 li 本身要赌 handler 正好挂在 li 上；点最深的文字叶子则必定冒泡经过 li，
+    // 无论 handler 挂在哪一层都能触发（面包屑 li 点不动就是这个原因）。
+    const leaf = [...items[pos - 1].el.querySelectorAll('*')]
+      .filter((el) => !el.children.length && (el.textContent || '').trim())
+      .pop() || items[pos - 1].el;
+    leaf.click();
     return {
       total: items.length, labels, skipped: start,
       label: items[pos - 1].label, clicked: true,
@@ -153,8 +192,9 @@ _SHEET_CLOSE_JS = (
     const img = sheet.querySelector('img[alt="閉じるボタン"]');
     let btn = img ? (img.closest('button') || img) : null;
     if (!btn) {
+      const texts = ['閉じる', 'OK'];
       btn = [...sheet.querySelectorAll('button, [role="button"]')]
-        .filter((el) => firstLine(el) === '閉じる').pop() || null;
+        .filter((el) => texts.includes(firstLine(el))).pop() || null;
     }
     if (!btn) return false;
     btn.click();
@@ -162,36 +202,127 @@ _SHEET_CLOSE_JS = (
 }"""
 )
 
-#: 读某个字段（按 label 首行文案）当前显示的值
-_FIELD_STATE_JS = """
-(label) => {
-  const lab = [...document.querySelectorAll('label')].find(
-    (l) => (l.innerText || '').trim().split('\\n')[0].trim() === label
-  );
-  if (!lab || !lab.parentElement) return null;
-  const box = lab.parentElement;
-  const p = box.querySelector('p');
-  return {
-    trigger: p ? (p.innerText || '').trim() : null,
-    text: (box.innerText || '').trim().replace(/\\n+/g, ' | ').slice(0, 300),
-  };
-}
+#: 字段行的定位：字段名 → 该行的触发块。雅虎改版最先动的就是这一处。
+#: 字段名过去一定在 ``<label>`` 里（交易页早就是 ``h3``），旁边还可能挂「必須 / 任意」徽标，
+#: 所以先按 ``<label>`` 精确找，找不到再退回「首行文案命中的最深小元素」，比对前统一去掉
+#: 空白与徽标文字。弹层是 portal 到 body 末尾的，里面也会出现同名文案（关闭态照样在 DOM 里），
+#: 因此候选里优先取**不在 bottom 弹层内**的那一个。
+_FIELD_PRELUDE = """
+const firstLine = (el) => (el.innerText || '').trim().split('\\n')[0].trim();
+const normLabel = (t) => (t || '').replace(/\\s+/g, '').replace(/必須|任意/g, '');
+// 关闭态的弹层就挂在字段行内部（见 sc-3ec76f03 那一层），文案照样能被 innerText 读到，
+// 所以定位字段时必须整片排掉：判据就是祖先里有没有那条内联 bottom（弹层根的标志）。
+const inSheet = (el) => {
+  for (let n = el; n; n = n.parentElement) {
+    const st = n.getAttribute && n.getAttribute('style');
+    if (st && /(?:^|;)\\s*bottom\\s*:/.test(st)) return true;
+  }
+  return false;
+};
+// 命中多个时：先排掉弹层里的，再优先取**纯文字叶子**（字段名就是那个 span），
+// 都不是叶子才退回第一个（<label> 里裹着 span + 必須 徽标，本身不是叶子）。
+// 不能取最后一个：字段行里还套着弹层的外层容器，它们的首行文案同样是字段名。
+const pickField = (list) => {
+  const outside = list.filter((el) => !inSheet(el));
+  const arr = outside.length ? outside : list;
+  return arr.find((el) => !el.children.length) || arr[0] || null;
+};
+const fieldLabelEl = (name) => {
+  const want = normLabel(name);
+  const labels = [...document.querySelectorAll('label')]
+    .filter((el) => normLabel(firstLine(el)) === want);
+  if (labels.length) return pickField(labels);
+  return pickField([...document.querySelectorAll('h2, h3, h4, p, span, div')]
+    .filter((el) => el.children.length <= 2 && normLabel(firstLine(el)) === want));
+};
+// 触发块 = 字段行里那个显示「選択してください（必須）」/ 已选值的盒子。
+// 不能简单取 box 的第一个 p：字段名本身可能就是 p，取到它的话 trigger 会等于「カテゴリ」，
+// 既不含占位文案，_field_selected 就在点完第一级分类后判定「已选好」，静默选错类目。
+// 所以显式排掉字段名本身及其祖孙，再排掉「必須 / 任意」徽标和纯图标（无文字）。
+// 取法：文档序**第一个**候选是触发块的外层包裹，再往它子树里取同文案的**最深**一个。
+// 两头都不能省：只取第一个会点在外层包裹上，而点击只向上冒泡，唤不起内层 handler；
+// 只取最深的则会掉进同一行里那个关闭态弹层（里面每个分类名都是候选）。
+const isBadge = (t) => !t || t === '必須' || t === '任意';
+const fieldTrigger = (box, lab) => {
+  const labText = normLabel(firstLine(lab));
+  const hits = [...box.querySelectorAll('p, div, span, button, [role="button"]')]
+    .filter((el) => el !== lab && !el.contains(lab) && !lab.contains(el) && !inSheet(el))
+    .filter((el) => {
+      const t = firstLine(el);
+      return !isBadge(t) && normLabel(t) !== labText;
+    });
+  const head = hits[0];
+  if (!head) return null;
+  const same = hits.filter((el) => head.contains(el) && firstLine(el) === firstLine(head));
+  return same[same.length - 1] || head;
+};
+// 字段行 = 标签的父级；父级里没有触发块时才往上找（最多两层）。
+// 爬太高会把邻行圈进来，_field_selected 就会读到别的字段的值。
+const fieldBox = (lab) => {
+  let box = lab.parentElement;
+  for (let i = 0; i < 3 && box; i += 1) {
+    if (fieldTrigger(box, lab)) return box;
+    box = box.parentElement;
+  }
+  return lab.parentElement;
+};
 """
 
-#: 点开某个字段的选择弹层（值显示在 p 里；没有 p 时退回点整行）
-_FIELD_OPEN_JS = """
-(label) => {
-  const lab = [...document.querySelectorAll('label')].find(
-    (l) => (l.innerText || '').trim().split('\\n')[0].trim() === label
-  );
-  if (!lab || !lab.parentElement) return false;
-  const box = lab.parentElement;
-  const target = box.querySelector('p') || box.querySelector('div');
-  if (!target) return false;
-  target.click();
-  return true;
-}
-"""
+#: 读某个字段（按字段名）当前显示的值
+_FIELD_STATE_JS = (
+    "(label) => {"
+    + _FIELD_PRELUDE
+    + """
+    const lab = fieldLabelEl(label);
+    if (!lab || !lab.parentElement) return null;
+    const box = fieldBox(lab);
+    const trig = fieldTrigger(box, lab);
+    return {
+      trigger: trig ? firstLine(trig) : null,
+      text: (box.innerText || '').trim().replace(/\\n+/g, ' | ').slice(0, 300),
+    };
+}"""
+)
+
+#: 点开某个字段的选择弹层（值显示在 p 里；没有 p 时退回按钮 / 整行）
+_FIELD_OPEN_JS = (
+    "(label) => {"
+    + _FIELD_PRELUDE
+    + """
+    const lab = fieldLabelEl(label);
+    if (!lab || !lab.parentElement) return false;
+    const box = fieldBox(lab);
+    const target = fieldTrigger(box, lab) || box;
+    target.click();
+    return true;
+}"""
+)
+
+#: 找不到字段入口时把表单骨架报出来——雅虎改了字段行结构，这里就是唯一线索
+_FIELD_DEBUG_JS = (
+    "(label) => {"
+    + _FIELD_PRELUDE
+    + """
+    const labels = [...document.querySelectorAll('label')]
+      .map(firstLine).filter(Boolean).slice(0, 15);
+    const want = normLabel(label);
+    const hits = [...document.querySelectorAll('*')]
+      .filter((el) => !el.children.length && normLabel(el.textContent || '') === want)
+      .slice(0, 3)
+      .map((el) => {
+        const chain = [];
+        let p = el;
+        for (let i = 0; i < 6 && p; i += 1) { chain.push(p.tagName.toLowerCase()); p = p.parentElement; }
+        const row = (el.parentElement && el.parentElement.parentElement) || el;
+        return {
+          chain: chain.join('<'),
+          in_sheet: inSheet(el),
+          row: (row.innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 80),
+        };
+      });
+    return { labels, hits };
+}"""
+)
 
 
 async def _sheet_items(page: Any) -> List[str]:
@@ -227,18 +358,37 @@ async def _sheet_is_open(page: Any) -> bool:
 
 
 async def _sheet_debug(page: Any) -> str:
-    """报错用：列出所有内联 bottom:0 的层（含被判为固定操作栏的），一行一个。"""
+    """报错用：列出页面上所有 fixed 层，标注展开/收起/固定操作栏，一行一个。"""
     try:
         rows = await page.evaluate(_SHEET_DEBUG_JS) or []
     except Exception as exc:
         return f"（读取失败：{exc}）"
     if not rows:
         return "（无）"
+
+    def _kind(r: dict) -> str:
+        if r.get("action_bar"):
+            return "操作栏"
+        return "展开" if r.get("open") else "收起"
+
     return "；".join(
-        f"[{'操作栏' if r.get('action_bar') else '弹层'}] style={r.get('style')!r} "
+        f"[{_kind(r)}] pe={r.get('pe')} rect={r.get('rect')} cls={r.get('cls')!r} "
         f"text={r.get('text')!r}"
-        for r in rows[:5]
+        for r in rows[:6]
     )
+
+
+async def _field_debug(page: Any, label: str) -> str:
+    """报错用：页面上有哪些 label，以及目标文案落在什么标签链上。"""
+    try:
+        d = await page.evaluate(_FIELD_DEBUG_JS, label) or {}
+    except Exception as exc:
+        return f"（读取失败：{exc}）"
+    parts = [f"页面 label：{'、'.join(d.get('labels') or []) or '（无）'}"]
+    for h in d.get("hits") or []:
+        where = "弹层内" if h.get("in_sheet") else "表单"
+        parts.append(f"[{where} {h.get('chain')}] 行文本={h.get('row')!r}")
+    return "；".join(parts)
 
 
 async def _wait_sheet_closed(page: Any, *, timeout_ms: int) -> bool:
@@ -276,10 +426,12 @@ async def _open_field_sheet(page: Any, label: str, *, element_timeout_ms: int) -
         if not await _wait_sheet_closed(page, timeout_ms=3000):
             raise RuntimeError(
                 f"打开「{label}」前，上一个选择弹层没能关闭；继续操作会选到错误的弹层，已中止。"
-                f"当前 bottom:0 的层：{await _sheet_debug(page)}"
+                f"当前 fixed 层：{await _sheet_debug(page)}"
             )
     if not await page.evaluate(_FIELD_OPEN_JS, label):
-        raise RuntimeError(f"未找到「{label}」的选择入口")
+        raise RuntimeError(
+            f"未找到「{label}」的选择入口。{await _field_debug(page, label)}"
+        )
     # 弹层是动画展开的，轮询到打开为止
     waited = 0
     while waited < element_timeout_ms:
@@ -288,7 +440,10 @@ async def _open_field_sheet(page: Any, label: str, *, element_timeout_ms: int) -
             return
         await page.wait_for_timeout(300)
         waited += 300
-    raise RuntimeError(f"「{label}」选择弹层未在 {element_timeout_ms}ms 内出现")
+    raise RuntimeError(
+        f"「{label}」选择弹层未在 {element_timeout_ms}ms 内出现。"
+        f"当前 fixed 层：{await _sheet_debug(page)}"
+    )
 
 
 # ── 基础字段 ──────────────────────────────────────────────────────────── #
@@ -387,9 +542,11 @@ async def select_category(
 
     await _open_field_sheet(page, LABEL_CATEGORY, element_timeout_ms=element_timeout_ms)
 
-    # 商品名填过之后，弹层先给「カテゴリはこちらですか」推荐列表（没有分类树）。
+    # 弹层可能先给「カテゴリはこちらですか」推荐列表（没有分类树）——商品名填过就会有。
     # 不赌推荐命中，一律点「他のカテゴリから選ぶ」回到全量树——**位置下标以全量树为准**，
     # 推荐列表的条目数会随商品名变化，不点这一下下标就没有稳定含义。
+    # 分类现在排在商品名之前（见 post.py 的字段顺序），多半根本没有推荐列表：
+    # 点不到这颗按钮即表示弹层已经是全量树，两种情况都对，所以失败不算错。
     if await _sheet_click(page, CATEGORY_MORE_BUTTON_TEXT):
         await page.wait_for_timeout(1200)
 
@@ -443,32 +600,82 @@ async def select_condition(page: Any, status: str, *, element_timeout_ms: int) -
 
 # ── 配送方法 / 发货天数 / 发货地区 ────────────────────────────────────── #
 
+#: 读回选中的承运商（只认已知的那几个 name，免得被页面上别处的 radio 干扰）。
+#: 返回的是**全部**被选中的 name，不是第一个：这两个 radio 的 name 互不相同
+#: （YAMATO / JAPAN_POST），并不构成原生互斥组，互斥完全靠 React 重渲染。
+#: 取「第一个 checked」的话，万一 React 没吃进这一下点击、两个同时 checked，
+#: 读回来仍是原来那家，于是「切换成功」与「点击没生效」长得一模一样。
+_SHIP_VENDOR_JS = """
+(known) => {
+  const rs = [...document.querySelectorAll('input[type=radio]')]
+    .filter((x) => known.includes(x.name));
+  return {
+    checked: rs.filter((x) => x.checked).map((x) => x.name),
+    present: rs.map((x) => x.name),
+  };
+}
+"""
+
+#: 点选承运商：先点 radio 本身，不生效再点包着它的整行 label
+_SHIP_VENDOR_PICK_JS = """
+(arg) => {
+  const r = [...document.querySelectorAll('input[type=radio]')]
+    .find((x) => x.name === arg.vendor);
+  if (!r) return false;
+  (arg.by_label ? (r.closest('label') || r.parentElement || r) : r).click();
+  return true;
+}
+"""
+
+
 async def select_shipping_method(
     page: Any, shipping_method: str, *, element_timeout_ms: int
 ) -> Tuple[bool, str]:
     """选「おてがる配送」的承运商。返回 (是否主动设置, 说明)。
 
-    雅虎只有雅玛多 / 日本邮便两家，页面默认日本邮便。库存里配的 未定 / 普通郵便 /
+    配送方法**不是底部弹层**，而是页面上内联的单选列表，每家承运商一个 radio，
+    ``name`` 就是承运商枚举（YAMATO / JAPAN_POST）。
+
+    ⚠ 不能按文案判断当前值：两家的名字连同各自的运费表**同时躺在 DOM 里**，
+    「目标文案是否出现在这一行的文本中」对任何输入都恒为真，于是「已是目标配送方式」
+    永远成立——切换从来没真正发生过，而且不报错。只能读 ``input:checked``。
+
+    雅虎只有雅玛多 / 日本邮便两家，页面默认雅玛多。库存里配的 未定 / 普通郵便 /
     たのメル便 在雅虎没有对应项 —— 保持页面默认，并把实际值回报给调用方记录。
     """
-    target = SHIPPING_METHOD_JA.get((shipping_method or "").strip(), "")
-    _, current_text = await field_state(page, LABEL_SHIPPING_METHOD)
-    if not target:
-        return False, f"该配送方式在雅虎无对应项，保持页面默认（当前：{current_text}）"
-    if target in current_text:
-        return True, f"已是目标配送方式：{target}"
+    known = list(SHIPPING_VENDOR_RADIO.values())
 
-    await _open_field_sheet(page, LABEL_SHIPPING_METHOD, element_timeout_ms=element_timeout_ms)
-    if not await _sheet_click(page, target):
+    async def _state() -> Tuple[List[str], List[str]]:
+        st = await page.evaluate(_SHIP_VENDOR_JS, known) or {}
+        return list(st.get("checked") or []), list(st.get("present") or [])
+
+    def _ja(vendor: str) -> str:
+        return SHIPPING_VENDOR_JA.get(vendor, vendor)
+
+    def _shown(checked: List[str]) -> str:
+        return "、".join(_ja(v) for v in checked) or "（未选中）"
+
+    checked, present = await _state()
+    vendor = SHIPPING_VENDOR_RADIO.get((shipping_method or "").strip(), "")
+    if not vendor:
+        return False, f"该配送方式在雅虎无对应项，保持页面默认（当前：{_shown(checked)}）"
+    if checked == [vendor]:
+        return True, f"已是目标配送方式：{_ja(vendor)}"
+    if vendor not in present:
         raise ValueError(
-            f"配送方法「{target}」未找到；当前可选：{'、'.join(await _sheet_items(page))}"
+            f"配送方法「{_ja(vendor)}」在页面上没有对应选项（当前可选：{present or '（无）'}）"
         )
-    await page.wait_for_timeout(1000)
-    await _wait_sheet_closed(page, timeout_ms=5000)
-    _, after = await field_state(page, LABEL_SHIPPING_METHOD)
-    if target not in after:
-        raise ValueError(f"已点击配送方法「{target}」但字段未更新（当前：{after}）")
-    return True, f"已选择配送方式：{target}"
+
+    # 先点 radio 本身；受控组件偶有不吃这一下的，再退回点包着它的整行 label
+    for by_label in (False, True):
+        await page.evaluate(_SHIP_VENDOR_PICK_JS, {"vendor": vendor, "by_label": by_label})
+        await page.wait_for_timeout(1000)
+        checked, _ = await _state()
+        if checked == [vendor]:
+            return True, f"已选择配送方式：{_ja(vendor)}"
+    raise ValueError(
+        f"已点击配送方法「{_ja(vendor)}」但页面未切换过去（当前选中：{_shown(checked)}）"
+    )
 
 
 async def set_shipping_days(page: Any, shipping_days: str, *, element_timeout_ms: int) -> str:

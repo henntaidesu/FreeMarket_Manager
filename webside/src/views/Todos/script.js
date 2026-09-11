@@ -1381,35 +1381,86 @@ export default defineComponent({
       else openShipQrPhoto(row)
     }
 
-    // ── 订单备注 ────────────────────────────────────────────────────
-    // 与订单管理页共用同一条（按订单号存放，待办的 item_id 就是订单号）。列表接口已经把
-    // order_note 带回来了，所以卡片/表格的红标不用额外请求；处理面板里改完直接写回内存里
-    // 那一行，红标立刻更新，不必整页重载。
+    // ── 订单备注（自动保存）────────────────────────────────────────
+    // 与另一页共用同一条（按订单号独立存表，不是 orders.remark——那列存的是商品名，
+    // 每轮同步都会被重写）。列表接口已带回 order_note，打开时不用再请求一次。
+    //
+    // 没有保存按钮：停止输入 800ms 后落库，失焦与关闭弹窗时立即补一次。
+    // **订单号与所在行都在打开时抓下来存着**，不从当前选中行现取：关闭弹窗会把选中行清空，
+    // 而那一刻可能正好有一发请求在路上，补发时就找不到该写谁了。
+    const ORDER_NOTE_DEBOUNCE_MS = 800
     const orderNoteText = ref('')
     const orderNoteSaved = ref('')   // 上次落库的值，用来判断「有没有改动」
     const orderNoteSaving = ref(false)
-    const orderNoteDirty = computed(() => orderNoteText.value.trim() !== orderNoteSaved.value.trim())
+    const orderNoteJustSaved = ref(false)
+    let orderNoteOrderNo = ''        // 打开时抓下来，关闭后补发仍要用
+    let orderNoteRow = null          // 同上：写回它才能让列表/卡片的红标跟着变
+    let orderNoteTimer = null
+    let orderNoteSavedHintTimer = null
+
+    /** 状态提示：保存中 → 已保存（闪一下就消失），其余时候不占地方 */
+    const orderNoteStatus = computed(() => {
+      if (orderNoteSaving.value) return t('todos.orderNoteSaving')
+      if (orderNoteJustSaved.value) return t('todos.orderNoteSaved')
+      return ''
+    })
 
     function orderNoteOf(row) {
       return (row?.order_note || '').trim()
     }
 
-    async function onSaveOrderNote() {
-      const orderNo = String(currentRow.value?.item_id || '').trim()
-      if (!orderNo || orderNoteSaving.value) return
+    function clearOrderNoteTimer() {
+      if (orderNoteTimer) { clearTimeout(orderNoteTimer); orderNoteTimer = null }
+    }
+
+    /** 打开弹窗时调用：装载当前备注，并记下这条备注属于哪一单、哪一行 */
+    function initOrderNote(row) {
+      clearOrderNoteTimer()
+      orderNoteRow = row || null
+      orderNoteOrderNo = String(row?.item_id || '').trim()
+      const cur = (row?.order_note || '').trim()
+      orderNoteText.value = cur
+      orderNoteSaved.value = cur
+      orderNoteSaving.value = false
+      orderNoteJustSaved.value = false
+    }
+
+    function scheduleOrderNoteSave() {
+      clearOrderNoteTimer()
+      orderNoteTimer = setTimeout(() => { orderNoteTimer = null; flushOrderNote() }, ORDER_NOTE_DEBOUNCE_MS)
+    }
+
+    /** 立即落库（失焦 / 关闭弹窗 / 防抖到点）。无改动直接返回，不会空发请求。 */
+    async function flushOrderNote() {
+      clearOrderNoteTimer()
+      const orderNo = orderNoteOrderNo
+      const text = orderNoteText.value.trim()
+      if (!orderNo) return
+      if (orderNoteSaving.value) return   // 上一发还在路上，由它自己收尾时补发
+      if (text === orderNoteSaved.value.trim()) return
+      const target = orderNoteRow
+      let changedDuringSave = false
       orderNoteSaving.value = true
       try {
-        const res = await orderApi.saveOrderNote(orderNo, orderNoteText.value)
-        const saved = (res?.note ?? orderNoteText.value.trim()) || ''
-        orderNoteText.value = saved
+        const res = await orderApi.saveOrderNote(orderNo, text)
+        const saved = (res?.note ?? text) || ''
+        // 只更新「已落库的值」，不回写输入框——请求期间用户可能又打了字
         orderNoteSaved.value = saved
-        // currentRow 就是列表/卡片里渲染的那个对象，改它即可让红标同步
-        if (currentRow.value) currentRow.value.order_note = saved
-        ElMessage.success(t('todos.orderNoteSaved'))
+        // target 就是列表/卡片里渲染的那个对象，改它红标才会跟着变
+        if (target) target.order_note = saved
+        changedDuringSave = orderNoteText.value.trim() !== saved.trim()
+        orderNoteJustSaved.value = true
+        if (orderNoteSavedHintTimer) clearTimeout(orderNoteSavedHintTimer)
+        orderNoteSavedHintTimer = setTimeout(() => { orderNoteJustSaved.value = false }, 2000)
       } catch (e) {
+        // 自动保存失败必须出声，否则就是静默丢字。
+        // **失败不自动重试**：这里重试会立刻再失败、再重试，变成死循环刷服务器；
+        // 用户下一次输入或失焦仍会重新触发保存。
         ElMessage.error(e?.response?.data?.detail || t('todos.orderNoteSaveFailed'))
       } finally {
         orderNoteSaving.value = false
+        // 只有「存成功了、但期间又改过」才立刻补一发
+        if (changedDuringSave) flushOrderNote()
       }
     }
 
@@ -2038,9 +2089,7 @@ export default defineComponent({
       resetInvMatch()
       resetYahooShipForm()
       // 列表已带回 order_note，直接用，不再发一次请求
-      orderNoteText.value = orderNoteOf(row)
-      orderNoteSaved.value = orderNoteOf(row)
-      orderNoteSaving.value = false
+      initOrderNote(row)
       detailDialogVisible.value = true
       // 待发货（含雅虎 発送依頼）与 待回复（两个平台）：按商品 ID 反查本地库存图片与关联订单号
       if (isWaitShipping.value || isWaitReplyKind(row.kind)) {
@@ -3025,6 +3074,9 @@ export default defineComponent({
     }
 
     function onDetailDialogClose() {
+      // 备注按防抖保存，关面板时计时器可能还没到点，这里补一发。
+      // 它用的是打开时抓下来的订单号/行对象，所以下面清空 currentRow 不影响它
+      flushOrderNote()
       // 关 dialog 时同步关掉对应账号的 __auto 浏览器（fire-and-forget）。
       // 该端点只认煤炉的 mercari_{id}__todo 会话，雅虎跑在另一套会话上，发过去是空转。
       const aid = currentRow.value?.account_id
@@ -3203,10 +3255,10 @@ export default defineComponent({
       cardQrSrc,
       bundleBadgeText,
       orderNoteText,
-      orderNoteSaving,
-      orderNoteDirty,
+      orderNoteStatus,
       orderNoteOf,
-      onSaveOrderNote,
+      scheduleOrderNoteSave,
+      flushOrderNote,
       onCardQrClick,
       onCardClick,
       onFilterChange,

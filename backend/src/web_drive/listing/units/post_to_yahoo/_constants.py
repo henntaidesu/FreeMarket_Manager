@@ -37,7 +37,6 @@ IMAGE_DIALOG_CLOSE_TEXT = "閉じる"
 
 LABEL_CATEGORY = "カテゴリ"
 LABEL_CONDITION = "商品の状態"
-LABEL_SHIPPING_METHOD = "配送方法"
 
 #: 未选择时触发块显示的占位文案——用它判断某个字段是否已选好
 UNSELECTED_PLACEHOLDER = "選択してください（必須）"
@@ -61,6 +60,18 @@ SHIPPING_METHOD_JA: Dict[str, str] = {
     "tanome": "",
     "regular_mail": "",
     "undecided": "",
+}
+
+#: 配送方法在出品页上是**内联单选列表**，不是底部弹层：每家承运商一个 radio，
+#: 而 ``name`` 直接就是承运商枚举，比任何显示文案都稳（文案改版随时会变）。
+SHIPPING_VENDOR_RADIO: Dict[str, str] = {
+    "rakuraku": "YAMATO",
+    "yuuyu": "JAPAN_POST",
+}
+
+#: radio name → 日文名，仅用于日志/回报文案
+SHIPPING_VENDOR_JA: Dict[str, str] = {
+    radio: SHIPPING_METHOD_JA[key] for key, radio in SHIPPING_VENDOR_RADIO.items()
 }
 
 # 発送までの日数 select[name=timeToShip] 的 option value

@@ -416,7 +416,17 @@ rows are fed into the **existing Mercari writers** (`apply_on_sale_list_sync`, `
 soft-delete, inventory counters and order upsert semantics stay identical across platforms.
 
 - `use_yahoo/on_sale/list_sync.py` — `/my/item/selling` → `on_sale_items` (`platform='yahoo'`).
-  Soft-delete only fires when the crawl is provably complete (`出品数: N/100` vs collected count).
+  **That page holds both publicly-listed and suspended items**, and a suspended card swaps its
+  「N日前に出品/更新」 line for 「公開停止中」 — the only signal, so `status` is `stop` when that
+  line is present and `on_sale` otherwise. Writing them all as `on_sale` (as it used to) doesn't
+  move any counter — `LISTED_STATUSES` already spans both — but it destroys 回国模式's one safety
+  property: it restores exactly the rows it suspended, identified by *not* having been `stop`
+  beforehand, so items the user had stopped themselves would come back listed.
+  `出品数: N/100` counts **only the public ones** (measured: 28 cards, 10 public, header said 10),
+  so the completeness gate that guards absence-based soft-delete compares public-collected against
+  that number — comparing it against the whole card count, as it used to, is always true and the
+  gate never fires. The list is also not paginated: `?page=2` renders zero cards, so the crawl
+  scrolls to the bottom until the card count stops growing instead.
 - `use_yahoo/on_sale/detail_sync.py` — reads the **edit page**'s form fields (textarea gives the
   description verbatim, so the `-=~<>` mgmt cipher survives) and feeds a Mercari-shaped pseudo
   `items/get` response into `detail_sync_inventory_from_item_get_response`. This is what binds a
@@ -706,11 +716,41 @@ soft-delete, inventory counters and order upsert semantics stay identical across
   Yahoo's `/api/v1/categories/{id}/children` was tried and dropped: the endpoint returns
   intermittent 500s under any sustained crawl, so the collected tree came out badly truncated.)
 - Yahoo has no 送料負担 (always seller) and no auction; those fields are hidden in the listing dialogs
-  (`useListingPlatform.js`) and ignored by the backend. Shipping method maps
-  `rakuraku`→ヤマト運輸 / `yuuyu`→日本郵便; other values keep the page default (日本郵便).
+  (`useListingPlatform.js`) and ignored by the backend.
+- **配送方法 is an inline radio list, not a sheet**, and its state must be read from
+  `input[type=radio]:checked` — `SHIPPING_VENDOR_RADIO` maps `rakuraku`→`YAMATO` /
+  `yuuyu`→`JAPAN_POST` (the radio `name` *is* the carrier enum); other values keep the page default.
+  Never decide the current carrier from text: both carriers' names and fee tables sit in the DOM at
+  once, so "is the target string in this row's text" is always true and the switch silently never
+  happens. The two radios also have *different* names, so they are not a native exclusive group —
+  React does the unchecking — which is why the check reads **every** checked name and demands
+  exactly `[target]`; taking the first checked one makes "React ignored the click" look like success.
+- **Field rows are `span` + a `必須` badge + a separate trigger box**, with that field's closed sheet
+  living inside the same row. So locating a field walks: name element (a `<label>` if there is one,
+  else the matching text leaf, badges normalized away) → nearest ancestor that also holds a trigger →
+  within it, the first candidate's deepest same-text node. Each half of that is load-bearing: the
+  outermost candidate is a wrapper whose handler never fires (clicks only bubble *up*), while the
+  deepest candidate overall lands inside the row's own closed sheet. Reading the trigger as "the
+  row's first `<p>`" picks up the field *name* instead, and then 分类 reports itself selected after
+  the first level and silently lists under the wrong category.
 - The page is React-controlled: values must be typed (not set via DOM setters) and **committed on
-  blur** — the price only reaches state after blur. Selection sheets are detected by the inline
-  style `bottom: 0px` (closed sheets stay in the DOM with nonzero size).
+  blur** — the price only reaches state after blur.
+- **A selection sheet's open/closed state is only legible as "can this layer be clicked right
+  now"** — measured live at 1280x800, not inferred. Desktop renders each sheet as a *centered
+  modal* that, when closed, is still `position: fixed`, still 600x536, still `opacity: 1` and
+  `visibility: visible`; the one thing that changes is `pointer-events` (`none` ↔ `auto`). The
+  mobile bottom-sheet layout is the one that hides by moving off-viewport (`bottom:-100dvh`
+  historically, `bottom:0` + `transform: translateY(calc(100% + 1px))` now). **Both variants sit in
+  the DOM at once** (`sc-91807614-12` / `-13`, one picked by media query), and on desktop the copy
+  carrying the inline `bottom` is precisely the `display:none` mobile one — so hunting for inline
+  `bottom: 0` finds only the hidden variant and reports an open sheet as closed, which hangs every
+  sheet-backed field. `_SHEET_PRELUDE` therefore decides it by hit-testing: `position: fixed`,
+  `pointer-events` not `none`, a real on-screen rect, and `document.elementFromPoint` at the
+  layer's own centre landing inside itself. That last clause is also what drops the full-screen
+  backdrop, which flips to `pointer-events: auto` alongside the panel — its centre hit-tests to the
+  panel stacked above it. Same predicate ported to `yahoo_trade/units/_page.py` (not yet exercised
+  there); a fixed action bar still needs its own text-based exclusion, since it passes all of the
+  above.
 
 ### Task Queue (`src/task_queue/`)
 

@@ -492,6 +492,7 @@
       :show-close="false"
       destroy-on-close
       class="order-detail-dialog"
+      @close="flushOrderNote"
     >
       <div class="odt">
         <div class="odt-main">
@@ -582,14 +583,8 @@
               <div class="odt-note">
                 <div class="odt-note__head">
                   <span class="odt-note__k">{{ t('orders.orderNote') }}</span>
-                  <el-button
-                    size="small"
-                    type="primary"
-                    plain
-                    :loading="orderNoteSaving"
-                    :disabled="!orderNoteDirty"
-                    @click="onSaveOrderNote"
-                  >{{ t('common.save') }}</el-button>
+                  <!-- 自动保存：没有保存按钮，停止输入后落库；这里只回一句状态 -->
+                  <span v-if="orderNoteStatus" class="odt-note__status">{{ orderNoteStatus }}</span>
                 </div>
                 <el-input
                   v-model="orderNoteText"
@@ -598,7 +593,8 @@
                   :maxlength="500"
                   show-word-limit
                   resize="none"
-                  :placeholder="t('orders.orderNotePlaceholder')"
+                  @input="scheduleOrderNoteSave"
+                  @blur="flushOrderNote"
                 />
               </div>
 

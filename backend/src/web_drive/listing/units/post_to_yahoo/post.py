@@ -84,28 +84,9 @@ async def _run_form(
     """
     from ..post_to_macket._helpers import ListingAborted, _abort_listing
 
-    # ── 1. 图片 ── #
-    if local_images:
-        report("upload_images", f"正在上传商品图片（{len(local_images)} 张）…")
-        try:
-            result["images_uploaded"] = await upload_images(
-                page, local_images, element_timeout_ms=element_timeout_ms
-            )
-        except Exception as exc:
-            _abort_listing(result, report, step="upload_images", label_zh="图片上传",
-                           error_key="images_error", exc=exc)
-
-    # ── 2. 商品名 ── #
-    if (name or "").strip():
-        report("name", "正在填写商品名称…")
-        try:
-            await fill_name(page, name, element_timeout_ms=element_timeout_ms)
-            result["name_filled"] = True
-        except Exception as exc:
-            _abort_listing(result, report, step="name", label_zh="商品名称",
-                           error_key="name_error", exc=exc)
-
-    # ── 3. 分类 ── #
+    # ⚠ 字段顺序不是随意的：**分类必须排在图片上传之前**——反过来的话，图片传完就再也
+    #   定位不到「カテゴリ」这一行了（雅虎 2026-09 改版后的实测表现）。
+    # ── 1. 分类 ── #
     report("category", "正在选择雅虎分类…")
     try:
         result["category_walked"] = await select_category(
@@ -117,6 +98,27 @@ async def _run_form(
     except Exception as exc:
         _abort_listing(result, report, step="category", label_zh="商品类型",
                        error_key="category_error", exc=exc)
+
+    # ── 2. 图片 ── #
+    if local_images:
+        report("upload_images", f"正在上传商品图片（{len(local_images)} 张）…")
+        try:
+            result["images_uploaded"] = await upload_images(
+                page, local_images, element_timeout_ms=element_timeout_ms
+            )
+        except Exception as exc:
+            _abort_listing(result, report, step="upload_images", label_zh="图片上传",
+                           error_key="images_error", exc=exc)
+
+    # ── 3. 商品名 ── #
+    if (name or "").strip():
+        report("name", "正在填写商品名称…")
+        try:
+            await fill_name(page, name, element_timeout_ms=element_timeout_ms)
+            result["name_filled"] = True
+        except Exception as exc:
+            _abort_listing(result, report, step="name", label_zh="商品名称",
+                           error_key="name_error", exc=exc)
 
     # ── 4. 商品状態 ── #
     if status:

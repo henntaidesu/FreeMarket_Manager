@@ -274,6 +274,12 @@
   pointer-events: none;
 }
 
+/* 备注自动保存的状态字：顶替了原来的保存按钮，只在保存中/刚存完时出现 */
+.detail-note-status {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
 /* 订单备注红标：压在图右下角。与左下角的「一单多件」同一套视觉语言（实心红底 + 加粗），
    两者可以同时出现，各占一角互不遮挡 */
 .todo-card-note {
@@ -599,9 +605,9 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  /* 固定高度：约可容纳 3 个关联商品卡片（单卡 ~118px + 间距 10px），高度恒定便于定位；
-     超过 3 个时列表内部滚动，避免撑高整列把下方「发货」操作区顶出视野 */
-  height: 378px;
+  /* 固定高度：约可容纳 2 个关联商品卡片（单卡 ~118px + 间距 10px），高度恒定便于定位；
+     超过 2 个时列表内部滚动，避免撑高整列把下方「发货」操作区顶出视野 */
+  height: 250px;
   overflow-y: auto;
   padding-right: 4px;
 }

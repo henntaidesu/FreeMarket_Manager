@@ -559,6 +559,8 @@
   gap: 8px;
 }
 .odt-note__k { font-size: 12.5px; color: var(--el-text-color-secondary); }
+/* 自动保存的状态字：顶替了原来的保存按钮，只在保存中/刚存完时出现 */
+.odt-note__status { font-size: 12px; color: var(--el-text-color-secondary); }
 
 .odt-stats { display: flex; flex-wrap: wrap; gap: 8px; }
 .odt-stat {

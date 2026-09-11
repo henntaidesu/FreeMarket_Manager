@@ -523,16 +523,9 @@
           <section v-if="detail.item_id" class="detail-section">
             <div class="detail-section-head">
               <div class="detail-section-title">{{ t('todos.orderNote') }}</div>
-              <div class="detail-section-head-actions">
-                <el-button
-                  size="small"
-                  type="primary"
-                  plain
-                  :loading="orderNoteSaving"
-                  :disabled="!orderNoteDirty"
-                  @click="onSaveOrderNote"
-                >{{ t('common.save') }}</el-button>
-              </div>
+              <!-- 自动保存：没有保存按钮，停止输入后落库。这里只回一句状态，
+                   否则用户无从判断「改了到底存没存」 -->
+              <span v-if="orderNoteStatus" class="detail-note-status">{{ orderNoteStatus }}</span>
             </div>
             <el-input
               v-model="orderNoteText"
@@ -541,7 +534,8 @@
               :maxlength="500"
               show-word-limit
               resize="none"
-              :placeholder="t('todos.orderNotePlaceholder')"
+              @input="scheduleOrderNoteSave"
+              @blur="flushOrderNote"
             />
           </section>
 

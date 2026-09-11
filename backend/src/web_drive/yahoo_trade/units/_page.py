@@ -1,9 +1,15 @@
 # -*- coding: utf-8 -*-
 """雅虎卖家交易页的页面原语：底部弹层、表单行点选、就绪判断。
 
-交易页 ``/item/{id}/trade/seller`` 与出品页同源同风格，所以弹层机制完全一致——开合只看
-内联样式（打开 ``bottom: 0px``，关闭 ``bottom:-100dvh`` 且仍在 DOM 里且有尺寸），因此
-不能用 ``getBoundingClientRect`` 判可见，一律用 ``openSheet()`` 取当前打开的那一层。
+交易页 ``/item/{id}/trade/seller`` 与出品页同源同风格，弹层机制完全一致，判开合也共用一套
+口径（详见 ``post_to_yahoo/_fields.py`` 的 ``_SHEET_PRELUDE``，那边在真页面上实测过）：
+PC 版是**居中模态**，关闭态照样 ``position:fixed``、照样有尺寸、``opacity``/``visibility``
+都不变，唯一变的是 ``pointer-events``；手机版才是底部弹层，关闭态被推出视口。所以只能按
+「这一层现在能不能点」判——中心点 ``elementFromPoint`` 落在自己内部才算开着，这一下顺带把
+同样会变 ``pointer-events:auto`` 的整屏遮罩也排除掉（遮罩中心命中的是它上面的面板）。
+一律用 ``openSheet()`` 取当前打开的那一层。
+
+⚠ 这套判据是照着**出品页**实测结论改的，交易页本身尚未实跑验证（需要一笔待发货交易）。
 
 与出品页不同的一点：交易页的表单行标题是 ``h3``（「サイズ」「発送場所」），既不是 label
 也不总是 button——``サイズ`` 那行外层套了 button 而 ``発送場所`` 没有。统一按「首行文案命中
@@ -52,13 +58,38 @@ def yahoo_trade_url(item_id: str) -> str:
 
 # ── 页面内脚本 ───────────────────────────────────────────────────────── #
 
-_PRELUDE = """
-const openSheet = () => [...document.querySelectorAll('div[style]')]
-  .filter((el) => /bottom:\\s*0/.test(el.getAttribute('style') || ''))
+_PRELUDE = (
+    f"const SHIP_SUBMIT_PENDING_TEXT = {SHIP_SUBMIT_PENDING_TEXT!r};"
+    f"const SHIP_SUBMIT_READY_TEXT = {SHIP_SUBMIT_READY_TEXT!r};"
+    f"const MESSAGE_SEND_BUTTON_TEXT = {MESSAGE_SEND_BUTTON_TEXT!r};"
+    + """
+// 底部那条提交栏（「発送情報を入力してください」/「配送コードを表示する」）若是 fixed，
+// 同样能通过下面所有判据，认错的话「先关掉上一个弹层」永远关不掉——按文案剔掉它。
+const BAR_TEXTS = [SHIP_SUBMIT_PENDING_TEXT, SHIP_SUBMIT_READY_TEXT, MESSAGE_SEND_BUTTON_TEXT];
+const isActionBar = (el) => [...el.querySelectorAll('button')]
+  .some((b) => BAR_TEXTS.includes(((b.innerText || '').trim().split('\\n')[0] || '').trim()));
+const layerVisible = (el) => {
+  const cs = getComputedStyle(el);
+  if (cs.position !== 'fixed' || cs.pointerEvents === 'none') return false;
+  if (cs.visibility === 'hidden' || parseFloat(cs.opacity || '1') < 0.05) return false;
+  const r = el.getBoundingClientRect();
+  if (r.width < 8 || r.height < 8) return false;
+  return r.top < innerHeight && r.bottom > 0 && r.left < innerWidth && r.right > 0;
+};
+const hitsSelf = (el) => {
+  const r = el.getBoundingClientRect();
+  const cx = Math.min(Math.max(r.left + r.width / 2, 1), innerWidth - 1);
+  const cy = Math.min(Math.max(r.top + r.height / 2, 1), innerHeight - 1);
+  const hit = document.elementFromPoint(cx, cy);
+  return !!hit && el.contains(hit);
+};
+const openSheet = () => [...document.querySelectorAll('div')]
+  .filter((el) => layerVisible(el) && hitsSelf(el) && !isActionBar(el))
   .pop() || null;
 const firstLine = (el) => (el.innerText || '').trim().split('\\n')[0].trim();
 const vis = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
 """
+)
 
 _SHEET_OPEN_JS = "() => {" + _PRELUDE + "return !!openSheet();}"
 
