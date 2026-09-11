@@ -30,6 +30,33 @@ class ImageHostingError(RuntimeError):
         self.status = status
 
 
+#: 413 错误页的来源指纹。链路上每一层都会用 413 拒绝超大请求，但**只有它们各自的错误页能
+#: 区分是谁拒的**，而该去改哪个上限完全取决于这个答案。原先把正文丢掉、统一提示「图床或反代」，
+#: 等于把这条唯一的线索扔了。判据取各家错误页里独有的那句话：
+#: Flask/Werkzeug 的 413 描述是固定文案，nginx 会在页脚签名，Cloudflare 的页面通篇是自家品牌。
+_OVERSIZE_SOURCES = (
+    ("The data value transmitted exceeds",
+     "图床本体（Flask 的 MAX_CONTENT_LENGTH）——去图床「系统设置」调大「单文件大小上限」；"
+     "多进程部署时保存设置只对处理那次请求的那个 worker 生效，改完要重启图床"),
+    ("cloudflare",
+     "Cloudflare（免费版单次上传上限 100 MB）——需要更大就得走 Enterprise 或让上传绕开 CDN"),
+    ("nginx",
+     "图床前置的 nginx——调大该站的 client_max_body_size 后 reload"),
+)
+
+
+def _oversize_error(body: str) -> "ImageHostingError":
+    lowered = body.lower()
+    for needle, who in _OVERSIZE_SOURCES:
+        if needle.lower() in lowered:
+            return ImageHostingError(f"上传被拒：请求体超过上限（HTTP 413）。拦截方是 {who}。", 413)
+    snippet = body.strip().replace("\n", " ")[:120]
+    return ImageHostingError(
+        f"上传被拒：请求体超过上限（HTTP 413），但认不出是链路上的哪一层拦的。响应片段：{snippet}",
+        413,
+    )
+
+
 class ImageHostingClient:
     """一次性客户端：按调用时的配置快照构造，配置改了就重新造一个。"""
 
@@ -62,14 +89,7 @@ class ImageHostingClient:
         except requests.RequestException as exc:
             raise ImageHostingError(f"无法连接图床（{url}）：{exc}") from exc
         if response.status_code == 413:
-            # 图床自己（Flask 的 MAX_CONTENT_LENGTH）和它前面的反代都会在这里拦下来，回的是
-            # 一张 HTML 错误页。落到下面的「非 JSON 响应」分支只会把 <!doctype html> 原样贴给
-            # 用户，看不出该去改哪个上限，所以单独认一下这个状态码。
-            raise ImageHostingError(
-                "图片体积超过图床允许的上传大小（HTTP 413）：请在图床「系统设置」里调大单文件上限，"
-                "或放宽图床前置反向代理的请求体限制。",
-                413,
-            )
+            raise _oversize_error(response.text or "")
         try:
             payload = response.json()
         except ValueError:

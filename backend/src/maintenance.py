@@ -116,6 +116,51 @@ def _prune_dir_to_cap(path: str, max_mb: int) -> Tuple[int, int]:
     return removed, freed
 
 
+def _prune_remote_cdn_cache(max_mb: int) -> Tuple[int, int]:
+    """把**图床上**的煤炉 CDN 缓存裁到 max_mb 以内，按登记时间从旧到新删。
+
+    和 :func:`_prune_dir_to_cap` 是同一套口径，只是「本地文件」换成了 ``image_assets`` 里的
+    映射行、``os.remove`` 换成了「删图床文件 + 删映射行」。CDN 缓存改传图床之后本地那个
+    目录就是空的了，不补这一段，这份缓存会变成**只增不减**——正是当初要清理它的原因。
+
+    图床没配 / 当前是本地后端时直接返回 0：那种情况下缓存还在本地，由上面的目录淘汰负责。
+    """
+    if max_mb <= 0:
+        return 0, 0
+    try:
+        from .image_hosting import assets as image_assets
+        from .image_hosting import settings as image_hosting_settings
+        from .image_hosting.client import ImageHostingClient, ImageHostingError
+        from .use_web.mercari_image.proxy_handler import REMOTE_CACHE_PREFIX
+    except Exception:
+        return 0, 0
+    if not image_hosting_settings.remote_enabled():
+        return 0, 0
+
+    rows = image_assets.remote_rows_under(REMOTE_CACHE_PREFIX)  # 旧的在前
+    total = sum(int(r.get("size") or 0) for r in rows)
+    cap = max_mb * 1024 * 1024
+    if total <= cap:
+        return 0, 0
+
+    client = ImageHostingClient()
+    removed = freed = 0
+    for row in rows:
+        if total - freed <= cap:
+            break
+        try:
+            client.delete(row["remote_name"])
+        except ImageHostingError as exc:
+            # 远程删不掉就保留映射行：删了行而远程文件还在，那张图就再没有任何记录指向它，
+            # 永远清不掉了。留着至少下次还能重试（与 image_storage.delete_image_file 同口径）。
+            log.warning("[maintenance] 删除图床 CDN 缓存 %s 失败：%s", row["rel_path"], exc)
+            continue
+        image_assets.forget(row["rel_path"])
+        removed += 1
+        freed += int(row.get("size") or 0)
+    return removed, freed
+
+
 def run_maintenance_once() -> Dict[str, Any]:
     """执行一轮清理并返回统计。失败不抛出——清理永远不该挡住启动。"""
     stats: Dict[str, Any] = {}
@@ -152,6 +197,15 @@ def run_maintenance_once() -> Dict[str, Any]:
             stats[sub] = {"removed": n, "freed_mb": round(freed / 1024 / 1024, 1)}
     except Exception:
         log.exception("[maintenance] 缓存目录清理失败（不影响启动）")
+
+    # CDN 缓存搬到图床之后，本地目录淘汰就看不到它们了——这一段是它在图床上的对应物。
+    try:
+        n, freed = _prune_remote_cdn_cache(_num("MAINTENANCE_CDN_CACHE_MAX_MB"))
+        stats["_mercari_cache_remote"] = {
+            "removed": n, "freed_mb": round(freed / 1024 / 1024, 1),
+        }
+    except Exception:
+        log.exception("[maintenance] 图床 CDN 缓存清理失败（不影响启动）")
 
     if any(stats.values()):
         log.info("[maintenance] 清理完成：%s", stats)

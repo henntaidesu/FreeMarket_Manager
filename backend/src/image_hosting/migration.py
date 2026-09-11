@@ -211,12 +211,24 @@ def _upload_one(rel_path: str, root: str, max_upload_bytes: int) -> Dict[str, An
         content = f.read()
     from ..use_web.image_storage import content_type_for
 
-    payload = ImageHostingClient().upload(
-        filename=filename,
-        content=content,
-        content_type=content_type_for(filename),
-        external_key=rel_path,
-    )
+    try:
+        payload = ImageHostingClient().upload(
+            filename=filename,
+            content=content,
+            content_type=content_type_for(filename),
+            external_key=rel_path,
+        )
+    except ImageHostingError as exc:
+        if exc.status == 413:
+            # 体积没超过图床自己声明的上限却仍被拒，那把它挡下来的就不是图床，
+            # 而是它前面的反代（nginx client_max_body_size 默认只有 1 MB）。
+            # 把这两个数并排写进错误里，用户不必再去猜是哪一层。
+            declared = (f"，图床声明的单文件上限 {max_upload_bytes / 1048576:.0f} MB"
+                        if max_upload_bytes else "")
+            raise ImageHostingError(
+                f"{exc.message}（本张 {len(content) / 1048576:.1f} MB{declared}）", 413,
+            ) from exc
+        raise
     payload["_local_size"] = len(content)
     return payload
 
@@ -231,9 +243,13 @@ def _run_to_host(max_upload_bytes: int = 0) -> None:
         _finish("没有需要搬运的图片，本地图片已全部在图床上。")
         return
 
+    # 撞上 413 就整体停：上限对每张图都一样，继续跑只会把剩下几千张的请求体也白推一遍
+    # （这里动辄几个 GB）。搬运本就是可重复对账，调完上限再点一次会接着搬。
+    oversize_stop = ""
+
     with ThreadPoolExecutor(max_workers=_UPLOAD_WORKERS) as pool:
         for start in range(0, len(targets), _UPLOAD_WORKERS):
-            if _cancelled():
+            if _cancelled() or oversize_stop:
                 break
             batch = targets[start:start + _UPLOAD_WORKERS]
             futures = [(path, pool.submit(_upload_one, path, root, max_upload_bytes)) for path in batch]
@@ -247,7 +263,13 @@ def _run_to_host(max_upload_bytes: int = 0) -> None:
                     with _LOCK:
                         _STATE["skipped"] += 1
                     continue
-                except (ImageHostingError, OSError) as exc:
+                except ImageHostingError as exc:
+                    _note_error(rel_path, str(exc))
+                    if exc.status == 413 and not oversize_stop:
+                        # 只记第一条：后面每张图的报错都会是同一句
+                        oversize_stop = str(exc)
+                    continue
+                except OSError as exc:
                     _note_error(rel_path, str(exc))
                     continue
                 # 回到主线程串行写映射 + 删本地副本（顺序不能反：先删本地再写行，
@@ -272,7 +294,12 @@ def _run_to_host(max_upload_bytes: int = 0) -> None:
                     _STATE["done"] += 1
 
     state = status()
-    if state["cancelled"]:
+    if oversize_stop:
+        _finish(
+            f"已停止：图床拒收超大图片。{oversize_stop} "
+            f"调大上限后再点一次会接着搬（已成功 {state['done']} 张）。"
+        )
+    elif state["cancelled"]:
         _finish(f"已停止。成功 {state['done']} 张，失败 {state['failed']} 张，剩余部分仍在本地。")
     elif state["failed"]:
         _finish(f"搬运完成，成功 {state['done']} 张，失败 {state['failed']} 张（失败的仍在本地，可再次运行）。")

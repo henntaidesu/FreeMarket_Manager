@@ -1,17 +1,45 @@
 # -*- coding: utf-8 -*-
 """库存公开端点业务处理器：无需认证（如缩略图）。"""
+import io
 import os
 
 from fastapi import HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from PIL import Image, ImageOps
 
 from ....rate_limit import check_public_rate_limit
+from ....image_hosting import settings as image_hosting_settings
 from ...image_storage import get_image_root, public_image_url
 from ..._path_safety import resolve_within_imges
 
 # 防解压炸弹：显式设定像素上限，越限 Pillow 抛 DecompressionBombError
 Image.MAX_IMAGE_PIXELS = 64_000_000
+
+
+def _render_thumb(orig_abs: str, size: int) -> bytes:
+    """解码 → 摆正 → 缩放，返回 JPEG 字节。
+
+    抽出来是因为有两个出口：本地后端把它写进 ``_thumbs`` 缓存，图床后端直接回给浏览器。
+    """
+    try:
+        img = Image.open(orig_abs)
+        # 先应用 EXIF 方向信息，避免手机竖拍图片在缩略图中出现旋转偏差
+        img = ImageOps.exif_transpose(img)
+        img = img.convert("RGB")
+        w, h = img.size
+        if max(w, h) > size:
+            scale = size / max(w, h)
+            img = img.resize(
+                (int(w * scale), int(h * scale)),
+                Image.Resampling.LANCZOS,
+            )
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=75, optimize=True)
+        return buf.getvalue()
+    except Exception:
+        # PIL 无法解码：说明目标不是有效图片，拒绝返回（不再回退到原始文件字节，
+        # 否则会把非图片文件当作原图泄露 —— 路径穿越读取任意文件的关键环节）
+        raise HTTPException(status_code=415, detail="文件不是有效图片")
 
 
 def get_image_thumb(request: Request, path: str, size: int = 300):
@@ -46,6 +74,14 @@ def get_image_thumb(request: Request, path: str, size: int = 300):
     if not os.path.isfile(orig_abs):
         raise HTTPException(status_code=404, detail="图片不存在")
 
+    # 图床后端下不再往本地写 _thumbs。能走到这里说明原图还在本地，而在图床后端下这只有
+    # 两种可能：转存图床失败、或者 local_only 的短命工作文件——两者都是过渡态。为它们在
+    # 本地重新堆起一个缩略图缓存，正是这次要消灭的东西（imges/ 里那 8,574 个 _thumbs 就是
+    # 这么攒出来的）。所以这里现算现回，不落盘。
+    if image_hosting_settings.remote_enabled():
+        check_public_rate_limit(request)
+        return Response(_render_thumb(orig_abs, size), media_type="image/jpeg")
+
     # 缩略图缓存目录
     thumb_dir = os.path.join(get_image_root(), "_thumbs")
     os.makedirs(thumb_dir, exist_ok=True)
@@ -59,22 +95,12 @@ def get_image_thumb(request: Request, path: str, size: int = 300):
     if not os.path.exists(thumb_abs):
         # 解码 + 缩放 + 落盘：唯一会让未认证请求占用服务端 CPU/磁盘的分支
         check_public_rate_limit(request)
-        try:
-            img = Image.open(orig_abs)
-            # 先应用 EXIF 方向信息，避免手机竖拍图片在缩略图中出现旋转偏差
-            img = ImageOps.exif_transpose(img)
-            img = img.convert("RGB")
-            w, h = img.size
-            if max(w, h) > size:
-                scale = size / max(w, h)
-                img = img.resize(
-                    (int(w * scale), int(h * scale)),
-                    Image.Resampling.LANCZOS,
-                )
-            img.save(thumb_abs, "JPEG", quality=75, optimize=True)
-        except Exception:
-            # PIL 无法解码：说明目标不是有效图片，拒绝返回（不再回退到原始文件字节，
-            # 否则会把非图片文件当作原图泄露 —— 路径穿越读取任意文件的关键环节）
-            raise HTTPException(status_code=415, detail="文件不是有效图片")
+        data = _render_thumb(orig_abs, size)
+        # 先写临时文件再 rename：中途崩掉会留下一个半截的缓存文件，而下面只用
+        # os.path.exists 判断存在与否，那张残图会被永久当成有效缓存返回。
+        tmp_abs = thumb_abs + ".tmp"
+        with open(tmp_abs, "wb") as f:
+            f.write(data)
+        os.replace(tmp_abs, thumb_abs)
 
     return FileResponse(thumb_abs, media_type="image/jpeg")

@@ -125,3 +125,22 @@ def existing_rel_paths(rel_paths: Iterable[str]) -> set:
         )
         found.update(row.rel_path for row in rows)
     return found
+
+
+def remote_rows_under(prefix: str) -> List[Dict[str, Any]]:
+    """某个逻辑路径前缀下的全部远程映射，最久没刷新的排在前面。
+
+    给缓存淘汰用：``migrated_at`` 是这张表里唯一随每次重新登记而刷新的时间戳，按它排序
+    等价于本地文件那套「mtime 从旧到新」。
+
+    ``prefix`` 里的 ``_`` 和 ``%`` 是 LIKE 的通配符，必须转义——``/imges/_mercari_cache/``
+    正好带下划线，不转义的话那个 ``_`` 会匹配任意单字符，连带匹配到别的目录。转义符特意
+    用 ``#`` 而不是反斜杠：反斜杠要在 Python 字符串和 SQL 字面量里各转一次，极易写错。
+    """
+    escaped = prefix.replace("#", "##").replace("%", "#%").replace("_", "#_")
+    rows = ImageAssetModel.find_all(
+        "[backend] = ? AND [rel_path] LIKE ? ESCAPE '#'",
+        (settings.BACKEND_REMOTE, f"{escaped}%"),
+        order_by="[migrated_at] ASC, [id] ASC",
+    )
+    return [_row_to_dict(row) for row in rows]
