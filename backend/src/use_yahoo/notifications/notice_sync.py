@@ -11,6 +11,10 @@
 ``kind`` 与待办同样用独立的 ``Yahoo*`` 命名：通知页对煤炉 kind（Like / PrivateMessage /
 DesiredPriceOfferCreated 等）有专门的处理入口（回复评论、同意降价…），套用煤炉 kind
 会让雅虎通知也长出这些按钮然后跑错流程。
+
+本模块还是**雅虎订单刷新的触发点**：拉到新的「取引完了」通知时，对应订单置为已完成并
+重读一次交易页（见 ``order_completion``）。雅虎不推订单状态，这条通知是唯一的即时信号，
+所以刷新按它走，而不是定时全量扫库。
 """
 from __future__ import annotations
 
@@ -126,7 +130,12 @@ async def sync_yahoo_notifications(account_id: int) -> Dict[str, Any]:
     from ...use_mercari.get_notifications.notification.notification_sync import (
         _upsert_notification_row,
     )
-    from .order_completion import apply_yahoo_receipt_notices
+    from .order_completion import (
+        apply_yahoo_receipt_notices,
+        is_completion_notice,
+        pending_orders_for_completion,
+        refresh_orders_for_completion,
+    )
 
     aid = int(account_id)
     synced_at_ms = int(time.time() * 1000)
@@ -139,6 +148,7 @@ async def sync_yahoo_notifications(account_id: int) -> Dict[str, Any]:
     stats["api_item_count"] = len(raw)
 
     db = DatabaseManager()
+    new_completed_item_ids: List[str] = []
     for notice in raw:
         row = yahoo_notice_to_row(aid, notice, synced_at_ms)
         if not row:
@@ -149,14 +159,30 @@ async def sync_yahoo_notifications(account_id: int) -> Dict[str, Any]:
             stats[outcome] += 1
         else:
             stats["skipped"] += 1
+        # 「取引完了」通知就是刷新订单的时机。只认 ``inserted``——接口每次返回全量，
+        # ``updated`` 是同一条通知又被拉了一遍，据它刷新等于每轮把老订单重刷一次。
+        if outcome == "inserted" and row.get("item_id") and is_completion_notice(notice):
+            new_completed_item_ids.append(str(row["item_id"]).strip())
+
+    # 刷新目标必须在置 done **之前**定下来（见 pending_orders_for_completion 的说明）
+    try:
+        refresh_targets = pending_orders_for_completion(new_completed_item_ids)
+    except Exception as exc:  # noqa: BLE001 选不出目标就不刷，不影响通知本身
+        log.warning("[yahoo_notices] 挑选待刷新订单失败：%s", exc)
+        refresh_targets = []
 
     # 「購入者が受取評価しました。これで取引完了です」→ 对应订单置为已完成。
     # 放在写库之后：判定读的是 notifications 表，本次新到的通知也要算进来。
+    # 这一步不开页面，``completed_at`` 也只有它能给（交易页上没有买家评价的时刻）。
     try:
         stats["order_completion"] = apply_yahoo_receipt_notices()
     except Exception as exc:  # noqa: BLE001 回写订单失败不该让通知同步整体失败
         log.warning("[yahoo_notices] 受取評価通知回写订单失败：%s", exc)
         stats["order_completion"] = {"error": str(exc)[:200]}
+
+    # 再把这批订单的交易页各重读一遍，拿配送方式/运单号/最终金额并补绑出库行。
+    if refresh_targets:
+        stats["completion_refresh"] = await refresh_orders_for_completion(aid, refresh_targets)
 
     log.info("[yahoo_notices] 账号#%s 通知同步：%s", aid, stats)
     return stats

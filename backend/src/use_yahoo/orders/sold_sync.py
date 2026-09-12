@@ -6,6 +6,11 @@
 
 状态只在页面上有明确措辞时才落库；识别不出来的一律记进 ``errors`` 跳过，
 **不猜**——订单状态会驱动发货/出库动作，猜错比少一条严重得多。
+
+「更新列表」是**增量**的，与煤炉 ``sync_new_data`` 同口径：已售列表按成交时间倒序翻页，
+撞上本地订单表里已经有的那一条就停，只对它之前的新成交读交易页、写库——不做全量重扫重写。
+已入库订单的状态变化归「更新状态」（``batch_refresh.py``，逐条重读交易页）与受取評価通知管，
+这里一条都不重写。
 """
 from __future__ import annotations
 
@@ -140,26 +145,23 @@ async def _resolve_description(page: Any, item_id: str) -> Optional[str]:
     return await read_item_description(page, item_id)
 
 
-def _settled_order_nos() -> set:
-    """本地已经是终态（已完成/已取消/已售罄）的全部雅虎订单号。
+def _existing_order_nos(order_nos: List[str]) -> set:
+    """这一批商品号里、本地订单表**已经有**的那些（增量同步的停点判据）。
 
-    终态订单的交易页不会再变，重读一遍纯属浪费——一件就是一次页面加载加两秒半等待。
-    终态集合直接取 ``OrderModel._STATUSES_SKIP_BATCH_INFO``：「更新状态」跳过哪些订单、
-    这里就认哪些不必再读，两处各写一份迟早会各改各的。
-
-    「待评价 → 已完成」这一步交给通知同步（``notifications/order_completion.py``），
-    所以订单一旦成交完成就会落进这个集合，不再需要靠重读交易页发现。
+    与煤炉 ``sync_new_data`` 同口径：只按 ``order_no`` 判在不在库里，不限平台也不限卖家——
+    煤炉的 ``m…`` 与雅虎的 ``z…`` 天然不撞号，多加条件只会在 platform 为空的旧行上误判成
+    「没有」，于是每次同步都把同一批老订单重读一遍。
     """
-    from ...db_manage.database import DatabaseManager
-    from ...db_manage.models.orders.order.model import OrderModel
+    ids = [str(x).strip() for x in order_nos if str(x or "").strip()]
+    if not ids:
+        return set()
 
-    settled = OrderModel._STATUSES_SKIP_BATCH_INFO
-    placeholders = ",".join(["?"] * len(settled))
+    from ...db_manage.database import DatabaseManager
+
+    placeholders = ",".join(["?"] * len(ids))
     rows = DatabaseManager().execute_query(
-        f"SELECT [order_no] FROM [orders] "
-        f"WHERE TRIM(IFNULL([platform], '')) = 'yahoo' "
-        f"AND [status] IN ({placeholders})",
-        tuple(settled),
+        f"SELECT [order_no] FROM [orders] WHERE TRIM([order_no]) IN ({placeholders})",
+        tuple(ids),
     ) or []
     return {str(r[0]).strip() for r in rows if r and r[0]}
 
@@ -216,22 +218,38 @@ async def sync_yahoo_orders(
     account_id: int,
     progress_job_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """抓雅虎已售商品与各自交易页，写入 ``orders``。"""
+    """订单页「更新列表」的雅虎实现：**增量**抓已售商品，只对新成交读交易页并入库。
+
+    已售列表倒序翻页到「本地已有的第一条订单」为止，之后的既不读页也不重写；
+    已入库订单的状态变化归「更新状态」与受取評価通知（见模块 docstring）。
+    """
     from ...use_mercari.get_order.description_mgmt_ids import sync_outbound_lines_for_order
     from ...use_mercari.get_order.get_in_progress_order.get_order_list import _upsert_order
     from ...use_mercari.sync.sync_progress import make_sync_reporter
+    from ..seller import resolve_yahoo_seller_id
 
     aid = int(account_id)
     report = make_sync_reporter(progress_job_id)
     stats: Dict[str, Any] = {
         "account_id": aid, "platform": "yahoo",
         "sold_count": 0, "inserted": 0, "updated": 0, "skipped": 0,
-        "skipped_settled": 0,
+        # 增量停点：扫到的第一条「本地已有」的订单号。None = 一路翻到底（首次同步、
+        # 或本地该卖家一条订单都没有），此时才会发生一次性的全量导入。
+        "watermark_order_no": None,
+        "pages_scanned": 0,
+        "pending_new": 0,
         "inserted_order_nos": [],
         "errors": [],
     }
 
-    from ..seller import resolve_yahoo_seller_id
+    # 「待评价 → 已完成」由受取評価通知驱动：纯库内回写、不开页面，也不受增量停点影响。
+    # 它是已入库订单唯一不用读交易页就能推进的状态，顺手跑一次（通知同步里也会跑）。
+    try:
+        from ..notifications.order_completion import apply_yahoo_receipt_notices
+
+        stats["order_completion"] = apply_yahoo_receipt_notices()
+    except Exception as exc:  # noqa: BLE001 回写失败不影响订单同步本身
+        log.warning("[yahoo_orders] 受取評価通知回写订单失败：%s", exc)
 
     seller_key = await resolve_yahoo_seller_id(aid)
     report("open_browser", "正在打开雅虎已售商品列表…")
@@ -243,9 +261,13 @@ async def sync_yahoo_orders(
             pass
         await page.wait_for_timeout(1500)
 
-        # 已售列表也是分页的（页脚显示「1~20件/N件」），逐页翻到没有新商品为止
-        cards: List[Dict[str, Any]] = []
+        # 已售列表（取引中 + 取引完了）按成交时间倒序分页（页脚「1~20件/N件」）。
+        # 与煤炉「更新列表」同口径：逐页往下翻，**撞上本地订单表里已经有的那一条就停**——
+        # 它往后全是更早的成交，既不必读交易页也不该重写。只有库里一条都没有（首次同步）
+        # 才会一直翻到底。
+        pending: List[Dict[str, Any]] = []
         seen_ids: set = set()
+        pages_scanned = 0
         for page_no in range(1, _MAX_SOLD_PAGES + 1):
             if page_no > 1:
                 await page.goto(f"{SOLD_URL}?page={page_no}",
@@ -255,37 +277,36 @@ async def sync_yahoo_orders(
                 except Exception:
                     pass
                 await page.wait_for_timeout(1200)
+            pages_scanned = page_no
             batch = await page.evaluate(_SOLD_CARDS_JS) or []
             fresh = [c for c in batch
                      if str(c.get("id") or "").strip()
                      and str(c.get("id")).strip() not in seen_ids]
             for c in fresh:
                 seen_ids.add(str(c["id"]).strip())
-            cards.extend(fresh)
-            log.info("[yahoo_orders] 已售第 %d 页新增 %d 件（累计 %d）",
-                     page_no, len(fresh), len(cards))
             if not fresh:  # 这一页没带来新商品（含 ?page= 被忽略的情况）→ 收工
                 break
-        stats["sold_count"] = len(cards)
-
-        # 先把已到的「受取評価」通知落成订单完成状态，再据此决定哪些交易页可以不读
-        try:
-            from ..notifications.order_completion import apply_yahoo_receipt_notices
-
-            stats["order_completion"] = apply_yahoo_receipt_notices()
-        except Exception as exc:  # noqa: BLE001 回写失败只是少跳过几件，不影响同步
-            log.warning("[yahoo_orders] 受取評価通知回写订单失败：%s", exc)
-
-        settled = _settled_order_nos()
-        pending = [c for c in cards
-                   if str(c.get("id") or "").strip()
-                   and str(c.get("id")).strip() not in settled]
-        stats["skipped_settled"] = len(cards) - len(pending)
-        if stats["skipped_settled"]:
-            log.info("[yahoo_orders] 已售 %d 件，其中 %d 件本地已结清，跳过交易页",
-                     len(cards), stats["skipped_settled"])
+            known = _existing_order_nos([str(c["id"]).strip() for c in fresh])
+            pending.extend(c for c in fresh if str(c["id"]).strip() not in known)
+            log.info(
+                "[yahoo_orders] 已售第 %d 页 %d 件：本地已有 %d、待入库 %d（累计待入库 %d）",
+                page_no, len(fresh), len(known), len(fresh) - len(known), len(pending),
+            )
+            if known:
+                # 水位线到了：本页余下与后续各页都是更早的成交，不再翻页。
+                # 本页里排在它之后的未知卡片上面已经收下了——同一页内白捡的余量，
+                # 不为它多翻一页。
+                stats["watermark_order_no"] = next(
+                    (i for i in (str(c["id"]).strip() for c in fresh) if i in known), None
+                )
+                break
+        stats["sold_count"] = len(seen_ids)
+        stats["pages_scanned"] = pages_scanned
+        stats["pending_new"] = len(pending)
         if not pending:
-            report("no_pending", f"已售 {len(cards)} 件均已结清，无需读取交易详情。")
+            report("no_pending", f"已扫描 {len(seen_ids)} 件已售商品，没有新订单。")
+        else:
+            report("trade_detail", f"发现 {len(pending)} 笔新订单，开始读取交易详情…")
 
         for idx, card in enumerate(pending, 1):
             iid = str(card.get("id") or "").strip()
@@ -373,7 +394,13 @@ async def sync_yahoo_orders(
         log.warning("[yahoo_orders] 売上履歴回填失败：%s", exc)
         stats["sales_history"] = {"error": str(exc)[:200]}
 
-    report("done", f"雅虎订单同步完成：新增 {stats['inserted']}、更新 {stats['updated']}")
+    report(
+        "done",
+        (
+            f"雅虎更新列表完成：扫描 {stats['sold_count']} 件已售，"
+            f"新增 {stats['inserted']} 笔订单"
+        ),
+    )
     return stats
 
 
@@ -383,6 +410,7 @@ async def refresh_yahoo_order(account_id: int, order_no: str) -> Dict[str, Any]:
     商品标题/缩略图沿用已有订单行——交易页上没有列表卡片那份信息。
     """
     from ...db_manage.models.orders.order.model import OrderModel
+    from ...use_mercari.get_order.description_mgmt_ids import sync_outbound_lines_for_order
     from ...use_mercari.get_order.get_in_progress_order.get_order_list import _upsert_order
     from ..seller import resolve_yahoo_seller_id
 
@@ -429,4 +457,11 @@ async def refresh_yahoo_order(account_id: int, order_no: str) -> Dict[str, Any]:
         "tracking_no": parsed.get("tracking_no"),
     }
     outcome = _upsert_order(order)
+    # 「更新列表」只处理新订单之后，已入库订单补绑出库行只剩这一条路了（煤炉那边
+    # ``apply_item_info_to_order`` 每次回填后同样做这件事）。已绑过的由 skip_if_has_lines 跳过。
+    if description:
+        try:
+            sync_outbound_lines_for_order(iid, description, skip_if_has_lines=True)
+        except Exception as exc:  # noqa: BLE001 绑定失败不该让刷新整体失败
+            log.warning("[yahoo_orders] %s 出库行同步失败：%s", iid, exc)
     return {"platform": "yahoo", "order_no": iid, "outcome": outcome, "status": parsed["status"]}

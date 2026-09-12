@@ -14,6 +14,10 @@
 9 条样本上见过，雅虎哪天拿它表示别的意思无从得知；措辞则是雅虎显示给卖家的原文。并且要求
 「受取評価」与「取引完了」两处同时出现——宁可漏判（订单留在待评价，「更新状态」按钮照样
 能纠正），也不能把别的通知错认成交易完成：订单状态会驱动出库与结算，认错比漏判严重得多。
+
+这条通知同时是**刷新订单的时机**：雅虎不推订单状态，成交完成唯一的即时信号就是它。
+所以通知同步每拉到一条**新的**完成通知，就把对应订单的交易页重读一遍
+（``refresh_orders_for_completion``，等同订单行的「刷新」）——而不是拿定时全量扫库去撞。
 """
 from __future__ import annotations
 
@@ -78,6 +82,71 @@ def completed_item_ids() -> Dict[str, Optional[int]]:
                 out[item_id] = created
         else:
             out[item_id] = created
+    return out
+
+
+def is_completion_notice(notice: Dict[str, Any]) -> bool:
+    """接口返回的这条**原始**通知是不是「买家已受取评价、交易完成」。
+
+    判据与落库后的 :func:`completed_item_ids` 完全一致（title / content 两处措辞同时命中），
+    只是作用在还没入库的 JSON 上——通知同步要据此挑出「本次新到」的完成通知。
+    """
+    return _is_completion_text(
+        "\n".join([str(notice.get("title") or ""), str(notice.get("content") or "")])
+    )
+
+
+def pending_orders_for_completion(item_ids: List[str]) -> List[str]:
+    """这些商品号里、本地订单**存在且尚未结清**的那些（去重保序）。
+
+    两种都不刷：
+
+    - 订单还没同步进来——通知比订单同步先到是常态，订单同步会把它带进来，而且带进来时
+      读的就是最新的交易页，这里再开一次页面纯属浪费；
+    - 订单本地已是终态——没什么可刷的。
+
+    **必须在** :func:`apply_yahoo_receipt_notices` **之前调用**：那一步会把这批订单直接置为
+    ``done``，之后再按「是否已结清」筛就一个都不剩了。
+    """
+    from ...db_manage.models.orders.order.model import OrderModel
+
+    settled = set(OrderModel._STATUSES_SKIP_BATCH_INFO)
+    out: List[str] = []
+    seen: set = set()
+    for raw_id in item_ids:
+        order_no = str(raw_id or "").strip()
+        if not order_no or order_no in seen:
+            continue
+        seen.add(order_no)
+        rows = OrderModel.find_all(where="[order_no] = ?", params=(order_no,), limit=1)
+        if not rows:
+            continue
+        if str(getattr(rows[0], "status", "") or "") in settled:
+            continue
+        out.append(order_no)
+    return out
+
+
+async def refresh_orders_for_completion(
+    account_id: int, order_nos: List[str]
+) -> Dict[str, Any]:
+    """逐条重读这些订单的交易页（与订单列表每行的「刷新」同一个函数）。
+
+    单笔失败只记进 ``failed``：通知已经把状态置为 ``done`` 了，刷新是锦上添花
+    （拿运单号/配送方式/最终金额，顺带补绑出库行），不该反过来让通知同步失败。
+    """
+    from ..orders.sold_sync import refresh_yahoo_order
+
+    out: Dict[str, Any] = {"total": len(order_nos), "ok": 0, "failed": []}
+    for order_no in order_nos:
+        try:
+            await refresh_yahoo_order(int(account_id), order_no)
+            out["ok"] += 1
+        except Exception as exc:  # noqa: BLE001 单笔失败不影响其余
+            out["failed"].append({"order_no": order_no, "error": str(exc)[:200]})
+            log.warning("[yahoo_notices] 取引完了通知刷新订单 %s 失败：%s", order_no, exc)
+    if out["ok"]:
+        log.info("[yahoo_notices] 取引完了通知 → 刷新 %d 笔订单交易页", out["ok"])
     return out
 
 

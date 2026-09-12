@@ -454,6 +454,15 @@ soft-delete, inventory counters and order upsert semantics stay identical across
   page (the line above the 成交价 / 売上履歴を見る block), so single-row 刷新 can correct it without
   the list. `thumbnails` must be stored as a **JSON array string** (`["https://…"]`) like Mercari's —
   the orders table `JSON.parse`s it and renders a bare URL as no image.
+  **「更新列表」is incremental, same 口径 as Mercari's `sync_new_data`**: the sold list (取引中 +
+  取引完了) is paged newest-first and the crawl **stops at the first card already present in
+  `orders`** — everything below it is older and is neither re-read nor rewritten. Only cards the
+  local table doesn't have get a trade-page visit, so a sync costs one page load per *new* sale
+  instead of one per open trade. Unknown cards sitting *after* the watermark on that same page are
+  still collected (free — no extra page load), but the crawl never pages past it. With an empty
+  `orders` table there is no watermark and it pages to the end: that one-time full import is the
+  only way in, since Yahoo has no equivalent of Mercari's separate 「获取历史数据」. Existing rows
+  are refreshed by 「更新状态」 (`batch_refresh.py`) and by the 取引完了 notice — never here.
 - `use_yahoo/item_page.py` — reads a listing's description from the **public** item page. The order
   → inventory binding needs the mgmt cipher in the description, normally taken from
   `on_sale_items.listing_description`; but an item that sold before its first on-sale sync has no
@@ -671,7 +680,17 @@ soft-delete, inventory counters and order upsert semantics stay identical across
   `transaction_evidences` batch would pick up `z…` orders and open Mercari transaction pages that
   don't exist. With no account specified the endpoint runs **both** platforms and merges the stats.
 - `use_yahoo/notifications/notice_sync.py` — `GET /api/v1/notices/personal`, same JSON shape and
-  same `Yahoo*` kind policy as todos.
+  same `Yahoo*` kind policy as todos. It is also **the trigger for refreshing a Yahoo order**:
+  Yahoo pushes no order-status events, so the 「取引完了 / 購入者が受取評価しました」 notice is the
+  only prompt signal that a trade finished. A notice that is **newly `inserted`** (never `updated` —
+  the API returns the full list every time, so keying on `updated` would re-read every old order on
+  every tick) makes the sync re-read that order's trade page via `refresh_yahoo_order`, i.e. exactly
+  the orders-list per-row 刷新. **The refresh set must be computed *before*
+  `apply_yahoo_receipt_notices()` runs** (`pending_orders_for_completion`): that call flips the very
+  same orders to `done`, so filtering "not settled yet" afterwards selects nothing and the refresh
+  silently becomes a no-op. Both steps are kept because they give different things — the notice
+  supplies `completed_at` (the trade page has no buyer-review timestamp), the page visit supplies
+  the final 配送方法/運送番号/金額 and re-binds the outbound lines.
 - `use_yahoo/orders/sales_history.py` — 販売手数料/送料/到手金額 live on a **different domain**,
   `salesmanagement.yahoo.co.jp/list` (shared Yahoo sales ledger, same login cookies). The 内訳
   `dl/dt/dd` is in the DOM even while collapsed, so no clicking. Runs at the end of order sync.
