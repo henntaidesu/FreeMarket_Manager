@@ -241,7 +241,10 @@ const handler = async (req, res) => {
 
     // 6) 解析上游目标（先剥离 BASE 前缀）；上游站点由 __mp_site Cookie 决定
     const site = siteOf(req);
-    let rel = BASE && path.startsWith(BASE) ? path.slice(BASE.length) : path;
+    // 只有恰好等于 BASE、或落在 BASE/ 之下，才剥前缀。光用 startsWith 会把 /mpfoo 切成
+    // "foo"，进而拼出 https://jp.mercari.comfoo 这种畸形上游地址。
+    let rel =
+      BASE && (path === BASE || path.startsWith(BASE + "/")) ? path.slice(BASE.length) : path;
     if (rel === "") rel = "/";
     const { upstreamHost, upstreamPath } = resolveTarget(rel, site);
     const upstreamUrl = `https://${upstreamHost}${upstreamPath}${reqUrl.search}`;
@@ -449,7 +452,10 @@ server.on("upgrade", (req, clientSock, head) => {
   if (!isAllowedClient(req)) return clientSock.destroy();
   // WebSocket 同样要票：漏掉这里就等于给未授权访客留了一条绕开 HTTP 闸门的通道。
   if (!verifySession(req)) return clientSock.destroy();
-  const wsPath = BASE && req.url.startsWith(BASE) ? req.url.slice(BASE.length) : req.url;
+  const wsPath =
+    BASE && (req.url === BASE || req.url.startsWith(BASE + "/"))
+      ? req.url.slice(BASE.length)
+      : req.url;
   const m = wsPath.match(/^\/__pws__\/([^/]+)(\/.*)?$/);
   if (!m) return clientSock.destroy();
   const host = m[1];

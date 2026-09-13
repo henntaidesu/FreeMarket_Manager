@@ -959,6 +959,19 @@ Three self-contained features that are easy to miss because nothing else depends
   `server` block, see `deploy/nginx-fmm.conf.example` — but HTTPS-only: the ticket and the
   marketplace cookies rely entirely on the transport for confidentiality. The self-signed cert still
   matters for direct LAN access, where nothing else supplies a secure context.
+  `MERCARI_PROXY_BASE_PATH` mounts the proxy under a subpath (`/mp`) of an existing origin instead,
+  for deployments that cannot add a second `server_name`. It has to be an env var rather than a
+  system-config row because `start_proxy()` runs **before** `init_database()`, and it must match the
+  nginx `location` prefix verbatim (`proxy_pass` must not rewrite the URI, or the prefix the Node
+  side is waiting for gets eaten). `boot_path()` prepends it — the 「Cookie 注入域名」 row stays
+  origin-only, and a path typed there is rejected with a message naming the env var. **Mounting on
+  the SPA's own origin gives up the isolation the separate hostname exists for**: the proxy strips
+  upstream CSP and injects a fetch/XHR-hijacking script, so marketplace JS — including
+  attacker-controlled text such as buyer messages — becomes same-origin with the SPA and can read
+  `localStorage.auth_token`, which never expires while `JWT_EXPIRE_HOURS=0`. `Path=/mp` on the
+  rewritten upstream cookies does not help; Path has never been a security boundary. Note a second
+  `server_name` costs **no extra open port** (nginx splits on the Host header on the same `listen`),
+  so "only one port is exposed" is not a reason to choose the subpath.
 
 ## Environment Variables
 
@@ -983,6 +996,11 @@ lets the user choose SQLite/MySQL, test the MySQL connection, and switch backend
   `MERCARI_SSL_*` / `MERCARI_FORCE_HTTP` variables; the frozen build no longer generates a self-signed cert.
 - `MERCARI_AUTO_FETCH` / `MERCARI_AUTO_FETCH_TICK_SEC` / `MERCARI_AUTO_FETCH_INITIAL_DELAY_SEC`: Background sync loop toggle & cadence (first run is deliberately delayed ~180s to avoid contending with startup).
 - `MERCARI_PROXY_AUTO_START` / `MERCARI_PROXY_PORT` / `MERCARI_PROXY_BIND_HOST` (default `0.0.0.0`) / `MERCARI_PROXY_ALLOW_LAN` (set `0` = this machine only) / `MERCARI_PROXY_UPSTREAM` / `MERCARI_PROXY_CERT_DIR`: Node reverse proxy (see Auxiliary Subsystems).
+- `MERCARI_PROXY_BASE_PATH` (default empty = root mount): mount the proxy under a subpath such as
+  `/mp` so it can share an existing hostname **and port** with the SPA. Must match the nginx
+  `location` prefix exactly. An unparsable value falls back to a root mount with a warning rather
+  than handing the Node process a malformed prefix. Read the isolation caveat in Auxiliary
+  Subsystems before using it.
 - `MERCARI_PROXY_SESSION_TTL_SEC` (default **and hard cap** 3600): lifetime of the Cookie 注入
   session ticket, i.e. the longest a browser can hold a usable door into a marketplace login.
   Absolute — never renewed or slid forward — so the user re-clicks Cookie 注入 when it lapses.

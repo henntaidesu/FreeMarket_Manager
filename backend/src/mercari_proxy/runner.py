@@ -2,7 +2,9 @@
 """mercari-proxy（Node 反代）子进程生命周期 + Cookie 注入。
 
 源自 github.com/Gosoki/mercari-proxy，改造为后端托管的子进程，随系统启停。
-- 独立 HTTPS 端口、根挂载（与原项目设计一致，SPA 导航/刷新/前进后退均正常）；
+- 独立 HTTPS 端口，默认根挂载（与原项目设计一致，SPA 导航/刷新/前进后退均正常）；
+  ``MERCARI_PROXY_BASE_PATH`` 可改为子路径挂载（如 ``/mp``），把代理经 nginx 收进
+  SPA 的同一个域名 + 端口之下——代价见 :func:`base_path`；
 - 默认监听 0.0.0.0:<MERCARI_PROXY_PORT>（默认 9610），但 server.js 只放行环回 +
   私有网段（``MERCARI_PROXY_ALLOW_LAN=0`` 可收回成仅本机），公网来源一律 403；
 - 自签证书使浏览器处于安全上下文（DPoP 所需），用户首次访问点「继续」即可；
@@ -16,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -46,6 +49,37 @@ def bind_host() -> str:
 
 def proxy_scheme() -> str:
     return _scheme
+
+
+#: 合法的子路径前缀：一段或多段 /xxx，不含查询串、空格等
+_BASE_PATH_RE = re.compile(r"^(?:/[A-Za-z0-9._~-]+)+$")
+
+
+def base_path() -> str:
+    """代理挂载的子路径前缀（如 ``/mp``）；默认空串 = 根挂载。
+
+    **只能是环境变量，不能做成系统配置页的库项**：lifecycle 在 ``init_database()``
+    之前就启动本代理（见 CLAUDE.md「Startup Sequence」），那一刻根本读不到库。它本来
+    也属于部署层设置——这个值必须和 nginx 的 ``location`` 前缀逐字一致，从 UI 改只会
+    把部署改坏而 nginx 毫不知情。
+
+    取值非法时退回根挂载并告警，而不是把畸形前缀塞给 Node：后者会让每个请求都拼出
+    畸形的上游地址，且错误只出现在浏览器里，日志中一片干净。
+
+    ⚠ 挂到 SPA 自己的源下**就放弃了独立域名换来的源隔离**：代理会剥掉上游的 CSP 并注入
+    劫持 fetch/XHR 的脚本，于是市集页面的 JS（含买家留言这类攻击者可控文本）与 SPA 同源，
+    能直接读走 ``localStorage`` 里的 auth_token。``JWT_EXPIRE_HOURS=0`` 时那个令牌永不
+    过期，务必改成正数。上游 Cookie 虽已被收敛到 ``Path=<前缀>``，但 Path 从来不是安全边界。
+    """
+    raw = (os.environ.get("MERCARI_PROXY_BASE_PATH") or "").strip().rstrip("/")
+    if not raw:
+        return ""
+    if not raw.startswith("/"):
+        raw = "/" + raw
+    if not _BASE_PATH_RE.match(raw):
+        log.warning("MERCARI_PROXY_BASE_PATH 取值非法，按根挂载处理: %r", raw)
+        return ""
+    return raw
 
 
 #: 注入会话票据有效期的硬上限（秒）。不是建议值——超过这个数的配置会被直接钳下来。
@@ -108,8 +142,12 @@ def server_js_path() -> str:
 
 
 def boot_path(token: str) -> str:
-    """根挂载下的引导地址路径（前端结合 scheme/port + 当前主机名拼成完整 URL）。"""
-    return f"/__boot?token={token}"
+    """引导地址路径，**含子路径前缀**（前端结合 scheme + 主机名[:端口] 拼成完整 URL）。
+
+    前缀必须在这里加上：对外基址那一项只存到域名为止，前端也只负责拼主机部分，
+    漏掉前缀就会把 /__boot 打到 SPA 的路由兜底上，浏览器只得到一个空白页。
+    """
+    return f"{base_path()}/__boot?token={token}"
 
 
 def _ensure_secret() -> str:
@@ -166,6 +204,7 @@ def proxy_status() -> Dict[str, Any]:
         "running": is_running(),
         "port": proxy_port(),
         "scheme": proxy_scheme(),
+        "base_path": base_path(),
         "upstream": proxy_upstream(),
         "node_available": bool(_node_executable()),
     }
@@ -189,7 +228,7 @@ def start_proxy() -> Dict[str, Any]:
     env = os.environ.copy()
     env["PORT"] = str(port)
     env["BIND_HOST"] = host
-    env["BASE_PATH"] = ""  # 根挂载
+    env["BASE_PATH"] = base_path()  # 空串 = 根挂载
     env["UPSTREAM"] = proxy_upstream()
     env["MERCARI_PROXY_INTERNAL_SECRET"] = _ensure_secret()
     env["MERCARI_PROXY_SESSION_TTL_SEC"] = str(session_ttl_sec())

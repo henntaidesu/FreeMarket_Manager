@@ -192,6 +192,49 @@ server {
 }
 
 # ─────────────────────────────────────────────────────────────────────
+# 变体：不另开域名，把代理收进 SPA 的同一个域名 + 端口（子路径挂载）
+# ─────────────────────────────────────────────────────────────────────
+# 只在确实无法为代理准备第二个 server_name 时用它。注意 server_name 是在**同一个
+# listen 上**按 Host 头分流的，加一个二级域名并不会多开端口、不用动防火墙——所以
+# 「不想多开端口」不是选这条路的理由，「加不了 DNS 记录」才是。
+#
+# ⚠ 这样做**放弃了独立域名换来的源隔离**：
+#   代理会剥掉上游的 CSP / X-Frame-Options，并往页面里注入劫持 fetch/XHR 的脚本，
+#   于是煤炉/雅虎的 JS —— 包括买家留言这类**攻击者可控的文本** —— 与 SPA 同源，
+#   可以直接 localStorage.getItem('auth_token') 读走管理员令牌，再以你的身份调本系统
+#   的 API。上游 Cookie 那边 server.js 已收敛到 Path=/mp，但 Path 从来不是安全边界，
+#   挡不住同源脚本。
+#   ⇒ 选它就务必把 JWT_EXPIRE_HOURS 设成正数，缩短令牌被盗后的可用窗口。
+#
+# 后端侧（写进 start.bat 或服务定义）：
+#   set MERCARI_PROXY_BASE_PATH=/mp     ← 必须与下面的 location 前缀逐字一致
+# 系统配置 → Cookie 注入域名：
+#   https://freemm.makurochan.com       ← 只填到域名，**不要**带 /mp，后端会自己接上
+#
+# 然后把下面两段放进 freemm.makurochan.com 那个 server 里：
+#
+#   # nginx 前缀 location 是「最长匹配优先」，与书写顺序无关，所以它天然排在
+#   # location / 的 try_files 兜底之前。现在 /__boot 返回空白页，正是因为没有这一段，
+#   # 请求被那条 SPA 兜底吞掉、返回了 index.html。
+#   location /mp/ {
+#       # 千万不要写成 proxy_pass https://10.0.10.10:9610/; —— 尾部那个 / 会把 /mp
+#       # 前缀吃掉，而 Node 侧 BASE_PATH=/mp 正等着看到它，结果每个请求都对不上。
+#       proxy_pass            https://10.0.10.10:9610;
+#       proxy_ssl_verify      off;
+#       proxy_set_header Host              $host;
+#       proxy_set_header X-Real-IP         $remote_addr;
+#       proxy_set_header X-Forwarded-Proto $scheme;
+#       proxy_http_version 1.1;
+#       proxy_set_header Upgrade    $http_upgrade;
+#       proxy_set_header Connection $connection_upgrade;
+#       proxy_read_timeout 300s;
+#   }
+#   location = /mp { return 301 /mp/; }
+#
+# 这一段落在 SPA 那个 server 的 auth_basic 之内，nginx 侧认证自动覆盖，无需重复配置。
+
+
+# ─────────────────────────────────────────────────────────────────────
 # /etc/nginx/fmm_proxy.conf —— 上面三个 location 共用
 # ─────────────────────────────────────────────────────────────────────
 #   proxy_http_version 1.1;

@@ -133,8 +133,18 @@ def _normalize_public_base(raw: Optional[str]) -> str:
     if not u.netloc:
         raise HTTPException(status_code=400, detail="地址缺少域名")
     if u.path or u.query or u.fragment:
+        # 子路径挂载时用户很自然会想把 /mp 填进来，但前缀是由后端按环境变量自己接上的
+        # （boot_path()），填在这里只会变成 /mp/mp/__boot。报错里直接把当前值告诉他。
+        from ....mercari_proxy.runner import base_path
+
+        bp = base_path()
         raise HTTPException(
-            status_code=400, detail="只填协议和域名（可带端口），不要带路径或参数"
+            status_code=400,
+            detail=(
+                "只填协议和域名（可带端口），不要带路径或参数。子路径挂载由环境变量 "
+                f"MERCARI_PROXY_BASE_PATH 决定（当前：{bp or '未设置 = 根挂载'}），"
+                "后端会自动接在这个基址后面。"
+            ),
         )
     return f"{u.scheme}://{u.netloc}"
 
