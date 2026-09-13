@@ -923,7 +923,25 @@ Three self-contained features that are easy to miss because nothing else depends
   another machine hits the proxy at the server's LAN IP. It therefore binds `0.0.0.0` and does the
   filtering in `server.js::isAllowedClient`: loopback + RFC1918/link-local/IPv6-ULA pass, **public
   sources 403** (`MERCARI_PROXY_ALLOW_LAN=0` narrows it back to this machine only). `/__inject` stays
-  loopback-only on top of its `x-internal-secret`. Binding to loopback while the frontend points at a
+  loopback-only on top of its `x-internal-secret`.
+  **`isAllowedClient` stops being a defence the moment the proxy is published through nginx** — the
+  peer is then always nginx's LAN address, so it passes for every public visitor, and
+  `MERCARI_PROXY_ALLOW_LAN=0` cannot help (it would block nginx itself). What gates a public
+  deployment is the **injection session ticket**: `/__boot` swaps the one-time token — obtainable
+  only by a user authenticated to *this* system — for an HMAC-signed `__mp_sess` cookie, and every
+  other path (including `/__p/` and the `/__pws__/` WebSocket upgrade) 403s without it. The ticket
+  **expires absolutely**: never renewed, never slid forward, capped at 1 hour
+  (`MERCARI_PROXY_SESSION_TTL_SEC`; `runner.session_ttl_sec()` is the single 口径 and pushes the
+  resolved value into the Node process). It is signed with `INTERNAL_SECRET`, so a backend restart
+  also invalidates every outstanding ticket. Three things ride along with that gate, each
+  load-bearing: CORS now echoes **only the proxy's own origin** — reflecting an arbitrary `Origin`
+  next to `allow-credentials` handed every site on the internet read access to a logged-in
+  marketplace session; `__mp_sess`/`__mp_site` are **stripped from the Cookie header before
+  forwarding upstream**, so our own ticket never reaches Mercari; and `Secure` on both the injected
+  and the rewritten upstream cookies is decided by `reqScheme(req)` (`X-Forwarded-Proto` first, the
+  process's own scheme as fallback), because a TLS-terminating nginx leaves the Node hop plaintext
+  while the browser is still on https — get that backwards and the browser silently drops every
+  `__Secure-`/`__Host-` cookie, which looks exactly like "injected N cookies but still logged out". Binding to loopback while the frontend points at a
   LAN IP was the original bug: the tab just failed to connect, with nothing in any log.
   **Binding `0.0.0.0` costs a startup check that a loopback bind gave for free.** Windows lets
   `0.0.0.0:P` coexist with an existing `127.0.0.1:P`, and routes each connection to the most specific
@@ -937,7 +955,10 @@ Three self-contained features that are easy to miss because nothing else depends
   The self-signed cert already carries every local IPv4 in its SAN (`cert.py::_local_ips`), but it is
   generated **once** — if the host's IP later changes the browser shows a name-mismatch interstitial
   that has to be clicked through, or delete `backend/data/mercari_proxy/cert.pem`+`key.pem` to
-  regenerate. Accessing over a **public** hostname (nginx/domain) is not supported by this feature.
+  regenerate. Publishing over a **public** hostname *is* supported — nginx terminates TLS on its own
+  `server` block, see `deploy/nginx-fmm.conf.example` — but HTTPS-only: the ticket and the
+  marketplace cookies rely entirely on the transport for confidentiality. The self-signed cert still
+  matters for direct LAN access, where nothing else supplies a secure context.
 
 ## Environment Variables
 
@@ -962,6 +983,10 @@ lets the user choose SQLite/MySQL, test the MySQL connection, and switch backend
   `MERCARI_SSL_*` / `MERCARI_FORCE_HTTP` variables; the frozen build no longer generates a self-signed cert.
 - `MERCARI_AUTO_FETCH` / `MERCARI_AUTO_FETCH_TICK_SEC` / `MERCARI_AUTO_FETCH_INITIAL_DELAY_SEC`: Background sync loop toggle & cadence (first run is deliberately delayed ~180s to avoid contending with startup).
 - `MERCARI_PROXY_AUTO_START` / `MERCARI_PROXY_PORT` / `MERCARI_PROXY_BIND_HOST` (default `0.0.0.0`) / `MERCARI_PROXY_ALLOW_LAN` (set `0` = this machine only) / `MERCARI_PROXY_UPSTREAM` / `MERCARI_PROXY_CERT_DIR`: Node reverse proxy (see Auxiliary Subsystems).
+- `MERCARI_PROXY_SESSION_TTL_SEC` (default **and hard cap** 3600): lifetime of the Cookie 注入
+  session ticket, i.e. the longest a browser can hold a usable door into a marketplace login.
+  Absolute — never renewed or slid forward — so the user re-clicks Cookie 注入 when it lapses.
+  A larger value is clamped down rather than honoured.
 - `IMAGE_SEARCH_AUTO_INDEX` / `IMAGE_SEARCH_MODEL_URL` / `IMAGE_SEARCH_THREADS`: CLIP image-search indexing.
 - `MEMORY_RECYCLE_AUTO` / `MEMORY_RECYCLE_INTERVAL_SEC` / `MEMORY_RECYCLE_MIN_RSS_MB` / `MEMORY_RECYCLE_INITIAL_DELAY_SEC`: Periodic RSS trimming (`memory_recycle.py`) — this app runs for days with a browser attached.
 - `PUBLIC_RATE_LIMIT` / `PUBLIC_RATE_LIMIT_BURST` (120) / `PUBLIC_RATE_LIMIT_RPS` (20): per-IP token

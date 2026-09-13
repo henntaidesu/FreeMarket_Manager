@@ -8,6 +8,7 @@ from .runner import (
     proxy_scheme,
     proxy_status,
     register_injection,
+    session_ttl_sec,
     start_proxy,
     stop_proxy,
 )
@@ -20,6 +21,7 @@ __all__ = [
     "proxy_scheme",
     "proxy_status",
     "register_injection",
+    "session_ttl_sec",
     "start_proxy",
     "stop_proxy",
 ]

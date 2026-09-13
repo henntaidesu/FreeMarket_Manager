@@ -1650,3 +1650,116 @@
 .ship-virtual-hint {
   margin-bottom: 12px;
 }
+
+/* ═══ 手机端：两个弹窗（交易详情 / 发货向导）的内部版式 ═══
+   弹窗外壳（94vw、高度封顶、body 内部滚动）已由 App.vue 的全站手机块和
+   style.global.css 处理；这里只管壳子**里面**——这些块全是按 1080/820px 两栏排的，
+   壳子一压到 ~350px 就并排挤成两条窄柱。断点 768px，与全站 isMobile 同一口径。
+
+   注意这些规则能写在 scoped 文件里：弹窗虽被 teleport 到 body，但模板里的元素
+   本身带作用域属性，`.detail-body[data-v-x]` 照常命中；只有 Element 自己渲染的
+   .el-dialog 根节点没有，那部分才必须放 style.global.css。 */
+@media (max-width: 768px) {
+  /* ── 交易详情：左右两栏改上下 ── */
+  .detail-header {
+    flex-wrap: wrap;
+  }
+  /* 高度不再由 detail-body 自己封顶，交给弹窗 body 整体滚动，
+     否则会在弹窗滚动条里再套一条栏内滚动条 */
+  .detail-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+    gap: 12px;
+    min-height: 0;
+    max-height: none;
+    overflow: visible;
+  }
+  .detail-col-left {
+    overflow: visible;
+    padding-right: 0;
+  }
+  .detail-col-right {
+    height: auto;
+  }
+  /* 消息列表放开高度会把下面的回复框顶到很深的地方，仍按可见高度封顶 */
+  .detail-messages {
+    max-height: calc(46 * var(--app-vh));
+  }
+  /* 关联商品列表同理：桌面固定 250px 在窄屏上短列表留白、长列表又太挤 */
+  .detail-inv-list {
+    height: auto;
+    max-height: calc(38 * var(--app-vh));
+  }
+  /* 6 列缩到 ~43px 宽却仍是 72px 高，成了一排竖条 */
+  .detail-inv-images {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  /* 标题右上角的操作按钮（打印发货码 / 确认发送）挤不进标题行 */
+  .detail-section-head {
+    flex-wrap: wrap;
+  }
+  .detail-section-head-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  /* 发货方式（图标+名称）与 2~3 颗按钮同行放不下：按钮整体换行并等分一行。
+     子元素既可能是 el-button，也可能是 el-tooltip 包的 span，所以用 > * */
+  .detail-method-row {
+    flex-wrap: wrap;
+  }
+  .detail-method-row .detail-shipping-actions {
+    margin-left: 0;
+  }
+  .detail-shipping-actions {
+    width: 100%;
+  }
+  .detail-shipping-actions > * {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .detail-shipping-actions :deep(.el-button) {
+    width: 100%;
+  }
+
+  /* ── 发货向导 ── */
+  .ship-flow-steps {
+    margin-bottom: 12px;
+  }
+  .ship-flow-steps :deep(.el-step__title) {
+    font-size: 12px;
+    line-height: 1.3;
+  }
+  /* 桌面用它给三页一个统一下限，窄屏上只会在短页底部留一大片空白 */
+  .ship-flow-body {
+    min-height: 0;
+  }
+  .pkg-picker {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  /* 尺寸卡片：插图 96px + 规格行，两列时正文只剩几十像素 */
+  .ship-radio-group {
+    grid-template-columns: 1fr;
+    grid-auto-rows: auto;
+  }
+  .ship-facility-cards {
+    grid-template-columns: 1fr;
+  }
+  /* 雅虎発送場所：选项是「ヤマト運輸の営業所」这类长串，横排必然截断 */
+  .yship-cards {
+    flex-direction: column;
+  }
+  .yship-card {
+    min-width: 0;
+  }
+
+  /* 发货二次确认：150px 的标签列吃掉近一半宽度 */
+  .ship-confirm-row {
+    flex-direction: column;
+    gap: 2px;
+  }
+  .ship-confirm-label {
+    width: auto;
+  }
+}

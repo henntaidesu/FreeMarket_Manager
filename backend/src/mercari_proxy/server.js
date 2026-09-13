@@ -11,9 +11,13 @@
 //      均正常，是该项目的原始设计与本系统采用的部署方式。
 //   4) 多站点：上游**不是**进程级常量。/__boot 把选中的站点写进 __mp_site Cookie，
 //      之后每个请求按该 Cookie 决定上游与域名改写规则（见 SITES）。
+//   5) 注入会话：/__boot 同时下发一张 HMAC 签名的会话票据（__mp_sess），其余所有路径
+//      没票即 403。绝对过期、不续期，最长 1 小时。经 nginx 以独立域名对外发布时，这是
+//      唯一挡住「开放反向代理」的东西——按来源地址判断的 isAllowedClient 在反代背后恒真。
 // ============================================================
 const http = require("http");
 const tls = require("tls");
+const crypto = require("crypto");
 const { Readable } = require("stream");
 
 const PORT = Number(process.env.PORT) || 9610;
@@ -68,10 +72,13 @@ const DROP_RESP_HEADERS = new Set([
   "content-encoding", "content-length", "transfer-encoding", "connection",
 ]);
 
-// ---------------- 访问控制 ----------------
-// 本服务转发的是账号登录态，绝不能对公网开放；但用户常从局域网另一台机器访问管理系统，
+// ---------------- 访问控制（第一层：谁能连上这个端口） ----------------
+// 只看 TCP 对端地址：环回 + 私有网段放行，公网地址一律拒绝
+// （MERCARI_PROXY_ALLOW_LAN=0 收回成仅本机）。用户常从局域网另一台机器访问管理系统，
 // 此时浏览器的 boot 请求来自内网 IP 而非环回地址，只认 loopback 会直接 403。
-// 因此：环回 + 私有网段放行，公网地址一律拒绝。MERCARI_PROXY_ALLOW_LAN=0 收回成仅本机。
+//
+// ⚠ 经 nginx 以独立域名对外发布后，对端恒为 nginx 的内网地址——这一层对公网访客
+// **永远放行**，它不是、也无法是对外发布时的授权手段。那件事由下面的注入会话票据负责。
 const ALLOW_LAN = process.env.MERCARI_PROXY_ALLOW_LAN !== "0";
 
 function remoteAddr(req) {
@@ -102,6 +109,83 @@ function isAllowedClient(req) {
   const a = remoteAddr(req);
   if (isLoopbackAddr(a)) return true;
   return ALLOW_LAN && isPrivateAddr(a);
+}
+
+// ---------------- 浏览器那一跳用的是什么协议 ----------------
+// SCHEME 是「本进程自己有没有证书」决定的。TLS 由 nginx / cloudflared 终止时回源那跳
+// 可能是明文，而 Cookie 的 Secure 标记必须按**浏览器看到的**协议来：页面是 https 而
+// Cookie 没带 Secure，__Secure- / __Host- 前缀的那几条会被浏览器整条丢弃，表现为
+// 「注入了 N 条但就是没登录」。伪造这个头只会弄坏伪造者自己的会话（多写或少写一个
+// Secure），不构成对他人的降级，因此不必限定可信对端。
+function reqScheme(req) {
+  const p = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim().toLowerCase();
+  return p === "https" || p === "http" ? p : SCHEME;
+}
+
+// ---------------- 访问控制（第二层：注入会话票据） ----------------
+// 对外发布时这是**唯一**的授权凭据。/__boot 的一次性 token 只有登录了本系统的用户才拿得到，
+// 用它换一张 HMAC 签名的票据；其余所有路径（含 /__p/ 与 /__pws__/ WebSocket）没票即 403。
+// 票据**绝对过期**：不续期、不滑动，到点必须回系统重新点「Cookie 注入」。于是浏览器里那张
+// 通往煤炉/雅虎登录态的门票，生命周期被硬性限制在一小时内。
+// 签名密钥复用 INTERNAL_SECRET（由后端进程生成并下发），所以后端一重启全部票据即作废。
+const SESSION_COOKIE = "__mp_sess";
+const SESSION_TTL_MAX_SEC = 3600;
+const SESSION_TTL_SEC = (() => {
+  // 口径由 Python 侧 runner.session_ttl_sec() 决定并下发；这里的钳制是独立运行 server.js
+  // 时的兜底。两处都只能往「更短」收，不存在放宽的可能，因此即使漂移也不会变得更松。
+  const v = Number(process.env.MERCARI_PROXY_SESSION_TTL_SEC);
+  return Number.isFinite(v) && v > 0 ? Math.min(v, SESSION_TTL_MAX_SEC) : SESSION_TTL_MAX_SEC;
+})();
+const SESSION_KEY = INTERNAL_SECRET || crypto.randomBytes(32).toString("hex");
+
+function signSession(expSec, siteKey) {
+  const body = `${expSec}.${siteKey}`;
+  return `${body}.${crypto.createHmac("sha256", SESSION_KEY).update(body).digest("base64url")}`;
+}
+
+function verifySession(req) {
+  const raw = parseCookies(req)[SESSION_COOKIE] || "";
+  const i = raw.lastIndexOf(".");
+  if (i <= 0) return null;
+  const body = raw.slice(0, i);
+  const sig = Buffer.from(raw.slice(i + 1));
+  const want = Buffer.from(
+    crypto.createHmac("sha256", SESSION_KEY).update(body).digest("base64url")
+  );
+  // timingSafeEqual 长度不等时会抛，先挡掉
+  if (sig.length !== want.length || !crypto.timingSafeEqual(sig, want)) return null;
+  // 过期时间是签进票据里的，改浏览器那份 Cookie 的 Max-Age 没有意义
+  const exp = Number(body.slice(0, body.indexOf(".")));
+  if (!Number.isFinite(exp) || exp * 1000 <= Date.now()) return null;
+  return { exp };
+}
+
+function denySession(res) {
+  const mins = Math.max(1, Math.round(SESSION_TTL_SEC / 60));
+  res.writeHead(403, {
+    "content-type": "text/html; charset=utf-8",
+    "cache-control": "no-store",
+    "x-robots-tag": "noindex, nofollow",
+  });
+  res.end(
+    '<meta charset="utf-8"><h3>注入会话不存在或已过期</h3>' +
+      `<p>会话最长 ${mins} 分钟，且不会自动续期。` +
+      "请回到系统的「店铺账号」页重新点击「Cookie 注入」。</p>"
+  );
+}
+
+// 自有 Cookie 不能跟着发给上游：__mp_sess 是本代理的授权票据，交给煤炉/雅虎毫无必要；
+// __mp_site 也只是本进程用来选上游的路由标记。
+function stripOwnCookies(raw) {
+  return String(raw || "")
+    .split(";")
+    .filter((p) => {
+      const eq = p.indexOf("=");
+      const n = (eq === -1 ? p : p.slice(0, eq)).trim();
+      return n !== SESSION_COOKIE && n !== SITE_COOKIE;
+    })
+    .join(";")
+    .trim();
 }
 
 // ---------------- Cookie 注入暂存（一次性 token） ----------------
@@ -151,19 +235,28 @@ const handler = async (req, res) => {
     // 4) Cookie 注入引导页：写 Cookie 后跳转进代理站
     if (path === `${BASE}/__boot`) return handleBoot(req, res, reqUrl, PROXY_HOST);
 
-    // 5) 解析上游目标（先剥离 BASE 前缀）；上游站点由 __mp_site Cookie 决定
+    // 5) 授权闸门：除上面几个自有端点外，一切都要一张有效的注入会话票据。
+    //    对外发布时这是唯一挡住「开放反向代理」的东西——isAllowedClient 在 nginx 背后恒真。
+    if (!verifySession(req)) return denySession(res);
+
+    // 6) 解析上游目标（先剥离 BASE 前缀）；上游站点由 __mp_site Cookie 决定
     const site = siteOf(req);
     let rel = BASE && path.startsWith(BASE) ? path.slice(BASE.length) : path;
     if (rel === "") rel = "/";
     const { upstreamHost, upstreamPath } = resolveTarget(rel, site);
     const upstreamUrl = `https://${upstreamHost}${upstreamPath}${reqUrl.search}`;
 
-    // 6) 组装转发请求头（DPoP / Authorization / Cookie 原样透传）
+    // 7) 组装转发请求头（DPoP / Authorization / Cookie 透传，自有 Cookie 除外）
     const fwd = {};
     for (const [k, v] of Object.entries(req.headers)) {
       const lk = k.toLowerCase();
       if (DROP_REQ_HEADERS.has(lk)) continue;
       if (lk.startsWith("cf-") || lk.startsWith("x-forwarded-") || lk === "x-real-ip") continue;
+      if (lk === "cookie") {
+        const c = stripOwnCookies(v);
+        if (c) fwd[k] = c;
+        continue;
+      }
       fwd[k] = v;
     }
     if (fwd["origin"]) fwd["origin"] = `https://${site.host}`;
@@ -173,7 +266,7 @@ const handler = async (req, res) => {
         .replace(new RegExp(`^https?://${escapeReg(site.host)}${escapeReg(BASE)}/__p/[^/]+/`), "https://" + site.host + "/");
     }
 
-    // 7) body
+    // 8) body
     const hasBody = !["GET", "HEAD"].includes(req.method);
     const body = hasBody ? await readBody(req) : undefined;
 
@@ -184,7 +277,7 @@ const handler = async (req, res) => {
       redirect: "manual",
     });
 
-    // 8) 处理响应头
+    // 9) 处理响应头
     const outHeaders = {};
     for (const [k, v] of resp.headers) {
       if (k.toLowerCase() === "set-cookie") continue;
@@ -193,13 +286,15 @@ const handler = async (req, res) => {
     }
     stripSecurityHeaders(outHeaders);
     applyCors(outHeaders, req);
-    const cookies = rewriteSetCookie(resp);
+    // 这个域名对外可达，但它是一条通往账号登录态的隧道，不该被任何搜索引擎收录。
+    outHeaders["x-robots-tag"] = "noindex, nofollow";
+    const cookies = rewriteSetCookie(resp, reqScheme(req));
     if (cookies.length) outHeaders["set-cookie"] = cookies;
     rewriteLocation(outHeaders, upstreamHost, PROXY_HOST, site);
 
     const ctype = (resp.headers.get("content-type") || "").toLowerCase();
 
-    // 9) HTML：注入运行时劫持脚本 + 改写绝对 URL 属性
+    // 10) HTML：注入运行时劫持脚本 + 改写绝对 URL 属性
     if (ctype.includes("text/html")) {
       let html = await resp.text();
       html = injectAndRewriteHtml(html, PROXY_HOST, site);
@@ -207,7 +302,7 @@ const handler = async (req, res) => {
       return res.end(html);
     }
 
-    // 10) JS：仅当配置了补丁时才改（默认不动，保住 DPoP htu）
+    // 11) JS：仅当配置了补丁时才改（默认不动，保住 DPoP htu）
     const isJs = ctype.includes("javascript") || new URL(upstreamUrl).pathname.endsWith(".js");
     if (JS_PATCHES.length && isJs) {
       let text = await resp.text();
@@ -216,7 +311,7 @@ const handler = async (req, res) => {
       return res.end(text);
     }
 
-    // 11) 其它原样透传（流式）
+    // 12) 其它原样透传（流式）
     res.writeHead(resp.status, outHeaders);
     if (resp.body) Readable.fromWeb(resp.body).pipe(res);
     else res.end();
@@ -291,19 +386,30 @@ function handleBoot(req, res, reqUrl, proxyHost) {
   const siteKey = SITES[entry.site] ? entry.site : DEFAULT_SITE;
   // https 下必须带 Secure：__Secure- / __Host- 前缀的 Cookie 缺了它会被浏览器整条丢弃，
   // 于是「注入了 N 条」但关键那条根本没落地。http 回退时不能加，否则一条都写不进去。
-  const secure = SCHEME === "https" ? "; Secure" : "";
-  const fresh = new Set(entry.cookies.map((c) => c.name));
+  const secure = reqScheme(req) === "https" ? "; Secure" : "";
+  // 导出的 profile Cookie 里理论上不会有同名的，真有的话会在下面把刚写的票据/路由位
+  // 覆盖掉（签名伪造不了，所以后果是会话当场失效），不如在这里就摘干净。
+  const injected = entry.cookies.filter(
+    (c) => c.name !== SESSION_COOKIE && c.name !== SITE_COOKIE
+  );
+  const fresh = new Set(injected.map((c) => c.name));
 
   // 先清掉浏览器里残留的旧 Cookie。它们属于上一次注入的账号（甚至上一个市集），
   // 留着只会拼出一个半新半旧的会话——换账号注入后仍显示旧账号就是这么来的，
   // 也避免把煤炉的登录态随请求发到雅虎上游去。
   const setCookies = [];
   for (const name of Object.keys(parseCookies(req))) {
-    if (fresh.has(name) || name === SITE_COOKIE) continue;
+    if (fresh.has(name) || name === SITE_COOKIE || name === SESSION_COOKIE) continue;
     setCookies.push(`${name}=; Path=${cookiePath}; Max-Age=0`);
   }
   setCookies.push(`${SITE_COOKIE}=${siteKey}; Path=${cookiePath}; SameSite=Lax${secure}`);
-  for (const c of entry.cookies) {
+  // 注入会话票据。Max-Age 只是让浏览器到点自己扔掉，真正说了算的是签进票据里的 exp。
+  const sessExp = Math.floor(Date.now() / 1000) + SESSION_TTL_SEC;
+  setCookies.push(
+    `${SESSION_COOKIE}=${signSession(sessExp, siteKey)}; Path=${cookiePath}` +
+      `; Max-Age=${SESSION_TTL_SEC}; HttpOnly; SameSite=Lax${secure}`
+  );
+  for (const c of injected) {
     let s = `${c.name}=${c.value}; Path=${cookiePath}; SameSite=Lax${secure}`;
     if (c.httpOnly) s += "; HttpOnly";
     setCookies.push(s);
@@ -316,6 +422,7 @@ function handleBoot(req, res, reqUrl, proxyHost) {
     // ——上面 injectionStore.delete 已经把它作废了——但在被使用前的 TTL 窗口内，这个 URL
     // 会留在浏览器历史里。no-referrer 保证它至少不会随后续请求的 Referer 头外泄出去。
     "referrer-policy": "no-referrer",
+    "x-robots-tag": "noindex, nofollow",
     "content-type": "text/plain; charset=utf-8",
   });
   res.end("cookie injected, redirecting...");
@@ -340,6 +447,8 @@ if (SCHEME === "https") {
 // ---------------- WebSocket 代理：<BASE>/__pws__/<host>/<path> ----------------
 server.on("upgrade", (req, clientSock, head) => {
   if (!isAllowedClient(req)) return clientSock.destroy();
+  // WebSocket 同样要票：漏掉这里就等于给未授权访客留了一条绕开 HTTP 闸门的通道。
+  if (!verifySession(req)) return clientSock.destroy();
   const wsPath = BASE && req.url.startsWith(BASE) ? req.url.slice(BASE.length) : req.url;
   const m = wsPath.match(/^\/__pws__\/([^/]+)(\/.*)?$/);
   if (!m) return clientSock.destroy();
@@ -394,9 +503,18 @@ function stripSecurityHeaders(h) {
   }
 }
 
+// 只回显**本代理自己的源**，其余一律不发 CORS 头。页面里指向上游域名的请求都已被改写成
+// 同源，跨源放行没有任何用处；而反射任意 Origin 再配上 allow-credentials，等于把一个带着
+// 煤炉/雅虎登录态的源开放给全网读取（SameSite=Lax 只挡住一部分，不是可以依赖的边界）。
+function corsOrigin(req) {
+  const o = req.headers["origin"];
+  return o && o === `${reqScheme(req)}://${req.headers.host || ""}` ? o : "";
+}
 function corsHeaders(req) {
+  const o = corsOrigin(req);
+  if (!o) return {};
   return {
-    "access-control-allow-origin": req.headers["origin"] || "*",
+    "access-control-allow-origin": o,
     "access-control-allow-credentials": "true",
     "access-control-allow-methods": "GET,POST,PUT,DELETE,PATCH,OPTIONS",
     "access-control-allow-headers": req.headers["access-control-request-headers"] || "*",
@@ -404,19 +522,29 @@ function corsHeaders(req) {
   };
 }
 function applyCors(h, req) {
-  h["access-control-allow-origin"] = req.headers["origin"] || "*";
+  const o = corsOrigin(req);
+  if (!o) return;
+  h["access-control-allow-origin"] = o;
   h["access-control-allow-credentials"] = "true";
   h["access-control-expose-headers"] = "*";
 }
 
 // 去掉 Domain，下放 SameSite；BASE 非空时把 Path 收敛到 BASE，避免 Cookie 外溢到 SPA。
-function rewriteSetCookie(resp) {
+function rewriteSetCookie(resp, scheme) {
   const cookies = typeof resp.headers.getSetCookie === "function" ? resp.headers.getSetCookie() : [];
-  return cookies.map((c) => {
+  return cookies
+    // 上游无权改写本代理自己的状态位：__mp_sess 是授权票据，__mp_site 决定后续根相对
+    // 请求发往哪个市集。签名伪造不了，但放任覆盖会让会话平白失效、或把请求指向另一个上游。
+    .filter((c) => {
+      const eq = c.indexOf("=");
+      const n = (eq === -1 ? c : c.slice(0, eq)).trim();
+      return n !== SESSION_COOKIE && n !== SITE_COOKIE;
+    })
+    .map((c) => {
     let out = c.replace(/;\s*Domain=[^;]+/i, "");
-    // 只有代理退回 http 时才需要摘掉 Secure；https 下摘了反而会让浏览器整条丢弃
-    // __Secure- / __Host- 前缀的 Cookie（前缀语义强制要求 Secure），登录态随即失效。
-    if (SCHEME !== "https") out = out.replace(/;\s*Secure/i, "");
+    // 只有**浏览器那一跳**退回 http 时才需要摘掉 Secure；https 下摘了反而会让浏览器整条
+    // 丢弃 __Secure- / __Host- 前缀的 Cookie（前缀语义强制要求 Secure），登录态随即失效。
+    if (scheme !== "https") out = out.replace(/;\s*Secure/i, "");
     out = out.replace(/;\s*SameSite=None/i, "; SameSite=Lax");
     if (BASE) {
       if (/;\s*Path=[^;]*/i.test(out)) out = out.replace(/;\s*Path=[^;]*/i, `; Path=${BASE}`);

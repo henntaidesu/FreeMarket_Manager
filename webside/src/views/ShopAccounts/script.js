@@ -617,6 +617,9 @@ export default defineComponent({
           ElMessage.success(t('mercariAccounts.cookieInjectDone', {
             count: d.count || 0,
             platform: platformName(d.platform || row.platform),
+            // 代理下发的注入会话票据是绝对过期、不续期的：到点页面会整个 403，
+            // 必须回这里重新点一次。所以这个时长要明着告诉用户，而不是让他撞上。
+            minutes: Math.round((d.session_ttl_sec || 3600) / 60),
           }))
         } else if (win) {
           win.close()

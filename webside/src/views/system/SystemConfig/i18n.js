@@ -29,7 +29,7 @@ export default {
       descProxy: '把注入代理经 nginx 以独立域名发布后填这里；留空则按当前访问地址 + 代理端口自动拼接',
       proxyPublicBase: '对外基址',
       proxyPublicBasePlaceholder: 'https://mp.example.com（留空 = 不使用）',
-      proxyWarning: '该域名必须另加访问认证（Cloudflare Access 或 Basic Auth）：经反代后代理自带的来源检查会永远放行，等于对外开放一个通往煤炉/雅虎的反向代理。',
+      proxyWarning: '该域名是一条通往煤炉/雅虎登录态的隧道，必须只经 HTTPS 发布。经反代后代理自带的来源检查会永远放行，实际把关的是「Cookie 注入」下发的会话票据（最长 1 小时、不续期、到期需重新注入）；仍建议再叠加一层 Cloudflare Access 或 Basic Auth。',
       proxyBaseInvalid: '只填协议和域名（可带端口），例如 https://mp.example.com',
     },
     homecoming: {
@@ -197,7 +197,7 @@ export default {
       descProxy: '注入プロキシを nginx 経由で独立したドメインに公開した場合に入力します。空欄の場合は現在のアクセス先 + プロキシポートから自動生成します',
       proxyPublicBase: '公開ベース URL',
       proxyPublicBasePlaceholder: 'https://mp.example.com（空欄 = 使用しない）',
-      proxyWarning: 'このドメインには別途アクセス認証（Cloudflare Access または Basic 認証）が必須です。リバースプロキシ経由ではプロキシ側の送信元チェックが常に通過するため、メルカリ／ヤフーへのリバースプロキシを公開することになります。',
+      proxyWarning: 'このドメインはメルカリ／ヤフーのログイン状態へ通じるトンネルです。必ず HTTPS で公開してください。リバースプロキシ経由ではプロキシ側の送信元チェックが常に通過するため、実際の防御は「Cookie 注入」が発行するセッションチケット（最長 1 時間・延長なし・失効後は再注入）です。加えて Cloudflare Access または Basic 認証の併用を推奨します。',
       proxyBaseInvalid: 'スキームとドメインのみを入力してください（ポート可）。例: https://mp.example.com',
     },
     homecoming: {
@@ -365,7 +365,7 @@ export default {
       descProxy: 'Set this when the injection proxy is published under its own domain via nginx. Leave empty to derive it from the current host plus the proxy port',
       proxyPublicBase: 'Public base URL',
       proxyPublicBasePlaceholder: 'https://mp.example.com (empty = not used)',
-      proxyWarning: 'This domain must be protected by its own authentication (Cloudflare Access or Basic Auth): behind a reverse proxy the proxy\'s built-in source check always passes, which would publish an open reverse proxy to Mercari/Yahoo.',
+      proxyWarning: 'This domain is a tunnel into a live Mercari/Yahoo session, so publish it over HTTPS only. Behind a reverse proxy the built-in source check always passes; what actually gates access is the session ticket issued by "Inject Cookies" (max 1 hour, never renewed, re-inject once it expires). Layering Cloudflare Access or Basic Auth on top is still recommended.',
       proxyBaseInvalid: 'Enter only the scheme and domain (port allowed), e.g. https://mp.example.com',
     },
     homecoming: {

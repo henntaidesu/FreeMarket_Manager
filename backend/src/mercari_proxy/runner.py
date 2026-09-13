@@ -7,7 +7,10 @@
   私有网段（``MERCARI_PROXY_ALLOW_LAN=0`` 可收回成仅本机），公网来源一律 403；
 - 自签证书使浏览器处于安全上下文（DPoP 所需），用户首次访问点「继续」即可；
 - ``register_injection`` 把账号 Cookie 以一次性 token 推送到 Node 进程内存，
-  用户随后访问 ``/__boot?token=...`` 时写入本地浏览器。
+  用户随后访问 ``/__boot?token=...`` 时写入本地浏览器；
+- ``/__boot`` 同时下发一张 HMAC 签名的**注入会话票据**，代理的其余路径没票即 403。
+  票据绝对过期、不续期（见 :func:`session_ttl_sec`）——经 nginx 对外发布时，按来源地址
+  判断的那道检查恒真，这张票是唯一的授权凭据。
 """
 from __future__ import annotations
 
@@ -45,6 +48,25 @@ def proxy_scheme() -> str:
     return _scheme
 
 
+#: 注入会话票据有效期的硬上限（秒）。不是建议值——超过这个数的配置会被直接钳下来。
+_SESSION_TTL_MAX_SEC = 3600
+
+
+def session_ttl_sec() -> int:
+    """注入会话票据的有效期（秒）：绝对过期，不续期、不滑动，上限硬性 1 小时。
+
+    这是**唯一**的口径来源：``start_proxy`` 把算好的值下发给 Node 进程，``server.js``
+    自己那份钳制只是脱离本后端单独运行时的兜底（两边都只能往更短收，不会放宽）。
+    到期后用户必须回「店铺账号」页重新点「Cookie 注入」——「浏览器里长期留着一张通往
+    煤炉/雅虎登录态的门票」这件事，就是在这里被限制成一小时的。
+    """
+    try:
+        v = int(os.environ.get("MERCARI_PROXY_SESSION_TTL_SEC", "") or 0)
+    except ValueError:
+        v = 0
+    return min(v, _SESSION_TTL_MAX_SEC) if v > 0 else _SESSION_TTL_MAX_SEC
+
+
 #: [config] 表键名：代理对外基址（系统配置页「Cookie 注入域名」写入）
 PUBLIC_BASE_KEY = "mercari_proxy_public_base"
 
@@ -60,8 +82,9 @@ def proxy_public_base() -> str:
     只影响给用户的引导链接；``register_injection`` 始终走环回，与此无关。
 
     注意：一旦经反代发布，``server.js`` 的 ``isAllowedClient`` 就形同虚设（来源恒为
-    nginx 的内网地址），必须在 nginx 侧另加认证——否则等于对外开了一个通往煤炉/雅虎的
-    开放反向代理。
+    nginx 的内网地址）。真正挡住「开放反向代理」的是 ``/__boot`` 下发的注入会话票据
+    （见 :func:`session_ttl_sec`）：没票的访客在任何路径上都只拿得到 403。nginx /
+    Cloudflare Access 侧的认证仍建议叠加一层，但不再是唯一防线。
     """
     # 延迟导入：lifecycle 在 init_database() **之前**就导入本模块启动代理，模块级导入
     # DB 模型会把数据库依赖提前到那一刻。本函数只在注入请求时调用，那时库早已就绪。
@@ -169,6 +192,7 @@ def start_proxy() -> Dict[str, Any]:
     env["BASE_PATH"] = ""  # 根挂载
     env["UPSTREAM"] = proxy_upstream()
     env["MERCARI_PROXY_INTERNAL_SECRET"] = _ensure_secret()
+    env["MERCARI_PROXY_SESSION_TTL_SEC"] = str(session_ttl_sec())
 
     cert_path, key_path = ensure_cert()
     if cert_path and key_path:

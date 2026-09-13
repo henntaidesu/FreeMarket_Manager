@@ -4,6 +4,10 @@
 流程：读取服务端 profile 的登录 Cookie → 暂存到 Node 反代（一次性 token）→
 返回引导地址（<base>/__boot?token=...）。前端用 window.open 在用户本地浏览器打开。
 
+这条一次性 token 同时是**代理的授权入口**：只有过了本系统登录的用户才拿得到它，而
+``/__boot`` 用它换出一张最长一小时、不续期的会话票据，代理的其余路径没票即 403。
+代理经 nginx 对外发布时，这是唯一挡住「开放反向代理」的东西。
+
 煤炉与雅虎共用这一条链路——浏览器不可能从本系统的源给 jp.mercari.com 或 yahoo.co.jp
 写 Cookie，只能经同源反代落地，区别仅在于导出哪些域名的 Cookie、以及反代发往哪个上游。
 """
@@ -22,6 +26,7 @@ from .....mercari_proxy import (
     proxy_public_base,
     proxy_scheme,
     register_injection,
+    session_ttl_sec,
     start_proxy,
 )
 
@@ -108,5 +113,7 @@ async def inject_cookies(body: InjectCookiesBody):
             "port": proxy_port(),
             "count": len(cookies),
             "platform": platform,
+            # 前端据此提示「多少分钟后失效」。票据不续期，到期只能回来重新点注入。
+            "session_ttl_sec": session_ttl_sec(),
         },
     }
