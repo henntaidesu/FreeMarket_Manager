@@ -164,6 +164,23 @@ def rematch_order_products(oid: int):
     return {"message": "重新匹配完成"}
 
 
+def exclude_order_from_settlement(oid: int):
+    """把订单永久标记为不计入结算，供订单详情「不加入结算」按钮调用。
+
+    一次性、不可撤回（需求如此），所以没有反向接口；前端负责二次确认。重复调用是空操作，
+    双击不会报错。标记只影响结算口径（use_web/system/settlement），订单统计与仪表盘照常计入。
+    """
+    item = OrderModel.find_by_id(id=oid)
+    if not item:
+        raise HTTPException(status_code=404, detail="订单不存在")
+    if int(item.settlement_excluded or 0) == 1:
+        return item.to_dict()
+    item.settlement_excluded = 1
+    if not item.save():
+        raise HTTPException(status_code=500, detail="保存失败")
+    return item.to_dict()
+
+
 def delete_order(oid: int):
     item = OrderModel.find_by_id(id=oid)
     if not item:

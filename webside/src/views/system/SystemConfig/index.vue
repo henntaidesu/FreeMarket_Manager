@@ -760,6 +760,22 @@
                 :placeholder="t('systemConfig.proxyPublicBasePlaceholder')"
               />
             </div>
+            <div class="sc-field">
+              <div class="sc-label">{{ t('systemConfig.proxyBasePath') }}</div>
+              <el-input
+                v-model="proxyBasePath"
+                clearable
+                :placeholder="t('systemConfig.proxyBasePathPlaceholder')"
+              />
+            </div>
+            <el-alert
+              v-if="proxyBasePath.trim()"
+              type="warning"
+              show-icon
+              :closable="false"
+              :title="t('systemConfig.proxyBasePathWarning')"
+              style="margin-top: 12px"
+            />
             <el-alert
               v-if="proxyPublicBase.trim()"
               type="warning"
@@ -974,12 +990,14 @@ const form = reactive({
 const proxyLoading = ref(false)
 const proxySaving = ref(false)
 const proxyPublicBase = ref('')
+const proxyBasePath = ref('')
 
 async function loadProxyBase() {
   proxyLoading.value = true
   try {
     const res = await configApi.getProxyPublicBase()
     proxyPublicBase.value = res?.public_base || ''
+    proxyBasePath.value = res?.base_path || ''
   } catch {
     ElMessage.error(t('systemConfig.loadFailed'))
   } finally {
@@ -990,9 +1008,13 @@ async function loadProxyBase() {
 async function saveProxyBase() {
   proxySaving.value = true
   try {
-    const res = await configApi.putProxyPublicBase(proxyPublicBase.value.trim())
-    // 回填后端规范化后的值（去掉末尾斜杠等），避免界面显示与实际存储不一致
+    const res = await configApi.putProxyPublicBase({
+      public_base: proxyPublicBase.value.trim(),
+      base_path: proxyBasePath.value.trim(),
+    })
+    // 回填后端规范化后的值（去掉末尾斜杠、补上前导斜杠等），避免界面与实际存储不一致
     proxyPublicBase.value = res?.public_base || ''
+    proxyBasePath.value = res?.base_path || ''
     ElMessage.success(t('systemConfig.saveSuccess'))
   } catch {
     /* 错误由 axios 拦截器提示（含后端的格式校验 400） */

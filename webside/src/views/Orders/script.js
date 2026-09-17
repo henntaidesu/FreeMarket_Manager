@@ -1951,6 +1951,41 @@ export default defineComponent({
       }
     }
 
+    // ── 不加入结算 ────────────────────────────────────────────────
+    // 一次性、不可撤回：标记后结算（系统 → 结算）的汇总永久不再看见这笔订单。
+    // 后端没有反向接口，所以这里必须二次确认。
+    const settlementExcluding = ref(false)
+    /** 当前详情行是否已标记（标记落在列表行上，随列表接口回来） */
+    const detailSettlementExcluded = computed(
+      () => Number(detailRow.value?.settlement_excluded || 0) === 1,
+    )
+
+    async function excludeFromSettlement() {
+      const oid = form.value.id
+      if (!oid) {
+        ElMessage.warning(t('orders.noOrderSelected'))
+        return
+      }
+      try {
+        await ElMessageBox.confirm(
+          t('orders.settlementExcludeConfirm'),
+          t('orders.settlementExclude'),
+          { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') },
+        )
+      } catch {
+        return
+      }
+      settlementExcluding.value = true
+      try {
+        await orderApi.excludeFromSettlement(oid)
+        // 详情读的就是这一行列表数据，就地改掉，按钮立刻换成「已不加入结算」标签
+        if (detailRow.value) detailRow.value.settlement_excluded = 1
+        ElMessage.success(t('orders.settlementExcludeDone'))
+      } finally {
+        settlementExcluding.value = false
+      }
+    }
+
     const rematching = ref(false)
     /** 根据商品说明重新匹配商品（重建出库明细） */
     async function rematchProducts() {
@@ -2211,6 +2246,9 @@ export default defineComponent({
       refreshOrder,
       rematching,
       rematchProducts,
+      settlementExcluding,
+      detailSettlementExcluded,
+      excludeFromSettlement,
     }
   },
 })

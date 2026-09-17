@@ -105,13 +105,19 @@ def put_mgmt_cipher_mode(body: MgmtCipherModeUpdate):
 
 
 class ProxyPublicBaseOut(BaseModel):
-    """Cookie 注入引导地址的对外基址。空串 = 未配置，前端按「访问主机名 + 代理端口」拼。"""
+    """Cookie 注入引导地址的对外基址 + 挂载子路径。
+
+    public_base 空串 = 未配置，前端按「访问主机名 + 代理端口」拼；
+    base_path 空串 = 根挂载（代理需要独立域名或端口）。
+    """
 
     public_base: str = ""
+    base_path: str = ""
 
 
 class ProxyPublicBaseUpdate(BaseModel):
     public_base: Optional[str] = Field(default=None, max_length=255)
+    base_path: Optional[str] = Field(default=None, max_length=128)
 
 
 def _normalize_public_base(raw: Optional[str]) -> str:
@@ -133,35 +139,58 @@ def _normalize_public_base(raw: Optional[str]) -> str:
     if not u.netloc:
         raise HTTPException(status_code=400, detail="地址缺少域名")
     if u.path or u.query or u.fragment:
-        # 子路径挂载时用户很自然会想把 /mp 填进来，但前缀是由后端按环境变量自己接上的
-        # （boot_path()），填在这里只会变成 /mp/mp/__boot。报错里直接把当前值告诉他。
+        # 子路径挂载时用户很自然会想把 /mp 填进来，但前缀是后端自己接上的（boot_path()），
+        # 填在这里只会变成 /mp/mp/__boot。报错里直接把该填的地方和当前值告诉他。
         from ....mercari_proxy.runner import base_path
 
         bp = base_path()
         raise HTTPException(
             status_code=400,
             detail=(
-                "只填协议和域名（可带端口），不要带路径或参数。子路径挂载由环境变量 "
-                f"MERCARI_PROXY_BASE_PATH 决定（当前：{bp or '未设置 = 根挂载'}），"
-                "后端会自动接在这个基址后面。"
+                "只填协议和域名（可带端口），不要带路径或参数。子路径请填在下面的"
+                f"「挂载子路径」里（当前：{bp or '未设置 = 根挂载'}），后端会自动接在这个基址后面。"
             ),
         )
     return f"{u.scheme}://{u.netloc}"
 
 
 def get_proxy_public_base():
-    from ....mercari_proxy import proxy_public_base
+    from ....mercari_proxy import base_path, proxy_public_base
 
-    return ProxyPublicBaseOut(public_base=proxy_public_base())
+    return ProxyPublicBaseOut(public_base=proxy_public_base(), base_path=base_path())
 
 
 def put_proxy_public_base(body: ProxyPublicBaseUpdate):
-    from ....mercari_proxy.runner import PUBLIC_BASE_KEY
+    from ....db_manage.db_settings import set_setting
+    from ....mercari_proxy import base_path, stop_proxy
+    from ....mercari_proxy.runner import BASE_PATH_KEY, PUBLIC_BASE_KEY, normalize_base_path
 
     value = _normalize_public_base(body.public_base)
-    # 空串即删除该键，回到「未配置」而不是存一条空记录
+    new_bp = None
+    if body.base_path is not None:
+        new_bp = normalize_base_path(body.base_path)
+        if new_bp is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "挂载子路径只能是 /mp 这样的路径段（字母数字与 . _ - ~），"
+                    "不要带查询串、空格或协议。留空 = 根挂载。"
+                ),
+            )
+
+    # 两项都校验通过后才落库：否则会出现「域名写进去了、子路径 400」的半套状态，
+    # 而用户看到的只是一个报错，不会想到前一项其实已经改了。
     ConfigEntryModel.set_value(PUBLIC_BASE_KEY, value or None)
-    return ProxyPublicBaseOut(public_base=value)
+    if new_bp is not None:
+        old_bp = base_path()
+        # 存 system.db（bootstrap 存储）而不是业务库：代理在 init_database() 之前就启动
+        set_setting(BASE_PATH_KEY, new_bp or None)
+        if new_bp != old_bp:
+            # BASE_PATH 是启动时下发给 Node 子进程的，改了必须重起才生效。这里只停，
+            # 下次「Cookie 注入」按需拉起（inject_cookies 本来就有 is_running 分支）。
+            stop_proxy()
+
+    return ProxyPublicBaseOut(public_base=value, base_path=base_path())
 
 
 def get_listing_defaults():

@@ -557,6 +557,19 @@
                 <el-tag :type="statusMap[form.status]?.tag || 'info'" size="small" effect="dark">
                   {{ statusMap[form.status]?.label || form.status }}
                 </el-tag>
+                <!-- 不加入结算：标记后结算汇总永久不再计这笔单；已标记的只剩一个静态标签 -->
+                <el-tag v-if="detailSettlementExcluded" size="small" type="warning" effect="dark">
+                  {{ t('orders.settlementExcluded') }}
+                </el-tag>
+                <el-button
+                  v-else
+                  class="odt-chips__action"
+                  size="small"
+                  type="warning"
+                  plain
+                  :loading="settlementExcluding"
+                  @click="excludeFromSettlement"
+                >{{ t('orders.settlementExclude') }}</el-button>
                 <el-button
                   class="odt-chips__action"
                   size="small"

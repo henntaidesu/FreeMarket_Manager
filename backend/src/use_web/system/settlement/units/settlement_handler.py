@@ -5,6 +5,11 @@
 金额口径与订单管理一致（复用 OrderModel.aggregate_sums 的归属拆分）。
 耗材由前端页面手动录入总额，再按各归属人净收益占比分摊，故本接口只负责给出
 各归属人的净收益等基础数据，分摊与最终应结金额在前端实时计算。
+
+被订单详情标记「不加入结算」（``orders.settlement_excluded=1``）的订单在这里全部排除：
+归属人枚举、各人汇总、整体合计、包材合计四处都要排，漏掉任何一处，被排除的单要么仍被分账，
+要么只从分子或分母消失，``unassigned_net_income`` 立刻对不上账。重新结算复用本接口的数字，
+因此同样生效。
 """
 
 from typing import Any, Dict, List, Optional
@@ -50,6 +55,7 @@ def _list_owners_in_range(
         LEFT JOIN [users] u ON u.[id] = p.[owner_user_id]
         WHERE o.[status] = ?
           AND p.[owner_user_id] IS NOT NULL
+          AND COALESCE(o.[settlement_excluded], 0) = 0
     """
     params: List[Any] = [COMPLETED_STATUS]
     if start_ts is not None:
@@ -103,6 +109,7 @@ def settlement_summary(
             owner_user_id=oid,
             by_purchase_time=by_purchase_time,
             use_completed_time=not by_purchase_time,
+            exclude_settlement_excluded=True,
         )
         net = int(agg.get("sum_net_income") or 0)
         assigned_net += net
@@ -116,6 +123,7 @@ def settlement_summary(
                 owner_user_id=oid,
                 by_purchase_time=by_purchase_time,
                 use_completed_time=not by_purchase_time,
+                exclude_settlement_excluded=True,
             )
             or 0
         )
@@ -141,6 +149,7 @@ def settlement_summary(
         end_ts=end,
         by_purchase_time=by_purchase_time,
         use_completed_time=not by_purchase_time,
+        exclude_settlement_excluded=True,
     )
     overall_net = int(overall.get("sum_net_income") or 0)
     overall_packaging = int(
@@ -150,6 +159,7 @@ def settlement_summary(
             end_ts=end,
             by_purchase_time=by_purchase_time,
             use_completed_time=not by_purchase_time,
+            exclude_settlement_excluded=True,
         )
         or 0
     )

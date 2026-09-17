@@ -19,6 +19,7 @@ class _AggregateMixin:
         platform: Optional[str] = None,
         seller_id: Optional[str] = None,
         time_field: Optional[str] = None,
+        exclude_settlement_excluded: bool = False,
     ) -> Tuple[str, List[Any]]:
         base_sql = """
             FROM [orders] o
@@ -83,6 +84,10 @@ class _AggregateMixin:
                 )
             """
             params.append(int(owner_user_id))
+        # 结算专用：订单详情「不加入结算」标记过的单永久不参与分账。只有结算口径传 True，
+        # 订单列表/统计与仪表盘 KPI 仍要看见这些单——它们问的是「卖了多少」。
+        if exclude_settlement_excluded:
+            base_sql += " AND COALESCE(o.[settlement_excluded], 0) = 0"
         return base_sql, params
 
 
@@ -98,6 +103,7 @@ class _AggregateMixin:
         use_completed_time: bool = False,
         seller_id: Optional[str] = None,
         time_field: Optional[str] = None,
+        exclude_settlement_excluded: bool = False,
     ) -> Dict[str, Any]:
         """
         与列表相同的筛选条件下，对全量匹配行求和（非当前页）。
@@ -118,6 +124,7 @@ class _AggregateMixin:
                 use_completed_time=use_completed_time,
                 seller_id=seller_id,
                 time_field=time_field,
+                exclude_settlement_excluded=exclude_settlement_excluded,
             )
         db = cls().db
         base_sql, params = cls._build_list_filter(
@@ -130,6 +137,7 @@ class _AggregateMixin:
             use_completed_time=use_completed_time,
             seller_id=seller_id,
             time_field=time_field,
+            exclude_settlement_excluded=exclude_settlement_excluded,
         )
         base_sql += " AND o.status != 'cancelled'"
         sql = f"""
@@ -163,6 +171,7 @@ class _AggregateMixin:
         use_completed_time: bool = False,
         seller_id: Optional[str] = None,
         time_field: Optional[str] = None,
+        exclude_settlement_excluded: bool = False,
     ) -> int:
         """
         与 aggregate_sums 相同订单筛选下，成本支出合计（quantity * unit_price，日元整数）。
@@ -187,6 +196,7 @@ class _AggregateMixin:
             use_completed_time=use_completed_time,
             seller_id=seller_id,
             time_field=time_field,
+            exclude_settlement_excluded=exclude_settlement_excluded,
         )
         joined = base_sql.replace(
             "FROM [orders] o",
@@ -242,6 +252,7 @@ class _AggregateMixin:
         use_completed_time: bool = False,
         seller_id: Optional[str] = None,
         time_field: Optional[str] = None,
+        exclude_settlement_excluded: bool = False,
     ) -> Dict[str, Any]:
         from .....use_web.orders.units.order_goods_ratio import (
             ensure_orders_ratio_stored,
@@ -259,6 +270,7 @@ class _AggregateMixin:
             use_completed_time=use_completed_time,
             seller_id=seller_id,
             time_field=time_field,
+            exclude_settlement_excluded=exclude_settlement_excluded,
         )
         base_sql += " AND o.status != 'cancelled'"
         sql = f"""

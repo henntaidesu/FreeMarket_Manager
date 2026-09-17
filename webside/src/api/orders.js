@@ -29,6 +29,8 @@ export const orderApi = {
   update: (id, data) => http.put(`/use_web/orders/${id}`, data),
   /** 根据商品说明重新匹配商品（重建出库明细） */
   rematch: (id) => http.post(`/use_web/orders/${id}/rematch`),
+  /** 不加入结算：一次性标记，之后结算汇总永久不计这笔订单（无反向接口） */
+  excludeFromSettlement: (id) => http.post(`/use_web/orders/${id}/settlement-exclude`),
   remove: (id) => http.delete(`/use_web/orders/${id}`),
   /** 单行 items/get 刷新：传 order_no + data_user（卖家ID），与煤炉账号 seller_id 对应 */
   refreshInfo: (data, axiosConfig = {}) =>

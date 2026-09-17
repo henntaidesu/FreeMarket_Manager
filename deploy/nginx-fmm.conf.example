@@ -206,10 +206,13 @@ server {
 #   挡不住同源脚本。
 #   ⇒ 选它就务必把 JWT_EXPIRE_HOURS 设成正数，缩短令牌被盗后的可用窗口。
 #
-# 后端侧（写进 start.bat 或服务定义）：
-#   set MERCARI_PROXY_BASE_PATH=/mp     ← 必须与下面的 location 前缀逐字一致
-# 系统配置 → Cookie 注入域名：
-#   https://freemm.makurochan.com       ← 只填到域名，**不要**带 /mp，后端会自己接上
+# 后端侧（系统配置 →「Cookie 注入域名」那一节，两个输入框）：
+#   挂载子路径      ：/mp                          ← 必须与下面的 location 前缀逐字一致
+#   Cookie 注入域名 ：https://freemm.makurochan.com ← 只填到域名，**不要**带 /mp，后端会自己接上
+#
+# 这两项存在 system.db（bootstrap 存储）里，所以打包成 exe 的形态也能从界面配——那种形态
+# 下用户没有地方去设环境变量。源码部署若想用环境变量，是 MERCARI_PROXY_BASE_PATH，但界面里
+# 存的值优先。保存后代理子进程会被停掉，下次点「Cookie 注入」按新配置重启。
 #
 # 然后把下面两段放进 freemm.makurochan.com 那个 server 里：
 #

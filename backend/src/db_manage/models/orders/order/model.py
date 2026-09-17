@@ -188,6 +188,14 @@ class OrderModel(_AggregateMixin, _QueryMixin, BaseModel):
                 'not_null': True,
                 'default': 0,
             },
+            # 1=本单永久不计入结算（订单详情「不加入结算」，一次性不可撤回）。
+            # 只作用于结算口径（use_web/system/settlement），订单统计与仪表盘 KPI 照常计入——
+            # 那两处问的是「卖了多少」，这里问的是「要跟归属人分多少账」。
+            'settlement_excluded': {
+                'type': 'INTEGER',
+                'not_null': True,
+                'default': 0,
+            },
         }
 
 

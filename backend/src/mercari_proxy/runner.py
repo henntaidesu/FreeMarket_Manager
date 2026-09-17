@@ -3,8 +3,8 @@
 
 源自 github.com/Gosoki/mercari-proxy，改造为后端托管的子进程，随系统启停。
 - 独立 HTTPS 端口，默认根挂载（与原项目设计一致，SPA 导航/刷新/前进后退均正常）；
-  ``MERCARI_PROXY_BASE_PATH`` 可改为子路径挂载（如 ``/mp``），把代理经 nginx 收进
-  SPA 的同一个域名 + 端口之下——代价见 :func:`base_path`；
+  系统配置页的「挂载子路径」（或 ``MERCARI_PROXY_BASE_PATH``）可改为子路径挂载
+  （如 ``/mp``），把代理经 nginx 收进 SPA 的同一个域名 + 端口之下——代价见 :func:`base_path`；
 - 默认监听 0.0.0.0:<MERCARI_PROXY_PORT>（默认 9610），但 server.js 只放行环回 +
   私有网段（``MERCARI_PROXY_ALLOW_LAN=0`` 可收回成仅本机），公网来源一律 403；
 - 自签证书使浏览器处于安全上下文（DPoP 所需），用户首次访问点「继续」即可；
@@ -51,17 +51,36 @@ def proxy_scheme() -> str:
     return _scheme
 
 
+#: ``system.db``（bootstrap 存储）里的键名：代理挂载子路径
+BASE_PATH_KEY = "mercari_proxy_base_path"
+
 #: 合法的子路径前缀：一段或多段 /xxx，不含查询串、空格等
 _BASE_PATH_RE = re.compile(r"^(?:/[A-Za-z0-9._~-]+)+$")
 
 
-def base_path() -> str:
-    """代理挂载的子路径前缀（如 ``/mp``）；默认空串 = 根挂载。
+def normalize_base_path(raw: Optional[str]) -> Optional[str]:
+    """规范化子路径前缀：``mp/`` → ``/mp``；空/None = 根挂载（空串）；非法返回 ``None``。"""
+    s = (raw or "").strip().rstrip("/")
+    if not s:
+        return ""
+    if not s.startswith("/"):
+        s = "/" + s
+    return s if _BASE_PATH_RE.match(s) else None
 
-    **只能是环境变量，不能做成系统配置页的库项**：lifecycle 在 ``init_database()``
-    之前就启动本代理（见 CLAUDE.md「Startup Sequence」），那一刻根本读不到库。它本来
-    也属于部署层设置——这个值必须和 nginx 的 ``location`` 前缀逐字一致，从 UI 改只会
-    把部署改坏而 nginx 毫不知情。
+
+def base_path() -> str:
+    """代理挂载的子路径前缀（如 ``/mp``）；空串 = 根挂载。
+
+    优先级与本项目其它部署开关一致（见 CLAUDE.md「数据库后端」那条）：
+    ``system.db`` 里的界面设置 > 环境变量 ``MERCARI_PROXY_BASE_PATH`` > 根挂载。
+
+    存在 ``system.db`` 而不是业务库的 ``config`` 表，是因为 lifecycle 在
+    ``init_database()`` **之前**就启动本代理（见「Startup Sequence」）——那一刻业务库
+    还没连上。``system.db`` 是独立的 SQLite bootstrap 存储，任何时候都可读。这也是
+    打包成 exe 后唯一能配它的地方：那种形态下用户没有地方去设环境变量。
+
+    这个值必须和 nginx 的 ``location`` 前缀逐字一致。它是启动时下发给 Node 子进程的，
+    改完要重起代理才生效——系统配置页保存时会停掉它，下次 Cookie 注入按需拉起。
 
     取值非法时退回根挂载并告警，而不是把畸形前缀塞给 Node：后者会让每个请求都拼出
     畸形的上游地址，且错误只出现在浏览器里，日志中一片干净。
@@ -71,15 +90,21 @@ def base_path() -> str:
     能直接读走 ``localStorage`` 里的 auth_token。``JWT_EXPIRE_HOURS=0`` 时那个令牌永不
     过期，务必改成正数。上游 Cookie 虽已被收敛到 ``Path=<前缀>``，但 Path 从来不是安全边界。
     """
-    raw = (os.environ.get("MERCARI_PROXY_BASE_PATH") or "").strip().rstrip("/")
-    if not raw:
+    # 延迟导入：本模块在 init_database() 之前就被 lifecycle 载入。db_manage/__init__.py
+    # 是空的，db_settings 只依赖 sqlite3 + app_paths，不会把业务库依赖提前到那一刻。
+    from ..db_manage.db_settings import get_setting
+
+    try:
+        stored = get_setting(BASE_PATH_KEY)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("读取代理挂载子路径失败，回退环境变量: %s", exc)
+        stored = None
+    raw = stored if stored is not None else os.environ.get("MERCARI_PROXY_BASE_PATH")
+    norm = normalize_base_path(raw)
+    if norm is None:
+        log.warning("代理挂载子路径取值非法，按根挂载处理: %r", raw)
         return ""
-    if not raw.startswith("/"):
-        raw = "/" + raw
-    if not _BASE_PATH_RE.match(raw):
-        log.warning("MERCARI_PROXY_BASE_PATH 取值非法，按根挂载处理: %r", raw)
-        return ""
-    return raw
+    return norm
 
 
 #: 注入会话票据有效期的硬上限（秒）。不是建议值——超过这个数的配置会被直接钳下来。

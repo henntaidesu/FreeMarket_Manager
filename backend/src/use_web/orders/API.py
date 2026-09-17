@@ -7,7 +7,13 @@
 """
 from fastapi import APIRouter
 
-from .units.orders_crud import create_order, delete_order, rematch_order_products, update_order
+from .units.orders_crud import (
+    create_order,
+    delete_order,
+    exclude_order_from_settlement,
+    rematch_order_products,
+    update_order,
+)
 from .units.orders_messages import send_order_message
 from .units.orders_note import get_order_note, save_order_note
 from .units.orders_outbound import (
@@ -46,5 +52,7 @@ router.add_api_route("/refresh-info", refresh_order_info, methods=["POST"])
 router.add_api_route("/refresh-progress/{job_id}", refresh_order_progress, methods=["GET"])
 router.add_api_route("", create_order, methods=["POST"])
 router.add_api_route("/{oid}/rematch", rematch_order_products, methods=["POST"])
+# 不加入结算：一次性标记，之后 system/settlement 的汇总不再看见这笔订单
+router.add_api_route("/{oid}/settlement-exclude", exclude_order_from_settlement, methods=["POST"])
 router.add_api_route("/{oid}", update_order, methods=["PUT"])
 router.add_api_route("/{oid}", delete_order, methods=["DELETE"])
