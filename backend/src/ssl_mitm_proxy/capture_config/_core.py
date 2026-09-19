@@ -109,6 +109,47 @@ def parse_capture_target(
                 "dpop_field": "dpop_item_get_info",
                 "full_url": u,
             }
+        # 购入商品列表（マイページ「購入した商品」/mypage/purchases）。
+        # URL 里没有任何账号标识（买家就是登录者），故响应文件是单一 latest 文件，
+        # 靠 run_mercari_serial_async 串行 + 同步前 clear 隔离多账号。
+        # 翻页形态：?pageSize=48&imageType=IMAGE_TYPE_JPEG[&pageToken=<上页 nextPageToken>]
+        if norm_path.endswith("/v1/orders"):
+            token_list = qd.get("pageToken") or []
+            return {
+                "capture_type": "purchase_orders_list",
+                "page_token": (token_list[0] or "").strip() if token_list else "",
+                "http_method": m or "GET",
+                "dpop_field": "dpop_purchase_list",
+                "full_url": u,
+            }
+        # 买家取引画面（/transaction/{item_id}）比卖家侧多出的两个接口，购入商品详情用。
+        # 其余字段都来自已有的 items/get（含完整 seller）、transaction_evidences/get、
+        # shipping/get_info、transaction_messages/get_messages，不必再加分支。
+        # 两者都**按状态出现**：delivery/status 只在已发货后有，reviews 只在 done 后有。
+        if norm_path.endswith("/delivery/status"):
+            teid_list = qd.get("transaction_evidence_id") or qd.get("transactionEvidenceId") or []
+            teid = (teid_list[0] or "").strip() if teid_list else ""
+            if not teid.isdigit():
+                return None
+            return {
+                "capture_type": "delivery_status",
+                "transaction_evidence_id": teid,
+                "http_method": m or "GET",
+                "dpop_field": "dpop_delivery_status",
+                "full_url": u,
+            }
+        if norm_path.endswith("reviews/get_by_item"):
+            iid_list = qd.get("item_id") or qd.get("itemId") or []
+            iid = (iid_list[0] or "").strip() if iid_list else ""
+            if not iid:
+                return None
+            return {
+                "capture_type": "reviews_get_by_item",
+                "item_id": iid,
+                "http_method": m or "GET",
+                "dpop_field": "dpop_reviews",
+                "full_url": u,
+            }
         if norm_path.endswith("services/todolist/v1/list"):
             return {
                 "capture_type": "todolist_list",

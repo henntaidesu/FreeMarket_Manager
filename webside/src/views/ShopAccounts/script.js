@@ -51,6 +51,9 @@ export default defineComponent({
     const FETCH_TASKS = [
       { key: 'order_list', field: 'auto_fetch_order_list_interval', labelKey: 'mercariAccounts.taskOrderList', shortKey: 'mercariAccounts.taskShortOrderList' },
       { key: 'on_sale', field: 'auto_fetch_on_sale_interval', labelKey: 'mercariAccounts.taskOnSale', shortKey: 'mercariAccounts.taskShortOnSale' },
+      // 购入商品只有煤炉侧有实现（后端 _YAHOO_UNSUPPORTED_TASKS 也登记了），
+      // 所以雅虎账号上不渲染这一行——否则用户能设一个永远不会执行的间隔。
+      { key: 'purchases', field: 'auto_fetch_purchases_interval', labelKey: 'mercariAccounts.taskPurchases', shortKey: 'mercariAccounts.taskShortPurchases', mercariOnly: true },
       { key: 'todos', field: 'auto_fetch_todos_interval', labelKey: 'mercariAccounts.taskTodos', shortKey: 'mercariAccounts.taskShortTodos' },
       { key: 'notifications', field: 'auto_fetch_notifications_interval', labelKey: 'mercariAccounts.taskNotifications', shortKey: 'mercariAccounts.taskShortNotifications' },
     ]
@@ -155,6 +158,11 @@ export default defineComponent({
     const isYahooForm = computed(() => (form.value.platform || 'mercari') === 'yahoo')
     const sellerIdPlaceholder = computed(() =>
       t(isYahooForm.value ? 'mercariAccounts.sellerIdPlaceholderYahoo' : 'mercariAccounts.sellerIdPlaceholder')
+    )
+
+    //: 弹窗里实际渲染的同步项（雅虎账号隐去煤炉专有项）
+    const visibleFetchTasks = computed(() =>
+      FETCH_TASKS.filter((def) => !def.mercariOnly || !isYahooForm.value)
     )
 
     //: 编辑态「改动即存」的防抖时长
@@ -785,6 +793,7 @@ export default defineComponent({
       syncTaskLabel,
       dialogTitle,
       FETCH_TASKS,
+      visibleFetchTasks,
       CUSTOM_INTERVAL,
       fetchIntervalOptions,
       intervalUnitOptions,

@@ -24,6 +24,7 @@ from .orders.order import OrderModel
 from .orders.order_note import OrderNoteModel
 from .orders.order_outbound_line import OrderOutboundLineModel
 from .on_sale_items.on_sale_item import OnSaleItemModel
+from .purchases.purchase_item import PurchaseItemModel
 from .todos.todo_item import TodoItemModel
 from .todos.transaction_message import TransactionMessageModel
 from .notifications.notification import NotificationModel
@@ -51,6 +52,7 @@ __all__ = [
     'ShopAccountModel',
     'YahooAppTokenModel',
     'OnSaleItemModel',
+    'PurchaseItemModel',
     'OrderNoteModel',
     'OrderOutboundLineModel',
     'ProductTypeCategoryMappingModel',

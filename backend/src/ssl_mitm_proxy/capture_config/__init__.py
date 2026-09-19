@@ -5,11 +5,12 @@
 保持 ``from ...ssl_mitm_proxy.capture_config import X`` 旧导入不变。
 
 - ``_core``：路径 / session marker / 请求目标解析 / 原子读写 / item_id 规范化
-- ``on_sale`` / ``orders`` / ``todos`` / ``notifications``：各业务域响应文件读写
+- ``on_sale`` / ``orders`` / ``purchases`` / ``todos`` / ``notifications``：各业务域响应文件读写
 """
 
 from ._core import *  # noqa: F401,F403
 from .on_sale import *  # noqa: F401,F403
 from .orders import *  # noqa: F401,F403
+from .purchases import *  # noqa: F401,F403
 from .todos import *  # noqa: F401,F403
 from .notifications import *  # noqa: F401,F403

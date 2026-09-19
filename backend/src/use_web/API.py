@@ -12,6 +12,7 @@ use_web V2 API 聚合模块（按前端页面归类）
 - inventory       前端 /inventory 页（含 ocr/scan 辅助识别）
 - orders          前端 /orders 页
 - on_sale_items   前端 /on-sale-items 页
+- purchases       前端 /system/purchases 页（购入商品，系统管理二级）
 - transactions    前端 /transactions 页
 - mercari_accounts  前端 /shop-accounts 页（店铺账号）
 - product_type_category_mappings  前端 /product-type-category-mappings 页
@@ -29,6 +30,7 @@ from .system.API import router as system_router
 from .product_types.API import router as product_types_router
 from .web_drive.API import router as web_drive_router
 from .on_sale_items.API import router as on_sale_items_router
+from .purchases.API import router as purchases_router
 from .orders.API import router as orders_router
 from .inventory.API import router as inventory_router
 from .inventory.API import public_router as inventory_public_router
@@ -70,6 +72,7 @@ router.include_router(system_router, prefix="/system", tags=["system"], dependen
 router.include_router(product_types_router, prefix="/product-types", tags=["product-types"], dependencies=_AUTH)
 router.include_router(web_drive_router, prefix="/web-drive", tags=["web-drive"], dependencies=_AUTH)
 router.include_router(on_sale_items_router, prefix="/on-sale-items", tags=["on-sale-items"], dependencies=_AUTH)
+router.include_router(purchases_router, prefix="/purchases", tags=["purchases"], dependencies=_AUTH)
 router.include_router(orders_router, prefix="/orders", tags=["orders"], dependencies=_AUTH)
 router.include_router(inventory_router, prefix="/inventory", tags=["inventory"], dependencies=_AUTH)
 router.include_router(shop_accounts_router, prefix="/shop-accounts", tags=["shop-accounts"], dependencies=_AUTH)

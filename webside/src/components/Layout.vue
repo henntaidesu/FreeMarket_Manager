@@ -272,6 +272,7 @@ const menuItems = [
     // 由 currentSecondaryGroups 按相邻同组折叠出分组标题
     children: [
       { path: '/system/transactions', titleKey: 'layout.menu.transactions', icon: 'List', group: 'layout.menuGroup.records' },
+      { path: '/system/purchases', titleKey: 'layout.menu.purchases', icon: 'ShoppingCart', group: 'layout.menuGroup.records' },
       { path: '/system/settlement', titleKey: 'layout.menu.settlement', icon: 'Coin', group: 'layout.menuGroup.records' },
 
       { path: '/system/cost-records', titleKey: 'layout.menu.costRecords', icon: 'Money', group: 'layout.menuGroup.packaging' },

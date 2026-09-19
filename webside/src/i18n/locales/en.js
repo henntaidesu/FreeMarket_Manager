@@ -102,6 +102,7 @@ export default {
       transactions: "Transactions",
       costRecords: "Packaging Stock",
       costExpenses: "Packaging Usage",
+      purchases: "Purchases",
       settlement: "Settlement",
       warehouses: "Warehouses",
       categories: "Game Categories",

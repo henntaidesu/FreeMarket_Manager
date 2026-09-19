@@ -102,6 +102,7 @@ export default {
       transactions: "在庫履歴",
       costRecords: "梱包材在庫",
       costExpenses: "梱包材使用履歴",
+      purchases: "購入した商品",
       settlement: "精算",
       warehouses: "倉庫管理",
       categories: "ゲームカテゴリ",

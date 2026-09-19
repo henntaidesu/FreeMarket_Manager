@@ -172,7 +172,7 @@
         <el-divider content-position="left">{{ t('mercariAccounts.sectionAutoFetch') }}</el-divider>
         <el-form-item :label="t('mercariAccounts.syncItems')">
           <div class="af-task-list">
-            <div class="af-task-row" v-for="def in FETCH_TASKS" :key="def.key">
+            <div class="af-task-row" v-for="def in visibleFetchTasks" :key="def.key">
               <span class="af-task-name">{{ taskLabel(def) }}</span>
               <el-select
                 v-model="form.tasks[def.key].sel"

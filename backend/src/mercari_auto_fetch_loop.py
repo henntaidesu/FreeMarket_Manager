@@ -7,6 +7,7 @@ auto_fetch_<项>_last_at 独立节流；status=active 的账号在每个到期�
 （与同账号 run_mercari_serial_async 串行）：
 - order_list → sync_new_data（订单页「更新列表」）
 - on_sale → sync_on_sale_items_from_mercari（在售页「从煤炉同步」）
+- purchases → sync_purchases_from_mercari（购入商品页「从煤炉同步」；雅虎无对应实现）
 - todos → sync_todos_with_details（待办页「从煤炉同步」：列表 + 无缓存待办补抓交易详情）
 - notifications → sync_notifications_from_mercari（通知页「从煤炉同步」）
 
@@ -31,6 +32,7 @@ from .use_web.shop_accounts.units.shop_accounts_models import (
     interval_to_seconds,
 )
 from .use_mercari.get_notifications.notification.notification_sync import sync_notifications_from_mercari
+from .use_mercari.get_purchases import sync_purchases_from_mercari
 from .use_mercari.get_to_du_list.todolist_sync import sync_todos_with_details
 from .use_mercari.on_sale.on_sale_items_sync import sync_on_sale_items_from_mercari
 from .use_mercari.sync.sync_data import sync_new_data
@@ -118,9 +120,8 @@ def _account_platform(account_id: int) -> str:
 
 
 #: 雅虎尚未实现的同步项：到期也跳过，避免拿煤炉实现去跑雅虎账号（必失败）。
-#: **当前为空集**——订单 / 在售 / 待办 / 通知四项雅虎都已实现，所以下面那个 `continue`
-#: 分支现在走不到。保留是为了将来加同步项时有地方登记；别看到空集就把分支删了。
-_YAHOO_UNSUPPORTED_TASKS: frozenset = frozenset()
+#: 订单 / 在售 / 待办 / 通知四项雅虎都已实现；购入商品只有煤炉侧实现。
+_YAHOO_UNSUPPORTED_TASKS: frozenset = frozenset({"purchases"})
 
 
 def _yahoo_task_callable(key: str, aid: int):
@@ -150,6 +151,8 @@ def _task_callable(key: str, aid: int, platform: str = "mercari"):
         return lambda: sync_new_data(account_id=aid)
     if key == "on_sale":
         return lambda: sync_on_sale_items_from_mercari(account_id=aid)
+    if key == "purchases":
+        return lambda: sync_purchases_from_mercari(account_id=aid)
     if key == "todos":
         # 与待办页「从煤炉同步」一致：同步列表后对新到的无缓存待办补抓交易详情
         return lambda: sync_todos_with_details(account_id=aid)
@@ -195,6 +198,7 @@ async def _run_auto_fetch_for_account(
 _AUTO_FETCH_TASK_LABELS = {
     "order_list": "订单",
     "on_sale": "在售",
+    "purchases": "购入",
     "todos": "待办",
     "notifications": "通知",
 }

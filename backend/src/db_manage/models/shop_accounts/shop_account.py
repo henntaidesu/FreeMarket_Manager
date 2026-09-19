@@ -107,6 +107,12 @@ class ShopAccountModel(BaseModel):
                 'not_null': True,
                 'default': 0,
             },
+            # 购入商品页「从煤炉同步」对应的自动开关（仅煤炉，雅虎无对应实现）
+            'auto_fetch_purchases': {
+                'type': 'INTEGER',
+                'not_null': True,
+                'default': 0,
+            },
             # 待办事项页「从煤炉同步」对应的自动开关
             'auto_fetch_todos': {
                 'type': 'INTEGER',
@@ -131,6 +137,11 @@ class ShopAccountModel(BaseModel):
                 'not_null': False,
                 'default': None,
             },
+            'auto_fetch_purchases_interval': {
+                'type': 'TEXT',
+                'not_null': False,
+                'default': None,
+            },
             'auto_fetch_todos_interval': {
                 'type': 'TEXT',
                 'not_null': False,
@@ -148,6 +159,11 @@ class ShopAccountModel(BaseModel):
                 'default': None,
             },
             'auto_fetch_on_sale_last_at': {
+                'type': 'TEXT',
+                'not_null': False,
+                'default': None,
+            },
+            'auto_fetch_purchases_last_at': {
                 'type': 'TEXT',
                 'not_null': False,
                 'default': None,
@@ -344,12 +360,12 @@ class ShopAccountModel(BaseModel):
 
         total = db.execute_query(f"SELECT COUNT(*) {base_sql}", tuple(params))[0][0]
         select_sql = f"""
-            SELECT m.id, m.account_name, m.platform, m.login_id, m.seller_id, m.avatar, m.login_password, m.status, m.remark, m.[value], m.is_open, m.fetch_interval, m.auto_fetch_last_at, m.auto_fetch_order_list, m.auto_fetch_on_sale, m.auto_fetch_todos, m.auto_fetch_notifications, m.auto_fetch_order_list_interval, m.auto_fetch_on_sale_interval, m.auto_fetch_todos_interval, m.auto_fetch_notifications_interval, m.auto_fetch_relist, m.pause_start_time, m.pause_end_time
+            SELECT m.id, m.account_name, m.platform, m.login_id, m.seller_id, m.avatar, m.login_password, m.status, m.remark, m.[value], m.is_open, m.fetch_interval, m.auto_fetch_last_at, m.auto_fetch_order_list, m.auto_fetch_on_sale, m.auto_fetch_purchases, m.auto_fetch_todos, m.auto_fetch_notifications, m.auto_fetch_order_list_interval, m.auto_fetch_on_sale_interval, m.auto_fetch_purchases_interval, m.auto_fetch_todos_interval, m.auto_fetch_notifications_interval, m.auto_fetch_relist, m.pause_start_time, m.pause_end_time
             {base_sql}
             ORDER BY m.id ASC
             LIMIT ? OFFSET ?
         """
-        keys = ['id', 'account_name', 'platform', 'login_id', 'seller_id', 'avatar', 'login_password', 'status', 'remark', 'value', 'is_open', 'fetch_interval', 'auto_fetch_last_at', 'auto_fetch_order_list', 'auto_fetch_on_sale', 'auto_fetch_todos', 'auto_fetch_notifications', 'auto_fetch_order_list_interval', 'auto_fetch_on_sale_interval', 'auto_fetch_todos_interval', 'auto_fetch_notifications_interval', 'auto_fetch_relist', 'pause_start_time', 'pause_end_time']
+        keys = ['id', 'account_name', 'platform', 'login_id', 'seller_id', 'avatar', 'login_password', 'status', 'remark', 'value', 'is_open', 'fetch_interval', 'auto_fetch_last_at', 'auto_fetch_order_list', 'auto_fetch_on_sale', 'auto_fetch_purchases', 'auto_fetch_todos', 'auto_fetch_notifications', 'auto_fetch_order_list_interval', 'auto_fetch_on_sale_interval', 'auto_fetch_purchases_interval', 'auto_fetch_todos_interval', 'auto_fetch_notifications_interval', 'auto_fetch_relist', 'pause_start_time', 'pause_end_time']
         rows = db.execute_query(select_sql, tuple(params + [page_size, (page - 1) * page_size]))
         # 各账号当前在售件数：与看板同口径（未软删 + status='on_sale'），
         # 按 (平台, 卖家ID) 归属——on_sale_items 没有 account_id 列，seller_id 才是账号锚点。

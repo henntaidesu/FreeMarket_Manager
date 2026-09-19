@@ -30,6 +30,7 @@ const routes = [
       { path: 'system/transactions', name: 'Transactions', component: () => import('@/views/system/Transactions/index.vue'), meta: { title: '库存记录', icon: 'List' } },
       { path: 'system/cost-records', name: 'CostRecords', component: () => import('@/views/system/CostRecords/index.vue'), meta: { title: '库存包材', icon: 'Money' } },
       { path: 'system/cost-expenses', name: 'CostExpenses', component: () => import('@/views/system/CostExpenses/index.vue'), meta: { title: '包材使用记录', icon: 'Wallet' } },
+      { path: 'system/purchases', name: 'Purchases', component: () => import('@/views/system/Purchases/index.vue'), meta: { title: '购入商品', icon: 'ShoppingCart' } },
       { path: 'system/settlement', name: 'Settlement', component: () => import('@/views/system/Settlement/index.vue'), meta: { title: '结算', icon: 'Coin' } },
       { path: 'system/warehouses', name: 'Warehouses', component: () => import('@/views/system/Warehouses/index.vue'), meta: { title: '仓库管理', icon: 'OfficeBuilding' } },
       { path: 'system/categories', name: 'Categories', component: () => import('@/views/system/Categories/index.vue'), meta: { title: '游戏分类', icon: 'Collection' } },

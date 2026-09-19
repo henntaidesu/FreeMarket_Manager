@@ -1,0 +1,100 @@
+.search-card { margin-bottom: 16px; border-radius: 8px; }
+.search-row { justify-content: space-between; }
+.search-left-group { display: flex; align-items: center; gap: 20px; }
+.search-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.table-card { border-radius: 8px; }
+.pagination { margin-top: 16px; display: flex; justify-content: flex-end; }
+
+.thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 4px;
+  display: block;
+}
+.item-link { color: inherit; text-decoration: none; }
+.item-link:hover { text-decoration: underline; }
+.variant {
+  margin-left: 8px;
+  font-size: 12px;
+  color: #8a94a6;
+}
+
+/* ── 手机端：与系统日志页同款处理 ────────────────────────────
+   全站给输入类控件写死了 `width: 180px !important`，显式宽度压过
+   align-items: stretch，光竖排不够，必须显式改回满宽。 */
+@media (max-width: 768px) {
+  .search-card { margin-bottom: 12px; }
+  .search-left-group {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .search-left-group :deep(.el-select),
+  .search-left-group :deep(.el-input) {
+    width: 100% !important;
+    max-width: none !important;
+  }
+  .search-actions {
+    justify-content: stretch;
+    margin-top: 8px;
+    gap: 8px;
+  }
+  .search-actions :deep(.el-button) {
+    flex: 1 1 0;
+    min-width: 0;
+    margin-left: 0;
+  }
+  .pagination {
+    justify-content: center;
+    margin-top: 12px;
+  }
+  .pagination :deep(.el-pagination) {
+    flex-wrap: wrap;
+    row-gap: 6px;
+    justify-content: center;
+  }
+}
+
+/* ── 展开行：取引详情 + 交易留言 ───────────────────────────── */
+.detail-pane { padding: 8px 16px 12px; }
+.review-msg { margin-left: 8px; white-space: pre-wrap; }
+
+.msg-block { margin-top: 12px; }
+.msg-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.msg-count {
+  margin-left: 6px;
+  font-weight: 400;
+  color: #8a94a6;
+}
+.msg-empty { font-size: 12px; color: #8a94a6; }
+.msg-row {
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  border-radius: 6px;
+  background: rgba(19, 28, 47, 0.35);
+  max-width: 720px;
+}
+/* 自己发的留言（is_buyer=1）靠右，与卖家的分开 */
+.msg-row.mine { margin-left: auto; background: rgba(64, 128, 255, 0.12); }
+.msg-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: #8a94a6;
+  margin-bottom: 2px;
+}
+.msg-from { font-weight: 600; }
+.msg-text { font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+.msg-imgs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.msg-img { width: 72px; height: 72px; border-radius: 4px; }
+
+@media (max-width: 768px) {
+  .detail-pane { padding: 8px; }
+  .msg-row { max-width: none; }
+}

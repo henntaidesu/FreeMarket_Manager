@@ -20,10 +20,13 @@ from mitmproxy import http  # noqa: E402
 from src.ssl_mitm_proxy.capture_config import (  # noqa: E402
     atomic_write_aggregated_desired_prices_response,
     atomic_write_bundle_purchase_response,
+    atomic_write_delivery_status_response,
     atomic_write_capture_file,
     atomic_write_item_get_response,
+    atomic_write_item_reviews_response,
     atomic_write_notification_response,
     atomic_write_on_sale_list_response,
+    atomic_write_purchase_list_response,
     atomic_write_shipping_classes_response,
     atomic_write_shipping_info_response,
     atomic_write_sold_out_list_response,
@@ -223,6 +226,59 @@ class MercariCapture:
                 _log_line(
                     f"[MITM] items/get 商品详情响应已写入 item_id={iid} "
                     f"result={body_json.get('result') if isinstance(body_json, dict) else '?'}"
+                )
+                return
+
+            if ctype == "delivery_status" and dpop == "dpop_delivery_status":
+                teid = str(meta.get("transaction_evidence_id") or "").strip()
+                if not teid.isdigit():
+                    return
+                atomic_write_delivery_status_response(
+                    teid,
+                    {
+                        "ts": int(time.time() * 1000),
+                        "transaction_evidence_id": teid,
+                        "request_url": str(meta.get("full_url") or url),
+                        "http_status": code,
+                        "body": body_json,
+                    },
+                )
+                _log_line(
+                    f"[MITM] delivery/status 已写入 transaction_evidence_id={teid}"
+                )
+                return
+
+            if ctype == "reviews_get_by_item" and dpop == "dpop_reviews":
+                iid = canonical_mercari_item_id(str(meta.get("item_id") or ""))
+                if not iid:
+                    return
+                atomic_write_item_reviews_response(
+                    iid,
+                    {
+                        "ts": int(time.time() * 1000),
+                        "item_id": iid,
+                        "request_url": str(meta.get("full_url") or url),
+                        "http_status": code,
+                        "body": body_json,
+                    },
+                )
+                _log_line(f"[MITM] reviews/get_by_item 已写入 item_id={iid}")
+                return
+
+            if ctype == "purchase_orders_list" and dpop == "dpop_purchase_list":
+                atomic_write_purchase_list_response(
+                    {
+                        "ts": int(time.time() * 1000),
+                        "request_url": str(meta.get("full_url") or url),
+                        "page_token": str(meta.get("page_token") or ""),
+                        "http_status": code,
+                        "body": body_json,
+                    },
+                )
+                npt = body_json.get("nextPageToken") if isinstance(body_json, dict) else None
+                n = len(body_json.get("orders") or []) if isinstance(body_json, dict) else 0
+                _log_line(
+                    f"[MITM] v1/orders 购入列表响应已写入 orders={n} nextPageToken={npt!r}"
                 )
                 return
 

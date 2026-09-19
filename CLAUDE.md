@@ -142,7 +142,7 @@ backend/
     │   ├── inventory_stock_apply.py  # ⚠ 已废弃、零调用（旧数量模型，接回去会双重扣减）
     │   ├── mgmt_id_cipher.py     # secret code in item descriptions — the real binding
     │   ├── mgmt_image_cipher.py  # QIM image watermark — embedded but never decoded (see below)
-    │   └── sync/  on_sale/  get_order/  get_to_du_list/  get_notifications/
+    │   └── sync/  on_sale/  get_order/  get_purchases/  get_to_du_list/  get_notifications/
     ├── use_yahoo/                   # Yahoo!フリマ equivalents (page scraping, see below)
     │   ├── app_api/                 #   手机 App 的 sparkle JSON API（ゆうパケットポスト 发货唯一口子）
     │   └── on_sale/  orders/  todos/  notifications/  seller.py  item_page.py
@@ -206,6 +206,8 @@ Key tables in `backend/src/db_manage/models/`:
 - **yahoo_app_tokens**: Yahoo phone-app OAuth tokens, one row per account (unique `account_id`).
   Deliberately *not* in `shop_accounts.value` — see `use_yahoo/app_api/` below.
 - **on_sale_items**: Listing records synced from Mercari/Yahoo
+- **purchase_items**: 购入商品（Mercari 「購入した商品」）。一行 = 一件购入商品，唯一键
+  `(order_id, item_id)`，不是 `order_id` —— まとめ買い 一笔订单带多件。见 購入した商品 below。
 - **orders**: Orders synced from Mercari/Yahoo
 - **image_embeddings**: CLIP vectors for inventory image search (see Auxiliary Subsystems)
 - **image_assets**: `/imges/<file>` → where that image actually lives. Only images that were moved
@@ -213,7 +215,9 @@ Key tables in `backend/src/db_manage/models/`:
 - **task_queue**: Background job rows (see Task Queue)
 - **config**: Generic key/value app settings — DeepSeek credentials live here, not in env vars
 - **system_logs**, **memos**, **talk_scripts**, **settlement_records**, **desired_price_offers**,
-  **bundle_purchase_requests**, **transaction_messages**, **categories**, **game_types**
+  **bundle_purchase_requests**, **categories**, **game_types**
+- **transaction_messages**: 交易留言，`order_no` = 商品ID。**卖家侧待办与买家侧购入共用一张表**，
+  整单替换写入；`is_buyer` 恒指「这条是买家写的」，不随视角翻转。见 購入した商品 below。
 - **order_outbound_lines**: Line items for outbound shipments
 - **transactions**: In/out stock movements with warehouse tracking
 - **cost_records**: Packaging material inventory
@@ -396,6 +400,70 @@ header, not cookies, so the dangerous wildcard+credentials combination never occ
    image for no current benefit.
 6. Browser automation (`web_drive/`): Playwright for listing operations
 7. SSL MITM proxy: Captures HTTP traffic to harvest tokens the public API does not expose
+
+### 購入した商品（`use_mercari/get_purchases/`）
+
+系统管理二级页 `/#/system/purchases` 的数据源：**只读记录**，同步 + 列表 + 筛选，不碰库存、
+成本、结算。煤炉专有——雅虎侧没有实现，`sync_purchases_core` 按 `shop_accounts.platform`
+跳过雅虎账号，自动获取循环里 `purchases` 也登记在 `_YAHOO_UNSUPPORTED_TASKS`。
+
+抓取与出品一覧同构（MITM 截获 → 滚底点「もっと見る」→ 合并），下面几条是实测出来的，
+动它之前先看：
+
+- **接口是 `GET api.mercari.jp/v1/orders?pageSize=48&imageType=IMAGE_TYPE_JPEG`**，
+  翻页加 `&pageToken=<上一页响应的 nextPageToken>`；`nextPageToken` 为空串即到底。
+  URL 里**没有任何账号标识**（买家就是登录者），所以响应文件是单一 latest 文件
+  （`purchase_orders_latest_response.json`，与 todolist / notification 同款），
+  多账号靠 `run_mercari_serial_async` 串行隔离，不像在售那样能按 seller_id 分文件。
+- **「もっと見る」只在返回条数填满前端自己那份 48 时才渲染**，跟 `nextPageToken` 无关：
+  把 pageSize 改写成 5 做过对照，响应带着非空 token 但按钮不出现、滚到底也不自动加载。
+  所以循环只按 token 决定要不要继续，按钮找不到就停并记 `paging_stalled`。
+- **翻页是增量的**：列表按购入时间倒序，一整页订单号在本地全都有 → 更旧的必然也有，
+  就此停止（`stopped_early`）。首次同步本地为空，会一路翻到 token 为空，即全量导入。
+- **该接口不返回金额**，页面上也不显示——要价格得逐单打开 `/transaction/{item_id}`，
+  不在这一页的范围内。所以 `purchase_items` 没有价格列。
+- **购入记录不会从列表里消失**（取引完了后仍在），因此**不做缺席软删**，也没有 `is_delete`：
+  同步只 upsert。这也是它比在售同步安全的地方——抓取不完整最多少写几行，不会误删。
+- **状态是原样保存的枚举名**（实测到 `STATE_WAITING_SHIPPING` / `STATE_WAITING_BUYER_REVIEW`
+  / `STATE_COMPLETED`，全集未知）。前端只对已知值显示中文，未知值原样展示，筛选下拉的选项
+  由 `/purchases/states` 从库里现有数据算出来，不写死对照表。
+
+**取引详情（`purchase_detail.py`）** —— 列表接口给不了的东西，来自逐笔打开买家视角的
+`https://jp.mercari.com/transaction/{item_id}`。没有"购入详情"这一个接口，数据散在四处，
+而且**后两个按交易状态才出现，缺席是正常态、不是失败**：
+
+| 接口 | 给什么 | 何时有 |
+|------|--------|--------|
+| `transaction_evidences/get` | 金额 / 各项运费 / 支付方式 / 卖家ID / 配送方式·负担·时效·発送元 / `status` / 各时间戳 | 总是（卖家侧订单回填用的是同一个接口、同一个响应文件） |
+| `items/get` | `seller` 对象（昵称·头像） | 总是 |
+| `shipping/get_info` | 配送方式显示名（「らくらくメルカリ便」） | 总是 |
+| `delivery/status` | 追踪号 `denpyo_no` + ヤマト配送状态 | **仅已发货后** |
+| `reviews/get_by_item` | 双向评价（`given_review` / `received_review`） | **仅 `done` 后** |
+
+- **卖家信息不要去打 `users/get_profile`**：同一页会调它两次（一次登录者自己、一次卖家），
+  单文件抓包分不清是谁。`items/get` 里本来就带完整 `seller`，而且已经在抓了。
+- **`transaction_evidences/get` 的响应里带买家本人的收货地址**（姓名·电话·住址）。
+  按要求**不入库**——`_evidence_fields` 只挑需要的列，地址字段根本不会进 row。
+- **`shipping/get_info` 与 `transaction_messages/get_messages` 是单一 latest 文件，且与卖家侧
+  待办流程共用**。连抓多笔时上一笔迟到的响应会串号（「某单显示了别单的交流/发货信息」），
+  待办那边已经解决过：直接复用 `transaction_detail/_captures.py::_wait_for_both_captures`
+  （按响应自带的 item_id 校验），别另写一份。
+- **抓取时机是「新增自动 + 未完成重抓 + 单条按钮」**：候选集 =
+  `detail_synced_at IS NULL` ∪ `state <> 'STATE_COMPLETED'`（`find_detail_candidates`）。
+  已完成且抓过的不再碰，所以稳态成本只随**未完成笔数**走，不随总笔数走。详情在**列表同步
+  那同一个浏览器会话里**接着抓，省掉每笔重开浏览器。一轮上限 `PURCHASE_DETAIL_MAX_PER_RUN`
+  （默认 20，与待办详情预抓同理），剩下的下轮再来。
+- **`detail_fetch_failures` 到上限即退出候选集**（同 `PRECACHE_MAX_FAILURES` 的道理）：
+  一条永远打不开的取引页（例如交易取消后的「閲覧できません」拦截页）否则会拖住每一轮同步。
+  单条按钮 `purchases.refresh_one` **不受这个上限约束**——人点按钮就是在决定要再试一次。
+- **详情会回写 `state`**：取引画面的状态词经 `EVIDENCE_STATUS_TO_STATE` 映射成列表那套
+  `STATE_*`，命中才写、未收录的不猜。这样一笔刚完成的交易立刻退出重抓候选集，不用等下次
+  列表同步。原始状态词另存 `evidence_status`，两列同一时刻由同一个响应写出，不会互相漂移。
+- **交易留言复用 `transaction_messages` 表**（`order_no` = 商品ID），整单替换，不另建表：
+  自己的在售商品买不到自己手上，两边的 `order_no` 撞不上。`is_buyer` 的含义也**不因视角翻转
+  而改变**——始终是「这条是买家写的」，购入这边即本账号自己发的那些（`local_sender_id` 传
+  `transaction_evidences.buyer_id`）。**留言不翻译**：卖家侧译成中文是为了读着回信，购入这边
+  是只读记录，`text_zh` 留空。没截获到消息接口时保留旧留言，绝不用空列表把历史抹掉。
 
 ### Yahoo!フリマ (PayPayフリマ) Listing
 
@@ -786,7 +854,9 @@ The frontend submits and returns immediately; progress is watched on `/#/tasks`.
 
 Queued operations (see `registry.py` for the authoritative list): inventory listing; orders
 update-list / update-status / single-row refresh; on-sale sync / full-update / revise / delist /
-suspend / resume; todos sync / bulk-review / bulk-confirm-ship / shipping-QR /
+suspend / resume; purchases sync + single-row detail refresh (`purchases.sync` /
+`purchases.refresh_one`); todos sync / bulk-review /
+bulk-confirm-ship / shipping-QR /
 confirm-cancellation / send-message / send-reaction; the account
 card's 同步数据 (`account.sync_data`); and 回国模式 (`system.homecoming`, see below).
 **Batch revise is not a separate type** — the frontend
@@ -1044,6 +1114,10 @@ lets the user choose SQLite/MySQL, test the MySQL connection, and switch backend
 - `TEST_DATABASE_NAMES`: Extra comma-separated MySQL names to treat as test DBs. See Database Safety.
 - `DB_DESTRUCTIVE_SCHEMA_SYNC`: Set to `0` to also skip the drop-unknown-tables / drop-undeclared-columns
   startup passes on a **test** database (they are already skipped everywhere else). See Database Safety.
+- `PURCHASE_DETAIL_AUTO` (默认开) / `PURCHASE_DETAIL_MAX_PER_RUN` (20) /
+  `PURCHASE_DETAIL_MAX_FAILURES` (3) / `PURCHASE_DETAIL_TIMEOUT_SEC` (90): 购入商品同步后
+  在**同一浏览器会话**里逐笔抓取取引详情的开关与限流。每笔都是一次完整页面加载，首次导入
+  几十笔就是几十次——`MAX_PER_RUN` 限一轮的量，剩下的下轮再来。见 購入した商品 above。
 - `TXDETAIL_PRECACHE_MAX_PER_RUN`: How many transaction details the post-sync precache may fetch in one
   run (default 20). Each one is a full browser page load holding the account's serial queue, so an
   unbounded backlog would block it for minutes; the rest carries over to the next tick. A todo that

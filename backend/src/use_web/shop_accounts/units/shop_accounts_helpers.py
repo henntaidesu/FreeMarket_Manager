@@ -183,10 +183,12 @@ def _item_api_dict(item: ShopAccountModel) -> dict:
     d['is_open'] = 1 if d.get('is_open') else 0
     d['auto_fetch_order_list'] = 1 if d.get('auto_fetch_order_list') else 0
     d['auto_fetch_on_sale'] = 1 if d.get('auto_fetch_on_sale') else 0
+    d['auto_fetch_purchases'] = 1 if d.get('auto_fetch_purchases') else 0
     d['auto_fetch_todos'] = 1 if d.get('auto_fetch_todos') else 0
     d['auto_fetch_notifications'] = 1 if d.get('auto_fetch_notifications') else 0
     d['auto_fetch_order_list_interval'] = d.get('auto_fetch_order_list_interval') or None
     d['auto_fetch_on_sale_interval'] = d.get('auto_fetch_on_sale_interval') or None
+    d['auto_fetch_purchases_interval'] = d.get('auto_fetch_purchases_interval') or None
     d['auto_fetch_todos_interval'] = d.get('auto_fetch_todos_interval') or None
     d['auto_fetch_notifications_interval'] = d.get('auto_fetch_notifications_interval') or None
     d['auto_fetch_relist'] = 1 if d.get('auto_fetch_relist') else 0

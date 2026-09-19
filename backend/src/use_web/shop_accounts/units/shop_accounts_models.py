@@ -13,7 +13,7 @@ DEFAULT_PLATFORM = "mercari"
 ALLOWED_FETCH_INTERVALS = frozenset({"15", "30", "60", "3h", "6h", "10", "12h", "24h"})
 
 # 可独立配置间隔的自动同步项（键与 mercari_auto_fetch_loop / 前端一致）
-AUTO_FETCH_TASK_KEYS = ("order_list", "on_sale", "todos", "notifications")
+AUTO_FETCH_TASK_KEYS = ("order_list", "on_sale", "purchases", "todos", "notifications")
 
 # 自定义间隔上下限（秒）：最小 5 分钟，最大 24 小时
 _INTERVAL_MIN_SEC = 5 * 60
@@ -92,11 +92,13 @@ class MercariAccountCreate(PydanticModel):
     fetch_interval: Optional[str] = None
     auto_fetch_order_list: int = 0
     auto_fetch_on_sale: int = 0
+    auto_fetch_purchases: int = 0
     auto_fetch_todos: int = 0
     auto_fetch_notifications: int = 0
     # 每项独立间隔；空串/None=关闭，非空=开启该项
     auto_fetch_order_list_interval: Optional[str] = None
     auto_fetch_on_sale_interval: Optional[str] = None
+    auto_fetch_purchases_interval: Optional[str] = None
     auto_fetch_todos_interval: Optional[str] = None
     auto_fetch_notifications_interval: Optional[str] = None
     auto_fetch_relist: int = 0
@@ -117,11 +119,13 @@ class MercariAccountUpdate(PydanticModel):
     fetch_interval: Optional[str] = None
     auto_fetch_order_list: Optional[int] = None
     auto_fetch_on_sale: Optional[int] = None
+    auto_fetch_purchases: Optional[int] = None
     auto_fetch_todos: Optional[int] = None
     auto_fetch_notifications: Optional[int] = None
     # 每项独立间隔；空串=关闭该项，None=本次不修改
     auto_fetch_order_list_interval: Optional[str] = None
     auto_fetch_on_sale_interval: Optional[str] = None
+    auto_fetch_purchases_interval: Optional[str] = None
     auto_fetch_todos_interval: Optional[str] = None
     auto_fetch_notifications_interval: Optional[str] = None
     auto_fetch_relist: Optional[int] = None

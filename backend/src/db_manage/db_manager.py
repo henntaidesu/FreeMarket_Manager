@@ -28,6 +28,7 @@ from .models import (
     ShopAccountModel,
     YahooAppTokenModel,
     OnSaleItemModel,
+    PurchaseItemModel,
     ProductTypeCategoryMappingModel,
     YahooCategoryMappingModel,
     ConfigEntryModel,
@@ -659,6 +660,7 @@ class DBManager:
             ShopAccountModel,  # 店铺账号（煤炉 / 雅虎）
             YahooAppTokenModel,  # 雅虎 App API 令牌（依赖 shop_accounts，仅顺序习惯）
             OnSaleItemModel,  # 在售商品缓存
+            PurchaseItemModel,  # 购入商品缓存（依赖 shop_accounts，仅顺序习惯）
             TodoItemModel,  # 待办事项缓存（依赖 mercari_accounts，仅顺序习惯）
             TransactionMessageModel,  # 交易消息/交流缓存（按订单ID关联，与 todo_items 解耦）
             NotificationModel,  # お知らせ通知缓存（依赖 mercari_accounts，仅顺序习惯）

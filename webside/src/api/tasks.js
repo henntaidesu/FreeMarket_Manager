@@ -15,6 +15,8 @@ export const TASK_TYPES = {
   ORDERS_SYNC_NEW_DATA: 'orders.sync_new_data',
   ORDERS_BATCH_REFRESH: 'orders.batch_refresh',
   ON_SALE_SYNC: 'on_sale.sync',
+  PURCHASES_SYNC: 'purchases.sync',
+  PURCHASES_REFRESH_ONE: 'purchases.refresh_one',
   ON_SALE_FULL_UPDATE: 'on_sale.full_update',
   ON_SALE_REVISE: 'on_sale.revise',
   ON_SALE_DELIST: 'on_sale.delist',

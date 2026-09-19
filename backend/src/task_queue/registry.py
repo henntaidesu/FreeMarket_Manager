@@ -17,6 +17,8 @@ ORDERS_REFRESH_ONE = "orders.refresh_one"
 ORDERS_SYNC_NEW_DATA = "orders.sync_new_data"
 ORDERS_BATCH_REFRESH = "orders.batch_refresh"
 ON_SALE_SYNC = "on_sale.sync"
+PURCHASES_SYNC = "purchases.sync"
+PURCHASES_REFRESH_ONE = "purchases.refresh_one"
 ON_SALE_FULL_UPDATE = "on_sale.full_update"
 ON_SALE_REVISE = "on_sale.revise"
 ON_SALE_DELIST = "on_sale.delist"
@@ -99,6 +101,21 @@ _SPECS: Dict[str, TaskSpec] = {
             "在售从煤炉同步"
             + (f"（账号#{p['account_id']}）" if p.get("account_id") is not None else "（全部启用账号）")
         ),
+    ),
+    PURCHASES_SYNC: TaskSpec(
+        task_type=PURCHASES_SYNC,
+        label_zh="购入同步",
+        dedup_key=lambda p: f"{PURCHASES_SYNC}:{_account_scope(p)}",
+        title=lambda p: (
+            "购入商品从煤炉同步"
+            + (f"（账号#{p['account_id']}）" if p.get("account_id") is not None else "（全部启用账号）")
+        ),
+    ),
+    PURCHASES_REFRESH_ONE: TaskSpec(
+        task_type=PURCHASES_REFRESH_ONE,
+        label_zh="刷新购入详情",
+        dedup_key=lambda p: f"{PURCHASES_REFRESH_ONE}:{p.get('item_id')}",
+        title=lambda p: f"刷新购入详情：{p.get('item_id') or ''}",
     ),
     ON_SALE_FULL_UPDATE: TaskSpec(
         task_type=ON_SALE_FULL_UPDATE,
@@ -244,6 +261,12 @@ def resolve_handler(task_type: str) -> Callable:
     if tt == ON_SALE_FULL_UPDATE:
         from .handlers.on_sale import handle_full_update
         return handle_full_update
+    if tt == PURCHASES_SYNC:
+        from .handlers.purchases import handle_sync as handle_purchases_sync
+        return handle_purchases_sync
+    if tt == PURCHASES_REFRESH_ONE:
+        from .handlers.purchases import handle_refresh_one as handle_purchases_refresh_one
+        return handle_purchases_refresh_one
     if tt == ON_SALE_REVISE:
         from .handlers.on_sale import handle_revise
         return handle_revise
