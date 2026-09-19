@@ -256,6 +256,14 @@ src/use_web/image_storage.py  # the facade; THE ONLY module that knows which bac
   `set_input_files`) must go through `image_storage.read_image_bytes()`, and existence checks
   through `image_storage.image_exists()`. `os.path.exists` on an `/imges/` path is a bug once the
   image host is active.
+- **The same rule on the frontend is `/imges/<file>?inline=1`.** With `delivery: redirect` an
+  `/imges/` path 302s to the image host, so the bytes arrive **cross-origin**: an `<img>` still
+  renders, but drawing it on a canvas taints it and `getImageData` throws (WebKit words that
+  `SecurityError` as *The operation is insecure.*). The host sends no CORS headers and shouldn't,
+  so `crossOrigin='anonymous'` only breaks the load instead. `inline=1` makes `serve_image` proxy
+  that one request regardless of the delivery setting — used by the 蓝牙标签打印 rasterizer
+  (`btPrinter/rasterize.js`). **`Inventory` 的 OCR 框选 still sets `crossOrigin='anonymous'` and is
+  broken for migrated images** until it switches to the same flag.
 - **Short-lived working files stay local** (`local_only=True` + `migration._SKIP_PREFIXES`): the
   `ship_qr_*` photo is opened by absolute path and deleted when the task ends.
 

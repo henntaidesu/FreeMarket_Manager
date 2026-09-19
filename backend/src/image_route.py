@@ -33,13 +33,16 @@ router = APIRouter()
 _NO_STORE = {"Cache-Control": "no-store"}
 
 
-def deliver_remote(remote_url: str, media_type: str = "image/jpeg"):
+def deliver_remote(remote_url: str, media_type: str = "image/jpeg", force_proxy: bool = False):
     """把一个图床 URL 变成给浏览器的响应：跳转过去，或按配置代取转发。
 
     缩略图端点也用它——不然「切到代理投递」这件事只在原图上生效，列表页的小图仍然要求
     浏览器直连图床，配置等于没起作用。
+
+    ``force_proxy`` 让单次请求无视投递配置强制代取，给「必须同源」的调用方用（见
+    :func:`serve_image` 的 ``inline``）。
     """
-    if image_hosting_settings.get().get("delivery") == image_hosting_settings.DELIVERY_PROXY:
+    if force_proxy or image_hosting_settings.get().get("delivery") == image_hosting_settings.DELIVERY_PROXY:
         try:
             content = ImageHostingClient().fetch_bytes(remote_url)
         except ImageHostingError as exc:
@@ -51,11 +54,18 @@ def deliver_remote(remote_url: str, media_type: str = "image/jpeg"):
 
 
 @router.get("/imges/{file_path:path}")
-def serve_image(file_path: str):
+def serve_image(file_path: str, inline: int = 0):
+    """``inline=1``：不要 302，把字节代回来。
+
+    默认的 302 会让图片变成**图床域名**下的资源，浏览器照样显示，但前端一旦把它画进
+    canvas 再 ``getImageData``（蓝牙标签打印要把发货码转成 1-bit 位图）就是跨域污染，
+    WebKit 抛 ``SecurityError: The operation is insecure.``。图床没有也不该有 CORS 头，
+    所以 ``crossOrigin=anonymous`` 只会让图连加载都失败——只能由本服务代取保持同源。
+    """
     rel_path = f"/imges/{file_path}"
     remote_url = public_image_url(rel_path)
     if remote_url:
-        return deliver_remote(remote_url, content_type_for(file_path))
+        return deliver_remote(remote_url, content_type_for(file_path), force_proxy=bool(inline))
 
     try:
         abs_path = resolve_within_imges(rel_path, get_image_root())

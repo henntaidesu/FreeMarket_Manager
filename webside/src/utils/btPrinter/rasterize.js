@@ -9,12 +9,24 @@
  * 输出 bit=1 表示黑点（MSB 在前），与 GS v 0 数据格式一致。
  */
 
+/**
+ * 光栅化要逐像素读回来（getImageData），所以图必须**同源**，否则 canvas 被污染，
+ * WebKit 抛 `SecurityError: The operation is insecure.`、Chrome 抛「canvas has been tainted」。
+ * 开了图床之后 `/imges/x.png` 会 302 到图床域名，正是这个情况；图床不发 CORS 头，
+ * `crossOrigin='anonymous'` 只会让图片连加载都失败，只能让后端把字节代回来（inline=1）。
+ */
+function pixelReadableUrl(url) {
+  const s = String(url || '')
+  if (!s.startsWith('/imges/')) return s
+  return s + (s.includes('?') ? '&' : '?') + 'inline=1'
+}
+
 function loadImage(url) {
   return new Promise((resolve, reject) => {
     const img = new Image()
     img.onload = () => resolve(img)
     img.onerror = () => reject(new Error('发货码图片加载失败'))
-    img.src = url
+    img.src = pixelReadableUrl(url)
   })
 }
 
