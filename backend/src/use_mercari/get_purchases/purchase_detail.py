@@ -10,11 +10,14 @@
 （必到，卖家侧也用同一个）        时效·発送元 / ``status`` / 各时间戳。**还带买家本人的
                                  收货地址，按要求不入库**——``_evidence_fields`` 只挑
                                  需要的列，地址字段根本不进 row。
-``items/get``（必到）             ``seller`` 对象（昵称·头像）。**不必再打
-                                 ``users/get_profile``**：那个接口在同一页会被调用两次
-                                 （一次是登录者自己、一次是卖家），单文件抓包分不清。
-``shipping/get_info``（必到）     配送方式显示名（「らくらくメルカリ便」）。
-``delivery/status``              追踪号 ``denpyo_no`` + ヤマト配送状态。**仅已发货后有**。
+``items/get``（必到）             ``seller`` 对象（昵称·头像）+ ``shipping_method.{id,name}``。
+                                 **不必再打 ``users/get_profile``**：那个接口在同一页会被
+                                 调用两次（登录者自己 + 卖家），单文件抓包分不清是谁。
+``shipping/get_info``            配送方式名的兜底。**ゆうゆうメルカリ便 的页面不调它**，
+                                 所以它不能当必等项，方式名首选 ``items/get``。
+``delivery/status``（ヤマト）      追踪号 ``denpyo_no`` + 配送状态。**仅已发货后有**。
+``delivery_japan_post/status``   同上，日本郵便 用的是这条，状态字段名也不同（见
+（日本郵便）                      ``_delivery_fields``）。漏了它 = 日本郵便 永远没追踪号。
 ``reviews/get_by_item``          双向评价。**仅 ``done`` 后有**。
 ===============================  ====================================================
 
@@ -63,6 +66,8 @@ from ..get_to_du_list.transaction_detail._messages_store import replace_order_me
 log = logging.getLogger(__name__)
 
 DETAIL_TIMEOUT_SEC = 90
+#: 等 transaction_evidences/get 的单次尝试时长；超时即重新导航再等一轮
+_EVIDENCE_ATTEMPT_SEC = 30
 #: 主接口到手后，再给按状态才出现的三个可选接口多少秒
 _OPTIONAL_GRACE_SEC = 8.0
 
@@ -137,22 +142,38 @@ def _seller_fields(item_get: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-def _shipping_fields(shipping: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    if not isinstance(shipping, dict):
-        return {}
-    name = shipping.get("shipping_method_name")
-    if not name and isinstance(shipping.get("shipping_method"), dict):
-        name = shipping["shipping_method"].get("name")
+def _shipping_fields(
+    item_get: Optional[Dict[str, Any]], shipping: Optional[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """配送方式显示名。
+
+    **首选 ``items/get.shipping_method.name``**：ゆうゆうメルカリ便 的取引画面**根本不调
+    ``shipping/get_info``**（它走 ``delivery_japan_post/*``），只认后者的话日本郵便 的单子
+    这一列永远是空的。``items/get`` 两种运送方式都带 ``{id, name}``。
+    ``shipping/get_info`` 留作兜底——万一 ``items/get`` 这次没截到。
+    """
+    name = None
+    sm = (item_get or {}).get("shipping_method")
+    if isinstance(sm, dict):
+        name = sm.get("name")
+    if not name and isinstance(shipping, dict):
+        name = shipping.get("shipping_method_name")
+        if not name and isinstance(shipping.get("shipping_method"), dict):
+            name = shipping["shipping_method"].get("name")
     return {"shipping_method_name": _text_or_none(name)}
 
 
 def _delivery_fields(delivery: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if not isinstance(delivery, dict):
         return {}
+    # 追踪号两家都叫 denpyo_no；状态文案不同：ヤマト 是 yamato_status_name（「作業店通過」），
+    # 日本郵便 是 shipping_detailed_status（「引受」）。都取不到才退回英文 status。
     return {
         "tracking_no": _text_or_none(delivery.get("denpyo_no")),
         "delivery_status_name": _text_or_none(
-            delivery.get("yamato_status_name") or delivery.get("status")
+            delivery.get("yamato_status_name")
+            or delivery.get("shipping_detailed_status")
+            or delivery.get("status")
         ),
     }
 
@@ -183,7 +204,7 @@ def build_detail_row(
     row: Dict[str, Any] = {}
     row.update(_evidence_fields(evidence))
     row.update(_seller_fields(item_get))
-    row.update(_shipping_fields(shipping))
+    row.update(_shipping_fields(item_get, shipping))
     row.update(_delivery_fields(delivery))
     row.update(_review_fields(reviews))
     mapped = EVIDENCE_STATUS_TO_STATE.get(str(row.get("evidence_status") or "").strip())
@@ -268,14 +289,40 @@ async def fetch_purchase_detail_in_session(
     if order_id:
         clear_delivery_status_response_file(order_id)
 
-    since_ms = int(time.time() * 1000)
     page_url = mercari_transaction_page_url(cid)
-    await mgr.reload_active_tab(auto_key, page_url)
 
-    wrapped_evidence = await _wait_transaction_evidence_mitm(
-        mgr=mgr, auto_key=auto_key, item_id=cid,
-        since_ms=since_ms, wait_seconds=int(timeout),
-    )
+    # 一次导航没触发到接口就重新导航，别干等满整个超时。
+    # ``_wait_transaction_evidence_mitm`` 自己**不会重新导航**（它是给"每笔新开一个浏览器"
+    # 的卖家侧订单回填写的，那里页面刚开必然会发请求）。这里是**同一个浏览器连开 N 个取引页**，
+    # 偶发一次没发起请求就会白白烧掉 90 秒然后报"未截获"——实测到的正是这个症状。
+    since_ms = 0
+    wrapped_evidence: Optional[Dict[str, Any]] = None
+    attempt_sec = min(_EVIDENCE_ATTEMPT_SEC, max(1, int(timeout)))
+    attempts = max(1, int(timeout) // attempt_sec)
+    last_error: Optional[BaseException] = None
+    for attempt in range(1, attempts + 1):
+        since_ms = int(time.time() * 1000)
+        await mgr.reload_active_tab(auto_key, page_url)
+        try:
+            wrapped_evidence = await _wait_transaction_evidence_mitm(
+                mgr=mgr, auto_key=auto_key, item_id=cid,
+                since_ms=since_ms, wait_seconds=attempt_sec,
+            )
+            break
+        except TransactionCanceledSignal:
+            raise  # 拦截页：再导航多少次都一样，立刻上抛
+        except RuntimeError as exc:
+            last_error = exc
+            log.warning(
+                "[purchase_detail] %s 第 %s/%s 次未截获 transaction_evidences/get，重新导航",
+                cid, attempt, attempts,
+            )
+    if wrapped_evidence is None:
+        raise RuntimeError(
+            f"{timeout}s 内未截获 transaction_evidences/get（已重新导航 {attempts} 次；"
+            f"请确认 MITM 已启动、账号已登录，商品 id={cid}）"
+        ) from last_error
+
     evidence = _unwrap(wrapped_evidence)
     if not isinstance(evidence, dict):
         raise RuntimeError(f"截获的取引详情格式异常: {wrapped_evidence!r}")
@@ -284,9 +331,11 @@ async def fetch_purchase_detail_in_session(
     # （本地 order_id 通常就是它，但以接口返回的为准）。
     teid = str(evidence.get("id") or order_id or "").strip()
 
+    # 关键接口是 messages：shipping/get_info 在 ゆうゆうメルカリ便 的页面上压根不会发起，
+    # 把它当必等项会让每笔日本郵便 的单子白等满超时。
     wrapped_shipping, wrapped_messages = await _wait_for_both_captures(
         mgr=mgr, auto_key=auto_key, start_url=page_url,
-        since_ms=since_ms, expect_item_id=cid,
+        since_ms=since_ms, require="messages", expect_item_id=cid,
     )
 
     optional = await _poll_optional(

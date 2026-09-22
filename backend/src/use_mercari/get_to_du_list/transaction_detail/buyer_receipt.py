@@ -14,6 +14,11 @@
 - 完成信号未经真实买家账号验证：暂以提交按钮从页面消失作为完成判定（见
   ``drive_buyer_receipt_on_page`` 末尾），若实测页面行为不同需据实况调整选择器/判定，
   不要改成「点了就算成功」。
+
+**这条待办与「购入商品」是同一笔交易的两个视角**：受取評価 一提交，煤炉那边这笔购入就
+变成 `取引完了`，双向评价也才有值。所以提交成功后要顺手重抓一次购入详情
+（``_refresh_purchase_after_receipt``），否则 `/#/system/purchases` 上这一行会一直停在
+「等待评价」，直到下一次购入同步才跟上。
 """
 from __future__ import annotations
 
@@ -22,7 +27,9 @@ import logging
 import time
 from typing import Any, Dict, Optional
 
+from ....db_manage.models.purchases.purchase_item import PurchaseItemModel
 from ....db_manage.models.todos.todo_item import TodoItemModel
+from ....ssl_mitm_proxy.capture_config import canonical_mercari_item_id
 from ....web_drive.core.manager import get_web_drive_manager
 from ....web_drive.core.mitm_session import mitm_automation_browser
 from ....web_drive.core.paths import mercari_todo_key
@@ -38,6 +45,13 @@ log = logging.getLogger(__name__)
 # （见 use_yahoo/todos/todo_sync.py 模块说明），不接这条自动化。
 BUYER_RECEIPT_KIND = "Shipped"
 BUYER_RECEIPT_TITLE = "受取評価をしてください"
+
+# 購入详情重抓的超时。刻意短于 ``purchase_detail.DETAIL_TIMEOUT_SEC``（90s）：这段跑在
+# 用户正等着的阻塞 HTTP 请求里，不能让它最坏拖满一分半。60s 仍够两次导航重试
+# （``_EVIDENCE_ATTEMPT_SEC`` 是 30s），而且这里的会话刚在这个取引页上提交过评价、
+# MITM 是热的，一次导航基本就截到了。真失败也不要紧——该行仍留在
+# ``find_detail_candidates`` 的候选集里，下一次购入同步会补上。
+_PURCHASE_REFRESH_TIMEOUT_SEC = 60
 
 _RECEIVED_CHECKBOX_TESTID = "transaction:evaluation-item-received"
 _TEXTAREA_TESTID = "transaction:evaluation-textarea"
@@ -58,6 +72,61 @@ def _soft_delete_buyer_receipt_todo(todo: Any) -> None:
         log.info("[buyer_receipt] 已软删除 todo_id=%s", getattr(todo, "id", None))
     except Exception as exc:
         log.warning("[buyer_receipt] 软删除 todo 失败: %s", exc)
+
+
+async def _refresh_purchase_after_receipt(
+    mgr: Any,
+    auto_key: str,
+    item_id: str,
+    *,
+    account_id: int,
+    report: Optional[Any] = None,
+) -> Optional[str]:
+    """受取評価提交后，就着当前这个浏览器会话重抓一次该商品的**购入详情**。
+
+    返回错误说明；成功或无需处理时返回 ``None``。
+
+    为什么在这里做：这条待办和 ``purchase_items`` 里那一行是同一笔交易的两个视角。
+    評価一提交，取引就变成 ``取引完了``、双向评价也才有值，而列表同步只会在下一次
+    「从煤炉同步」时才跟上——中间这段时间 `/#/system/purchases` 会一直显示「等待评价」。
+    浏览器此刻正开在这个账号上，顺手重抓一次比另起一个 ``purchases.refresh_one``
+    任务（要重开一个浏览器、还要排在全局单 worker 后面）便宜得多。
+
+    **本地没有这笔购入记录就直接跳过**：``save_detail_row`` 按 item_id 找不到行会返回
+    False，那趟导航加最长 90 秒的 MITM 等待就全白费了。购入还没同步过、或这笔是别的
+    账号买的，都会落到这个分支。
+
+    ``fetch_purchase_detail_in_session`` 只能函数内导入：``get_purchases.purchase_detail``
+    反过来要用本包的 ``_captures``，写成模块级 import 就是一个真实的循环
+    （从 ``get_purchases`` 那侧先进入时会 ImportError）。
+    """
+    from ...get_purchases.purchase_detail import fetch_purchase_detail_in_session
+
+    cid = canonical_mercari_item_id(item_id)
+    if not cid:
+        return None
+    rows = PurchaseItemModel.find_all(where="[item_id] = ?", params=(cid,), limit=1)
+    if not rows:
+        log.info("[buyer_receipt] 本地无该商品的购入记录，跳过购入详情刷新 item_id=%s", cid)
+        return None
+    order_id = str(getattr(rows[0], "order_id", "") or "").strip() or None
+
+    if report is not None:
+        report("refresh_purchase", "正在刷新购入商品详情…")
+    try:
+        await fetch_purchase_detail_in_session(
+            mgr, auto_key, cid,
+            order_id=order_id,
+            account_id=int(account_id),
+            timeout=_PURCHASE_REFRESH_TIMEOUT_SEC,
+        )
+    except Exception as exc:  # noqa: BLE001
+        # 評価已经提交且不可撤回——刷新失败绝不能把整个「确认收货」判成失败。
+        # 这一行仍留在「未完成」候选集里，下一次购入同步会自己补上。
+        log.warning("[buyer_receipt] 购入详情刷新失败 item_id=%s: %s", cid, exc)
+        return f"{type(exc).__name__}: {exc}"
+    log.info("[buyer_receipt] 购入详情刷新完成 item_id=%s", cid)
+    return None
 
 
 async def drive_buyer_receipt_on_page(
@@ -179,6 +248,7 @@ async def submit_buyer_receipt_review(
 
     report("open_browser", f"正在打开交易页（{item_id}）…")
     completed = False
+    purchase_refresh_error: Optional[str] = None
     async with mitm_automation_browser(
         aid,
         start_url=url,
@@ -188,6 +258,12 @@ async def submit_buyer_receipt_review(
     ) as (mgr, main_key):
         page = await mgr.active_tab_page(main_key)
         completed = await drive_buyer_receipt_on_page(page, body, aid=aid, rating=rating, report=report)
+        # 趁会话还活着重抓购入详情——下面那句 close_session 一执行浏览器就没了。
+        # 这一步会导航离开評価页，但評価此时已提交完毕，无所谓。
+        if completed:
+            purchase_refresh_error = await _refresh_purchase_after_receipt(
+                mgr, main_key, item_id, account_id=aid, report=report
+            )
 
     order_refresh_error: Optional[str] = None
     if completed:
@@ -224,5 +300,6 @@ async def submit_buyer_receipt_review(
         "confirmed": True,
         "completed": completed,
         "order_refresh_error": order_refresh_error,
+        "purchase_refresh_error": purchase_refresh_error,
         "text_len": len(body),
     }

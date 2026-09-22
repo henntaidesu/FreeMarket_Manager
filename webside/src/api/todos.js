@@ -29,7 +29,7 @@ export const todosApi = {
   /** 填回复并点击「取引メッセージを送る」；浏览器未开时后端会自动打开交易页再发送（故不设超时） */
   sendTransactionMessage: (todoId, text, opts = {}, axiosConfig = {}) =>
     http.post(`/use_web/todos/${encodeURIComponent(todoId)}/send-message`, { text, ...opts }, { timeout: 0, ...axiosConfig }),
-  /** 对买家某条消息发送 emoji 反应（reaction_index = 在 is_buyer 消息中的索引） */
+  /** 对**对方**某条消息发送 emoji 反应（reaction_index = 在「对方且尚无反应」的消息中的索引） */
   sendMessageReaction: (todoId, payload, axiosConfig = {}) =>
     http.post(`/use_web/todos/${encodeURIComponent(todoId)}/send-reaction`, payload, { timeout: 60000, ...axiosConfig }),
   /** 取引評価页：选 rating（good=良かった / bad=残念だった）+ 填评价，
@@ -37,9 +37,12 @@ export const todosApi = {
   submitTransactionReview: (todoId, text, opts = {}, axiosConfig = {}) =>
     http.post(`/use_web/todos/${encodeURIComponent(todoId)}/submit-review`, { text, ...opts }, { timeout: 60000, ...axiosConfig }),
   /** 买家侧「确认收货」（受取評価）：勾选已确认收到 + 选 rating（good=良かった / bad=残念だった）
-   *  + 填评价，点「評価を投稿する」。仅 kind=Shipped + title=受取評価をしてください 命中，无二次确认 */
+   *  + 填评价，点「評価を投稿する」。仅 kind=Shipped + title=受取評価をしてください 命中，无二次确认。
+   *  后端开浏览器，完成后还要刷新订单**与购入商品详情**（两趟 MITM 截获），
+   *  合起来可能远超一分钟 → 不设超时，进度走 sync-progress 轮询。
+   *  卡死在固定超时上只会让「评价其实已提交」显示成失败，评价又不可撤回。 */
   confirmBuyerReceipt: (todoId, body = {}, axiosConfig = {}) =>
-    http.post(`/use_web/todos/${encodeURIComponent(todoId)}/confirm-receipt`, body || {}, { timeout: 60000, ...axiosConfig }),
+    http.post(`/use_web/todos/${encodeURIComponent(todoId)}/confirm-receipt`, body || {}, { timeout: 0, ...axiosConfig }),
   /** 退货「确认签收」：点「返送された商品を受け取った」+ 二次确认「キャンセルを完了する」，
    *  完成后软删待办并刷新订单。后端自带开浏览器 → 不设超时。 */
   confirmCancellationReceipt: (todoId, body = {}, axiosConfig = {}) =>

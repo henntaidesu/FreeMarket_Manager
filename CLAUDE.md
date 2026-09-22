@@ -208,6 +208,7 @@ Key tables in `backend/src/db_manage/models/`:
 - **on_sale_items**: Listing records synced from Mercari/Yahoo
 - **purchase_items**: 购入商品（Mercari 「購入した商品」）。一行 = 一件购入商品，唯一键
   `(order_id, item_id)`，不是 `order_id` —— まとめ買い 一笔订单带多件。见 購入した商品 below。
+  `settlement_status` / `owner_user_id` 是**代购结算**，与出售结算是两套账，见 代购结算 below。
 - **orders**: Orders synced from Mercari/Yahoo
 - **image_embeddings**: CLIP vectors for inventory image search (see Auxiliary Subsystems)
 - **image_assets**: `/imges/<file>` → where that image actually lives. Only images that were moved
@@ -436,10 +437,24 @@ header, not cookies, so the dangerous wildcard+credentials combination never occ
 |------|--------|--------|
 | `transaction_evidences/get` | 金额 / 各项运费 / 支付方式 / 卖家ID / 配送方式·负担·时效·発送元 / `status` / 各时间戳 | 总是（卖家侧订单回填用的是同一个接口、同一个响应文件） |
 | `items/get` | `seller` 对象（昵称·头像） | 总是 |
-| `shipping/get_info` | 配送方式显示名（「らくらくメルカリ便」） | 总是 |
-| `delivery/status` | 追踪号 `denpyo_no` + ヤマト配送状态 | **仅已发货后** |
+| `shipping/get_info` | 配送方式显示名（兜底用，见下） | **ゆうゆう 的页面不调它** |
+| `delivery/status`（ヤマト）<br>`delivery_japan_post/status`（日本郵便） | 追踪号 `denpyo_no` + 配送状态 | **仅已发货后** |
 | `reviews/get_by_item` | 双向评价（`given_review` / `received_review`） | **仅 `done` 后** |
 
+- **配送这一路按运送公司分叉，两条都要认**：らくらくメルカリ便（ヤマト）走
+  `delivery/status`，状态文案在 `yamato_status_name`（「作業店通過」）；ゆうゆうメルカリ便
+  （日本郵便）走 **`delivery_japan_post/status`**，状态文案在 `shipping_detailed_status`
+  （「引受」）。追踪号两家都叫 `denpyo_no`。只认 ヤマト 那条的话，日本郵便 的订单**永远**
+  抓不到追踪号（实测 m95160587087 就是这样）。
+- **配送方式名取自 `items/get.shipping_method.name`，不是 `shipping/get_info`**：
+  ゆうゆう 的取引画面**根本不调** `shipping/get_info`（它走 `delivery_japan_post/*`），
+  只认后者的话日本郵便 的单子这一列永远为空。`items/get` 两种运送方式都带 `{id, name}`，
+  而且本来就在抓。`shipping/get_info` 只留作兜底，且**不能当必等项**——把它列进必等会让
+  每笔日本郵便 的单子白等满超时（`_wait_for_both_captures` 传 `require="messages"`）。
+- **等 `transaction_evidences/get` 要能重新导航**：`_wait_transaction_evidence_mitm` 自己
+  只轮询不导航——它是给"每笔新开一个浏览器"的卖家侧订单回填写的，那里页面刚开必然发请求。
+  购入详情是**同一个浏览器连开 N 个取引页**，偶发一次没发起请求就会干等满 90 秒然后报
+  「未截获」。所以这里按 30s 一轮重新导航重试（总时长仍是 `PURCHASE_DETAIL_TIMEOUT_SEC`）。
 - **卖家信息不要去打 `users/get_profile`**：同一页会调它两次（一次登录者自己、一次卖家），
   单文件抓包分不清是谁。`items/get` 里本来就带完整 `seller`，而且已经在抓了。
 - **`transaction_evidences/get` 的响应里带买家本人的收货地址**（姓名·电话·住址）。
@@ -448,11 +463,23 @@ header, not cookies, so the dangerous wildcard+credentials combination never occ
   待办流程共用**。连抓多笔时上一笔迟到的响应会串号（「某单显示了别单的交流/发货信息」），
   待办那边已经解决过：直接复用 `transaction_detail/_captures.py::_wait_for_both_captures`
   （按响应自带的 item_id 校验），别另写一份。
-- **抓取时机是「新增自动 + 未完成重抓 + 单条按钮」**：候选集 =
+- **抓取时机是「新增自动 + 未完成重抓 + 单条按钮 + 确认收货后」**：候选集 =
   `detail_synced_at IS NULL` ∪ `state <> 'STATE_COMPLETED'`（`find_detail_candidates`）。
   已完成且抓过的不再碰，所以稳态成本只随**未完成笔数**走，不随总笔数走。详情在**列表同步
   那同一个浏览器会话里**接着抓，省掉每笔重开浏览器。一轮上限 `PURCHASE_DETAIL_MAX_PER_RUN`
   （默认 20，与待办详情预抓同理），剩下的下轮再来。
+- **待办页「待收货」的 确认收货 完成后会立刻重抓这一笔**
+  （`transaction_detail/buyer_receipt.py::_refresh_purchase_after_receipt`）。那条待办
+  （`kind=Shipped` + `title=受取評価をしてください`）与 `purchase_items` 里的一行**是同一笔
+  交易的两个视角**：受取評価 一提交，取引就变成 `取引完了`、双向评价也才有值，不立刻抓的话
+  `/#/system/purchases` 会一直显示「等待评价」直到下次购入同步。抓取就着**評価那个浏览器
+  会话**做（在 `close_session` 之前），省掉另起一个 `purchases.refresh_one`；超时另设
+  `_PURCHASE_REFRESH_TIMEOUT_SEC`（60s，短于默认 90s）因为它跑在用户等着的阻塞请求里。
+  两个前提别拆：**本地没有这笔购入记录就直接跳过**（`save_detail_row` 找不到行会返回 False，
+  那趟导航与 MITM 等待纯属白费），以及**失败只回报不抛出**——評価已提交且不可撤回，
+  刷新失败把整个「确认收货」判成失败是最糟的结果；该行仍在候选集里，下次同步会补上。
+  因为多了这一步，`confirmBuyerReceipt` 的 axios 超时从 60s 改成了 `timeout: 0`
+  （与 `confirmCancellationReceipt` 同惯例，进度走 sync-progress 轮询）。
 - **`detail_fetch_failures` 到上限即退出候选集**（同 `PRECACHE_MAX_FAILURES` 的道理）：
   一条永远打不开的取引页（例如交易取消后的「閲覧できません」拦截页）否则会拖住每一轮同步。
   单条按钮 `purchases.refresh_one` **不受这个上限约束**——人点按钮就是在决定要再试一次。
@@ -464,6 +491,41 @@ header, not cookies, so the dangerous wildcard+credentials combination never occ
   而改变**——始终是「这条是买家写的」，购入这边即本账号自己发的那些（`local_sender_id` 传
   `transaction_evidences.buyer_id`）。**留言不翻译**：卖家侧译成中文是为了读着回信，购入这边
   是只读记录，`text_zh` 留空。没截获到消息接口时保留旧留言，绝不用空列表把历史抹掉。
+
+### 代购结算（`purchase_items` 的 `settlement_status` / `owner_user_id`）
+
+购入页上的第二件事：**替谁买的、跟他结没结**。与「出售结算」`use_web/system/settlement`
+是**两套账，互不引用**——那边按日期区间给已完成订单分账，问「卖出去的钱跟归属人怎么分」；
+这边一行一个标记，问「替人买的东西跟这个人结没结」。所以不共用 `settlement_records`，
+也不共用 `orders.settlement_excluded`。SQL 与口径集中在
+`db_manage/models/purchases/purchase_settlement.py`。
+
+- **三态可来回改**：`settlement_status` 0=未结算 / 1=已结算 / 2=无需结算，默认 0。
+  与 `orders.settlement_excluded` 的「一次性不可撤回」刻意不同——代购是按人对账，
+  标错归属人或标错状态必须能退回。`settled_at` 跟着状态走：标为已结算写时间，
+  退回未结算 / 改成无需结算一律清空，免得一行显示「未结算」却挂着上次的结算时间。
+- **归属人与 `inventory.owner_user_id` 同一套 `users`，但不联动**：库存归属人问
+  「这批货是谁的」，这里问「这笔代购跟谁结」。筛选里 `owner_user_id=0` 是哨兵值，
+  表示「未指定归属人」（`users.id` 自增从 1 起）。
+- **写入只有一个端点**：`POST /purchases/settlement`，单条与批量同路（单条即 `ids=[id]`）。
+  清空归属人必须传 `clear_owner=true`——`owner_user_id=null` 与「这次不改归属人」长得
+  一模一样，拿它当清空就没法「只改状态、保留归属人」了。
+- **`GET /purchases/stats` 里有两套筛选口径，别混**：`total_*` 用**完整**筛选（含
+  `settlement_status`），所以汇总条与下方分页列表对得上；`by_settlement` / `by_owner`
+  刻意**忽略 `settlement_status`**，否则一点「未结算」其余两个桶就归零，既没法当对照，
+  也没法再当筛选切换点用。
+- **金额口径是 `成交价 + 支付手续费 + 买家运费`，三项全来自取引详情**。没抓过详情的行
+  三项都是 NULL、按 0 计入，**汇总必然偏低**，所以 `no_detail_count` 一并返回、页面明着
+  提示还有几笔没算——别把那个偏小的数字直接当结论。`paid_price` 不参与：余额支付时它是 0，
+  不是这笔花了多少。
+- **同步不会覆盖这些列**：列表同步与详情回填都是「读出整行 → 只改自己那几个字段 → save」，
+  所以 upsert 不碰结算标记。
+
+**顺带一个通用陷阱**：给**已存在**的表在 `get_indexes()` 里新声明索引**不会生效**。
+`ensure_table_exists()` 只在表不存在时走 `_create_table()`（索引在那里建），表已存在则走
+`_check_and_update_table_structure()`，那里只补列、不碰索引。补索引要在 `db_manager.py`
+的迁移段里显式建一次——见 `_migrate_purchase_items_settlement_indexes()`，它是少数**两种方言
+都要跑**的迁移（MySQL 库同样是老表加新列，不是「从最终 schema 全新建库」）。
 
 ### Yahoo!フリマ (PayPayフリマ) Listing
 

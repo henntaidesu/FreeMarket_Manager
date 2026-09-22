@@ -56,45 +56,278 @@
   }
 }
 
-/* ── 展开行：取引详情 + 交易留言 ───────────────────────────── */
-.detail-pane { padding: 8px 16px 12px; }
-.review-msg { margin-left: 8px; white-space: pre-wrap; }
-
-.msg-block { margin-top: 12px; }
-.msg-title {
-  font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-.msg-count {
-  margin-left: 6px;
-  font-weight: 400;
-  color: #8a94a6;
-}
-.msg-empty { font-size: 12px; color: #8a94a6; }
-.msg-row {
-  padding: 6px 10px;
-  margin-bottom: 6px;
-  border-radius: 6px;
-  background: rgba(19, 28, 47, 0.35);
-  max-width: 720px;
-}
-/* 自己发的留言（is_buyer=1）靠右，与卖家的分开 */
-.msg-row.mine { margin-left: auto; background: rgba(64, 128, 255, 0.12); }
-.msg-head {
-  display: flex;
-  justify-content: space-between;
+/* ── 代购结算：汇总条 ─────────────────────────────────────────
+   口径跟随上方筛选，不受分页影响；三个结算桶可点，点一下即切换筛选。 */
+.stats-card { margin-bottom: 16px; border-radius: 8px; }
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
-  font-size: 12px;
-  color: #8a94a6;
-  margin-bottom: 2px;
 }
-.msg-from { font-weight: 600; }
-.msg-text { font-size: 13px; white-space: pre-wrap; word-break: break-word; }
-.msg-imgs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-.msg-img { width: 72px; height: 72px; border-radius: 4px; }
+.stat-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-top: 3px solid var(--el-border-color);
+  background: var(--el-bg-color-overlay);
+  min-width: 0;
+}
+.stat-card.is-clickable { cursor: pointer; }
+.stat-card.is-clickable:hover { border-color: var(--el-color-primary-light-5); }
+/* 正被当作筛选条件的那个桶 */
+.stat-card.is-active { box-shadow: 0 0 0 1px var(--el-color-primary) inset; }
+.stat-icon {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.stat-info { min-width: 0; }
+.stat-value {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stat-label {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stat-note {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--el-color-warning);
+}
+
+/* ── 代购结算：按归属人汇总 ───────────────────────────────── */
+.owner-block { margin-top: 14px; }
+.owner-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.owner-title { font-size: 13px; font-weight: 600; }
+.owner-table { width: 100%; }
+.owner-link { cursor: pointer; color: var(--el-color-primary); }
+.owner-link:hover { text-decoration: underline; }
+.amount-unsettled { color: var(--el-color-warning); font-weight: 600; }
+.amount-sub { margin-left: 4px; font-size: 12px; color: var(--el-text-color-secondary); }
+
+/* ── 代购结算：批量标记工具条（勾选后才出现）──────────────── */
+.batch-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border-radius: 6px;
+  background: var(--el-fill-color-light);
+}
+.batch-count { font-size: 13px; font-weight: 600; margin-right: 4px; }
+
+/* 行内可改的单元格（归属人 / 结算状态） */
+.editable-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+  max-width: 100%;
+}
+.editable-cell.is-empty { color: var(--el-text-color-placeholder); }
+.editable-cell:hover { color: var(--el-color-primary); }
+.editable-caret { font-size: 11px; opacity: 0.6; }
+.settlement-tag { cursor: pointer; }
 
 @media (max-width: 768px) {
-  .detail-pane { padding: 8px; }
-  .msg-row { max-width: none; }
+  .stats-card { margin-bottom: 12px; }
+  .stat-grid { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+  .stat-value { font-size: 15px; }
+  .batch-bar { padding: 8px; }
+}
+
+/* ── 卡片视图 ────────────────────────────────────────────────
+   与表格同一份数据与分页，只是换个排布；取引详情收进弹窗。 */
+.pur-card-view { width: 100%; min-height: 120px; }
+.thumb-fallback {
+  color: var(--el-text-color-placeholder);
+  font-size: 12px;
+}
+.pur-card-toolbar {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.pur-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+  /* 等高行：卡片底部的按钮排在同一条线上 */
+  grid-auto-rows: 1fr;
+}
+.pur-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  background: #131c31;
+  border: 1px solid #263352;
+  border-radius: 8px;
+  transition: border-color 0.15s ease;
+}
+/* 触摸屏 :hover 会粘住：点过的卡片一直描着蓝边，看着像被选中 */
+@media (hover: hover) {
+  .pur-card:hover { border-color: #409eff; }
+}
+.pur-card.is-picked { border-color: var(--el-color-primary); }
+.pur-card-head {
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+.pur-card-thumb {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  flex: 0 0 64px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #0b1220;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #8a94a6;
+}
+.pur-card-thumb :deep(.el-image) {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.pur-card-thumb :deep(.el-image img) {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.pur-card-thumb :deep(.el-image__error),
+.pur-card-thumb :deep(.el-image__placeholder) {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* 勾选框压在图上：卡片正文寸土寸金，另起一行会把两行元信息挤掉 */
+.pur-card-check {
+  position: absolute;
+  top: 0;
+  left: 2px;
+  height: auto;
+}
+.pur-card-check :deep(.el-checkbox__inner) {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+}
+.pur-card-headtext {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* 商品名固定两行：卡片高度不随名字长短参差 */
+.pur-card-name {
+  font-size: 13px;
+  line-height: 1.4;
+  height: 2.8em;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.pur-card-tags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pur-card-price { font-size: 14px; font-weight: 600; }
+.pur-card-variant {
+  font-size: 12px;
+  color: #8a94a6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pur-card-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 17px;
+  height: 17px;
+  color: var(--el-text-color-secondary);
+}
+.pur-card-meta > span:last-child { flex: 0 0 auto; }
+.pur-card-ellipsis {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pur-card-edit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 24px;
+  font-size: 13px;
+}
+/* 按钮贴卡片底：卡片等高，操作区位置才一致 */
+.pur-card-actions {
+  margin-top: auto;
+  padding-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.pur-card-empty {
+  padding: 32px 0;
+  text-align: center;
+  font-size: 13px;
+  color: #909399;
+}
+
+/* 弹窗是 teleport 前的就地渲染（el-dialog 默认 append-to-body=false），
+   所以 :deep 能从本页的 scoped 样式里够到它。 */
+:deep(.purchase-detail-dialog.el-dialog) {
+  width: clamp(640px, 56vw, 960px) !important;
+  max-width: 94vw;
+  --el-dialog-border-radius: 8px;
+}
+:deep(.purchase-detail-dialog .el-dialog__body) {
+  max-height: calc(70 * var(--app-vh));
+  overflow: auto;
+  padding-top: 0;
+}
+
+@media (max-width: 768px) {
+  .pur-card-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
 }

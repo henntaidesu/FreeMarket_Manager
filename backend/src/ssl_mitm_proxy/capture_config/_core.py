@@ -126,7 +126,10 @@ def parse_capture_target(
         # 其余字段都来自已有的 items/get（含完整 seller）、transaction_evidences/get、
         # shipping/get_info、transaction_messages/get_messages，不必再加分支。
         # 两者都**按状态出现**：delivery/status 只在已发货后有，reviews 只在 done 后有。
-        if norm_path.endswith("/delivery/status"):
+        # 两条配送状态接口按**运送公司**分：らくらくメルカリ便(ヤマト) 是 delivery/status，
+        # ゆうゆうメルカリ便(日本郵便) 是 delivery_japan_post/status。只认前者会让所有
+        # 日本郵便 的订单永远抓不到追踪号（实测 m95160587087 就是这样）。
+        if norm_path.endswith("/delivery/status") or norm_path.endswith("delivery_japan_post/status"):
             teid_list = qd.get("transaction_evidence_id") or qd.get("transactionEvidenceId") or []
             teid = (teid_list[0] or "").strip() if teid_list else ""
             if not teid.isdigit():

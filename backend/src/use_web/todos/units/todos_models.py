@@ -187,10 +187,11 @@ class YahooTradeMessageRequest(PydanticModel):
 
 
 class SendMessageReactionRequest(PydanticModel):
-    """对买家某条消息发送 emoji 反应。
+    """对**对方**某条消息发送 emoji 反应。
 
-    ``reaction_index`` 必填：前端按 ``messages.filter(is_buyer=true).indexOf(target)`` 计算，
-    后端用其在 DOM 上定位第 N 个 ``[data-testid="add-reaction-button"]``。
+    ``reaction_index`` 必填：前端按「对方消息中尚无反应的第 N 条」计算（对方＝卖出时的
+    买家 / 购入时的卖家，见 ``Todos/script.js::isCounterpartyMsg``），后端用其在 DOM 上
+    定位第 N 个 ``[data-testid="add-reaction-button"]``。
     """
 
     # 仅用于日志/审计；后端不会用它在 DOM 里查找

@@ -116,12 +116,37 @@ def _clear_qr_image(todo_id: int) -> None:
     except Exception as exc:
         log.warning("[shipping] 清除二维码失败 todo_id=%s: %s", todo_id, exc)
 
+def resolve_viewer_is_buyer(item_id: str, account_id: Optional[int]) -> bool:
+    """本账号在这笔交易里是不是买家（即「这是我购入的商品」）。
+
+    待办里混着两种视角：自己卖出去的（对方＝买家）和自己买进来的（对方＝卖家）——
+    煤炉对两者都发 ``IncomingMessage``。处理面板要据此认出「对方」是谁：反应表情只能
+    加在对方的消息上，本人消息上的角色标签也随之不同。
+
+    判定依据是 ``purchase_items``：购入同步把每一笔购入都写进该表，所以 item 在表里
+    就等于「我是买家」。没同步过购入的账号查不到 → 按卖家处理，与本判定上线前一致。
+    """
+    iid = (item_id or "").strip()
+    if not iid:
+        return False
+    sql = "SELECT 1 FROM [purchase_items] WHERE TRIM([item_id])=TRIM(?)"
+    params: List[Any] = [iid]
+    if account_id is not None:
+        sql += " AND [account_id]=?"
+        params.append(int(account_id))
+    try:
+        rows = DatabaseManager().execute_query(sql + " LIMIT 1", tuple(params))
+    except Exception as exc:  # noqa: BLE001 判不出来就按卖家，别让整份详情失败
+        log.debug("[txdetail] 判定买卖视角失败 item_id=%s: %s", iid, exc)
+        return False
+    return bool(rows)
+
 def get_cached_transaction_detail(todo_id: int) -> Dict[str, Any]:
     """读取 todo_items.detail_json 缓存（无浏览器）。无缓存返回 {}（仅含基础字段）。"""
     try:
         rows = DatabaseManager().execute_query(
-            "SELECT [detail_json], [detail_synced_at], [qr_image_path], [item_id], [item_name], [sender_id] "
-            "FROM [todo_items] WHERE [id]=?",
+            "SELECT [detail_json], [detail_synced_at], [qr_image_path], [item_id], [item_name], "
+            "[sender_id], [account_id] FROM [todo_items] WHERE [id]=?",
             (int(todo_id),),
         )
     except Exception as exc:
@@ -129,7 +154,7 @@ def get_cached_transaction_detail(todo_id: int) -> Dict[str, Any]:
         return {}
     if not rows:
         return {}
-    detail_json, synced_at, qr_path, item_id, item_name, sender_id = rows[0]
+    detail_json, synced_at, qr_path, item_id, item_name, sender_id, account_id = rows[0]
     data: Dict[str, Any] = {}
     if detail_json:
         try:
@@ -151,6 +176,8 @@ def get_cached_transaction_detail(todo_id: int) -> Dict[str, Any]:
     data["messages"] = load_order_messages(order_no) if order_no else []
     if not data.get("buyer_name") and order_no:
         data["buyer_name"] = load_order_buyer_name(order_no)
+    # 买卖视角（对方是买家还是卖家）：每次读缓存都现算，purchase_items 晚一步同步上来也能自动纠正
+    data["viewer_is_buyer"] = resolve_viewer_is_buyer(order_no, account_id)
     return data
 
 #: 一条待办连续抓失败这么多次后不再重试（详情缓存只是加速手段，用户仍可手动「刷新抓取」）

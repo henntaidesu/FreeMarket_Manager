@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""wait-reply: send emoji reaction to buyer message"""
+"""wait-reply: send emoji reaction to the counterparty's message"""
 from __future__ import annotations
 
 import asyncio
@@ -127,7 +127,10 @@ async def send_message_reaction_by_index(
 ) -> Dict[str, Any]:
     """按「页面上第 reaction_index 个 add-reaction-button」定位并点击反应表情。
 
-    前端调用时根据 ``messages.filter(is_buyer=true).indexOf(targetMessage)`` 计算 ``reaction_index``。
+    前端按「**对方**消息中尚无反应的第 N 条」计算 ``reaction_index``（见
+    ``Todos/script.js::isCounterpartyMsg``）。口径是「对方」而不是「买家」：本账号既可能
+    是卖家（对方＝买家），也可能是买家（我购入的商品，对方＝卖家），煤炉对两者都发
+    ``IncomingMessage`` 待办，而「+」按钮在两种视角下都只渲染在对方的消息卡片下。
     """
     report = make_sync_reporter(progress_job_id)
     report("resolve_todo", "正在准备发送反应表情…")
@@ -172,7 +175,7 @@ async def send_message_reaction_by_index(
 
     if page is not None and item_id:
         # __todo 浏览器按账号共享，可能停留在**另一笔交易**页（有头残留会话不会被上面关闭）。
-        # 「+」反应按钮在任何有买家消息的交易页都存在，reaction_index 又是按本待办缓存
+        # 「+」反应按钮在任何有对方消息的交易页都存在，reaction_index 又是按本待办缓存
         # 计算的——不校验 URL 会把表情点在别的交易的任意消息上。不匹配则先导航过去。
         current = ""
         try:
@@ -233,15 +236,15 @@ async def send_message_reaction_by_index(
     await _expand_all_messages(page)
 
     # ── Step 1: 找到第 reaction_index 个「add-reaction-button」并点击 ──
-    # 注：``[data-testid="add-reaction-button"]`` 只在买家消息卡片下渲染，所以这个 N
-    # 直接对应「买家消息中第 N 条」，无论页面上买家/卖家消息交错怎样排列都成立。
+    # 注：``[data-testid="add-reaction-button"]`` 只在**对方**消息卡片下渲染，所以这个 N
+    # 直接对应「对方消息中第 N 条」，无论双方消息交错怎样排列都成立。
     report("click_add_reaction", "正在点击「+」反应按钮…")
     add_btns = page.locator('[data-testid="add-reaction-button"]')
     try:
         await add_btns.first.wait_for(state="visible", timeout=6000)
     except Exception as exc:
         raise RuntimeError(
-            f"未找到任何「+」反应按钮（可能该交易没有买家消息或页面未加载完；当前 URL: {page.url}）"
+            f"未找到任何「+」反应按钮（可能该交易没有对方发来的消息或页面未加载完；当前 URL: {page.url}）"
         ) from exc
     total = await add_btns.count()
     if reaction_index >= total:

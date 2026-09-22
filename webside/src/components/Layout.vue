@@ -194,7 +194,7 @@ const { t } = useI18n()
 const viewModeStore = useViewModeStore()
 
 /** 有卡片视图的列表页；其余页面隐藏侧栏那个切换开关 */
-const VIEW_MODE_ROUTES = ['/inventory', '/orders', '/on-sale-items', '/todos', '/notifications']
+const VIEW_MODE_ROUTES = ['/inventory', '/orders', '/on-sale-items', '/todos', '/notifications', '/system/purchases']
 const showViewModeSwitch = computed(() => VIEW_MODE_ROUTES.includes(route.path))
 
 const isMobile = ref(false)

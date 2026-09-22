@@ -1055,9 +1055,9 @@
               <div
                 v-for="(m, i) in detail.messages"
                 :key="m.id || `idx-${i}`"
-                :class="['detail-msg', m.is_buyer ? 'detail-msg-buyer' : 'detail-msg-self']"
+                :class="['detail-msg', isCounterpartyMsg(m) ? 'detail-msg-buyer' : 'detail-msg-self']"
               >
-                <div v-if="m.from" class="detail-msg-from">{{ m.from }}<span v-if="!m.is_buyer" class="detail-msg-tag-self">{{ t('todos.sellerTag') }}</span></div>
+                <div v-if="m.from" class="detail-msg-from">{{ m.from }}<span v-if="!isCounterpartyMsg(m)" class="detail-msg-tag-self">{{ t(selfRoleTagKey) }}</span></div>
                 <div v-if="m.images && m.images.length" class="detail-msg-images">
                   <el-image
                     v-for="(img, ii) in m.images"
@@ -1076,13 +1076,13 @@
                 <div v-if="m.text" class="detail-msg-text">{{ msgDisplayText(m, i) }}</div>
                 <div class="detail-msg-footer">
                   <button
-                    v-if="m.is_buyer && m.text_zh"
+                    v-if="isCounterpartyMsg(m) && m.text_zh"
                     type="button"
                     class="detail-msg-trans-toggle"
                     @click="toggleMsgOriginal(m, i)"
                   >{{ isShowingOriginal(m, i) ? t('todos.showTranslation') : t('todos.showOriginal') }}</button>
                   <button
-                    v-else-if="m.is_buyer && m.text"
+                    v-else-if="isCounterpartyMsg(m) && m.text"
                     type="button"
                     class="detail-msg-trans-toggle"
                     :disabled="isTranslating(m, i)"
@@ -1090,9 +1090,9 @@
                   >{{ isTranslating(m, i) ? t('todos.translating') : t('todos.translate') }}</button>
                   <span v-if="m.at" class="detail-msg-at">{{ m.at }}</span>
                   <span v-if="m.reaction" class="detail-msg-reaction">{{ emojiFor(m.reaction) }}</span>
-                  <!-- 仅在 IncomingMessage（待回复）类型 + 买家消息时显示反应按钮 -->
+                  <!-- 仅在 IncomingMessage（待回复）类型 + 对方消息时显示反应按钮 -->
                   <el-popover
-                    v-if="canReactToMessages && m.is_buyer && !m.reaction"
+                    v-if="canReactToMessages && isCounterpartyMsg(m) && !m.reaction"
                     :width="280"
                     placement="bottom-end"
                     trigger="click"

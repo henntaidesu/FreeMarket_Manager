@@ -843,6 +843,9 @@ export default defineComponent({
         yahoo_app: null,
         // 上次从煤炉抓取的时间戳（缓存命中时显示）
         detail_synced_at: null,
+        // 本账号在这笔交易里是买家还是卖家（后端按 purchase_items 判定）：
+        // 决定「对方」是谁——本人消息上的角色标签随之不同
+        viewer_is_buyer: false,
         messages: [], // [{ from, text, at, is_buyer, user_id }]
         captured: { shipping_info: false, transaction_messages: false },
         // 回复草稿（默认为空，点「默认回复」按钮可一键填入模板）
@@ -935,7 +938,29 @@ export default defineComponent({
     // 待回复仅展示库存卡片，不展示包材/发货/出库明细
     const showInventoryMatch = computed(() => isWaitShipping.value || isWaitReply.value)
 
-    // 仅煤炉的「待回复」(IncomingMessage) 允许给买家消息加 emoji 反应——
+    // 「这条是对方发的」。反应表情只能加在对方的消息上——煤炉页面也只在对方消息卡片下
+    // 渲染那颗「+」，后端 send_message_reaction_by_index 数的就是这些按钮。
+    // 判定用待办的 sender_id（＝给我发消息的那个人），本账号是卖家还是买家都恒等于对方。
+    //
+    // 不能用 is_buyer：transaction_messages 是卖家侧待办与买家侧购入共用的一张表，
+    // 它标的是「这条是买家写的」。自己卖出的交易里买家就是对方，看着像对；但我购入的
+    // 商品里买家是我自己，照它渲染就把「+」挂到了自己的消息上，对方（卖家）的消息反而
+    // 一个都点不了——购入商品回不了表情就是这么来的。
+    // 雅虎待办没有 sender_id（来自通知流），退回 is_buyer：雅虎只有卖家视角，两者等价。
+    function isCounterpartyMsg(m) {
+      if (!m) return false
+      const sid = String(currentRow.value?.sender_id || '').trim()
+      const uid = String(m.user_id || '').trim()
+      if (!sid || !uid) return !!m.is_buyer
+      return uid === sid
+    }
+
+    // 本人消息旁的角色标签：本账号是买家（我购入的商品）时是「买家」，卖出时是「卖家」
+    const selfRoleTagKey = computed(() =>
+      detail.viewer_is_buyer ? 'todos.buyerTag' : 'todos.sellerTag',
+    )
+
+    // 仅煤炉的「待回复」(IncomingMessage) 允许给对方消息加 emoji 反应——
     // 雅虎交易页没有反应功能，故不含 YahooIncomingMessage
     const canReactToMessages = computed(() => {
       return (currentRow.value?.kind || '').trim() === 'IncomingMessage'
@@ -1924,7 +1949,7 @@ export default defineComponent({
         : `https://jp.mercari.com/item/${s}`
     }
 
-    // 消息译文/原文切换：默认显示中文译文（仅买家消息且有 text_zh），点「原文」切回日文。
+    // 消息译文/原文切换：默认显示中文译文（仅对方消息且有 text_zh），点「原文」切回日文。
     // 按消息 id（无 id 退化为索引）记录哪些消息正在显示原文；每次打开详情重置。
     const msgOriginalKeys = reactive(new Set())
     function msgKeyOf(m, i) {
@@ -1939,11 +1964,11 @@ export default defineComponent({
       else msgOriginalKeys.add(k)
     }
     function msgDisplayText(m, i) {
-      if (m && m.is_buyer && m.text_zh && !isShowingOriginal(m, i)) return m.text_zh
+      if (m && isCounterpartyMsg(m) && m.text_zh && !isShowingOriginal(m, i)) return m.text_zh
       return (m && m.text) || ''
     }
 
-    // 旧数据按需翻译：买家消息无 text_zh 时显示「翻译」按钮，点后调后端译中并写回。
+    // 旧数据按需翻译：对方消息无 text_zh 时显示「翻译」按钮，点后调后端译中并写回。
     const msgTranslatingKeys = reactive(new Set())
     function isTranslating(m, i) {
       return msgTranslatingKeys.has(msgKeyOf(m, i))
@@ -3012,9 +3037,14 @@ export default defineComponent({
             }),
         })
         if (result?.completed) {
-          const note = result.order_refresh_error
-            ? t('todos.orderRefreshErrorNote', { error: result.order_refresh_error })
-            : ''
+          // 两处刷新各自可能失败，且都不影响「评价已提交」这个既成事实，所以只作为附注
+          const note =
+            (result.order_refresh_error
+              ? t('todos.orderRefreshErrorNote', { error: result.order_refresh_error })
+              : '') +
+            (result.purchase_refresh_error
+              ? t('todos.purchaseRefreshErrorNote', { error: result.purchase_refresh_error })
+              : '')
           ElMessage.success(`${t('todos.buyerReceiptCompletedDetected')}${note}`)
           // 浏览器已由后端关闭；这里关 dialog（onDetailDialogClose 里的 closeBrowser 是幂等的）
           detailDialogVisible.value = false
@@ -3031,17 +3061,17 @@ export default defineComponent({
 
     async function onSendReaction(message, reactionKey) {
       if (!currentRow.value?.id) return
-      if (!message || !message.is_buyer) return
+      if (!message || !isCounterpartyMsg(message)) return
       if (reactionLoading.value) return
       // 已经有反应的消息不能再加（也不该走到这里）
       if (message.reaction) return
       // reaction_index 必须与页面上「+」按钮（add-reaction-button）的顺序对齐。
-      // 煤炉只在「买家消息且尚无反应」的卡片上渲染该按钮，已反应的消息显示的是反应图标、
-      // 不再有「+」。因此这里只在「买家 + 无反应」的消息序列里取下标，否则会越界/错位。
-      const reactableBuyerMessages = (detail.messages || []).filter(
-        (m) => m && m.is_buyer && !m.reaction,
+      // 煤炉只在「对方消息且尚无反应」的卡片上渲染该按钮，已反应的消息显示的是反应图标、
+      // 不再有「+」。因此这里只在「对方 + 无反应」的消息序列里取下标，否则会越界/错位。
+      const reactableMessages = (detail.messages || []).filter(
+        (m) => m && isCounterpartyMsg(m) && !m.reaction,
       )
-      const reactionIndex = reactableBuyerMessages.findIndex((m) => {
+      const reactionIndex = reactableMessages.findIndex((m) => {
         if (message.id && m.id) return String(m.id) === String(message.id)
         return m === message
       })
@@ -3205,6 +3235,8 @@ export default defineComponent({
       REACTION_EMOJI_BY_KEY,
       reactionOptions,
       emojiFor,
+      isCounterpartyMsg,
+      selfRoleTagKey,
       msgDisplayText,
       isShowingOriginal,
       toggleMsgOriginal,

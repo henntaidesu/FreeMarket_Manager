@@ -12,7 +12,7 @@ from ....ssl_mitm_proxy.capture_config import clear_shipping_info_response_file,
 from ....web_drive.core.mitm_session import mitm_automation_browser
 from ....web_drive.core.paths import mercari_todo_key
 from ...sync.sync_progress import make_sync_reporter
-from ._cache import _clear_qr_image, _persist_awaiting_feedback, _persist_transaction_detail
+from ._cache import _clear_qr_image, _persist_awaiting_feedback, _persist_transaction_detail, resolve_viewer_is_buyer
 from ._captures import _wait_for_both_captures
 from ._common import _WAIT_REPLY_KINDS, _is_wait_shipping_todo, _parse_messages, _parse_shipping_info
 from ._messages_media import cache_message_images
@@ -166,6 +166,9 @@ async def fetch_transaction_detail(
         },
         **shipping_part,
         **messages_part,
+        # 本账号是这笔交易的买家还是卖家：待办面板据此认出「对方」（反应表情只能加在
+        # 对方消息上）。煤炉对自己卖出的和自己买入的都发 IncomingMessage 待办。
+        "viewer_is_buyer": resolve_viewer_is_buyer(item_id, aid),
     }
     # 发货二维码同步：
     #   - 本次抓到 → 用新的

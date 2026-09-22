@@ -543,6 +543,53 @@ class DBManager:
         print("[OK] 组合来源库存已补回（组合改为不扣减库存，仅展示拉走件数）")
         return True
 
+    def _migrate_purchase_items_settlement_indexes(self) -> bool:
+        """给已有的 purchase_items 补上代购结算的两个索引。
+
+        **模型的 get_indexes() 对已存在的表不生效**：``ensure_table_exists()`` 只在表
+        不存在时走 ``_create_table()``（索引在那里建），表已存在则走
+        ``_check_and_update_table_structure()``，那里只补列、不碰索引。所以给一张老表
+        新声明索引必须在这里补一次，否则它永远不会出现。
+
+        与上面那批 ``_migrate_*`` 不同，这个**两种方言都要跑**：MySQL 库同样是老表加新列，
+        不是「从最终 schema 全新建库」。
+        """
+        db = self.db
+        if not db.table_exists("purchase_items"):
+            return True
+        wanted = (
+            ("idx_purchase_items_settlement", ("settlement_status",)),
+            ("idx_purchase_items_owner", ("owner_user_id",)),
+        )
+        try:
+            if self._is_sqlite():
+                existing = {
+                    r[0]
+                    for r in db.execute_query(
+                        "SELECT name FROM sqlite_master WHERE type='index' "
+                        "AND tbl_name='purchase_items'"
+                    )
+                }
+            else:
+                # SHOW INDEX 的第 3 列是索引名（Key_name）
+                existing = {
+                    r[2] for r in db.execute_query("SHOW INDEX FROM [purchase_items]")
+                }
+        except Exception as e:  # noqa: BLE001
+            print(f"[WARN] 读取 purchase_items 索引失败，跳过补建: {e}")
+            return True
+        for name, columns in wanted:
+            if name in existing:
+                continue
+            cols = ", ".join(f"[{c}]" for c in columns)
+            try:
+                db.execute_update(f"CREATE INDEX [{name}] ON [purchase_items]({cols})")
+                print(f"[OK] 已补建索引 {name}")
+            except Exception as e:  # noqa: BLE001
+                # 索引只影响筛选/分组的速度，建不上不该让整个启动失败
+                print(f"[WARN] 补建索引 {name} 失败: {e}")
+        return True
+
     def _migrate_todo_messages_to_table(self) -> bool:
         """一次性：把内嵌在 todo_items.detail_json.messages 的交流消息搬入 transaction_messages
         表（按订单ID = item_id 关联），并从 detail_json 中摘除 messages。
@@ -795,6 +842,8 @@ class DBManager:
         if not self._migrate_restore_combined_source_stock():
             return False
         if not self._migrate_todo_messages_to_table():
+            return False
+        if not self._migrate_purchase_items_settlement_indexes():
             return False
         return True
 

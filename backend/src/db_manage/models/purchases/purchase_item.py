@@ -80,6 +80,9 @@ _PURCHASE_ITEM_LIST_KEYS: Tuple[str, ...] = (
     "review_received_at",
     "detail_synced_at",
     "detail_fetch_failures",
+    "settlement_status",
+    "settled_at",
+    "owner_user_id",
 )
 
 
@@ -202,6 +205,22 @@ class PurchaseItemModel(BaseModel):
             # 退出候选集，否则一条永远打不开的取引页会拖住每一轮同步。
             "detail_synced_at": {"type": "INTEGER", "not_null": False, "default": None},
             "detail_fetch_failures": {"type": "INTEGER", "not_null": True, "default": 0},
+
+            # ── 代购结算 ────────────────────────────────────────────────── #
+            # 与「出售结算」（use_web/system/settlement，按日期区间给订单分账）是
+            # **两套账**，互不引用：那边问「卖出去的钱跟归属人怎么分」，这边问
+            # 「替人买的东西跟这个人结没结」。所以不共用 settlement_records。
+            #
+            # 0=未结算 1=已结算 2=无需结算。人工标记，**可来回改**——
+            # 与 orders.settlement_excluded 的「一次性不可撤回」刻意不同：
+            # 代购是按人对账，标错归属人或标错状态必须能退回。
+            "settlement_status": {"type": "INTEGER", "not_null": True, "default": 0},
+            # 标记为「已结算」的时间；退回未结算 / 无需结算时清空，
+            # 免得一行显示「未结算」却带着上次的结算时间。
+            "settled_at": {"type": "INTEGER", "not_null": False, "default": None},
+            # 这笔代购归谁（users.id，与 inventory.owner_user_id 同一套用户）。
+            # 两者**不联动**：库存归属人问「这批货是谁的」，这里问「这笔代购跟谁结」。
+            "owner_user_id": {"type": "INTEGER", "not_null": False, "default": None},
         }
 
     @classmethod
@@ -217,6 +236,10 @@ class PurchaseItemModel(BaseModel):
             {"name": "idx_purchase_items_account", "columns": ["account_id"]},
             {"name": "idx_purchase_items_purchased", "columns": ["purchased_at"]},
             {"name": "idx_purchase_items_state", "columns": ["state"]},
+            # 代购结算的两个筛选/分组维度。都是**非唯一**索引——本表唯一索引必须
+            # 只有 uk_purchase_items_order_item 一个，见上。
+            {"name": "idx_purchase_items_settlement", "columns": ["settlement_status"]},
+            {"name": "idx_purchase_items_owner", "columns": ["owner_user_id"]},
         ]
 
     @classmethod
@@ -225,7 +248,14 @@ class PurchaseItemModel(BaseModel):
         keyword: Optional[str] = None,
         account_id: Optional[int] = None,
         state: Optional[str] = None,
+        settlement_status: Optional[int] = None,
+        owner_user_id: Optional[int] = None,
     ) -> Tuple[str, List[Any]]:
+        """``owner_user_id=0`` 是哨兵值，表示筛「未指定归属人」。
+
+        users.id 自增从 1 起，0 不会是任何真实用户；用它免得为「未指定」再加一个
+        布尔参数穿过 模型→handler→路由→前端 四层。
+        """
         sql = " FROM [purchase_items] t WHERE 1=1 "
         params: List[Any] = []
         if keyword is not None and str(keyword).strip():
@@ -242,6 +272,15 @@ class PurchaseItemModel(BaseModel):
         if state is not None and str(state).strip():
             sql += " AND t.state = ?"
             params.append(str(state).strip())
+        if settlement_status is not None:
+            sql += " AND COALESCE(t.settlement_status, 0) = ?"
+            params.append(int(settlement_status))
+        if owner_user_id is not None:
+            if int(owner_user_id) <= 0:
+                sql += " AND t.owner_user_id IS NULL"
+            else:
+                sql += " AND t.owner_user_id = ?"
+                params.append(int(owner_user_id))
         return sql, params
 
     @classmethod
@@ -250,12 +289,18 @@ class PurchaseItemModel(BaseModel):
         keyword: Optional[str] = None,
         account_id: Optional[int] = None,
         state: Optional[str] = None,
+        settlement_status: Optional[int] = None,
+        owner_user_id: Optional[int] = None,
         page: int = 1,
         page_size: int = 20,
     ) -> Dict[str, Any]:
         db = cls().db
         base_sql, params = cls._build_filter(
-            keyword=keyword, account_id=account_id, state=state
+            keyword=keyword,
+            account_id=account_id,
+            state=state,
+            settlement_status=settlement_status,
+            owner_user_id=owner_user_id,
         )
         total = db.execute_query(f"SELECT COUNT(*) {base_sql}", tuple(params))[0][0]
         offset = (page - 1) * page_size

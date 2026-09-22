@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import HTTPException
 
 from ....db_manage.database import DatabaseManager
+from ....db_manage.models.purchases import purchase_settlement
 from ....db_manage.models.purchases.purchase_item import PurchaseItemModel
 
 
@@ -24,6 +25,30 @@ def _attach_account_name(items: List[Dict[str, Any]]) -> None:
     for row in items:
         aid = row.get("account_id")
         row["account_name"] = name_map.get(int(aid)) if aid is not None else None
+
+
+def user_name_map(ids: List[int]) -> Dict[int, str]:
+    """users.id → 显示名。代购归属人与库存归属人同一套用户表。"""
+    wanted = sorted({int(i) for i in ids if i is not None})
+    if not wanted:
+        return {}
+    ph = ",".join(["?"] * len(wanted))
+    rows = DatabaseManager().execute_query(
+        f"SELECT [id], COALESCE([display_name], [username]) FROM [users] WHERE [id] IN ({ph})",
+        tuple(wanted),
+    )
+    return {int(r[0]): (r[1] or "").strip() for r in rows}
+
+
+def _attach_owner_name(items: List[Dict[str, Any]]) -> None:
+    """把 owner_user_id 解析成展示名；已被删掉的用户回落成 ``用户{id}``。"""
+    name_map = user_name_map([i.get("owner_user_id") for i in items])
+    for row in items:
+        oid = row.get("owner_user_id")
+        if oid is None:
+            row["owner_user_name"] = None
+        else:
+            row["owner_user_name"] = name_map.get(int(oid)) or f"用户{int(oid)}"
 
 
 def _attach_message_count(items: List[Dict[str, Any]]) -> None:
@@ -53,20 +78,65 @@ def list_purchase_items(
     keyword: Optional[str] = None,
     account_id: Optional[int] = None,
     state: Optional[str] = None,
+    settlement_status: Optional[int] = None,
+    owner_user_id: Optional[int] = None,
     page: int = 1,
     page_size: int = 20,
 ):
+    """``owner_user_id=0`` 筛「未指定归属人」，见 ``PurchaseItemModel._build_filter``。"""
     page = max(1, int(page or 1))
     page_size = max(1, min(int(page_size or 20), 200))
     out = PurchaseItemModel.find_list(
         keyword=keyword,
         account_id=account_id,
         state=state,
+        settlement_status=_validated_status(settlement_status),
+        owner_user_id=owner_user_id,
         page=page,
         page_size=page_size,
     )
     _attach_account_name(out.get("items") or [])
     _attach_message_count(out.get("items") or [])
+    _attach_owner_name(out.get("items") or [])
+    return out
+
+
+def _validated_status(v: Optional[int]) -> Optional[int]:
+    """结算状态只认 0/1/2；别的值 400，不静默当成「不筛选」。"""
+    if v is None:
+        return None
+    iv = int(v)
+    if iv not in purchase_settlement.SETTLEMENT_STATUSES:
+        raise HTTPException(status_code=400, detail=f"无效的结算状态: {v}")
+    return iv
+
+
+def purchase_stats(
+    keyword: Optional[str] = None,
+    account_id: Optional[int] = None,
+    state: Optional[str] = None,
+    settlement_status: Optional[int] = None,
+    owner_user_id: Optional[int] = None,
+):
+    """当前筛选下的代购汇总（不受分页影响），供页面顶部汇总条。
+
+    ``by_settlement`` / ``by_owner`` 忽略 ``settlement_status`` 筛选——口径与
+    取舍理由见 ``purchase_settlement.aggregate_stats``。这里只补上归属人展示名。
+    """
+    out = purchase_settlement.aggregate_stats(
+        keyword=keyword,
+        account_id=account_id,
+        state=state,
+        settlement_status=_validated_status(settlement_status),
+        owner_user_id=owner_user_id,
+    )
+    by_owner = out.get("by_owner") or []
+    name_map = user_name_map([r.get("owner_user_id") for r in by_owner])
+    for row in by_owner:
+        oid = row.get("owner_user_id")
+        row["owner_user_name"] = (
+            None if oid is None else (name_map.get(int(oid)) or f"用户{int(oid)}")
+        )
     return out
 
 
