@@ -18,6 +18,7 @@ use_web V2 API 聚合模块（按前端页面归类）
 - product_type_category_mappings  前端 /product-type-category-mappings 页
 - system          前端 /system 页（一级 + 二级：cost_records/cost_expenses/warehouses/categories）
 - web_drive       跨页面共享的浏览器自动化基础设施
+- store           对外商城（独立前端 /store）；唯一一组公开的业务数据端点
 """
 
 from fastapi import APIRouter, Depends
@@ -39,9 +40,11 @@ from .todos.API import router as todos_router
 from .tasks.API import router as tasks_router
 from .notifications.API import router as notifications_router
 from .memos.API import router as memos_router
+from .calendar.API import router as calendar_router
 from .talk_scripts.API import router as talk_scripts_router
 from .gotion.API import router as gotion_router
 from .mercari_image.API import public_router as mercari_image_public_router
+from .store.API import public_router as store_public_router
 
 router = APIRouter(prefix="/use_web")
 
@@ -62,6 +65,11 @@ router.include_router(inventory_public_router, prefix="/inventory", tags=["inven
 # 煤炉图片代理（跨页面共享，前端 <img> 直接通过 URL 访问，无需 token）
 router.include_router(mercari_image_public_router, tags=["mercari-image"])
 
+# 对外商城（独立前端挂在 /store）：整组只读端点，面向未登录访客。
+# 返回字段是白名单挑出来的，不是库存行原样外发——条码/SKU/货架/归属人/内部备注都不在其中，
+# 见 store/units/store_query.py 模块注释。每个处理器自己调 check_public_rate_limit。
+router.include_router(store_public_router, prefix="/store", tags=["store-public"])
+
 # ============ 需要认证的端点 ============
 _AUTH = [Depends(require_auth)]
 
@@ -81,5 +89,7 @@ router.include_router(todos_router, prefix="/todos", tags=["todos"], dependencie
 router.include_router(tasks_router, prefix="/tasks", tags=["tasks"], dependencies=_AUTH)
 router.include_router(notifications_router, prefix="/notifications", tags=["notifications"], dependencies=_AUTH)
 router.include_router(memos_router, prefix="/memos", tags=["memos"], dependencies=_AUTH)
+# 日历：全员共享的一份事项表（前端 /system/calendar）
+router.include_router(calendar_router, prefix="/calendar", tags=["calendar"], dependencies=_AUTH)
 router.include_router(talk_scripts_router, prefix="/talk-scripts", tags=["talk-scripts"], dependencies=_AUTH)
 router.include_router(gotion_router, prefix="/gotion", tags=["gotion"], dependencies=_AUTH)

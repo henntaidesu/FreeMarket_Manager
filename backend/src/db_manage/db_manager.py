@@ -39,6 +39,7 @@ from .models import (
     BundlePurchaseRequestModel,
     DesiredPriceOfferModel,
     MemoModel,
+    CalendarEventModel,
     TalkScriptModel,
     SystemLogModel,
     TaskQueueModel,
@@ -718,6 +719,7 @@ class DBManager:
             ProductTypeCategoryMappingModel,  # 商品类型与类别字段映射（煤炉）
             YahooCategoryMappingModel,  # 雅虎分类映射（自动采集）
             MemoModel,  # 备忘录 / 站内信（依赖 users，仅顺序习惯）
+            CalendarEventModel,  # 日历事项（全员共享，created_by 仅显示用）
             TalkScriptModel,  # 话术表（全局共享，无外键依赖）
             SystemLogModel,  # 系统日志（自动上架 / 自动获取，无外键依赖）
             TaskQueueModel,  # 后台任务队列（出品/同步/改价等，无外键依赖）

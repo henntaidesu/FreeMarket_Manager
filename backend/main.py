@@ -33,6 +33,7 @@ from src.use_web.image_storage import ensure_image_dir
 from src.API import router as v2_router
 from src.image_route import register_image_routes
 from src.lifecycle import register_lifecycle
+from src.store_static import mount_store
 from src.web_static import mount_spa, register_health
 
 WEB_DRIVE_FORCE_HEADED_DEBUG = False
@@ -76,9 +77,10 @@ register_image_routes(app)
 # 注册 V2 根路由 → /mercariV2/src/...
 app.include_router(v2_router, prefix="/mercariV2")
 
-# 生命周期事件、兼容健康检查、前端 SPA 静态托管
+# 生命周期事件、兼容健康检查、对外商城与管理端 SPA 静态托管
 register_lifecycle(app, force_headed_debug=WEB_DRIVE_FORCE_HEADED_DEBUG)
 register_health(app)
+mount_store(app)  # 商城（独立前端）须在 mount_spa 之前：根挂载会吞掉其后注册的一切
 mount_spa(app)  # 须最后挂载：根路径 "/" 会兜底其余未匹配路由
 
 

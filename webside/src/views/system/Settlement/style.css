@@ -244,6 +244,17 @@
 .delta-val { font-weight: 700; }
 .title-note { font-weight: 400; font-size: 12px; color: var(--el-text-color-secondary); }
 .resettle-meta { padding-bottom: 10px; margin-bottom: 10px; }
+/* 差额一句话：有差额时才出现，颜色跟着补付/退回的方向走 */
+.diff-summary {
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-left: 3px solid currentColor;
+  border-radius: 4px;
+  background: var(--el-fill-color-light);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.detail-table .muted { color: var(--el-text-color-secondary); }
 .detail-footer {
   display: flex;
   align-items: center;

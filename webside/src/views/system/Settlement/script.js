@@ -418,6 +418,52 @@ export default defineComponent({
       return { fee, payout, cny: recRate > 0 ? payout / recRate : null }
     })
 
+    /** 本条记录的重算差额；从未重算过为 null。 */
+    const resettleDiff = computed(() => detailRecord.value?.resettle?.diff || null)
+
+    /**
+     * 差额的订单级归因（后端按 (订单号, 归属人) 对齐两份快照给出）。
+     *
+     * `available: false` = 这条结算保存时还没有订单级快照（本功能上线前的记录），
+     * 此时只能报合计差额——基线事后重建不出来，见 `settlement_orders.py`。
+     */
+    const resettleOrders = computed(() => resettleDiff.value?.orders || null)
+    const resettleOrderRows = computed(() => resettleOrders.value?.rows || [])
+
+    /** 差额一句话：多/少了多少钱，以及来自哪几类订单变化（明细见下表）。 */
+    const resettleSummaryText = computed(() => {
+      const diff = resettleDiff.value
+      if (!diff) return ''
+      const delta = Math.round(Number(diff.final_total_delta) || 0)
+      const orders = resettleOrders.value
+      const counts = {
+        added: Number(orders?.added) || 0,
+        removed: Number(orders?.removed) || 0,
+        changed: Number(orders?.changed) || 0,
+      }
+      const total = counts.added + counts.removed + counts.changed
+      const dir = t(delta > 0 ? 'system.settlementDiffDirMore' : 'system.settlementDiffDirLess')
+      const cny = diff.final_total_delta_cny != null
+        ? t('system.settlementDiffCny', { cny: formatCny(Math.abs(diff.final_total_delta_cny)) })
+        : ''
+      const params = { dir, delta: formatYen(Math.abs(delta)), cny, total, ...counts }
+      if (!orders?.available) {
+        return delta === 0 ? t('system.settlementDiffNone') : t('system.settlementDiffNoSnapshot', params)
+      }
+      if (delta === 0) {
+        // 合计持平但订单有变动：几笔一增一减刚好抵消，这同样要核对
+        return total > 0 ? t('system.settlementDiffZeroChanged', params) : t('system.settlementDiffNone')
+      }
+      return t('system.settlementDiffSentence', params)
+    })
+
+    function orderKindLabel(kind) {
+      return t(`system.settlementDiffKind_${kind}`)
+    }
+    function orderKindTagType(kind) {
+      return kind === 'added' ? 'success' : kind === 'removed' ? 'info' : 'warning'
+    }
+
     /**
      * 重新结算：同一区间用最新订单数据重算，结果与原结算并存（后端算差额）。
      *
@@ -542,6 +588,12 @@ export default defineComponent({
       feePercent: Math.round(SETTLEMENT_FEE_RATE * 100),
       resettling,
       resettleRecord,
+      resettleDiff,
+      resettleOrders,
+      resettleOrderRows,
+      resettleSummaryText,
+      orderKindLabel,
+      orderKindTagType,
       formatSignedYen,
       formatSignedCny,
       deltaClass,

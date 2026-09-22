@@ -215,6 +215,10 @@ Key tables in `backend/src/db_manage/models/`:
   to the image host get a row; no row = still a local file. See 图床存储 below.
 - **proxy_users**: 代购用户 —— `purchase_items.owner_user_id` 指向它，**不是** `users`。
   见 代购结算 below。
+- **calendar_events**: 日历事项（其他功能 → 日历，`/#/system/calendar`）——**全员共享一份**，
+  `created_by` 只用于显示，不参与任何过滤。时间是不带时区的本地时间串，前后端都不转 UTC；
+  全天事项不是单独的时间模型，而是被规范成当天 `00:00:00` ~ 末日 `23:59:59`，好让区间查询
+  只有「重叠」这一条口径。`is_done` 是侧边栏红点的来源（今天及以前开始且未完成）。
 - **task_queue**: Background job rows (see Task Queue)
 - **config**: Generic key/value app settings — DeepSeek credentials live here, not in env vars
 - **system_logs**, **memos**, **talk_scripts**, **settlement_records**, **desired_price_offers**,

@@ -97,6 +97,7 @@ export default {
       notifications: "プラットフォーム通知",
       shopAccounts: "店舗アカウント",
       talkScripts: "定型文",
+      calendar: "カレンダー",
       memos: "メモ",
       system: "その他の機能",
       transactions: "在庫履歴",

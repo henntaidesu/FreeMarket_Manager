@@ -105,7 +105,49 @@ server {
     # 同源相对路径，所以这里只需按前缀转发，不用改前端。
     location /mercariV2/ { proxy_pass http://fmm_backend; include /etc/nginx/fmm_proxy.conf; }
     location /api/       { proxy_pass http://fmm_backend; include /etc/nginx/fmm_proxy.conf; }
-    location /imges/     { proxy_pass http://fmm_backend; include /etc/nginx/fmm_proxy.conf; }
+
+    # ── 对外商城 /store ──────────────────────────────────────────
+    # 商城是给**未登录的陌生人**看的，而上面那道 auth_basic 罩着整个 server：
+    # 不在这几处关掉，访客打开 /store 只会看到浏览器的账号密码弹窗。
+    # 要放行的不止页面本身，还有它依赖的两类请求——少放一类就是「页面出来了但一片空白」
+    # 或者「有文字没有图」：
+    #   · /mercariV2/src/use_web/store/        商品列表 / 详情 / 筛选项
+    #   · .../inventory/image-thumb            商品缩略图（列表与详情的图都走它）
+    #   · /imges/                              本地未迁移到图床的图片原件
+    #
+    # ⚠ 这是一个真实的取舍，不是走个形式：/imges/ 一旦放行，**全部**商品图片（含未在
+    #   商城上架的）都能被猜到文件名的人取走。文件名是 UUID，属于「知道地址才能访问」，
+    #   与启用图床后的处境是同一个量级（那时图片本来就 302 到无认证的图床域名）。
+    #   若不接受，把 /imges/ 那条 auth_basic off 去掉并在系统配置里启用图床——
+    #   商城的图就全部走图床域名，这台 nginx 上不再需要开放 /imges/。
+    #
+    # 页面本身直接反代给后端：后端已经把 storefront/dist 挂在 /store，并且负责
+    # history 路由的 index.html 回落（src/store_static.py）。若改成由 nginx 直接托管
+    # storefront/dist，则必须自己补 `try_files $uri $uri/ /store/index.html;`，
+    # 否则 /store/item/123 这类深链会 404。
+    location /store {
+        auth_basic off;
+        proxy_pass http://fmm_backend;
+        include /etc/nginx/fmm_proxy.conf;
+    }
+    location /mercariV2/src/use_web/store/ {
+        auth_basic off;
+        proxy_pass http://fmm_backend;
+        include /etc/nginx/fmm_proxy.conf;
+    }
+    location = /mercariV2/src/use_web/inventory/image-thumb {
+        auth_basic off;
+        proxy_pass http://fmm_backend;
+        include /etc/nginx/fmm_proxy.conf;
+    }
+    # 图片。这条就是原先那条 /imges/ 反代，只是多了 auth_basic off——同一个前缀在 nginx 里
+    # 只能出现一次（写两条是配置错误），所以是改写而不是新增。
+    # 不想放行图片时，删掉这里的 auth_basic off 即可（见上面的取舍说明）。
+    location /imges/ {
+        auth_basic off;
+        proxy_pass http://fmm_backend;
+        include /etc/nginx/fmm_proxy.conf;
+    }
 
     # ── 不要把 mercari-proxy（9610）挂进本 server ────────────────
     # 它需要独立域名 + 独立认证，见文件末尾的 mp.* server 段。

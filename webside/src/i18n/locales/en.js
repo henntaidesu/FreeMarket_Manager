@@ -97,6 +97,7 @@ export default {
       notifications: "Platform Notifications",
       shopAccounts: "Shop Accounts",
       talkScripts: "Scripts",
+      calendar: "Calendar",
       memos: "Memos",
       system: "More",
       transactions: "Transactions",

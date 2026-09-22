@@ -34,6 +34,7 @@ from .notifications.desired_price_offer import DesiredPriceOfferModel
 from .shop_accounts.shop_account import ShopAccountModel
 from .shop_accounts.yahoo_app_token import YahooAppTokenModel
 from .memos.memo import MemoModel
+from .calendar.calendar_event import CalendarEventModel
 from .gotion.gotion_table import GotionTableModel
 from .gotion.gotion_column import GotionColumnModel
 from .gotion.gotion_row import GotionRowModel
@@ -67,6 +68,7 @@ __all__ = [
     'BundlePurchaseRequestModel',
     'DesiredPriceOfferModel',
     'MemoModel',
+    'CalendarEventModel',
     'TalkScriptModel',
     'SystemLogModel',
     'TaskQueueModel',

@@ -10,6 +10,10 @@
   本来就不存在「最新」一说。所以重算的只有订单。
 - 再次重算覆盖上一次的重算结果，差额**始终相对原结算**（而不是上一次重算），
   这样「还差多少钱没结」永远只看一个数。
+- 差额还要归因到**具体订单**：光说「某人多了 1200 円」没法核对，补付之前总得知道是哪几笔。
+  基线是结算当时存下的订单级快照（`settlement_records.orders_json`），见 `settlement_orders`；
+  该列上线前保存的记录没有基线，这时只报合计差额并说明原因，绝不拿「现在」补一份基线——
+  那会把真实差额抹成 0。
 
 分账口径（分摊、取整、日元换算）仍由前端算，与首次结算共用同一份实现；这里只做
 差额与落库——两边各写一份分摊算法必然会在最大余数法的尾数上对不齐。
@@ -24,6 +28,7 @@ from pydantic import BaseModel as PydModel
 
 from .....auth import require_auth
 from .....db_manage.models.system.settlement_record import SettlementRecordModel
+from .settlement_orders import collect_order_rows, diff_order_rows
 from .settlement_records import _parse_json
 
 
@@ -117,6 +122,13 @@ def resettle_settlement(
     after_final = _int(body.final_total)
     total_delta = after_final - before_final
 
+    # 差额归因到具体订单：重算只动订单，所以合计差额必然落在下面这几笔上。
+    orders_diff = diff_order_rows(
+        _parse_json(data.get("orders_json")),
+        collect_order_rows(int(data.get("start_date") or 0), int(data.get("end_date") or 0)),
+    )
+    orders_diff["delta_cny"] = _cny(orders_diff.get("delta") or 0, rate)
+
     snapshot = {
         # 本地时间。列表里的 created_at 由数据库 CURRENT_TIMESTAMP 生成（SQLite 是 UTC），
         # 两者可能差一个时区；重算时间只用来说明「这份数据算于何时」，取本地更直观。
@@ -137,6 +149,8 @@ def resettle_settlement(
             "final_total_delta_cny": _cny(total_delta, rate),
             "overall_net_income_before": _int(data.get("overall_net_income")),
             "overall_net_income_after": _int(overall.get("net_income")),
+            # 新增 / 移出 / 金额变化的订单（available=False 表示原结算没有订单级快照）
+            "orders": orders_diff,
         },
     }
 

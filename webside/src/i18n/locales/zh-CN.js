@@ -97,6 +97,7 @@ export default {
       notifications: "平台通知",
       shopAccounts: "店铺账号",
       talkScripts: "话术表",
+      calendar: "日历",
       memos: "备忘录",
       system: "其他功能",
       transactions: "库存记录",

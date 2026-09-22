@@ -13,6 +13,7 @@ from .....auth import require_auth
 from .....db_manage.database import DatabaseManager
 from .....db_manage.models.system.settlement_record import SettlementRecordModel
 from .pending_items import bind_items_to_settlement, unbind_settlement_items
+from .settlement_orders import collect_order_rows
 
 _db = DatabaseManager()
 
@@ -87,6 +88,10 @@ def save_settlement(
         "equipment_total": int(body.equipment_total or 0),
         "final_total": int(body.final_total or 0),
     }
+    # 订单级快照：重算出现差额时唯一能定位到具体订单的基线，只能在结算当时存下来
+    # （订单金额/归属就地覆盖，事后重建不出来）。由后端自己按同一口径查，不从前端接——
+    # 前端手里只有按归属人汇总后的数字。
+    order_rows = collect_order_rows(start, end)
     rec = SettlementRecordModel(
         start_date=start,
         end_date=end,
@@ -100,6 +105,7 @@ def save_settlement(
         consumables_json=json.dumps(body.consumables, ensure_ascii=False),
         equipments_json=json.dumps(body.equipments, ensure_ascii=False),
         rows_json=json.dumps(body.rows, ensure_ascii=False),
+        orders_json=json.dumps(order_rows, ensure_ascii=False),
         detail_json=json.dumps(detail, ensure_ascii=False),
         operator=auth.get("username"),
     )

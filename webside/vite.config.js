@@ -83,6 +83,15 @@ export default defineConfig(({ mode }) => {
         '/imges': {
           target: 'http://127.0.0.1:9601',
           changeOrigin: true
+        },
+        // 对外商城：由后端挂载（src/store_static.py），必须转发过去。
+        // 不转发的话 /store 会落进本 dev server 的 SPA 兜底，**返回 200 但给的是管理端页面**
+        // ——看上去能打开，其实是另一个站，排查起来很费时间。
+        // 注意这里代理到的是 storefront 的**构建产物**（storefront/dist），没有 HMR；
+        // 要改商城前端本身，另开 `cd storefront && npm run dev`（9602 端口）。
+        '/store': {
+          target: 'http://127.0.0.1:9601',
+          changeOrigin: true
         }
       }
     }

@@ -1,0 +1,448 @@
+/* 日历页。应用是常驻深色（main.js 无条件加 html.dark），所以颜色一律走
+   element-plus 的深色变量，不写死灰度值。 */
+
+.cal-card {
+  border-radius: 8px;
+}
+
+/* ============ 工具栏 ============ */
+
+.cal-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.cal-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  white-space: nowrap;
+}
+
+.cal-toolbar-spacer {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ============ 月视图 ============ */
+
+.cal-month-head {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  border: 1px solid var(--el-border-color);
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  overflow: hidden;
+}
+
+.cal-month-head-cell {
+  padding: 8px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  background: var(--el-fill-color-light);
+}
+
+.cal-month-body {
+  border: 1px solid var(--el-border-color);
+  border-radius: 0 0 6px 6px;
+  overflow: hidden;
+}
+
+.cal-week {
+  position: relative;
+  /* 28(日期) + 3*22(通道) + 18(「还有 N 项」) + 2(留白) = 114，少一点就会压在一起 */
+  min-height: 120px;
+}
+
+.cal-week + .cal-week {
+  border-top: 1px solid var(--el-border-color);
+}
+
+.cal-week-cells {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  height: 120px;
+}
+
+.cal-cell {
+  padding: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.cal-cell + .cal-cell {
+  border-left: 1px solid var(--el-border-color);
+}
+
+.cal-cell:hover {
+  background: var(--el-fill-color-light);
+}
+
+/* 相邻月份的日子压暗，但仍可点、仍画事项——跨月的事项断在格子边上更难读 */
+.cal-cell.is-other-month {
+  background: var(--el-fill-color-darker);
+}
+
+.cal-cell.is-other-month .cal-cell-num {
+  color: var(--el-text-color-disabled);
+}
+
+.cal-cell-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 11px;
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+}
+
+.cal-cell-num:hover {
+  background: var(--el-fill-color);
+}
+
+.cal-cell.is-today .cal-cell-num {
+  background: var(--el-color-primary);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* 横条层盖在格子上；本身不吃点击，只有条自己吃 */
+.cal-week-bars {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 28px;
+  bottom: 2px;
+  pointer-events: none;
+}
+
+.cal-bar {
+  position: absolute;
+  /* 22 = 一条通道的间距；下/右各 2px 透明边框就是条与条之间的缝 */
+  height: 22px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  border-right: 2px solid transparent;
+  border-bottom: 2px solid transparent;
+  background-clip: padding-box;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 18px;
+  color: #fff;
+  background: var(--bar-color);
+  cursor: pointer;
+  overflow: hidden;
+  pointer-events: auto;
+}
+
+.cal-bar:hover {
+  filter: brightness(1.12);
+}
+
+/* 跨到上/下一周的那一端不收圆角，读起来才像同一条 */
+.cal-bar.cont-before {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.cal-bar.cont-after {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.cal-bar-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.cal-bar-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cal-bar.is-done,
+.cal-block.is-done {
+  opacity: 0.45;
+}
+
+.cal-bar.is-done .cal-bar-text,
+.cal-block.is-done .cal-block-title {
+  text-decoration: line-through;
+}
+
+/* 逾期：未完成且结束时间已过。描边而不是换底色，事项本身的颜色还要认 */
+.cal-bar.is-overdue {
+  outline: 1px solid var(--el-color-danger);
+  outline-offset: -1px;
+}
+
+.cal-more {
+  position: absolute;
+  bottom: 0;
+  height: 18px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--el-text-color-secondary);
+  cursor: pointer;
+  pointer-events: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cal-more:hover {
+  color: var(--el-color-primary);
+}
+
+/* ============ 周 / 日视图 ============ */
+
+.cal-time {
+  border: 1px solid var(--el-border-color);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.cal-gutter {
+  flex: none;
+  width: 56px;
+  box-sizing: border-box;
+}
+
+.cal-time-head {
+  display: flex;
+  background: var(--el-fill-color-light);
+  border-bottom: 1px solid var(--el-border-color);
+}
+
+.cal-time-head-days {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+}
+
+.cal-time-head-cell {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+  border-left: 1px solid var(--el-border-color);
+}
+
+.cal-time-head-wd {
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+}
+
+.cal-time-head-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  border-radius: 12px;
+  font-size: 14px;
+  color: var(--el-text-color-regular);
+}
+
+.cal-time-head-cell.is-today .cal-time-head-num {
+  background: var(--el-color-primary);
+  color: #fff;
+  font-weight: 600;
+}
+
+.cal-allday {
+  display: flex;
+  border-bottom: 1px solid var(--el-border-color);
+}
+
+.cal-allday-label {
+  padding: 4px 6px;
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  text-align: right;
+}
+
+.cal-allday-lanes {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  padding: 2px 0;
+}
+
+.cal-time-body {
+  display: flex;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.cal-hours {
+  position: relative;
+}
+
+/* 刻度文字压在分隔线上方，视觉上对准那条线 */
+.cal-hour-label {
+  position: relative;
+  box-sizing: border-box;
+  padding-right: 6px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+}
+
+.cal-hour-label span {
+  position: absolute;
+  right: 6px;
+  top: -7px;
+}
+
+.cal-time-cols {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+}
+
+.cal-time-col {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  border-left: 1px solid var(--el-border-color);
+  cursor: pointer;
+}
+
+.cal-hour-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px solid var(--el-border-color-lighter);
+  pointer-events: none;
+}
+
+.cal-block {
+  position: absolute;
+  box-sizing: border-box;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border-left: 3px solid var(--bar-color);
+  /* 半透明底：重叠时下面那块仍看得见轮廓。color-mix 较新，先留一行纯色兜底 */
+  background: var(--bar-color);
+  background: color-mix(in srgb, var(--bar-color) 72%, transparent);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.35;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.cal-block:hover {
+  filter: brightness(1.12);
+  z-index: 2;
+}
+
+.cal-block.is-overdue {
+  outline: 1px solid var(--el-color-danger);
+  outline-offset: -1px;
+}
+
+.cal-block-time {
+  font-size: 11px;
+  opacity: 0.85;
+  white-space: nowrap;
+}
+
+.cal-block-title {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cal-now {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 2px solid var(--el-color-danger);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.cal-now::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: -5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--el-color-danger);
+}
+
+/* ============ 弹窗 ============ */
+
+.cal-picker {
+  width: 100%;
+}
+
+.cal-colors {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cal-color {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  cursor: pointer;
+  box-sizing: border-box;
+  border: 2px solid transparent;
+}
+
+.cal-color.is-on {
+  border-color: var(--el-text-color-primary);
+  box-shadow: 0 0 0 2px var(--el-bg-color-overlay) inset;
+}
+
+.cal-meta {
+  margin: -8px 0 4px 76px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.cal-dialog-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 手机：月视图格子压矮，时间轴横向可滚 */
+@media (max-width: 768px) {
+  /* 不压矮月视图格子：高度是按通道数算出来的，压矮就会把横条挤到一起 */
+  .cal-title {
+    font-size: 15px;
+  }
+
+  .cal-gutter {
+    width: 40px;
+  }
+}

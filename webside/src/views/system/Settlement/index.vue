@@ -394,6 +394,9 @@
               {{ detailRecord.resettle.operator || '-' }}
             </span>
           </div>
+          <div class="diff-summary" :class="deltaClass(detailRecord.resettle.diff.final_total_delta)">
+            {{ resettleSummaryText }}
+          </div>
           <el-table :data="detailRecord.resettle.diff.rows || []" size="small" stripe border class="detail-table">
             <el-table-column :label="t('system.settlementOwner')" prop="owner_name" min-width="90" />
             <el-table-column :label="t('system.settlementOrderCount')" align="center">
@@ -432,6 +435,40 @@
               </el-table-column>
             </el-table-column>
           </el-table>
+
+          <template v-if="resettleOrderRows.length">
+            <div class="detail-section-title">{{ t('system.settlementDiffOrders') }}</div>
+            <el-table :data="resettleOrderRows" size="small" stripe border class="detail-table">
+              <el-table-column :label="t('system.settlementDiffOrderNo')" prop="order_no" min-width="150" />
+              <el-table-column :label="t('system.settlementDiffKind')" width="96" align="center">
+                <template #default="{ row }">
+                  <el-tag size="small" effect="plain" :type="orderKindTagType(row.kind)">
+                    {{ orderKindLabel(row.kind) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column :label="t('system.settlementOwner')" prop="owner_name" min-width="90" />
+              <el-table-column :label="t('system.settlementNetIncome')" align="center">
+                <el-table-column :label="t('system.settlementResettleBefore')" min-width="94" align="right">
+                  <template #default="{ row }">
+                    <span class="num" v-if="row.kind !== 'added'">JP¥{{ formatYen(row.net_income_before) }}</span>
+                    <span class="muted" v-else>-</span>
+                  </template>
+                </el-table-column>
+                <el-table-column :label="t('system.settlementResettleAfter')" min-width="94" align="right">
+                  <template #default="{ row }">
+                    <span class="num net" v-if="row.kind !== 'removed'">JP¥{{ formatYen(row.net_income_after) }}</span>
+                    <span class="muted" v-else>-</span>
+                  </template>
+                </el-table-column>
+              </el-table-column>
+              <el-table-column :label="t('system.settlementResettleDelta')" min-width="104" align="right">
+                <template #default="{ row }">
+                  <span class="num delta-val" :class="deltaClass(row.delta)">{{ formatSignedYen(row.delta) }}</span>
+                </template>
+              </el-table-column>
+            </el-table>
+          </template>
         </template>
 
         <div class="detail-section-title">

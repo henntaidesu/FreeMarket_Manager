@@ -65,13 +65,13 @@
             >
               <el-icon><component :is="item.icon" /></el-icon>
               <template #title>
-                <!-- 备忘录移到二级后，未处理数量在收起状态下也要看得见，所以徽标挂到「其他功能」上 -->
+                <!-- 备忘录/日历都在二级，未处理数量在收起状态下也要看得见，所以徽标合并挂到「其他功能」上 -->
                 <span
-                  v-if="item.path === '/system' && memoUnread > 0"
+                  v-if="badgeOf(item.path) > 0"
                   class="menu-title menu-title--badge"
                 >
                   {{ t(item.titleKey) }}
-                  <span class="memo-badge">{{ memoUnread > 99 ? '99+' : memoUnread }}</span>
+                  <span class="memo-badge">{{ badgeOf(item.path) > 99 ? '99+' : badgeOf(item.path) }}</span>
                 </span>
                 <span v-else class="menu-title">{{ t(item.titleKey) }}</span>
                 <el-icon
@@ -153,11 +153,11 @@
                 <el-icon><component :is="c.icon" /></el-icon>
                 <template #title>
                   <span
-                    v-if="c.path === '/system/memos' && memoUnread > 0"
+                    v-if="badgeOf(c.path) > 0"
                     class="menu-title menu-title--badge"
                   >
                     {{ t(c.titleKey) }}
-                    <span class="memo-badge">{{ memoUnread > 99 ? '99+' : memoUnread }}</span>
+                    <span class="memo-badge">{{ badgeOf(c.path) > 99 ? '99+' : badgeOf(c.path) }}</span>
                   </span>
                   <span v-else class="menu-title">{{ t(c.titleKey) }}</span>
                 </template>
@@ -184,7 +184,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { Menu, Close, ArrowRight } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
-import { memosApi } from '@/api/index.js'
+import { memosApi, calendarApi } from '@/api/index.js'
 import { useViewModeStore } from '@/stores/viewMode.js'
 
 const router = useRouter()
@@ -208,17 +208,37 @@ const activeWithChildren = ref(null)
 /** 二级菜单是否被图钉固定：固定后选中二级项不再自动收缩 */
 const secondaryPinned = ref(false)
 
-/** 备忘录未处理数量（接收方=当前用户且未读），用于一级菜单红色徽标 */
+/** 备忘录未处理数量（接收方=当前用户且未读），用于菜单红色徽标 */
 const memoUnread = ref(0)
-let memoTimer = null
+/** 日历待处理数量（今天及以前开始、仍未标完成），口径见后端 count_pending */
+const calendarPending = ref(0)
+let badgeTimer = null
 
-async function refreshMemoUnread() {
+async function refreshBadges() {
+  // 两个请求互不依赖，失败各自静默：未登录或某个接口挂了，不该让另一个徽标也归零
   try {
     const r = await memosApi.unreadCount()
     memoUnread.value = r?.unread || 0
   } catch {
     // 静默：未登录或请求失败时不打扰
   }
+  try {
+    const r = await calendarApi.pendingCount()
+    calendarPending.value = r?.pending || 0
+  } catch {
+    // 同上
+  }
+}
+
+/**
+ * 菜单项的红色徽标数字（0 = 不显示）。
+ * 一级「其他功能」把二级的两个数字加起来——二级面板收起时，它是唯一看得见的位置。
+ */
+function badgeOf(path) {
+  if (path === '/system') return memoUnread.value + calendarPending.value
+  if (path === '/system/memos') return memoUnread.value
+  if (path === '/system/calendar') return calendarPending.value
+  return 0
 }
 
 /** 与库存页等一致：(max-width: 768px) */
@@ -237,13 +257,13 @@ onMounted(() => {
   mqMobile = window.matchMedia('(max-width: 768px)')
   syncMobileFromMedia()
   mqMobile.addEventListener('change', syncMobileFromMedia)
-  refreshMemoUnread()
-  // 周期刷新未处理数量，及时反映其他用户新发来的备忘录
-  memoTimer = setInterval(refreshMemoUnread, 30000)
+  refreshBadges()
+  // 周期刷新未处理数量，及时反映其他用户新发来的备忘录 / 新排的日历事项
+  badgeTimer = setInterval(refreshBadges, 30000)
 })
 onUnmounted(() => {
   mqMobile?.removeEventListener('change', syncMobileFromMedia)
-  if (memoTimer) clearInterval(memoTimer)
+  if (badgeTimer) clearInterval(badgeTimer)
 })
 
 const userName = computed(() => {
@@ -290,6 +310,7 @@ const menuItems = [
       { path: '/system/talk-scripts', titleKey: 'layout.menu.talkScripts', icon: 'ChatLineRound', group: 'layout.menuGroup.masterData' },
 
       // 系统
+      { path: '/system/calendar', titleKey: 'layout.menu.calendar', icon: 'Calendar', group: 'layout.menuGroup.system' },
       { path: '/system/memos', titleKey: 'layout.menu.memos', icon: 'ChatDotRound', group: 'layout.menuGroup.system' },
       { path: '/system/config', titleKey: 'layout.menu.systemConfig', icon: 'Tools', group: 'layout.menuGroup.system' },
       { path: '/system/system-logs', titleKey: 'layout.menu.systemLogs', icon: 'Document', group: 'layout.menuGroup.system' }
@@ -369,8 +390,8 @@ watch(
     if (owner) {
       activeWithChildren.value = owner.path
     }
-    // 切换路由时刷新未处理数量（例如在 /system/memos 处理完返回其它页）
-    refreshMemoUnread()
+    // 切换路由时刷新未处理数量（例如在 /system/memos、/system/calendar 处理完返回其它页）
+    refreshBadges()
   },
   { immediate: true }
 )
