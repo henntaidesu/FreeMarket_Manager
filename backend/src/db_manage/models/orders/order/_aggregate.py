@@ -241,7 +241,7 @@ class _AggregateMixin:
 
 
     @classmethod
-    def _aggregate_sums_with_owner_money_split(
+    def owner_split_orders(
         cls,
         keyword: Optional[str] = None,
         status: Optional[str] = None,
@@ -253,7 +253,15 @@ class _AggregateMixin:
         seller_id: Optional[str] = None,
         time_field: Optional[str] = None,
         exclude_settlement_excluded: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> List[Dict[str, Any]]:
+        """与 aggregate_sums 相同筛选下，**逐单**给出该归属人的拆分金额。
+
+        `_aggregate_sums_with_owner_money_split` 直接累加本函数的结果——按归属人的汇总
+        与逐单明细必须出自同一次拆分，否则结算重算时「某人差了多少」与「差在哪几笔订单
+        上」会在逐单取整的尾数上对不齐，而界面上没有任何一处解释这几日元。
+
+        金额字段沿用 `_scale` 的语义：原值为空即返回 None（不是 0），调用方自行按需兜底。
+        """
         from .....use_web.orders.units.order_goods_ratio import (
             ensure_orders_ratio_stored,
             owner_amt_by_order,
@@ -295,34 +303,61 @@ class _AggregateMixin:
                 return None
             return int(round(float(vi) * ratio))
 
-        tc = 0
-        sa = ss = sh = sn = 0
+        out: List[Dict[str, Any]] = []
         for r in rows:
             if not r or len(r) < 5:
                 continue
             ono, amt, sf, ship, ni = r[0], r[1], r[2], r[3], r[4]
             amount = int(amt or 0) if amt is not None else 0
+            order_no = str(ono or "").strip()
             if amount > 0:
-                owner_amt = int(owner_amt_map.get(str(ono or "").strip(), 0))
+                owner_amt = int(owner_amt_map.get(order_no, 0))
                 ratio = float(owner_amt) / float(amount)
             else:
                 owner_amt = 0
                 ratio = 1.0
-            tc += 1
-            sa += owner_amt
-            pv = _scale(sf, ratio)
-            if pv is not None:
-                ss += pv
-            pv = _scale(ship, ratio)
-            if pv is not None:
-                sh += pv
-            pv = _scale(ni, ratio)
-            if pv is not None:
-                sn += pv
+            out.append(
+                {
+                    "order_no": order_no,
+                    "amount": owner_amt,
+                    "service_fee": _scale(sf, ratio),
+                    "shipping_fee": _scale(ship, ratio),
+                    "net_income": _scale(ni, ratio),
+                }
+            )
+        return out
+
+
+    @classmethod
+    def _aggregate_sums_with_owner_money_split(
+        cls,
+        keyword: Optional[str] = None,
+        status: Optional[str] = None,
+        start_ts: Optional[int] = None,
+        end_ts: Optional[int] = None,
+        owner_user_id: int = 0,
+        by_purchase_time: bool = False,
+        use_completed_time: bool = False,
+        seller_id: Optional[str] = None,
+        time_field: Optional[str] = None,
+        exclude_settlement_excluded: bool = False,
+    ) -> Dict[str, Any]:
+        rows = cls.owner_split_orders(
+            keyword=keyword,
+            status=status,
+            start_ts=start_ts,
+            end_ts=end_ts,
+            owner_user_id=int(owner_user_id),
+            by_purchase_time=by_purchase_time,
+            use_completed_time=use_completed_time,
+            seller_id=seller_id,
+            time_field=time_field,
+            exclude_settlement_excluded=exclude_settlement_excluded,
+        )
         return {
-            "total_count": tc,
-            "sum_amount": sa,
-            "sum_service_fee": ss,
-            "sum_shipping_fee": sh,
-            "sum_net_income": sn,
+            "total_count": len(rows),
+            "sum_amount": sum(int(r["amount"] or 0) for r in rows),
+            "sum_service_fee": sum(int(r["service_fee"] or 0) for r in rows),
+            "sum_shipping_fee": sum(int(r["shipping_fee"] or 0) for r in rows),
+            "sum_net_income": sum(int(r["net_income"] or 0) for r in rows),
         }

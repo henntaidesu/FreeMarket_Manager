@@ -36,6 +36,8 @@ def aggregate_stats(
     state: Optional[str] = None,
     settlement_status: Optional[int] = None,
     owner_user_id: Optional[int] = None,
+    start_ts: Optional[int] = None,
+    end_ts: Optional[int] = None,
 ) -> Dict[str, Any]:
     """当前筛选下的代购汇总，外加结算状态 / 归属人两个维度的拆分。
 
@@ -59,6 +61,8 @@ def aggregate_stats(
         state=state,
         settlement_status=settlement_status,
         owner_user_id=owner_user_id,
+        start_ts=start_ts,
+        end_ts=end_ts,
     )
     row = db.execute_query(
         f"""
@@ -87,6 +91,8 @@ def aggregate_stats(
         account_id=account_id,
         state=state,
         owner_user_id=owner_user_id,
+        start_ts=start_ts,
+        end_ts=end_ts,
     )
 
     buckets = {
@@ -139,6 +145,37 @@ def aggregate_stats(
         for r in owner_rows
     ]
     return out
+
+
+def find_ids_by_filter(
+    *,
+    keyword: Optional[str] = None,
+    account_id: Optional[int] = None,
+    state: Optional[str] = None,
+    settlement_status: Optional[int] = None,
+    owner_user_id: Optional[int] = None,
+    start_ts: Optional[int] = None,
+    end_ts: Optional[int] = None,
+) -> List[int]:
+    """按筛选条件取出匹配的 ``purchase_items.id``。
+
+    给「整批结算」用：页面上点的是「这个人这一期的未结算全部标记已结算」，行 id 不该
+    让前端翻页凑齐（跨页会漏，而且翻页期间数据还会变）。取回 id 之后仍走
+    :func:`mark_settlement` 写入——写入口径只有一份，``settled_at`` 的处理不会分叉。
+    """
+    base_sql, params = PurchaseItemModel._build_filter(
+        keyword=keyword,
+        account_id=account_id,
+        state=state,
+        settlement_status=settlement_status,
+        owner_user_id=owner_user_id,
+        start_ts=start_ts,
+        end_ts=end_ts,
+    )
+    rows = PurchaseItemModel().db.execute_query(
+        f"SELECT t.id {base_sql} ORDER BY t.id ASC", tuple(params)
+    )
+    return [int(r[0]) for r in rows]
 
 
 def mark_settlement(

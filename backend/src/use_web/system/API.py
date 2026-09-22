@@ -99,6 +99,7 @@ from .transactions.API import router as transactions_router
 from .product_type_category_mappings.API import router as ptcm_router
 from .yahoo_category_mappings.API import router as yahoo_ycm_router
 from .settlement.API import router as settlement_router
+from .proxy_users.API import router as proxy_users_router
 
 router = APIRouter()
 
@@ -191,3 +192,5 @@ router.include_router(
     tags=["yahoo-category-mappings"],
 )
 router.include_router(settlement_router, prefix="/settlement", tags=["settlement"])
+# 代购用户：购入商品「归属人」的取值来源，与能登录系统的 users 是两张表
+router.include_router(proxy_users_router, prefix="/proxy-users", tags=["proxy-users"])

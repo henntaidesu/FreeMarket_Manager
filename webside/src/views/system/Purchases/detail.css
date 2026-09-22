@@ -1,0 +1,372 @@
+/* 购入取引详情的版式。类名与配色沿用订单详情（views/Orders/style.css 的 .odt 段），
+   两页的详情因此长得一样；这里只保留本页用得到的那些，并补三处本页独有的：
+   .odt-chip-pick（可点开修改的状态胶囊）、.odt-reviews（双向评价）、
+   .order-conversation-count（留言条数，购入侧没有刷新按钮可放）。 */
+
+.thumb-fallback {
+  color: var(--el-text-color-placeholder);
+  font-size: 12px;
+}
+
+/* 左信息 + 右留言两栏 */
+.odt {
+  display: flex;
+  gap: 16px;
+  align-items: stretch;
+  height: 100%;
+  min-height: 0;
+}
+.odt-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+}
+/* 概要区：左图 / 右摘要 */
+.odt-hero {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(220px, 30%) 1fr;
+  gap: 20px;
+  align-items: start;
+}
+/* 购入记录每笔只有一张缩略图，所以没有订单详情那条缩略条与左右切换，
+   其余（方框、留白、点开大图）保持一致 */
+.odt-gallery__main {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  max-height: min(260px, calc(26 * var(--app-vh)));
+  background: #0b1220;
+  border: 1px solid #263352;
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.odt-gallery__main :deep(.el-image) {
+  width: 100%;
+  height: 100%;
+  cursor: zoom-in;
+}
+.odt-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.odt-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+/* 「获取详情」贴在状态行最右侧 */
+.odt-chips__action { margin-left: auto; }
+/* 点开即可改的胶囊（结算状态 / 归属人）：外观与只读标签一致，只多一个小箭头 */
+.odt-chip-pick { cursor: pointer; }
+.odt-chip-caret { font-size: 11px; opacity: 0.7; margin-left: 2px; }
+.odt-title {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: #e5eaf3;
+  word-break: break-word;
+  text-decoration: none;
+}
+.odt-title:hover { text-decoration: underline; }
+.odt-price {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #e6a23c;
+  font-variant-numeric: tabular-nums;
+}
+.odt-alert {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(230, 162, 60, 0.1);
+  border: 1px solid rgba(230, 162, 60, 0.35);
+  color: #ffe2bb;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.odt-alert .el-icon { color: #e6a23c; font-size: 16px; margin-top: 2px; }
+
+.odt-stats { display: flex; flex-wrap: wrap; gap: 8px; }
+.odt-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: #131c31;
+  border: 1px solid #263352;
+}
+.odt-stat__v {
+  font-size: 15px;
+  font-weight: 600;
+  color: #e5eaf3;
+  font-variant-numeric: tabular-nums;
+}
+.odt-stat__v.is-accent { color: #67c23a; }
+.odt-stat__k { font-size: 11px; color: #8a93a6; }
+/* 键值对自适应列数：窄弹窗一列、宽弹窗自动排到三四列 */
+.odt-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px 16px;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #131c31;
+  border: 1px solid #263352;
+}
+.odt-fact { min-width: 0; }
+.odt-fact dt { font-size: 11px; line-height: 1.4; color: #8a93a6; }
+.odt-fact dd {
+  margin: 2px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #e5eaf3;
+  word-break: break-word;
+}
+
+/* 时间轴：五个节点等宽排一行，圆点之间连成一条轴，取到值的点亮。
+   连线由每个节点各画自己左右两个半段（::before / ::after）拼成，
+   相邻两半在格子边界处接上；首尾两端把朝外的那半隐藏掉。 */
+.odt-timeline {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin: 0;
+  padding: 14px 14px 12px;
+  list-style: none;
+  border-radius: 8px;
+  background: #131c31;
+  border: 1px solid #263352;
+}
+.odt-tl {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 2px;
+  padding: 20px 6px 0;
+  min-width: 0;
+}
+.odt-tl::before,
+.odt-tl::after {
+  content: '';
+  position: absolute;
+  top: 5px;
+  height: 2px;
+  background: #2a3446;
+}
+.odt-tl::before { left: 0; right: 50%; }
+.odt-tl::after { left: 50%; right: 0; }
+.odt-tl:first-child::before,
+.odt-tl:last-child::after { content: none; }
+.odt-tl.is-reached::before { background: #409eff; }
+.odt-tl.is-reached-next::after { background: #409eff; }
+.odt-tl__dot {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #131c31;
+  border: 2px solid #3a4e7a;
+  box-sizing: border-box;
+}
+/* 被跨过去的节点（自己没时间戳、但后面有）只点亮描边，中心留空 */
+.odt-tl.is-reached .odt-tl__dot { border-color: #409eff; }
+.odt-tl.is-done .odt-tl__dot {
+  background: #409eff;
+  border-color: #409eff;
+  box-shadow: 0 0 0 3px rgba(64, 158, 255, 0.18);
+}
+.odt-tl__k { font-size: 11px; color: #8a93a6; }
+.odt-tl__v {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #5c6883;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+.odt-tl.is-done .odt-tl__v { color: #e5eaf3; }
+
+/* 双向评价：取引完了前两格都是空的，仍占位——否则弹窗会随交易阶段忽高忽低 */
+.odt-reviews {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+.odt-review {
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #131c31;
+  border: 1px solid #263352;
+  min-width: 0;
+}
+.odt-review__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.odt-review__k { font-size: 11px; color: #8a93a6; }
+.odt-review__none { font-size: 12.5px; color: #5c6883; }
+.odt-review__at {
+  margin-left: auto;
+  font-size: 11px;
+  color: #5c6883;
+  font-variant-numeric: tabular-nums;
+}
+.odt-review__text {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #e5eaf3;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ===== 右栏：交易留言（气泡样式与订单详情、待办「处理」面板一致） ===== */
+.order-conversation {
+  flex: 0 0 360px;
+  width: 360px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--el-border-color-lighter);
+  padding-left: 16px;
+  min-height: 0;
+}
+.order-conversation-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.order-conversation-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+.order-conversation-count {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.order-conversation-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.detail-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 4px;
+}
+.detail-msg {
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+/* 对方（卖家）写的 */
+.detail-msg-other { background: var(--el-fill-color); }
+/* 本账号写的：购入侧 is_buyer=1 就是自己 */
+.detail-msg-self { background: var(--el-color-primary-light-9); }
+.detail-msg-tag-self {
+  color: var(--el-color-primary);
+  font-size: 11px;
+  margin-left: 4px;
+}
+.detail-msg-from {
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  margin-bottom: 4px;
+}
+.detail-msg-text {
+  white-space: pre-wrap;
+  line-height: 1.5;
+  word-break: break-word;
+}
+.detail-msg-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.detail-msg-image {
+  width: 88px;
+  height: 88px;
+  border-radius: 6px;
+  border: 1px solid var(--el-border-color-lighter);
+  background: var(--el-fill-color-blank);
+  cursor: pointer;
+}
+.detail-msg-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 4px;
+  min-height: 16px;
+}
+.detail-msg-at {
+  font-size: 10px;
+  color: var(--el-text-color-placeholder);
+}
+
+/* 窄弹窗（或窄屏）下堆叠成单栏，留言落到信息下面。
+   弹窗高度仍是固定的，此时改由外层整体滚动——单栏里再套两个各自滚动的区域没法用。 */
+@media (max-width: 1100px) {
+  .odt {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .odt-hero { grid-template-columns: 1fr; }
+  /* 五列横排在窄栏里放不下（日期会挤成三行），改成竖向轴：
+     圆点落在左侧，连线由横的半段转成竖的半段，接法不变。 */
+  .odt-timeline { grid-template-columns: minmax(0, 1fr); padding: 4px 14px; }
+  .odt-tl {
+    align-items: flex-start;
+    text-align: left;
+    flex-direction: row;
+    flex-wrap: wrap;
+    column-gap: 10px;
+    padding: 8px 0 8px 22px;
+  }
+  .odt-tl::before,
+  .odt-tl::after {
+    top: auto;
+    left: 5px;
+    right: auto;
+    width: 2px;
+    height: auto;
+  }
+  .odt-tl::before { top: 0; bottom: 50%; }
+  .odt-tl::after { top: 50%; bottom: 0; }
+  .odt-tl__dot { top: 50%; left: 0; transform: translate(0, -50%); }
+  .odt-main {
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+  .order-conversation {
+    flex: 0 0 auto;
+    width: 100%;
+    height: auto;
+    border-left: none;
+    border-top: 1px solid var(--el-border-color-lighter);
+    padding-left: 0;
+    padding-top: 12px;
+  }
+  .order-conversation-body { max-height: calc(50 * var(--app-vh)); }
+}

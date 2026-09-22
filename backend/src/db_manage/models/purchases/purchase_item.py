@@ -218,8 +218,10 @@ class PurchaseItemModel(BaseModel):
             # 标记为「已结算」的时间；退回未结算 / 无需结算时清空，
             # 免得一行显示「未结算」却带着上次的结算时间。
             "settled_at": {"type": "INTEGER", "not_null": False, "default": None},
-            # 这笔代购归谁（users.id，与 inventory.owner_user_id 同一套用户）。
-            # 两者**不联动**：库存归属人问「这批货是谁的」，这里问「这笔代购跟谁结」。
+            # 这笔代购归谁：**proxy_users.id（代购用户表），不是能登录系统的 users**。
+            # 与 inventory.owner_user_id 同名但不同表也不同问题——那边问「这批货是谁的」
+            # （答案必然是系统里的人），这边问「这笔代购跟谁结」（多半根本不用这套系统）。
+            # 见 models/purchases/proxy_user.py。
             "owner_user_id": {"type": "INTEGER", "not_null": False, "default": None},
         }
 
@@ -250,11 +252,17 @@ class PurchaseItemModel(BaseModel):
         state: Optional[str] = None,
         settlement_status: Optional[int] = None,
         owner_user_id: Optional[int] = None,
+        start_ts: Optional[int] = None,
+        end_ts: Optional[int] = None,
     ) -> Tuple[str, List[Any]]:
         """``owner_user_id=0`` 是哨兵值，表示筛「未指定归属人」。
 
-        users.id 自增从 1 起，0 不会是任何真实用户；用它免得为「未指定」再加一个
-        布尔参数穿过 模型→handler→路由→前端 四层。
+        proxy_users.id 自增从 1 起，0 不会是任何真实代购用户；用它免得为「未指定」
+        再加一个布尔参数穿过 模型→handler→路由→前端 四层。
+
+        ``start_ts`` / ``end_ts`` 按 ``purchased_at``（epoch 秒）闭区间筛，供购入结算页
+        按期间对账。**``purchased_at`` 可能为 NULL**（同步到一半的行），带区间时这些行
+        自然落选——对账要的是「这段时间买的」，时间不明的不该混进任何一期。
         """
         sql = " FROM [purchase_items] t WHERE 1=1 "
         params: List[Any] = []
@@ -281,6 +289,12 @@ class PurchaseItemModel(BaseModel):
             else:
                 sql += " AND t.owner_user_id = ?"
                 params.append(int(owner_user_id))
+        if start_ts is not None:
+            sql += " AND t.purchased_at >= ?"
+            params.append(int(start_ts))
+        if end_ts is not None:
+            sql += " AND t.purchased_at <= ?"
+            params.append(int(end_ts))
         return sql, params
 
     @classmethod
@@ -291,6 +305,8 @@ class PurchaseItemModel(BaseModel):
         state: Optional[str] = None,
         settlement_status: Optional[int] = None,
         owner_user_id: Optional[int] = None,
+        start_ts: Optional[int] = None,
+        end_ts: Optional[int] = None,
         page: int = 1,
         page_size: int = 20,
     ) -> Dict[str, Any]:
@@ -301,6 +317,8 @@ class PurchaseItemModel(BaseModel):
             state=state,
             settlement_status=settlement_status,
             owner_user_id=owner_user_id,
+            start_ts=start_ts,
+            end_ts=end_ts,
         )
         total = db.execute_query(f"SELECT COUNT(*) {base_sql}", tuple(params))[0][0]
         offset = (page - 1) * page_size

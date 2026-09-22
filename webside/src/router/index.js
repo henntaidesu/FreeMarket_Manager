@@ -24,14 +24,17 @@ const routes = [
       { path: 'mercari-accounts', redirect: '/shop-accounts' },
       // 旧路径（备忘录还是一级菜单时的）：留一条重定向，别让已存的书签 404
       { path: 'memos', redirect: '/system/memos' },
-      // 系统管理（一级，二级菜单由 Layout 侧边栏右侧弹出，URL 嵌套到 /system/*）
+      // 其他功能（一级，二级菜单由 Layout 侧边栏右侧弹出）。菜单名已从「系统管理」改成
+      // 「其他功能」，但 URL 仍是 /system/*：改路径要连带重写全部站内引用并为每条旧路径补
+      // 重定向，收益只是路径好看一点，不值得。
       // /system 自身已无页面：原「系统总览」（实为账号管理）已并入系统配置，旧书签重定向过去
       { path: 'system', redirect: '/system/config' },
       { path: 'system/transactions', name: 'Transactions', component: () => import('@/views/system/Transactions/index.vue'), meta: { title: '库存记录', icon: 'List' } },
       { path: 'system/cost-records', name: 'CostRecords', component: () => import('@/views/system/CostRecords/index.vue'), meta: { title: '库存包材', icon: 'Money' } },
       { path: 'system/cost-expenses', name: 'CostExpenses', component: () => import('@/views/system/CostExpenses/index.vue'), meta: { title: '包材使用记录', icon: 'Wallet' } },
       { path: 'system/purchases', name: 'Purchases', component: () => import('@/views/system/Purchases/index.vue'), meta: { title: '购入商品', icon: 'ShoppingCart' } },
-      { path: 'system/settlement', name: 'Settlement', component: () => import('@/views/system/Settlement/index.vue'), meta: { title: '结算', icon: 'Coin' } },
+      { path: 'system/settlement', name: 'Settlement', component: () => import('@/views/system/Settlement/index.vue'), meta: { title: '出售结算', icon: 'Coin' } },
+      { path: 'system/purchase-settlement', name: 'PurchaseSettlement', component: () => import('@/views/system/PurchaseSettlement/index.vue'), meta: { title: '购入结算', icon: 'Wallet' } },
       { path: 'system/warehouses', name: 'Warehouses', component: () => import('@/views/system/Warehouses/index.vue'), meta: { title: '仓库管理', icon: 'OfficeBuilding' } },
       { path: 'system/categories', name: 'Categories', component: () => import('@/views/system/Categories/index.vue'), meta: { title: '游戏分类', icon: 'Collection' } },
       { path: 'system/product-type-category-mappings', name: 'ProductTypeCategoryMappings', component: () => import('@/views/system/ProductTypeCategoryMappings/index.vue'), meta: { title: '商品类型映射', icon: 'Connection' } },

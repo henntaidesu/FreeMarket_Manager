@@ -44,6 +44,11 @@ class SettlementRecordModel(BaseModel):
             'consumables_json': {'type': 'TEXT', 'not_null': False, 'default': None},
             'equipments_json': {'type': 'TEXT', 'not_null': False, 'default': None},
             'rows_json': {'type': 'TEXT', 'not_null': False, 'default': None},
+            # 订单级快照（JSON 数组，每个归属人每笔订单一行）：重新结算出现差额时，
+            # 唯一能回答「差在哪几笔订单上」的基线。订单的金额/归属是就地覆盖的，
+            # 事后无法重建，所以必须在结算当时存下来。本列上线前的记录为 NULL，
+            # 那些记录的重算只给出合计差额。
+            'orders_json': {'type': 'TEXT', 'not_null': False, 'default': None},
             # 重新结算：用最新订单数据对同一区间再算一次的快照（含与原结算的差额）。
             # 上面那些列始终是**原**结算，已经付过的钱不会被重算覆盖；再次重算只覆盖这一列。
             'resettle_json': {'type': 'TEXT', 'not_null': False, 'default': None},

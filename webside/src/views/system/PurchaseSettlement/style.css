@@ -1,0 +1,153 @@
+/* 版式与「出售结算」（views/system/Settlement）一致：工具栏 → 汇总条 → 归属人卡片。
+   差别在内容——代购没有耗材分摊、分成比例与结算记录快照，结算状态就落在
+   purchase_items 那一列上，本页只是按人按期间摊开，再给一个整批标记。 */
+.settlement-page {
+  --settle-line: #28354a;
+  --settle-line-soft: #223049;
+}
+
+/* 数字统一等宽，方便上下对齐比对 */
+.num,
+.stat-val,
+.stat-tile-value,
+.stat-tile-sub {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 工具栏 ─────────────────────────────────────────────── */
+.toolbar-card { margin-bottom: 16px; border-radius: 8px; }
+.toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+}
+.toolbar-field { display: flex; align-items: center; gap: 10px; }
+.toolbar-label { font-size: 13px; color: var(--el-text-color-secondary); white-space: nowrap; }
+.toolbar-actions { display: flex; gap: 8px; margin-left: auto; }
+/* 全局把日期控件压成 180px，区间选择器在这个宽度下几乎读不出日期 */
+.toolbar :deep(.range-picker.el-date-editor) {
+  width: 300px !important;
+  min-width: 300px !important;
+}
+
+/* ── 汇总条 ─────────────────────────────────────────────── */
+.summary-card { margin-bottom: 16px; border-radius: 8px; }
+.stat-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 1px;
+  background: var(--settle-line-soft);
+  border: 1px solid var(--settle-line-soft);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.stat-tile {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  min-height: 84px;
+  padding: 14px 18px;
+  background: var(--el-fill-color-blank);
+}
+.stat-tile.is-primary { background: var(--el-color-primary-light-9); }
+.stat-tile-label { font-size: 12px; color: var(--el-text-color-secondary); }
+.stat-tile-value { font-size: 20px; font-weight: 600; color: var(--el-text-color-primary); line-height: 1.2; }
+.stat-tile-value.strong { color: var(--el-color-warning); }
+.stat-tile-sub { font-size: 12px; color: var(--el-color-success); }
+.stat-tile-sub.muted { color: var(--el-text-color-secondary); }
+.rate-input-wrap { display: flex; align-items: center; gap: 6px; }
+.rate-input-wrap .rate-prefix,
+.rate-input-wrap .rate-suffix { font-size: 12px; color: var(--el-text-color-secondary); white-space: nowrap; }
+.rate-input-wrap :deep(.rate-input) { width: 96px; }
+.rate-input-wrap :deep(.rate-input .el-input) { width: 100% !important; }
+/* 金额三项全来自取引详情，没抓过的行按 0 计入 → 汇总偏低，这行就是那句提示 */
+.summary-hint { margin-top: 12px; font-size: 12px; color: var(--el-color-warning); }
+
+/* ── 归属人卡片 ─────────────────────────────────────────── */
+.section-head { display: flex; align-items: center; gap: 12px; margin: 4px 0 12px; }
+.section-title { font-size: 15px; font-weight: 600; color: var(--el-text-color-primary); }
+.section-tip { font-size: 12px; color: var(--el-text-color-secondary); }
+.settlement-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+  min-height: 120px;
+}
+.owner-card { border-radius: 10px; }
+.owner-card :deep(.el-card__body) { padding: 0; }
+.owner-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--settle-line);
+}
+.owner-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.owner-orders {
+  flex: none;
+  font-size: 12px;
+  color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+  padding: 2px 10px;
+  border-radius: 12px;
+}
+.owner-card-body { padding: 10px 18px 12px; }
+.stat-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+  font-size: 13px;
+}
+.stat-label { color: var(--el-text-color-secondary); white-space: nowrap; }
+.stat-val { color: var(--el-text-color-primary); }
+.stat-val.minus { color: var(--el-text-color-regular); }
+.sub-count { margin-left: 6px; font-size: 12px; color: var(--el-text-color-placeholder); }
+.net-line {
+  border-top: 1px dashed var(--settle-line);
+  margin-top: 4px;
+  padding-top: 8px;
+}
+.net-line .stat-label { font-weight: 600; color: var(--el-text-color-primary); }
+.net-line .stat-val { font-weight: 600; color: var(--el-color-warning); }
+.owner-card-foot {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--settle-line);
+  background: var(--el-fill-color-light);
+}
+.foot-label { font-size: 12px; color: var(--el-text-color-secondary); }
+.foot-amounts { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.foot-val { font-size: 20px; font-weight: 700; color: var(--el-color-primary); font-variant-numeric: tabular-nums; }
+.foot-val-cny { font-size: 13px; color: var(--el-color-success); font-variant-numeric: tabular-nums; }
+.foot-actions { display: flex; flex-direction: column; gap: 6px; flex: none; }
+.cards-empty { grid-column: 1 / -1; }
+
+/* ── 明细弹窗 ───────────────────────────────────────────── */
+.detail-table :deep(.el-table__cell) { padding: 5px 0; }
+.detail-table .num.minus { color: var(--el-text-color-regular); }
+.detail-table .num.net { font-weight: 600; color: var(--el-color-primary); }
+.detail-foot { margin-top: 12px; display: flex; justify-content: flex-end; }
+
+@media (max-width: 768px) {
+  .toolbar :deep(.range-picker.el-date-editor) {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  .toolbar-field { width: 100%; }
+  .toolbar-actions { margin-left: 0; }
+}

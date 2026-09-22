@@ -213,6 +213,8 @@ Key tables in `backend/src/db_manage/models/`:
 - **image_embeddings**: CLIP vectors for inventory image search (see Auxiliary Subsystems)
 - **image_assets**: `/imges/<file>` → where that image actually lives. Only images that were moved
   to the image host get a row; no row = still a local file. See 图床存储 below.
+- **proxy_users**: 代购用户 —— `purchase_items.owner_user_id` 指向它，**不是** `users`。
+  见 代购结算 below。
 - **task_queue**: Background job rows (see Task Queue)
 - **config**: Generic key/value app settings — DeepSeek credentials live here, not in env vars
 - **system_logs**, **memos**, **talk_scripts**, **settlement_records**, **desired_price_offers**,
@@ -404,7 +406,7 @@ header, not cookies, so the dangerous wildcard+credentials combination never occ
 
 ### 購入した商品（`use_mercari/get_purchases/`）
 
-系统管理二级页 `/#/system/purchases` 的数据源：**只读记录**，同步 + 列表 + 筛选，不碰库存、
+其他功能二级页 `/#/system/purchases` 的数据源：**只读记录**，同步 + 列表 + 筛选，不碰库存、
 成本、结算。煤炉专有——雅虎侧没有实现，`sync_purchases_core` 按 `shop_accounts.platform`
 跳过雅虎账号，自动获取循环里 `purchases` 也登记在 `_YAHOO_UNSUPPORTED_TASKS`。
 
@@ -494,22 +496,41 @@ header, not cookies, so the dangerous wildcard+credentials combination never occ
 
 ### 代购结算（`purchase_items` 的 `settlement_status` / `owner_user_id`）
 
-购入页上的第二件事：**替谁买的、跟他结没结**。与「出售结算」`use_web/system/settlement`
-是**两套账，互不引用**——那边按日期区间给已完成订单分账，问「卖出去的钱跟归属人怎么分」；
-这边一行一个标记，问「替人买的东西跟这个人结没结」。所以不共用 `settlement_records`，
-也不共用 `orders.settlement_excluded`。SQL 与口径集中在
+**替谁买的、跟他结没结**。与「出售结算」`use_web/system/settlement`（侧边栏同名菜单，
+页面 `/#/system/settlement`）是**两套账，互不引用**——那边按日期区间给已完成订单分账，
+问「卖出去的钱跟归属人怎么分」；这边一行一个标记，问「替人买的东西跟这个人结没结」。
+所以不共用 `settlement_records`，也不共用 `orders.settlement_excluded`。SQL 与口径集中在
 `db_manage/models/purchases/purchase_settlement.py`。
+
+**分两个页面**：`/#/system/purchases`（购入商品）是逐行改标记与归属人的地方；
+`/#/system/purchase-settlement`（购入结算，`views/system/PurchaseSettlement/`）是按人对账
+的地方——选购入期间与账号，看每个归属人的 代购成本 / 已结算 / 无需结算 / 未结算，折算
+人民币（复用出售结算的 `/settlement/exchange-rate`），再整批「标记已结算」。它**没有**
+出售结算那套耗材分摊 / 分成比例 / 结算记录快照：代购的结算状态就落在 `purchase_items`
+那一列上、可以来回改，不需要再存一份快照。
 
 - **三态可来回改**：`settlement_status` 0=未结算 / 1=已结算 / 2=无需结算，默认 0。
   与 `orders.settlement_excluded` 的「一次性不可撤回」刻意不同——代购是按人对账，
   标错归属人或标错状态必须能退回。`settled_at` 跟着状态走：标为已结算写时间，
   退回未结算 / 改成无需结算一律清空，免得一行显示「未结算」却挂着上次的结算时间。
-- **归属人与 `inventory.owner_user_id` 同一套 `users`，但不联动**：库存归属人问
-  「这批货是谁的」，这里问「这笔代购跟谁结」。筛选里 `owner_user_id=0` 是哨兵值，
-  表示「未指定归属人」（`users.id` 自增从 1 起）。
-- **写入只有一个端点**：`POST /purchases/settlement`，单条与批量同路（单条即 `ids=[id]`）。
+- **归属人取的是 `proxy_users`（代购用户），不是能登录系统的 `users`**：那个人多半
+  根本不用这套系统，不该为了在下拉里出现就给他开一个能登录的账号。`inventory.owner_user_id`
+  仍指向 `users`——库存归属人问「这批货是谁的」（必然是系统里的人），这里问「这笔代购跟谁结」。
+  两个列同名、不同表、不同问题，改动时别顺手把另一个也改了。
+  代购用户在 系统配置 → 代购用户 维护（`use_web/system/proxy_users/`），**被购入记录引用时
+  拒绝删除**——否则会留下一批指向已消失 id 的行，页面只能显示成「用户{id}」，对账时谁也说不出
+  那是谁。筛选里 `owner_user_id=0` 是哨兵值，表示「未指定归属人」（`proxy_users.id` 自增从 1 起）。
+- **写入只有一个 SQL 口径**：`POST /purchases/settlement` 按 `ids` 改（单条即 `ids=[id]`），
+  `POST /purchases/settlement/by-filter` 按筛选条件整批改（购入结算页的「标记已结算」）——
+  后者只是**换一种选行方式**，取到 id 后仍走同一个 `mark_settlement`，`settled_at` 的处理
+  不会分叉。行 id 由后端按条件取，不让前端翻页凑齐：跨页会漏，翻页期间数据还会变。
+  by-filter 的 `from_status` 是**只动当前处于该状态的行**，页面传 0，这样已标成「无需结算」
+  的行不会被一键覆盖——那是另一个决定。
   清空归属人必须传 `clear_owner=true`——`owner_user_id=null` 与「这次不改归属人」长得
   一模一样，拿它当清空就没法「只改状态、保留归属人」了。
+- **筛选支持购入期间**：`_build_filter` 的 `start_ts` / `end_ts` 按 `purchased_at` 闭区间筛，
+  `find_list` / `aggregate_stats` / 两个 HTTP 端点都透传。`purchased_at` 为 NULL 的行带区间时
+  自然落选——对账要的是「这段时间买的」，时间不明的不该混进任何一期。
 - **`GET /purchases/stats` 里有两套筛选口径，别混**：`total_*` 用**完整**筛选（含
   `settlement_status`），所以汇总条与下方分页列表对得上；`by_settlement` / `by_owner`
   刻意**忽略 `settlement_status`**，否则一点「未结算」其余两个桶就归零，既没法当对照，

@@ -98,6 +98,46 @@
           </div>
         </section>
 
+        <!-- 代购用户：「购入商品」归属人下拉的取值来源。
+             与上面的账号管理**不是同一张表**——那里是能登录这套系统的人，这里是
+             「替谁买的」里的那个谁，多半根本不用这套系统，不该为了出现在下拉里就开账号。 -->
+        <section id="sc-proxy-users" class="sc-panel">
+          <div class="sc-panel-head">
+            <span class="sc-ic sc-ic--emerald"><el-icon :size="17"><UserFilled /></el-icon></span>
+            <div class="sc-head-text">
+              <div class="sc-panel-title">{{ t('proxyUsers.section') }}</div>
+              <div class="sc-panel-desc">{{ t('proxyUsers.desc') }}</div>
+            </div>
+            <el-button type="primary" size="small" @click="openProxyUserDialog()">
+              <el-icon><Plus /></el-icon>
+              <span class="sc-btn-text">{{ t('proxyUsers.add') }}</span>
+            </el-button>
+          </div>
+          <div class="sc-panel-body sc-panel-body--flush">
+            <el-table :data="proxyUsers" v-loading="proxyUsersLoading" class="sc-table">
+              <el-table-column prop="id" label="ID" width="70" />
+              <el-table-column prop="name" :label="t('proxyUsers.name')" min-width="140" />
+              <el-table-column :label="t('proxyUsers.note')" min-width="180" show-overflow-tooltip>
+                <template #default="{ row }">{{ row.note || '-' }}</template>
+              </el-table-column>
+              <!-- 名下还有购入记录的删不掉（后端 400），把笔数摆出来免得点了才知道 -->
+              <el-table-column :label="t('proxyUsers.purchaseCount')" width="110" align="right">
+                <template #default="{ row }">{{ row.purchase_count ?? 0 }}</template>
+              </el-table-column>
+              <el-table-column :label="t('common.operate')" width="140" align="center">
+                <template #default="{ row }">
+                  <el-button link type="primary" size="small" @click="openProxyUserDialog(row)">
+                    {{ t('common.edit') }}
+                  </el-button>
+                  <el-button link type="danger" size="small" @click="removeProxyUser(row)">
+                    {{ t('common.delete') }}
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </section>
+
         <!-- 修改我的密码 -->
         <section id="sc-password" class="sc-panel">
           <div class="sc-panel-head">
@@ -811,6 +851,36 @@
         <el-button type="primary" :loading="userSubmitting" @click="submitUser">{{ t('common.create') }}</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="proxyUserDialogVisible"
+      :title="proxyUserForm.id ? t('proxyUsers.edit') : t('proxyUsers.add')"
+      width="420px"
+      class="sc-dialog"
+      destroy-on-close
+    >
+      <el-form ref="proxyUserFormRef" :model="proxyUserForm" :rules="proxyUserRules" label-position="top">
+        <el-form-item :label="t('proxyUsers.name')" prop="name">
+          <el-input v-model="proxyUserForm.name" maxlength="50" show-word-limit />
+        </el-form-item>
+        <el-form-item :label="t('proxyUsers.note')">
+          <el-input
+            v-model="proxyUserForm.note"
+            type="textarea"
+            :rows="2"
+            maxlength="200"
+            show-word-limit
+            resize="none"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="proxyUserDialogVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="proxyUserSubmitting" @click="submitProxyUser">
+          {{ t('common.save') }}
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -818,10 +888,10 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
-import { Plus, User, Lock, MagicStick, Sell, Coin, Tickets, Printer, Compass, Suitcase, Timer, Link, Picture } from '@element-plus/icons-vue'
+import { Plus, User, UserFilled, Lock, MagicStick, Sell, Coin, Tickets, Printer, Compass, Suitcase, Timer, Link, Picture } from '@element-plus/icons-vue'
 import { ElMessage } from '@/utils/notify'
 import { setLocale, SUPPORTED_LOCALES } from '@/i18n'
-import { authApi, configApi, shopAccountApi } from '@/api/index.js'
+import { authApi, configApi, proxyUserApi, shopAccountApi } from '@/api/index.js'
 import { databaseApi } from '@/api/database'
 import { imageHostingApi } from '@/api/image_hosting'
 import {
@@ -849,6 +919,7 @@ const { t, locale } = useI18n()
 const SECTIONS = [
   { id: 'language', icon: 'Compass', labelKey: 'systemConfig.languageSection' },
   { id: 'account', icon: 'User', labelKey: 'system.accountManagement' },
+  { id: 'proxy-users', icon: 'UserFilled', labelKey: 'proxyUsers.section' },
   { id: 'password', icon: 'Lock', labelKey: 'system.changeMyPassword' },
   { id: 'ai', icon: 'MagicStick', labelKey: 'systemConfig.deepseekSection' },
   { id: 'listing', icon: 'Sell', labelKey: 'system.listingDefaults' },
@@ -907,6 +978,66 @@ const userForm = reactive({
 const userRules = {
   username: [{ required: true, message: t('login.usernameRequired'), trigger: 'blur' }],
   password: [{ required: true, message: t('login.passwordRequired'), trigger: 'blur' }, { min: 6, message: t('system.passwordMin6'), trigger: 'blur' }]
+}
+
+// ===== 代购用户（「购入商品」归属人下拉的取值来源）=====
+// 与上面的 users **不是同一张表**：这里的人不能登录系统，只是对账时的一个名字。
+const proxyUsers = ref([])
+const proxyUsersLoading = ref(false)
+const proxyUserDialogVisible = ref(false)
+const proxyUserSubmitting = ref(false)
+const proxyUserFormRef = ref()
+// id 为空即新增，有值即编辑——两者共用同一个弹窗
+const proxyUserForm = reactive({ id: null, name: '', note: '' })
+const proxyUserRules = {
+  name: [{ required: true, message: t('proxyUsers.nameRequired'), trigger: 'blur' }]
+}
+
+async function loadProxyUsers() {
+  proxyUsersLoading.value = true
+  try {
+    proxyUsers.value = await proxyUserApi.list()
+  } finally {
+    proxyUsersLoading.value = false
+  }
+}
+
+function openProxyUserDialog(row) {
+  proxyUserForm.id = row?.id ?? null
+  proxyUserForm.name = row?.name || ''
+  proxyUserForm.note = row?.note || ''
+  proxyUserDialogVisible.value = true
+}
+
+async function submitProxyUser() {
+  await proxyUserFormRef.value.validate()
+  proxyUserSubmitting.value = true
+  try {
+    const payload = { name: proxyUserForm.name, note: proxyUserForm.note }
+    if (proxyUserForm.id) await proxyUserApi.update(proxyUserForm.id, payload)
+    else await proxyUserApi.create(payload)
+    ElMessage.success(t('proxyUsers.saved'))
+    proxyUserDialogVisible.value = false
+    await loadProxyUsers()
+  } finally {
+    proxyUserSubmitting.value = false
+  }
+}
+
+async function removeProxyUser(row) {
+  try {
+    await ElMessageBox.confirm(
+      t('proxyUsers.deleteConfirm', { name: row.name }),
+      t('common.confirm'),
+      { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') }
+    )
+  } catch {
+    return
+  }
+  // 名下还有购入记录时后端会 400 并说明剩几笔，拦截器已弹提示，这里不再重复
+  await proxyUserApi.remove(row.id)
+  ElMessage.success(t('proxyUsers.deleted'))
+  await loadProxyUsers()
 }
 
 const pwdSubmitting = ref(false)
@@ -1763,6 +1894,7 @@ function onForget() {
 
 onMounted(() => {
   loadUsers()
+  loadProxyUsers()
   load()
   loadListingDefaults()
   loadHomecoming()

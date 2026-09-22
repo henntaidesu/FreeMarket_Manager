@@ -65,7 +65,7 @@
             >
               <el-icon><component :is="item.icon" /></el-icon>
               <template #title>
-                <!-- 备忘录移到二级后，未处理数量在收起状态下也要看得见，所以徽标挂到「系统管理」上 -->
+                <!-- 备忘录移到二级后，未处理数量在收起状态下也要看得见，所以徽标挂到「其他功能」上 -->
                 <span
                   v-if="item.path === '/system' && memoUnread > 0"
                   class="menu-title menu-title--badge"
@@ -271,22 +271,28 @@ const menuItems = [
     // 保持扁平（activePrimary / watch 都按 path 直接查），分组只靠 group 字段，
     // 由 currentSecondaryGroups 按相邻同组折叠出分组标题
     children: [
-      { path: '/system/transactions', titleKey: 'layout.menu.transactions', icon: 'List', group: 'layout.menuGroup.records' },
-      { path: '/system/purchases', titleKey: 'layout.menu.purchases', icon: 'ShoppingCart', group: 'layout.menuGroup.records' },
-      { path: '/system/settlement', titleKey: 'layout.menu.settlement', icon: 'Coin', group: 'layout.menuGroup.records' },
+      // 购入：替人买进来的那条账（商品 → 跟归属人结算）
+      { path: '/system/purchases', titleKey: 'layout.menu.purchases', icon: 'ShoppingCart', group: 'layout.menuGroup.purchase' },
+      { path: '/system/purchase-settlement', titleKey: 'layout.menu.purchaseSettlement', icon: 'Wallet', group: 'layout.menuGroup.purchase' },
 
-      { path: '/system/cost-records', titleKey: 'layout.menu.costRecords', icon: 'Money', group: 'layout.menuGroup.packaging' },
-      { path: '/system/cost-expenses', titleKey: 'layout.menu.costExpenses', icon: 'Wallet', group: 'layout.menuGroup.packaging' },
+      // 出售：卖出去的那条账（结算 → 出入库流水）
+      { path: '/system/settlement', titleKey: 'layout.menu.settlement', icon: 'Coin', group: 'layout.menuGroup.sales' },
+      { path: '/system/transactions', titleKey: 'layout.menu.transactions', icon: 'List', group: 'layout.menuGroup.sales' },
 
-      { path: '/system/warehouses', titleKey: 'layout.menu.warehouses', icon: 'OfficeBuilding', group: 'layout.menuGroup.masterData' },
+      // 仓储与包材：货放哪儿、用掉了哪些包材
+      { path: '/system/warehouses', titleKey: 'layout.menu.warehouses', icon: 'OfficeBuilding', group: 'layout.menuGroup.storage' },
+      { path: '/system/cost-records', titleKey: 'layout.menu.costRecords', icon: 'Money', group: 'layout.menuGroup.storage' },
+      { path: '/system/cost-expenses', titleKey: 'layout.menu.costExpenses', icon: 'Wallet', group: 'layout.menuGroup.storage' },
+
+      // 基础数据：上架前要先配好的那几张表
       { path: '/system/categories', titleKey: 'layout.menu.categories', icon: 'Collection', group: 'layout.menuGroup.masterData' },
       { path: '/system/product-type-category-mappings', titleKey: 'layout.menu.productTypeMappings', icon: 'Connection', group: 'layout.menuGroup.masterData' },
+      { path: '/system/talk-scripts', titleKey: 'layout.menu.talkScripts', icon: 'ChatLineRound', group: 'layout.menuGroup.masterData' },
 
-      { path: '/system/talk-scripts', titleKey: 'layout.menu.talkScripts', icon: 'ChatLineRound', group: 'layout.menuGroup.collaboration' },
-      { path: '/system/memos', titleKey: 'layout.menu.memos', icon: 'ChatDotRound', group: 'layout.menuGroup.collaboration' },
-
-      { path: '/system/config', titleKey: 'layout.menu.systemConfig', icon: 'Tools', group: 'layout.menuGroup.maintenance' },
-      { path: '/system/system-logs', titleKey: 'layout.menu.systemLogs', icon: 'Document', group: 'layout.menuGroup.maintenance' }
+      // 系统
+      { path: '/system/memos', titleKey: 'layout.menu.memos', icon: 'ChatDotRound', group: 'layout.menuGroup.system' },
+      { path: '/system/config', titleKey: 'layout.menu.systemConfig', icon: 'Tools', group: 'layout.menuGroup.system' },
+      { path: '/system/system-logs', titleKey: 'layout.menu.systemLogs', icon: 'Document', group: 'layout.menuGroup.system' }
     ]
   }
 ]
@@ -633,7 +639,7 @@ const handleLogout = async () => {
   min-width: 0;
 }
 
-/* 备忘录未处理徽标：红色圆圈显示在菜单文字右侧（一级「系统管理」+ 二级「备忘录」） */
+/* 备忘录未处理徽标：红色圆圈显示在菜单文字右侧（一级「其他功能」+ 二级「备忘录」） */
 .menu-title--badge {
   flex: 0 0 auto;
   position: relative;

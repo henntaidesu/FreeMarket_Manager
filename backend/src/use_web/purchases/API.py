@@ -19,7 +19,10 @@ from .units.purchases_query import (
     list_purchase_states,
     purchase_stats,
 )
-from .units.purchases_settlement import update_purchase_settlement
+from .units.purchases_settlement import (
+    update_purchase_settlement,
+    update_purchase_settlement_by_filter,
+)
 
 router = APIRouter()
 
@@ -29,4 +32,8 @@ router.add_api_route("/stats", purchase_stats, methods=["GET"])
 router.add_api_route("/states", list_purchase_states, methods=["GET"])
 # 代购结算：批量（含单条）标记结算状态 / 归属人
 router.add_api_route("/settlement", update_purchase_settlement, methods=["POST"])
+# 同一件事的另一种选行方式：按筛选条件整批改（购入结算页的「标记已结算」）
+router.add_api_route(
+    "/settlement/by-filter", update_purchase_settlement_by_filter, methods=["POST"]
+)
 router.add_api_route("/{item_id}/messages", get_purchase_messages, methods=["GET"])

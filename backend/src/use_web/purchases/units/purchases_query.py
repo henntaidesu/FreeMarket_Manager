@@ -28,20 +28,28 @@ def _attach_account_name(items: List[Dict[str, Any]]) -> None:
 
 
 def user_name_map(ids: List[int]) -> Dict[int, str]:
-    """users.id → 显示名。代购归属人与库存归属人同一套用户表。"""
+    """proxy_users.id → 名字。
+
+    **代购归属人取的是代购用户表，不是能登录系统的 ``users``**——理由见
+    ``db_manage/models/purchases/proxy_user`` 的模块说明。``inventory.owner_user_id``
+    仍然指向 ``users``，两个同名列不是一回事。
+    """
     wanted = sorted({int(i) for i in ids if i is not None})
     if not wanted:
         return {}
     ph = ",".join(["?"] * len(wanted))
     rows = DatabaseManager().execute_query(
-        f"SELECT [id], COALESCE([display_name], [username]) FROM [users] WHERE [id] IN ({ph})",
+        f"SELECT [id], [name] FROM [proxy_users] WHERE [id] IN ({ph})",
         tuple(wanted),
     )
     return {int(r[0]): (r[1] or "").strip() for r in rows}
 
 
 def _attach_owner_name(items: List[Dict[str, Any]]) -> None:
-    """把 owner_user_id 解析成展示名；已被删掉的用户回落成 ``用户{id}``。"""
+    """把 owner_user_id 解析成展示名；已被删掉的代购用户回落成 ``用户{id}``。
+
+    删除端点会拒绝删掉还被引用的代购用户，所以这条回落正常跑不到，留着是兜底。
+    """
     name_map = user_name_map([i.get("owner_user_id") for i in items])
     for row in items:
         oid = row.get("owner_user_id")
@@ -80,6 +88,8 @@ def list_purchase_items(
     state: Optional[str] = None,
     settlement_status: Optional[int] = None,
     owner_user_id: Optional[int] = None,
+    start_ts: Optional[int] = None,
+    end_ts: Optional[int] = None,
     page: int = 1,
     page_size: int = 20,
 ):
@@ -92,6 +102,8 @@ def list_purchase_items(
         state=state,
         settlement_status=_validated_status(settlement_status),
         owner_user_id=owner_user_id,
+        start_ts=start_ts,
+        end_ts=end_ts,
         page=page,
         page_size=page_size,
     )
@@ -117,8 +129,10 @@ def purchase_stats(
     state: Optional[str] = None,
     settlement_status: Optional[int] = None,
     owner_user_id: Optional[int] = None,
+    start_ts: Optional[int] = None,
+    end_ts: Optional[int] = None,
 ):
-    """当前筛选下的代购汇总（不受分页影响），供页面顶部汇总条。
+    """当前筛选下的代购汇总（不受分页影响），供页面顶部汇总条与购入结算页。
 
     ``by_settlement`` / ``by_owner`` 忽略 ``settlement_status`` 筛选——口径与
     取舍理由见 ``purchase_settlement.aggregate_stats``。这里只补上归属人展示名。
@@ -129,6 +143,8 @@ def purchase_stats(
         state=state,
         settlement_status=_validated_status(settlement_status),
         owner_user_id=owner_user_id,
+        start_ts=start_ts,
+        end_ts=end_ts,
     )
     by_owner = out.get("by_owner") or []
     name_map = user_name_map([r.get("owner_user_id") for r in by_owner])

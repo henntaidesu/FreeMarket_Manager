@@ -19,6 +19,12 @@ export const purchaseApi = {
    * （owner_user_id:null 与「这次不改归属人」无法区分）。
    */
   settlement: (data) => http.post('/use_web/purchases/settlement', data),
-  /** 某笔购入的交易留言（展开行时才拉；与卖家侧待办共用 transaction_messages 表） */
+  /**
+   * 同一件事的另一种选行方式：按筛选条件整批改（购入结算页的「标记已结算」）。
+   * 行 id 由后端按条件取，不让前端翻页凑齐——跨页会漏，翻页期间数据还会变。
+   * from_status 只动当前处于该状态的行，免得把「无需结算」也一键覆盖掉。
+   */
+  settlementByFilter: (data) => http.post('/use_web/purchases/settlement/by-filter', data),
+  /** 某笔购入的交易留言（打开详情时才拉；与卖家侧待办共用 transaction_messages 表） */
   messages: (itemId) => http.get(`/use_web/purchases/${encodeURIComponent(itemId)}/messages`)
 }

@@ -1,5 +1,6 @@
 <template>
-  <div>
+  <!-- 多选模式下整页换一套交互：表格行 / 卡片点击即勾选（口径同在售商品页） -->
+  <div :class="{ 'batch-pick-mode-active': batchMode }">
     <!-- 筛选 + 同步 -->
     <el-card shadow="never" class="search-card">
       <el-row :gutter="0" align="middle" class="search-row">
@@ -62,16 +63,37 @@
             <el-option
               v-for="u in ownerUsers"
               :key="u.id"
-              :label="u.display_name || u.username"
+              :label="u.name"
               :value="u.id"
             />
           </el-select>
         </el-col>
-        <el-col :xs="24" :md="6" class="search-actions">
-          <el-button type="primary" :loading="syncLoading" @click="runSync">
-            {{ t('purchases.sync') }}
-          </el-button>
-          <el-button @click="onFilterChange">{{ t('purchases.search') }}</el-button>
+        <el-col :xs="24" :md="8" class="search-actions">
+          <!-- 先点「多选」进入选择模式，再点行 / 卡片勾选——与在售商品页同一套交互。
+               没有常驻的勾选框：表格里多一列、卡片上压一个框，平时都是白占地方。 -->
+          <template v-if="!batchMode">
+            <el-button type="primary" :loading="syncLoading" @click="runSync">
+              {{ t('purchases.sync') }}
+            </el-button>
+            <el-button @click="onFilterChange">{{ t('purchases.search') }}</el-button>
+            <el-button type="success" @click="enterBatchMode">{{ t('purchases.multiSelect') }}</el-button>
+          </template>
+          <template v-else>
+            <span class="batch-pick-count">
+              {{ t('purchases.selectedCount', { n: batchSelectedCount }) }}
+            </span>
+            <el-button size="small" @click="toggleSelectAll">
+              {{ allVisibleSelected ? t('purchases.unselectAll') : t('purchases.selectAllLoaded') }}
+            </el-button>
+            <el-button
+              type="warning"
+              plain
+              :disabled="!batchSelectedCount"
+              :loading="settlementSaving"
+              @click="openBatchEdit"
+            >{{ t('purchases.batchEdit') }}</el-button>
+            <el-button @click="exitBatchMode">{{ t('common.cancel') }}</el-button>
+          </template>
         </el-col>
       </el-row>
     </el-card>
@@ -97,88 +119,11 @@
         </div>
       </div>
 
-      <!-- 金额三项全来自取引详情，没抓过详情的行按 0 计入 → 汇总偏低，明说 -->
-      <div v-if="noDetailCount > 0" class="stat-note">
-        {{ t('purchases.statNoDetailNote', { n: noDetailCount }) }}
-      </div>
-
-      <div v-if="ownerRows.length" class="owner-block">
-        <div class="owner-head">
-          <span class="owner-title">{{ t('purchases.ownerBreakdown') }}</span>
-          <el-button link type="primary" size="small" @click="ownerOpen = !ownerOpen">
-            {{ ownerOpen ? t('purchases.collapse') : t('purchases.expand') }}
-          </el-button>
-        </div>
-        <el-table v-if="ownerOpen" :data="ownerRows" size="small" border class="owner-table">
-          <el-table-column :label="t('purchases.owner')" min-width="140">
-            <template #default="{ row }">
-              <a class="owner-link" @click="onOwnerRowClick(row)">{{ row.display_name }}</a>
-            </template>
-          </el-table-column>
-          <el-table-column :label="t('purchases.count')" width="90" align="right">
-            <template #default="{ row }">{{ row.count }}</template>
-          </el-table-column>
-          <el-table-column :label="t('purchases.statTotalCost')" width="130" align="right">
-            <template #default="{ row }">{{ yen0(row.sum_cost) }}</template>
-          </el-table-column>
-          <el-table-column :label="t('purchases.settlementUnsettled')" width="150" align="right">
-            <template #default="{ row }">
-              <span class="amount-unsettled">{{ yen0(row.unsettled_cost) }}</span>
-              <span class="amount-sub">/ {{ row.unsettled_count }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column :label="t('purchases.settlementSettled')" width="130" align="right">
-            <template #default="{ row }">{{ yen0(row.settled_cost) }}</template>
-          </el-table-column>
-          <el-table-column :label="t('purchases.settlementExcluded')" width="130" align="right">
-            <template #default="{ row }">{{ yen0(row.excluded_cost) }}</template>
-          </el-table-column>
-        </el-table>
-      </div>
+      <!-- 按归属人的对账（含「还有 N 笔没抓详情」那句提示）挪到了「购入结算」页：
+           那里能选期间、折算人民币、还能整批标记已结算。这里只留一条汇总条。 -->
     </el-card>
 
     <el-card shadow="never" class="table-card">
-      <!-- 批量标记：勾选后才出现 -->
-      <div v-if="selection.length" class="batch-bar">
-        <span class="batch-count">{{ t('purchases.selectedCount', { n: selection.length }) }}</span>
-        <el-button
-          size="small"
-          type="success"
-          :loading="settlementSaving"
-          @click="batchSettlement(SETTLEMENT_SETTLED)"
-        >
-          {{ t('purchases.markSettled') }}
-        </el-button>
-        <el-button
-          size="small"
-          :loading="settlementSaving"
-          @click="batchSettlement(SETTLEMENT_EXCLUDED)"
-        >
-          {{ t('purchases.markExcluded') }}
-        </el-button>
-        <el-button
-          size="small"
-          :loading="settlementSaving"
-          @click="batchSettlement(SETTLEMENT_UNSETTLED)"
-        >
-          {{ t('purchases.markUnsettled') }}
-        </el-button>
-        <el-dropdown trigger="click" @command="batchOwner">
-          <el-button size="small" type="primary" plain :loading="settlementSaving">
-            {{ t('purchases.setOwner') }}<el-icon class="el-icon--right"><ArrowDown /></el-icon>
-          </el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item v-for="u in ownerUsers" :key="u.id" :command="u.id">
-                {{ u.display_name || u.username }}
-              </el-dropdown-item>
-              <el-dropdown-item :command="null" divided>{{ t('purchases.clearOwner') }}</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-        <el-button link size="small" @click="clearSelection">{{ t('purchases.clearSelection') }}</el-button>
-      </div>
-
       <el-table
         v-if="!isCardView"
         ref="tableRef"
@@ -186,20 +131,9 @@
         v-loading="loading"
         stripe
         row-key="id"
-        @expand-change="onExpand"
-        @selection-change="onSelectionChange"
+        :row-class-name="rowClassName"
+        @row-click="onTableRowClick"
       >
-        <el-table-column type="selection" width="44" />
-        <el-table-column type="expand">
-          <template #default="{ row }">
-            <DetailPane
-              :row="row"
-              :messages="messages[row.item_id] || []"
-              :loading="!!messagesLoading[row.item_id]"
-            />
-          </template>
-        </el-table-column>
-
         <el-table-column :label="t('purchases.thumbnail')" width="80">
           <template #default="{ row }">
             <img
@@ -213,19 +147,29 @@
         </el-table-column>
         <el-table-column :label="t('purchases.itemName')" min-width="220" show-overflow-tooltip>
           <template #default="{ row }">
-            <a class="item-link" :href="transactionUrl(row)" target="_blank" rel="noopener">
-              {{ row.item_name || row.item_id }}
-            </a>
+            <!-- 多选模式下退化成纯文本：外链点下去既跳煤炉又勾选，两件事撞一起 -->
+            <a
+              v-if="!batchMode"
+              class="item-link"
+              :href="transactionUrl(row)"
+              target="_blank"
+              rel="noopener"
+            >{{ row.item_name || row.item_id }}</a>
+            <span v-else>{{ row.item_name || row.item_id }}</span>
             <span v-if="row.variant" class="variant">{{ row.variant }}</span>
           </template>
         </el-table-column>
         <el-table-column :label="t('purchases.price')" width="110" align="right">
           <template #default="{ row }">{{ yen(row.price) }}</template>
         </el-table-column>
-        <!-- 归属人：单条直接在这里改；成批改用上方勾选后的工具条 -->
+        <!-- 归属人：单条直接在这里改；成批改用上方「多选」后的批量修改。
+             多选模式下这两个下拉都退成只读——点一下既开下拉又勾选，谁也说不清点的是哪个。 -->
         <el-table-column :label="t('purchases.owner')" width="130">
           <template #default="{ row }">
-            <el-dropdown trigger="click" @command="(uid) => setRowOwner(row, uid)">
+            <span v-if="batchMode" class="editable-cell is-static" :class="{ 'is-empty': !ownerName(row) }">
+              {{ ownerName(row) || t('purchases.ownerUnassigned') }}
+            </span>
+            <el-dropdown v-else trigger="click" @command="(uid) => setRowOwner(row, uid)">
               <span class="editable-cell" :class="{ 'is-empty': !ownerName(row) }">
                 {{ ownerName(row) || t('purchases.ownerUnassigned') }}
                 <el-icon class="editable-caret"><ArrowDown /></el-icon>
@@ -233,7 +177,7 @@
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item v-for="u in ownerUsers" :key="u.id" :command="u.id">
-                    {{ u.display_name || u.username }}
+                    {{ u.name }}
                   </el-dropdown-item>
                   <el-dropdown-item :command="null" divided>{{ t('purchases.clearOwner') }}</el-dropdown-item>
                 </el-dropdown-menu>
@@ -243,7 +187,10 @@
         </el-table-column>
         <el-table-column :label="t('purchases.settlement')" width="120" align="center">
           <template #default="{ row }">
-            <el-dropdown trigger="click" @command="(st) => setRowSettlement(row, st)">
+            <el-tag v-if="batchMode" :type="settlementTag(settlementOf(row))" size="small" effect="light">
+              {{ settlementLabel(settlementOf(row)) }}
+            </el-tag>
+            <el-dropdown v-else trigger="click" @command="(st) => setRowSettlement(row, st)">
               <el-tag :type="settlementTag(settlementOf(row))" size="small" effect="light" class="settlement-tag">
                 {{ settlementLabel(settlementOf(row)) }}
                 <el-icon class="editable-caret"><ArrowDown /></el-icon>
@@ -279,150 +226,198 @@
             {{ row.account_name || (row.account_id != null ? `#${row.account_id}` : '-') }}
           </template>
         </el-table-column>
-        <el-table-column :label="t('purchases.actions')" width="110" align="center" fixed="right">
+        <!-- 表格与卡片打开的是同一个详情弹窗（订单页也是这个口径，不再用展开行） -->
+        <el-table-column
+          v-if="!batchMode"
+          :label="t('purchases.actions')"
+          width="156"
+          align="center"
+          fixed="right"
+        >
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="refreshDetail(row)">
-              {{ t('purchases.fetchDetail') }}
-            </el-button>
+            <div class="row-actions">
+              <el-button size="small" @click="openDetail(row)">{{ t('purchases.detail') }}</el-button>
+              <el-button size="small" @click="refreshDetail(row)">
+                {{ t('purchases.fetchDetail') }}
+              </el-button>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column
+          v-else
+          :label="t('purchases.selectColumn')"
+          width="64"
+          align="center"
+          fixed="right"
+        >
+          <template #default="{ row }">
+            <el-icon v-if="batchSelectedIds.has(row.id)" color="#67C23A" :size="20"><Check /></el-icon>
+            <span v-else class="cell-muted">-</span>
           </template>
         </el-table-column>
       </el-table>
 
-      <!-- 卡片视图：与表格同一份 list、同一套分页与筛选，只是换个排布。
-           表格里靠展开行看的取引详情，这里收进弹窗（同一个 DetailPane）。 -->
-      <div v-if="isCardView" v-loading="loading" class="pur-card-view">
-        <div class="pur-card-toolbar">
-          <!-- 表格的表头勾选框在卡片里没有落脚处，全选只能单独摆一个 -->
-          <el-checkbox
-            :model-value="allPageSelected"
-            :indeterminate="someSelected"
-            :disabled="!list.length"
-            @change="toggleSelectAll"
-          >
-            {{ t('purchases.selectAllPage') }}
-          </el-checkbox>
-        </div>
-
-        <div class="pur-card-grid">
+      <!-- 卡片视图：排布与取数都与库存 / 订单页一致——图在上、正文在下，整张卡片点开详情，
+           不翻页而是懒加载滚动窗口（顶部占位块 = 已回收批次的合计高度，滚动条长度与
+           位置因此保持连续，往回滚碰到上哨兵会把那几批取回来）。
+           多出来的只有图上那个勾选框：批量结算要选行，而那两页没有批量操作。 -->
+      <div v-if="isCardView" class="pur-card-view">
+        <div class="pur-card-spacer" :style="{ height: cardTopSpacer + 'px' }"></div>
+        <div ref="cardTopSentinel" class="pur-card-sentinel"></div>
+        <div ref="cardGridRef" class="pur-card-grid">
           <div
-            v-for="row in list"
+            v-for="row in cardRows"
             :key="row.id"
             class="pur-card"
-            :class="{ 'is-picked': isSelected(row) }"
+            :class="{ 'is-picked': batchMode && batchSelectedIds.has(row.id) }"
+            @click="onCardClick(row)"
           >
-            <div class="pur-card-head">
-              <div class="pur-card-thumb">
-                <el-image
-                  v-if="row.thumbnail"
-                  :src="mercariImageUrl(row.thumbnail)"
-                  fit="cover"
-                  lazy
-                  referrerpolicy="no-referrer"
-                >
-                  <template #error><span class="thumb-fallback">-</span></template>
-                </el-image>
-                <span v-else class="thumb-fallback">-</span>
-                <el-checkbox
-                  class="pur-card-check"
-                  :model-value="isSelected(row)"
-                  @change="toggleSelect(row)"
-                />
-              </div>
-              <div class="pur-card-headtext">
-                <a class="pur-card-name item-link" :href="transactionUrl(row)" target="_blank" rel="noopener">
-                  {{ row.item_name || row.item_id }}
-                </a>
-                <div class="pur-card-tags">
-                  <el-tag :type="stateTag(row.state)" size="small" effect="light">
-                    {{ stateLabel(row.state) }}
-                  </el-tag>
-                  <span class="pur-card-price">{{ yen(row.price) }}</span>
-                </div>
-                <div v-if="row.variant" class="pur-card-variant">{{ row.variant }}</div>
-              </div>
-            </div>
-
-            <div class="pur-card-meta">
-              <span class="pur-card-ellipsis">{{ row.seller_name || '-' }}</span>
-              <span>{{ formatUnixSecLocal(row.purchased_at) }}</span>
-            </div>
-            <div class="pur-card-meta">
-              <span class="pur-card-ellipsis">
-                {{ row.account_name || (row.account_id != null ? `#${row.account_id}` : '-') }}
+            <div class="pur-card-thumb">
+              <el-image
+                v-if="row.thumbnail"
+                :src="mercariImageUrl(row.thumbnail)"
+                fit="cover"
+                lazy
+                referrerpolicy="no-referrer"
+              >
+                <template #error><span class="thumb-fallback">-</span></template>
+              </el-image>
+              <span v-else class="thumb-fallback">-</span>
+              <!-- 图上四角：左上=交易状态，右上=结算状态，右下=归属人，左下=选中标记（仅多选模式） -->
+              <el-tag :type="stateTag(row.state)" size="small" effect="dark" class="pur-card-state">
+                {{ stateLabel(row.state) }}
+              </el-tag>
+              <el-tag
+                :type="settlementTag(settlementOf(row))"
+                size="small"
+                effect="dark"
+                class="pur-card-settlement"
+              >
+                {{ settlementLabel(settlementOf(row)) }}
+              </el-tag>
+              <span v-if="ownerName(row)" class="pur-card-badge pur-card-badge--owner">
+                {{ ownerName(row) }}
               </span>
-              <span class="pur-card-ellipsis">{{ row.tracking_no || '-' }}</span>
+              <!-- 多选模式下才出现：平时压一个勾选框在图上纯属白占地方 -->
+              <el-icon
+                v-if="batchMode && batchSelectedIds.has(row.id)"
+                class="pur-card-check"
+                color="#67C23A"
+                :size="22"
+              ><Check /></el-icon>
             </div>
 
-            <!-- 归属人 / 结算状态：与表格里同两个下拉，走同一个 applySettlement -->
-            <div class="pur-card-edit">
-              <el-dropdown trigger="click" @command="(uid) => setRowOwner(row, uid)">
-                <span class="editable-cell" :class="{ 'is-empty': !ownerName(row) }">
-                  {{ ownerName(row) || t('purchases.ownerUnassigned') }}
-                  <el-icon class="editable-caret"><ArrowDown /></el-icon>
+            <div class="pur-card-body">
+              <div class="pur-card-name">{{ row.item_name || row.item_id }}</div>
+              <div class="pur-card-money">
+                <span class="pur-card-amount">{{ yen(row.price) }}</span>
+              </div>
+              <div class="pur-card-meta">
+                <span class="pur-card-ellipsis">{{ row.seller_name || '-' }}</span>
+                <span>{{ formatUnixSecLocal(row.purchased_at) }}</span>
+              </div>
+              <div class="pur-card-meta">
+                <span class="pur-card-ellipsis">
+                  {{ row.account_name || (row.account_id != null ? `#${row.account_id}` : '-') }}
                 </span>
-                <template #dropdown>
-                  <el-dropdown-menu>
-                    <el-dropdown-item v-for="u in ownerUsers" :key="u.id" :command="u.id">
-                      {{ u.display_name || u.username }}
-                    </el-dropdown-item>
-                    <el-dropdown-item :command="null" divided>{{ t('purchases.clearOwner') }}</el-dropdown-item>
-                  </el-dropdown-menu>
-                </template>
-              </el-dropdown>
-              <el-dropdown trigger="click" @command="(st) => setRowSettlement(row, st)">
-                <el-tag :type="settlementTag(settlementOf(row))" size="small" effect="light" class="settlement-tag">
-                  {{ settlementLabel(settlementOf(row)) }}
-                  <el-icon class="editable-caret"><ArrowDown /></el-icon>
-                </el-tag>
-                <template #dropdown>
-                  <el-dropdown-menu>
-                    <el-dropdown-item v-for="o in settlementOptions" :key="o.value" :command="o.value">
-                      {{ o.label }}
-                    </el-dropdown-item>
-                  </el-dropdown-menu>
-                </template>
-              </el-dropdown>
-            </div>
-
-            <div class="pur-card-actions">
-              <el-button size="small" plain @click="openDetail(row)">{{ t('purchases.detail') }}</el-button>
-              <el-button size="small" type="primary" plain @click="refreshDetail(row)">
-                {{ t('purchases.fetchDetail') }}
-              </el-button>
+                <span class="pur-card-ellipsis">{{ row.tracking_no || '-' }}</span>
+              </div>
             </div>
           </div>
         </div>
 
-        <div v-if="!loading && !list.length" class="pur-card-empty">{{ t('purchases.cardEmpty') }}</div>
+        <div ref="cardBottomSentinel" class="pur-card-sentinel"></div>
+        <div class="pur-card-foot">
+          <span v-if="cardLoading">{{ t('purchases.cardLoading') }}</span>
+          <span v-else-if="!cardRows.length">{{ t('purchases.cardEmpty') }}</span>
+        </div>
       </div>
 
-      <div class="pagination">
+      <div v-if="!isCardView" class="pagination">
         <el-pagination
           v-model:current-page="page"
           v-model:page-size="pageSize"
           :total="total"
           :page-sizes="[20, 50, 100]"
           layout="total, sizes, prev, pager, next"
-          @change="load"
+          @change="load()"
           background
           size="small"
         />
       </div>
     </el-card>
 
-    <!-- 卡片视图的取引详情：内容与表格展开行是同一个组件 -->
+    <!-- 批量修改：结算状态与归属人一次改完，两项都是「留空即不改」。
+         写入走的是与行内下拉同一个 applySettlement / POST /settlement。 -->
+    <el-dialog
+      v-model="batchEditVisible"
+      :title="t('purchases.batchEdit')"
+      width="420px"
+      class="purchase-batch-dialog"
+      destroy-on-close
+    >
+      <div class="batch-edit-hint">{{ t('purchases.selectedCount', { n: batchSelectedCount }) }}</div>
+      <el-form label-position="top">
+        <el-form-item :label="t('purchases.settlement')">
+          <el-select
+            v-model="batchForm.settlement_status"
+            clearable
+            :placeholder="t('purchases.keepUnchanged')"
+            style="width:100%"
+          >
+            <el-option v-for="o in settlementOptions" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="t('purchases.owner')">
+          <el-select
+            v-model="batchForm.owner"
+            clearable
+            filterable
+            :placeholder="t('purchases.keepUnchanged')"
+            style="width:100%"
+          >
+            <!-- 「清除归属人」必须是个显式选项：留空是「这次不改归属人」，两者不是一回事 -->
+            <el-option :label="t('purchases.clearOwner')" :value="OWNER_CLEAR" />
+            <el-option
+              v-for="u in ownerUsers"
+              :key="u.id"
+              :label="u.name"
+              :value="u.id"
+            />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="batchEditVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button
+          type="primary"
+          :disabled="!batchEditDirty"
+          :loading="settlementSaving"
+          @click="submitBatchEdit"
+        >{{ t('common.confirm') }}</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 取引详情：表格的「详情」按钮与卡片点击打开的是同一个弹窗。
+         无标题栏、无关闭按钮——点遮罩或 Esc 关闭（与订单详情同一口径）。 -->
     <el-dialog
       v-model="detailVisible"
-      :title="detailRow ? (detailRow.item_name || detailRow.item_id) : ''"
-      class="purchase-detail-dialog"
+      :show-close="false"
       destroy-on-close
+      class="purchase-detail-dialog"
     >
       <DetailPane
         v-if="detailRow"
         :row="detailRow"
         :messages="messages[detailRow.item_id] || []"
         :loading="!!messagesLoading[detailRow.item_id]"
-        :column="2"
+        :state-text="stateLabel(detailRow.state)"
+        :state-type="stateTag(detailRow.state)"
+        :settlement-options="settlementOptions"
+        :owner-users="ownerUsers"
+        @set-settlement="(st) => setRowSettlement(detailRow, st)"
+        @set-owner="(uid) => setRowOwner(detailRow, uid)"
+        @fetch-detail="refreshDetail(detailRow)"
       />
     </el-dialog>
   </div>
@@ -430,3 +425,5 @@
 
 <script src="./script.js"></script>
 <style scoped src="./style.css"></style>
+<!-- el-table 的 <tr> 在组件内部渲染，scoped 选择器够不到，多选高亮只能走全局 -->
+<style src="./style.global.css"></style>

@@ -1,0 +1,17 @@
+/* 多选模式的表格行样式（口径与在售商品页的 batch-pick-* 一致）。
+   必须放在**非 scoped** 的样式里：el-table 的 <tr> 由组件内部渲染，
+   带 data-v 的 scoped 选择器匹配不到它。 */
+
+/* 选中行整行浅绿覆盖（含固定列，所以要用 !important 压过 el-table 自己的底色） */
+.el-table tr.batch-pick-row-selected > td.el-table__cell {
+  background-color: rgba(103, 194, 58, 0.2) !important;
+  cursor: pointer;
+}
+.el-table tr.batch-pick-row-selected:hover > td.el-table__cell,
+.el-table tr.batch-pick-row-selected.hover-row > td.el-table__cell {
+  background-color: rgba(103, 194, 58, 0.32) !important;
+}
+/* 多选模式下整表的行都可点 */
+.batch-pick-mode-active .el-table tbody tr {
+  cursor: pointer;
+}
