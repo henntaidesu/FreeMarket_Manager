@@ -126,6 +126,7 @@ backend/
     ├── server.py                    # uvicorn launch, TLS resolution, tray, hard-kill on exit
     ├── readiness.py                 # is_ready()/mark_ready() — health 503s until startup done
     ├── auth.py  app_paths.py  system_service.py  memory_recycle.py
+    ├── delivery_tracking/            # 黑猫 / 邮局公开查询页的配送履历抓取（纯 requests）
     ├── tray.py  log_window.py  console_win.py     # frozen(.exe)-only Windows UI
     ├── db_manage/                   # Custom ORM: base_model, database, db_manager,
     │   ├── dialects/                #   dialect abstraction (sqlite / mysql translation)
@@ -497,6 +498,53 @@ header, not cookies, so the dangerous wildcard+credentials combination never occ
   而改变**——始终是「这条是买家写的」，购入这边即本账号自己发的那些（`local_sender_id` 传
   `transaction_evidences.buyer_id`）。**留言不翻译**：卖家侧译成中文是为了读着回信，购入这边
   是只读记录，`text_zh` 留空。没截获到消息接口时保留旧留言，绝不用空列表把历史抹掉。
+
+### 购入商品的展示状态（四态）与配送履历
+
+**煤炉买家侧只有三个状态**，中间那个 `STATE_WAITING_BUYER_REVIEW` 从「卖家点了発送通知」
+一直挂到「买家提交受取評価」，把**在途**和**已到手待评价**压成了一个。本地按到货与否把它拆开：
+`等待发货 → 等待收货 → 等待评价 → 交易完成`。
+
+- **拆分只发生在读取时**，`db_manage/models/purchases/purchase_delivery.py::display_state_sql`
+  是唯一口径，`state` 列仍原样存煤炉的值。列表同步 / 详情回填照旧覆盖 `state`，两边不打架——
+  否则每次同步都得小心别把本地推进的状态写回去，那是一条早晚会漏的规矩。
+  `find_list` 把它作为 `display_state` 列一并返回，`_build_filter` 的 `state` 参数、
+  `/purchases/states` 下拉也**全走这个表达式**：三处但凡有一处用回原始 `state` 列，
+  就会出现一个「选了查不到任何行」的等待收货。`STATE_WAITING_RECEIPT` 是本地合成值，煤炉没有。
+- **到货判定有两个来源**（`delivered_sql`）：`delivered_at`（承运公司履历，唯一带时间的）与
+  `delivery_status_name` 命中送达词。**不要用 `is_delivered`** —— 实测一笔状态文案已是
+  「お届け先にお届け済み」的购入，该字段仍是 0（m67663910332），它不是「是否已送达」。
+- **「待收货」待办出现即推进状态**（`get_to_du_list/purchase_link.py`）：那条待办
+  （`kind='Shipped'`）与 `purchase_items` 的一行是同一笔交易的两个视角。待办同步比购入同步轻
+  得多，所以用**纯 SQL** 抢先把状态推到受取評価待ち并记 `shipped_at`，页面不用等下一次购入
+  同步。推进是**单调**的（只从「未知 / 等待发货」往前走，已完成的不会被残留待办拖回去）且幂等。
+  运单号另说——它只在取引画面的 `delivery(_japan_post)/status` 里，所以对**本次新插入且本地还
+  缺运单号**的那几笔另开一次浏览器补抓（`refresh_purchase_details_for_items`，共用
+  `PURCHASE_DETAIL_*` 的开关与限流）。这一步失败只是运单号晚一点，状态那条线不受影响。
+- **时间轴 = 购入 → 发货 → 到货 → 评价**（详情弹窗）。`shipped_at` 有三个来源且**写一次不再改**
+  （取引详情 `status_set_at`@`wait_review`、待办创建时间、承运公司履历第一条），相差不过几秒，
+  让先到的说了算，免得同一行的时间来回跳。结算时间不在时间轴上——那是人工对账的标记，
+  不是交易节点；发货期限也挪去了 facts，它是期限不是发生过的事。
+
+**配送履历（`src/delivery_tracking/`）**：点运单号 → 后端直连黑猫 / 邮局的**公开查询页**，
+解析履历后写回 `purchase_items`（`delivery_trace_json` / `delivered_at` / `delivery_carrier`）。
+
+- **不走浏览器也不入队**：两家都是服务端渲染 HTML，不认账号、没有 JS 依赖，一次 `requests`
+  一两秒就回来。用 Playwright 会为一次只读查询开浏览器、还要抢账号串行队列。
+- **ヤマト 需要给那一个域名放宽 OpenSSL 安全级别**：`toi.kuronekoyamato.co.jp` 只提供
+  `AES128-GCM-SHA256`（静态 RSA，无前向保密），OpenSSL 3.x 默认 `SECLEVEL=2` 直接拒绝，
+  症状是 `SSLV3_ALERT_HANDSHAKE_FAILURE`，看着像网络故障（curl 默认更松，所以 curl 能通）。
+  `_common._LegacyCipherAdapter` 只挂给这个前缀，证书链与主机名校验不动，**别放宽到全局**。
+- **两家的单号都是 12 位数字，分不开**，所以承运公司只从 `delivery_carrier`（详情回填时按
+  请求 URL 认）或 `shipping_method_name` 判定，判定不出就 400。猜错只会收到一句「伝票番号誤り」，
+  看着像单号坏了，其实是问错了公司。
+- **ヤマト 的履历不带年份**（`09月23日`），按「当前年，比现在晚一天以上就退一年」推。
+  日本郵便 带完整年份。两家的时刻都是 JST，固定 +09:00 转 epoch（日本无夏令时）。
+- **解析用正则**（仓库里没有 bs4/lxml，为两个页面引解析依赖不划算）。页面真变了会变到匹配不到，
+  那时返回的是「解析不出履历」而不是错数据；承运公司自己说查不到（`伝票番号誤り` /
+  `お問い合わせ番号が見つかりません`）则原话转述，两者不混为一谈。
+- 缓存：**已送达的不再查**（履历不会再变），在途的 10 分钟内复用，弹窗「刷新」强制重查。
+  查询失败但有旧结果时，旧履历照常返回并附带这次的错误。
 
 ### 代购结算（`purchase_items` 的 `settlement_status` / `owner_user_id`）
 

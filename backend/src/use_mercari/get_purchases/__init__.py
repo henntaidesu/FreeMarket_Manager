@@ -13,6 +13,7 @@ from .purchase_detail import (
 from .purchases_sync import (
     apply_purchase_list_sync,
     purchase_order_to_rows,
+    refresh_purchase_details_for_items,
     sync_purchases_from_mercari,
     upsert_purchase_item_row,
 )
@@ -25,6 +26,7 @@ __all__ = [
     "fetch_details_in_session",
     "fetch_purchase_detail_in_session",
     "purchase_order_to_rows",
+    "refresh_purchase_details_for_items",
     "sync_purchases_from_mercari",
     "upsert_purchase_item_row",
 ]

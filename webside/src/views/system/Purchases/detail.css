@@ -132,6 +132,9 @@
   color: #e5eaf3;
   word-break: break-word;
 }
+/* 可点的 fact 值（目前只有运单号 → 配送履历弹窗） */
+.odt-fact-link { color: #6cb2ff; text-decoration: none; cursor: pointer; }
+.odt-fact-link:hover { text-decoration: underline; }
 
 /* 时间轴：五个节点等宽排一行，圆点之间连成一条轴，取到值的点亮。
    连线由每个节点各画自己左右两个半段（::before / ::after）拼成，

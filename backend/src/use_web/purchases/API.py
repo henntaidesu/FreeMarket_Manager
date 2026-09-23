@@ -10,6 +10,9 @@
 
 代购结算（``/stats`` 与 ``/settlement``）是纯本地读写，不碰浏览器，所以走普通 HTTP。
 它与「出售结算」``use_web/system/settlement`` 是两套账，互不引用。
+
+``/{item_id}/tracking`` 同理走普通 HTTP：它直连黑猫 / 邮局的**公开**查询页，
+一次 ``requests`` 就完事，既不需要登录态也不需要浏览器（见 ``src/delivery_tracking``）。
 """
 from fastapi import APIRouter
 
@@ -23,6 +26,7 @@ from .units.purchases_settlement import (
     update_purchase_settlement,
     update_purchase_settlement_by_filter,
 )
+from .units.purchases_tracking import get_purchase_tracking
 
 router = APIRouter()
 
@@ -37,3 +41,6 @@ router.add_api_route(
     "/settlement/by-filter", update_purchase_settlement_by_filter, methods=["POST"]
 )
 router.add_api_route("/{item_id}/messages", get_purchase_messages, methods=["GET"])
+# 配送履历：直连黑猫 / 邮局的公开查询页，不开浏览器也不入队，所以走普通 HTTP
+# （见 units/purchases_tracking.py 与 src/delivery_tracking/）
+router.add_api_route("/{item_id}/tracking", get_purchase_tracking, methods=["GET"])

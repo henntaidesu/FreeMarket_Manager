@@ -4,7 +4,7 @@
     <!-- 筛选 + 同步 -->
     <el-card shadow="never" class="search-card">
       <el-row :gutter="0" align="middle" class="search-row">
-        <el-col :xs="24" :md="18" class="search-left-group">
+        <el-col :xs="24" :md="16" class="search-left-group">
           <el-input
             v-model="filters.keyword"
             :placeholder="t('purchases.keywordPlaceholder')"
@@ -210,13 +210,24 @@
         </el-table-column>
         <el-table-column :label="t('purchases.state')" width="120" align="center">
           <template #default="{ row }">
-            <el-tag :type="stateTag(row.state)" size="small" effect="light">
-              {{ stateLabel(row.state) }}
+            <el-tag :type="stateTag(rowState(row))" size="small" effect="light">
+              {{ stateLabel(rowState(row)) }}
             </el-tag>
           </template>
         </el-table-column>
+        <!-- 运单号点开配送履历（直连黑猫 / 邮局）。多选模式下退成纯文本：
+             点一下既开弹窗又勾选，说不清点的是哪个（与上面商品名同一处理）。 -->
         <el-table-column :label="t('purchases.trackingNo')" width="140">
-          <template #default="{ row }">{{ row.tracking_no || '-' }}</template>
+          <template #default="{ row }">
+            <a
+              v-if="row.tracking_no && !batchMode"
+              class="item-link"
+              href="javascript:void(0)"
+              :title="t('purchases.trackingQuery')"
+              @click.stop="openTracking(row)"
+            >{{ row.tracking_no }}</a>
+            <span v-else>{{ row.tracking_no || '-' }}</span>
+          </template>
         </el-table-column>
         <el-table-column :label="t('purchases.purchasedAt')" width="160">
           <template #default="{ row }">{{ formatUnixSecLocal(row.purchased_at) }}</template>
@@ -284,8 +295,8 @@
               </el-image>
               <span v-else class="thumb-fallback">-</span>
               <!-- 图上四角：左上=交易状态，右上=结算状态，右下=归属人，左下=选中标记（仅多选模式） -->
-              <el-tag :type="stateTag(row.state)" size="small" effect="dark" class="pur-card-state">
-                {{ stateLabel(row.state) }}
+              <el-tag :type="stateTag(rowState(row))" size="small" effect="dark" class="pur-card-state">
+                {{ stateLabel(rowState(row)) }}
               </el-tag>
               <el-tag
                 :type="settlementTag(settlementOf(row))"
@@ -320,7 +331,14 @@
                 <span class="pur-card-ellipsis">
                   {{ row.account_name || (row.account_id != null ? `#${row.account_id}` : '-') }}
                 </span>
-                <span class="pur-card-ellipsis">{{ row.tracking_no || '-' }}</span>
+                <a
+                  v-if="row.tracking_no && !batchMode"
+                  class="pur-card-ellipsis pur-card-track"
+                  href="javascript:void(0)"
+                  :title="t('purchases.trackingQuery')"
+                  @click.stop="openTracking(row)"
+                >{{ row.tracking_no }}</a>
+                <span v-else class="pur-card-ellipsis">{{ row.tracking_no || '-' }}</span>
               </div>
             </div>
           </div>
@@ -411,15 +429,26 @@
         :row="detailRow"
         :messages="messages[detailRow.item_id] || []"
         :loading="!!messagesLoading[detailRow.item_id]"
-        :state-text="stateLabel(detailRow.state)"
-        :state-type="stateTag(detailRow.state)"
+        :state-text="stateLabel(rowState(detailRow))"
+        :state-type="stateTag(rowState(detailRow))"
         :settlement-options="settlementOptions"
         :owner-users="ownerUsers"
         @set-settlement="(st) => setRowSettlement(detailRow, st)"
         @set-owner="(uid) => setRowOwner(detailRow, uid)"
         @fetch-detail="refreshDetail(detailRow)"
+        @open-tracking="openTracking(detailRow)"
       />
     </el-dialog>
+
+    <!-- 配送履历：表格 / 卡片 / 详情弹窗里的运单号，点下去开的都是这一个 -->
+    <TrackingDialog
+      v-model:visible="trackingVisible"
+      :trace="trackingTrace"
+      :loading="trackingLoading"
+      :cached="trackingCached"
+      :error="trackingError"
+      @refresh="refreshTracking"
+    />
   </div>
 </template>
 

@@ -16,6 +16,7 @@ import { mercariImageUrl } from '@/utils/mercariImage.js'
 import { formatUnixSecLocal } from '@/utils/timeDisplay.js'
 import { useViewModeStore } from '@/stores/viewMode.js'
 import DetailPane from './DetailPane.vue'
+import TrackingDialog from './TrackingDialog.vue'
 import { yen } from './format.js'
 
 // 代购结算状态。与「出售结算」（系统管理→结算）是两套账，互不相干：
@@ -32,7 +33,7 @@ const OWNER_UNASSIGNED = 0
 const OWNER_CLEAR = '__clear__'
 
 export default defineComponent({
-  components: { DetailPane },
+  components: { DetailPane, TrackingDialog },
   setup() {
     const { t } = useI18n()
 
@@ -96,12 +97,23 @@ export default defineComponent({
     /** 当前视图里看得见的那批行。批量结算的勾选一律以它为准。 */
     const visibleRows = computed(() => (isCardView.value ? cardRows.value : list.value))
 
-    // 煤炉的 STATE_* 枚举全集未知（只实测到这三个），未收录的值原样显示，不猜。
+    // 展示状态四态。煤炉只给三个值，「等待收货」是后端按「已发货但还没到货」从
+    // 受取評価待ち里拆出来的本地态（口径见 purchase_delivery.display_state_sql）。
+    // 未收录的值原样显示，不猜——煤炉的 STATE_* 枚举全集仍然未知。
     const stateConfig = computed(() => ({
       STATE_WAITING_SHIPPING: { label: t('purchases.stateWaitingShipping'), tag: 'warning' },
+      STATE_WAITING_RECEIPT: { label: t('purchases.stateWaitingReceipt'), tag: 'info' },
       STATE_WAITING_BUYER_REVIEW: { label: t('purchases.stateWaitingReview'), tag: 'primary' },
       STATE_COMPLETED: { label: t('purchases.stateCompleted'), tag: 'success' }
     }))
+
+    /**
+     * 行上该显示哪个状态：一律取后端算好的 display_state。
+     * 回落到 state 只为兼容还没重取的旧行对象（改完结算会就地回写行，不整页重拉）。
+     */
+    function rowState(row) {
+      return row?.display_state || row?.state
+    }
 
     const settlementOptions = computed(() => [
       { value: SETTLEMENT_UNSETTLED, label: t('purchases.settlementUnsettled'), tag: 'warning', color: '#e6a23c' },
@@ -657,6 +669,76 @@ export default defineComponent({
       }
     }
 
+    // ===== 配送履历：点运单号直连黑猫 / 邮局的公开查询页 =====
+    // 不走任务队列：后端一次 requests 一两秒就回来，没有浏览器也不抢账号串行队列。
+    // 表格 / 卡片 / 详情弹窗里的运单号点下去都到这里，弹的是同一个 TrackingDialog。
+    const trackingVisible = ref(false)
+    const trackingLoading = ref(false)
+    const trackingTrace = ref(null)
+    const trackingCached = ref(false)
+    const trackingError = ref('')
+    const trackingItemId = ref('')
+
+    async function fetchTracking(itemId, force) {
+      trackingLoading.value = true
+      trackingError.value = ''
+      try {
+        const res = await purchaseApi.tracking(itemId, force)
+        trackingTrace.value = res?.trace || null
+        trackingCached.value = !!res?.cached
+        // 后端查不动但有旧结果时会把两者一起给回来：履历照常显示，错误另外提示
+        trackingError.value = res?.error || ''
+        // 到货时间 / 状态可能因这次查询变了，把它回写到看得见的那一行上
+        applyTraceToRows(itemId, res?.trace)
+      } catch (e) {
+        // 具体原因（没有运单号 / 认不出承运公司 / 承运公司查询失败）由拦截器弹出，
+        // 这里只负责让弹窗不是一片空白
+        trackingTrace.value = null
+        trackingError.value = e?.response?.data?.detail || String(e?.message || e)
+      } finally {
+        trackingLoading.value = false
+      }
+    }
+
+    /** 查询结果就地回写行对象，免得为了一个到货时间整页重拉 */
+    function applyTraceToRows(itemId, trace) {
+      if (!trace) return
+      for (const row of visibleRows.value) {
+        if (row.item_id !== itemId) continue
+        if (trace.status) row.delivery_status_name = trace.status
+        if (trace.carrier) row.delivery_carrier = trace.carrier
+        if (trace.delivered_at) {
+          row.delivered_at = trace.delivered_at
+          // 到货即退出「等待收货」——与后端 display_state_sql 同一口径
+          if (row.display_state === 'STATE_WAITING_RECEIPT') {
+            row.display_state = 'STATE_WAITING_BUYER_REVIEW'
+          }
+        }
+        if (!row.shipped_at && (trace.events || []).length) {
+          const first = trace.events.find((e) => e.at)
+          if (first) row.shipped_at = first.at
+        }
+      }
+    }
+
+    function openTracking(row) {
+      if (!row?.item_id) return
+      if (!row.tracking_no) {
+        ElMessage.info(t('purchases.trackingNoNumber'))
+        return
+      }
+      trackingItemId.value = row.item_id
+      trackingTrace.value = null
+      trackingCached.value = false
+      trackingError.value = ''
+      trackingVisible.value = true
+      fetchTracking(row.item_id, false)
+    }
+
+    function refreshTracking() {
+      if (trackingItemId.value) fetchTracking(trackingItemId.value, true)
+    }
+
     // 单条重抓取引画面详情。同样走任务队列——它是一次浏览器自动化，不能挂在 HTTP 请求上。
     async function refreshDetail(row) {
       if (!row?.item_id) return
@@ -735,6 +817,7 @@ export default defineComponent({
       settlementTag,
       stateLabel,
       stateTag,
+      rowState,
       yen,
       ownerName,
       transactionUrl,
@@ -754,6 +837,13 @@ export default defineComponent({
       setRowOwner,
       runSync,
       refreshDetail,
+      trackingVisible,
+      trackingLoading,
+      trackingTrace,
+      trackingCached,
+      trackingError,
+      openTracking,
+      refreshTracking,
     }
   },
 })

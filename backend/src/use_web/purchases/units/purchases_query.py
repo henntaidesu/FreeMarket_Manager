@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 from ....db_manage.database import DatabaseManager
 from ....db_manage.models.purchases import purchase_settlement
+from ....db_manage.models.purchases.purchase_delivery import display_state_sql
 from ....db_manage.models.purchases.purchase_item import PurchaseItemModel
 
 
@@ -157,15 +158,20 @@ def purchase_stats(
 
 
 def list_purchase_states():
-    """本地已出现过的 ``state`` 取值，供前端筛选下拉。
+    """本地已出现过的**展示状态**取值，供前端筛选下拉。
 
     煤炉的 ``STATE_*`` 枚举全集未知（只实测到发送待ち/受取評価待ち/取引完了），
     所以下拉项从库里现有数据算，而不是写死一张表。
+
+    分组用的是 ``display_state_sql``（四态口径，见 ``purchase_delivery``）而不是原始
+    ``state`` 列：下拉项与列表标签、``_build_filter`` 的筛选必须是同一套值，
+    否则会出现一个选了就查不到任何行的「等待收货」。
     """
+    expr = display_state_sql("t")
     rows = DatabaseManager().execute_query(
-        "SELECT [state], COUNT(*) FROM [purchase_items] "
-        "WHERE [state] IS NOT NULL AND TRIM([state]) <> '' "
-        "GROUP BY [state] ORDER BY COUNT(*) DESC"
+        f"SELECT {expr} AS ds, COUNT(*) FROM [purchase_items] t "
+        f"WHERE t.[state] IS NOT NULL AND TRIM(t.[state]) <> '' "
+        f"GROUP BY {expr} ORDER BY COUNT(*) DESC"
     )
     return {"states": [{"state": r[0], "count": int(r[1] or 0)} for r in rows]}
 

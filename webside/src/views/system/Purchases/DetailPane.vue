@@ -94,7 +94,16 @@
           <dl class="odt-facts">
             <div v-for="f in facts" :key="f.label" class="odt-fact">
               <dt>{{ f.label }}</dt>
-              <dd>{{ f.value }}</dd>
+              <dd>
+                <a
+                  v-if="f.action === 'tracking'"
+                  href="javascript:void(0)"
+                  class="odt-fact-link"
+                  :title="t('purchases.trackingQuery')"
+                  @click="$emit('open-tracking')"
+                >{{ f.value }}</a>
+                <template v-else>{{ f.value }}</template>
+              </dd>
             </div>
           </dl>
         </div>
@@ -198,7 +207,7 @@ export default defineComponent({
     settlementOptions: { type: Array, default: () => [] },
     ownerUsers: { type: Array, default: () => [] },
   },
-  emits: ['set-settlement', 'set-owner', 'fetch-detail'],
+  emits: ['set-settlement', 'set-owner', 'fetch-detail', 'open-tracking'],
   setup(props, { emit }) {
     const { t } = useI18n()
 
@@ -277,10 +286,24 @@ export default defineComponent({
         { label: t('purchases.sellerName'), value: r.seller_name || '-' },
         { label: t('purchases.paidMethod'), value: paidMethodLabel(r.paid_method) },
         { label: t('purchases.shippingMethod'), value: r.shipping_method_name || '-' },
-        { label: t('purchases.trackingNo'), value: r.tracking_no || '-' },
+        // 运单号可点：开配送履历弹窗（直连黑猫 / 邮局），与列表里点运单号是同一个弹窗
+        {
+          label: t('purchases.trackingNo'),
+          value: r.tracking_no || '-',
+          action: r.tracking_no ? 'tracking' : null,
+        },
         { label: t('purchases.deliveryStatus'), value: r.delivery_status_name || '-' },
         { label: t('purchases.sellerShippingFee'), value: yen(r.seller_shipping_fee) },
         { label: t('purchases.variant'), value: r.variant || '-' },
+        // 时间轴让给了「实际发生过的四步」，这两个挪到这里：一个是期限、一个是排查用的原值
+        {
+          label: t('purchases.shippingDue'),
+          value: r.shipping_due_time ? formatUnixSecLocal(r.shipping_due_time) : '-',
+        },
+        {
+          label: t('purchases.statusSetAt'),
+          value: r.status_set_at ? formatUnixSecLocal(r.status_set_at) : '-',
+        },
         { label: t('purchases.evidenceStatus'), value: r.evidence_status || '-' },
         {
           label: t('purchases.detailSyncedAt'),
@@ -290,10 +313,17 @@ export default defineComponent({
     })
 
     /**
-     * 时间轴（与订单详情同一套三态口径）：
+     * 时间轴 = 这笔购入实际走过的四步：购入 → 发货 → 到货 → 评价。
+     * 「结算时间」不在这里：代购结算是人工对账的标记，不是交易本身的节点。
+     * 「发货期限」也移到了下面的 facts——它是个期限，不是发生过的事。
+     *
+     * 到货时间**只有点过运单号**（查黑猫 / 邮局的配送履历）才会有值：煤炉的接口
+     * 只给状态文案，不给送达时刻。没查过就显示 '-'，不拿别的时间凑数。
+     *
+     * 三态口径与订单详情一致：
      *  - done：这个节点自己有时间戳 → 圆点填实
      *  - reached：它**或它之后**任一节点有时间戳 → 轴线接通、圆点只描边。
-     *    中间缺一个时间戳不代表流程没走过去（例如发货期限没抓到、但已经评价了）。
+     *    中间缺一个时间戳不代表流程没走过去（例如没查过配送、但已经评价了）。
      *  - reachedNext：下一个节点 reached → 本格右半段轴线点亮
      */
     const timeline = computed(() => {
@@ -301,10 +331,9 @@ export default defineComponent({
       const at = (v) => (v ? formatUnixSecLocal(v) : '')
       const nodes = [
         { key: 'purchased', label: t('purchases.purchasedAt'), value: at(r.purchased_at) },
-        { key: 'due', label: t('purchases.shippingDue'), value: at(r.shipping_due_time) },
-        { key: 'status', label: t('purchases.statusSetAt'), value: at(r.status_set_at) },
+        { key: 'shipped', label: t('purchases.shippedAt'), value: at(r.shipped_at) },
+        { key: 'delivered', label: t('purchases.deliveredAt'), value: at(r.delivered_at) },
         { key: 'review', label: t('purchases.reviewGiven'), value: at(r.review_given_at) },
-        { key: 'settled', label: t('purchases.settledAt'), value: at(r.settled_at) },
       ]
       const reached = new Array(nodes.length).fill(false)
       let seen = false

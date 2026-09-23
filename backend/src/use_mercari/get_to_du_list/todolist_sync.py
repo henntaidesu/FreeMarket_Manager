@@ -22,6 +22,11 @@ from ...db_manage.models.shop_accounts.shop_account import ShopAccountModel
 from ...ssl_mitm_proxy.capture_config import clear_todolist_response_file
 from ...web_drive.core.mitm_session import mitm_automation_browser
 from ..sync.sync_progress import make_sync_reporter
+from .purchase_link import (
+    advance_purchase_states,
+    fetch_tracking_for_new_wait_receipt,
+    row_is_wait_receipt,
+)
 from .todolist_capture import TODOS_PAGE_URL, capture_todolist_via_mitm_session
 from .transaction_detail._common import _WAIT_SHIPPING_KINDS, _WAIT_SHIPPING_TITLE
 
@@ -199,6 +204,11 @@ def apply_todolist_sync(
     # 本次同步涉及、已存在(updated)的「待发货」商品 ID（用于补抓仍缺发货期限的行；不动历史未涉及的行）
     updated_wait_shipping_item_ids: List[str] = []
     incoming_uuids: List[str] = []
+    # 「待收货」：(item_id, 待办创建时间 epoch 秒)。本次返回的**全部**待收货都进来——
+    # 推进购入状态是纯 SQL 且幂等，多算几行不花钱，反而能补上历史遗漏的。
+    wait_receipt_items: List[tuple] = []
+    # 其中**本次新插入**的那些：只有它们值得为了运单号再开一次浏览器。
+    new_wait_receipt_item_ids: List[str] = []
 
     for item in items:
         if not isinstance(item, dict):
@@ -217,9 +227,16 @@ def apply_todolist_sync(
             row["is_delete"] = 1
             row["shipped_finalized"] = 1
         incoming_uuids.append(row["uuid"])
+        if row_is_wait_receipt(row) and (row.get("item_id") or "").strip():
+            created_ms = row.get("mercari_created")
+            wait_receipt_items.append(
+                (row["item_id"].strip(), int(created_ms // 1000) if created_ms else None)
+            )
         action = _upsert_todo_row(db, row)
         if action == "inserted":
             inserted += 1
+            if row_is_wait_receipt(row) and (row.get("item_id") or "").strip():
+                new_wait_receipt_item_ids.append(row["item_id"].strip())
             # 新插入(=新出现)的待发货待办视为「新的待发货数据」，用于联动同步在售/订单。
             # 已 finalized 的复活行被隐藏，不算新待发货（避免误触发发货期限抓取/联动同步）。
             if _row_is_wait_shipping(row) and not suppressed:
@@ -236,6 +253,13 @@ def apply_todolist_sync(
                     updated_wait_shipping_item_ids.append(iid)
         else:
             skipped += 1
+
+    # ── 待收货 ⇒ 购入商品推进到「等待收货」────────────────────────────────── #
+    # 这条待办与 purchase_items 的一行是同一笔交易的两个视角，它一出现就说明卖家已发货。
+    # 待办同步比购入同步轻得多（后者要开浏览器翻整个购入列表），所以在这里用纯 SQL 抢先
+    # 把状态推过去 + 记下发货时间，`/#/system/purchases` 不用等下一次购入同步。
+    # 本账号没买过的商品自然匹配不到行，多跑几条 UPDATE 不会误伤。
+    purchase_state_advanced = advance_purchase_states(account_id, wait_receipt_items)
 
     # 软删除：当前账号下、未在本次返回中的活跃行。
     # 抓取不完整（分页中途失败）时跳过：缺席不等于已完成。
@@ -295,6 +319,8 @@ def apply_todolist_sync(
         "new_wait_shipping": new_wait_shipping,
         "new_wait_shipping_item_ids": new_wait_shipping_item_ids,
         "backfill_wait_shipping_item_ids": backfill_wait_shipping_item_ids,
+        "purchase_state_advanced": int(purchase_state_advanced or 0),
+        "new_wait_receipt_item_ids": list(dict.fromkeys(new_wait_receipt_item_ids)),
         "marked_deleted": int(marked_deleted or 0),
         "shipping_qr_finalized": int(shipping_qr_finalized or 0),
     }
@@ -419,6 +445,16 @@ async def sync_todos_with_details(
         except Exception as exc:  # noqa: BLE001 抓取失败不影响待办同步结果
             log.warning("[todolist] account_id=%s 抓取发货期限失败: %s", aid, exc)
             stats["shipping_duration_error"] = str(exc)
+
+    # ── 待收货：新出现的那些，去取引画面补一次运单号 ──
+    #    状态与发货时间已由 apply_todolist_sync 的纯 SQL 推进过了（不依赖这一步）；
+    #    只有运单号非去取引画面不可——列表接口不给。所以**只抓还没有运单号的**，
+    #    而且只抓本次**新插入**的：已有的待收货每轮都在，抓一次就够。
+    new_receipt_ids = stats.get("new_wait_receipt_item_ids") or []
+    if new_receipt_ids and aid:
+        await fetch_tracking_for_new_wait_receipt(
+            aid, new_receipt_ids, stats, progress_job_id
+        )
 
     # ── 联动同步：本次有新待发货（=有新订单成交）→ 同步一次在售列表与订单列表 ──
     #    没有新待发货则不触发，避免无谓抓取。

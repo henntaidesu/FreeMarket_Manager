@@ -16,6 +16,9 @@
 }
 .item-link { color: inherit; text-decoration: none; }
 .item-link:hover { text-decoration: underline; }
+/* 卡片底部的运单号：点开配送履历。与 .item-link 同一套弱化链接样式 */
+.pur-card-track { color: inherit; text-decoration: none; cursor: pointer; }
+.pur-card-track:hover { text-decoration: underline; }
 .variant {
   margin-left: 8px;
   font-size: 12px;

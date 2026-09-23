@@ -35,6 +35,7 @@
 from typing import Any, Dict, List, Optional, Tuple
 
 from ...base_model import BaseModel
+from .purchase_delivery import display_state_sql
 
 
 # SELECT 列顺序（find_list 用）
@@ -68,6 +69,10 @@ _PURCHASE_ITEM_LIST_KEYS: Tuple[str, ...] = (
     "tracking_no",
     "delivery_status_name",
     "is_delivered",
+    "shipped_at",
+    "delivered_at",
+    "delivery_carrier",
+    "delivery_trace_at",
     "evidence_status",
     "evidence_created",
     "evidence_updated",
@@ -184,7 +189,24 @@ class PurchaseItemModel(BaseModel):
             # 追踪号与配送状态：delivery/status，未发货时该接口根本不存在 → 保持 NULL
             "tracking_no": {"type": "TEXT", "not_null": False, "default": None},
             "delivery_status_name": {"type": "TEXT", "not_null": False, "default": None},
+            # ⚠ 别拿它当「是否已送达」：实测状态文案已是「お届け先にお届け済み」的行
+            # 这里仍是 0（m67663910332）。到货判定见 purchase_delivery.delivered_sql。
             "is_delivered": {"type": "INTEGER", "not_null": False, "default": None},
+
+            # ── 配送时间轴（详情弹窗的时间轴：购入 → 发货 → 到货 → 评价）────────── #
+            # 发货时间：卖家点発送通知的时刻。两个来源写同一列且**写一次不再改**
+            # （取引详情的 status_set_at@wait_review，与「待收货」待办的创建时间，
+            # 相差不过几秒），谁先到算谁的，免得同一行的时间来回跳。
+            "shipped_at": {"type": "INTEGER", "not_null": False, "default": None},
+            # 到货时间：**只有**点运单号抓黑猫/邮局履历才拿得到——煤炉不给送达时间。
+            "delivered_at": {"type": "INTEGER", "not_null": False, "default": None},
+            # yamato / japanpost。决定运单号点下去查哪家；详情回填按响应形态认，
+            # 认不出时回落到 shipping_method_name（见 delivery_tracking.detect_carrier）。
+            "delivery_carrier": {"type": "TEXT", "not_null": False, "default": None},
+            # 最近一次承运公司查询的完整履历与时刻。履历整份存 JSON：它只在详情弹窗
+            # 里整段展示，拆成表没有第二个读者，承运公司还会自己加节点。
+            "delivery_trace_json": {"type": "TEXT", "not_null": False, "default": None},
+            "delivery_trace_at": {"type": "INTEGER", "not_null": False, "default": None},
 
             # 取引画面自己的状态词（wait_shipping / wait_review / done），与列表的
             # STATE_* 是同一件事的两套词。展示口径仍是 state；这里留原值便于排查。
@@ -278,7 +300,9 @@ class PurchaseItemModel(BaseModel):
             sql += " AND t.account_id = ?"
             params.append(int(account_id))
         if state is not None and str(state).strip():
-            sql += " AND t.state = ?"
+            # 筛的是**展示状态**（四态），不是库里的 state：前端下拉给的是
+            # STATE_WAITING_RECEIPT 这种本地态，按原列筛一条都对不上。
+            sql += f" AND {display_state_sql('t')} = ?"
             params.append(str(state).strip())
         if settlement_status is not None:
             sql += " AND COALESCE(t.settlement_status, 0) = ?"
@@ -323,8 +347,12 @@ class PurchaseItemModel(BaseModel):
         total = db.execute_query(f"SELECT COUNT(*) {base_sql}", tuple(params))[0][0]
         offset = (page - 1) * page_size
         keys = list(_PURCHASE_ITEM_LIST_KEYS)
+        # display_state 是算出来的第 N+1 列（口径见 purchase_delivery），前端的状态标签
+        # 与筛选下拉都只认它；原始 state 仍一并返回，排查时能看出煤炉给的是什么。
+        cols = [f"t.{k}" for k in keys] + [f"{display_state_sql('t')}"]
+        keys.append("display_state")
         sel = f"""
-            SELECT {', '.join('t.' + k for k in keys)}
+            SELECT {', '.join(cols)}
             {base_sql}
             ORDER BY COALESCE(t.purchased_at, 0) DESC, t.id DESC
             LIMIT ? OFFSET ?

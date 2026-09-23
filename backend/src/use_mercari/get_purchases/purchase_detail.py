@@ -40,6 +40,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 
 from ...db_manage.models.purchases.purchase_item import PurchaseItemModel
+from ...delivery_tracking import carrier_from_delivery_capture
 from ...ssl_mitm_proxy.capture_config import (
     canonical_mercari_item_id,
     clear_delivery_status_response_file,
@@ -163,12 +164,14 @@ def _shipping_fields(
     return {"shipping_method_name": _text_or_none(name)}
 
 
-def _delivery_fields(delivery: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def _delivery_fields(
+    delivery: Optional[Dict[str, Any]], delivery_url: Optional[str] = None
+) -> Dict[str, Any]:
     if not isinstance(delivery, dict):
         return {}
     # 追踪号两家都叫 denpyo_no；状态文案不同：ヤマト 是 yamato_status_name（「作業店通過」），
     # 日本郵便 是 shipping_detailed_status（「引受」）。都取不到才退回英文 status。
-    return {
+    out = {
         "tracking_no": _text_or_none(delivery.get("denpyo_no")),
         "delivery_status_name": _text_or_none(
             delivery.get("yamato_status_name")
@@ -176,6 +179,10 @@ def _delivery_fields(delivery: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             or delivery.get("status")
         ),
     }
+    carrier = carrier_from_delivery_capture(delivery, delivery_url)
+    if carrier:
+        out["delivery_carrier"] = carrier
+    return out
 
 
 def _review_fields(reviews: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -198,6 +205,7 @@ def build_detail_row(
     item_get: Optional[Dict[str, Any]] = None,
     shipping: Optional[Dict[str, Any]] = None,
     delivery: Optional[Dict[str, Any]] = None,
+    delivery_url: Optional[str] = None,
     reviews: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """把各接口的 data 合成一行待写字段（不含 item_id / account_id）。"""
@@ -205,14 +213,24 @@ def build_detail_row(
     row.update(_evidence_fields(evidence))
     row.update(_seller_fields(item_get))
     row.update(_shipping_fields(item_get, shipping))
-    row.update(_delivery_fields(delivery))
+    row.update(_delivery_fields(delivery, delivery_url))
     row.update(_review_fields(reviews))
     mapped = EVIDENCE_STATUS_TO_STATE.get(str(row.get("evidence_status") or "").strip())
     if mapped:
         row["state"] = mapped
+    # 发货时间 = 状态**变成** wait_review 的那一刻，即卖家点発送通知的时间。
+    # 只在这个状态下取：一旦变成 done，current_status_set_at 说的就是取引完了的时间了。
+    if str(row.get("evidence_status") or "").strip() == "wait_review" and row.get("status_set_at"):
+        row["shipped_at"] = int(row["status_set_at"])
     row["detail_synced_at"] = int(time.time())
     row["detail_fetch_failures"] = 0
     return row
+
+
+#: 有值就不再覆盖的列。``shipped_at`` 另有一个来源（「待收货」待办的创建时间，
+#: 见 ``purchase_delivery.mark_shipped_from_todos``），两者相差不过几秒；
+#: 让先到的说了算，免得同一行的发货时间随同步来回跳。
+_WRITE_ONCE_FIELDS = frozenset({"shipped_at"})
 
 
 def save_detail_row(item_id: str, row: Dict[str, Any]) -> bool:
@@ -223,6 +241,8 @@ def save_detail_row(item_id: str, row: Dict[str, Any]) -> bool:
         return False
     rec = rows[0]
     for k, v in row.items():
+        if k in _WRITE_ONCE_FIELDS and getattr(rec, k, None):
+            continue
         setattr(rec, k, v)
     rec.save()
     return True
@@ -355,6 +375,8 @@ async def fetch_purchase_detail_in_session(
         item_get=_unwrap(optional["item_get"]),
         shipping=_unwrap(wrapped_shipping),
         delivery=_unwrap(optional["delivery"]),
+        # 两家运送公司共用一个抓包文件名，只有请求 URL 分得出是哪条接口 → 哪家公司
+        delivery_url=(optional["delivery"] or {}).get("request_url"),
         reviews=_unwrap(optional["reviews"]),
     )
     saved = save_detail_row(cid, row)
