@@ -782,6 +782,83 @@
           </div>
         </section>
 
+        <!-- 网页访问方式：nginx 反代 HTTP / 直连端口自签 HTTPS（摄像头需要安全上下文） -->
+        <section id="sc-web-access" class="sc-panel">
+          <div class="sc-panel-head">
+            <span class="sc-ic sc-ic--cyan"><el-icon :size="17"><Connection /></el-icon></span>
+            <div class="sc-head-text">
+              <div class="sc-panel-title">{{ t('webAccess.section') }}</div>
+              <div class="sc-panel-desc">{{ t('webAccess.desc') }}</div>
+            </div>
+          </div>
+          <div class="sc-panel-body" v-loading="webAccessLoading">
+            <el-alert
+              v-if="!pageSecure"
+              type="error"
+              show-icon
+              :closable="false"
+              :title="t('webAccess.insecureNotice')"
+              style="margin-bottom: 12px"
+            />
+            <div class="sc-field sc-field--stack">
+              <div class="sc-label">{{ t('webAccess.mode') }}</div>
+              <el-radio-group v-model="webAccess.mode">
+                <el-radio value="direct">{{ t('webAccess.modeDirect') }}</el-radio>
+                <el-radio value="nginx">{{ t('webAccess.modeNginx') }}</el-radio>
+              </el-radio-group>
+              <div class="sc-wa-hint">
+                {{ webAccess.mode === 'direct' ? t('webAccess.modeDirectHint') : t('webAccess.modeNginxHint') }}
+              </div>
+            </div>
+            <div v-if="webAccess.mode === 'direct'" class="sc-field sc-field--stack">
+              <div class="sc-label">{{ t('webAccess.hosts') }}</div>
+              <el-input v-model="webAccess.hosts" clearable :placeholder="t('webAccess.hostsPlaceholder')" />
+            </div>
+            <div class="sc-field">
+              <div class="sc-label">{{ t('webAccess.running') }}</div>
+              <span>{{ webAccess.running_https ? 'HTTPS' : 'HTTP' }}</span>
+            </div>
+            <el-alert
+              v-if="webAccess.pending_restart"
+              type="warning"
+              show-icon
+              :closable="false"
+              :title="t('webAccess.pendingRestart')"
+              style="margin-top: 12px"
+            />
+            <template v-if="webAccess.cert_exists">
+              <div class="sc-field">
+                <div class="sc-label">{{ t('webAccess.certHosts') }}</div>
+                <span class="sc-wa-mono">{{ webAccess.cert_hosts.join(', ') }}</span>
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">{{ t('webAccess.certExpires') }}</div>
+                <span>{{ webAccess.cert_not_after ? new Date(webAccess.cert_not_after * 1000).toLocaleDateString() : '-' }}</span>
+              </div>
+              <div class="sc-wa-hint">{{ t('webAccess.certHint') }}</div>
+            </template>
+            <div class="sc-actions">
+              <el-button type="primary" :loading="webAccessSaving" @click="saveWebAccess(false)">
+                {{ t('systemConfig.save') }}
+              </el-button>
+              <el-button
+                v-if="webAccessRestartAvailable"
+                type="warning"
+                :loading="webAccessSaving"
+                @click="saveWebAccess(true)"
+              >
+                {{ t('webAccess.saveAndRestart') }}
+              </el-button>
+              <el-button v-if="webAccess.cert_exists" tag="a" :href="configApi.webCertUrl" target="_blank">
+                {{ t('webAccess.downloadCert') }}
+              </el-button>
+              <el-button v-if="webAccess.mode === 'direct'" :loading="webCertRegenerating" @click="regenerateWebCert">
+                {{ t('webAccess.regenerate') }}
+              </el-button>
+            </div>
+          </div>
+        </section>
+
         <!-- Cookie 注入域名：代理经 nginx 以独立域名发布时的对外基址 -->
         <section id="sc-proxy" class="sc-panel">
           <div class="sc-panel-head">
@@ -888,7 +965,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
-import { Plus, User, UserFilled, Lock, MagicStick, Sell, Coin, Tickets, Printer, Compass, Suitcase, Timer, Link, Picture } from '@element-plus/icons-vue'
+import { Plus, User, UserFilled, Lock, MagicStick, Sell, Coin, Tickets, Printer, Compass, Suitcase, Timer, Link, Picture, Connection } from '@element-plus/icons-vue'
 import { ElMessage } from '@/utils/notify'
 import { setLocale, SUPPORTED_LOCALES } from '@/i18n'
 import { authApi, configApi, proxyUserApi, shopAccountApi } from '@/api/index.js'
@@ -929,6 +1006,7 @@ const SECTIONS = [
   { id: 'image-hosting', icon: 'Picture', labelKey: 'systemConfig.imageHostingSection' },
   { id: 'qrparams', icon: 'Tickets', labelKey: 'qrPrint.paramsSection' },
   { id: 'printer', icon: 'Printer', labelKey: 'qrPrint.connSection' },
+  { id: 'web-access', icon: 'Connection', labelKey: 'webAccess.section' },
   { id: 'proxy', icon: 'Link', labelKey: 'systemConfig.proxySection' },
 ]
 
@@ -1116,6 +1194,89 @@ const form = reactive({
   model: '',
   base_url: '',
 })
+
+// ===== 网页访问方式 =====
+const webAccessLoading = ref(false)
+const webAccessSaving = ref(false)
+const webCertRegenerating = ref(false)
+const webAccessRestartAvailable = ref(false)
+const pageSecure = window.isSecureContext
+const webAccess = reactive({
+  mode: 'nginx',
+  hosts: '',
+  running_https: false,
+  pending_restart: false,
+  cert_exists: false,
+  cert_hosts: [],
+  cert_not_after: null,
+})
+
+function applyWebAccess(res) {
+  if (!res) return
+  webAccess.mode = res.mode || 'nginx'
+  // 没配过域名时预填当前访问的主机名：证书里没有这个名字，浏览器会多报一条名称不匹配
+  webAccess.hosts = (res.hosts || []).join(', ') || window.location.hostname
+  webAccess.running_https = !!res.running_https
+  webAccess.pending_restart = !!res.pending_restart
+  webAccess.cert_exists = !!res.cert_exists
+  webAccess.cert_hosts = res.cert_hosts || []
+  webAccess.cert_not_after = res.cert_not_after || null
+  webAccessRestartAvailable.value = !!res.restart_available
+}
+
+async function loadWebAccess() {
+  webAccessLoading.value = true
+  try {
+    applyWebAccess(await configApi.getWebAccess())
+  } catch {
+    ElMessage.error(t('systemConfig.loadFailed'))
+  } finally {
+    webAccessLoading.value = false
+  }
+}
+
+async function saveWebAccess(restart) {
+  if (restart) {
+    try {
+      await ElMessageBox.confirm(t('webAccess.restartConfirm'), t('webAccess.section'), { type: 'warning' })
+    } catch {
+      return
+    }
+  }
+  const wasHttps = webAccess.running_https
+  webAccessSaving.value = true
+  try {
+    const res = await configApi.putWebAccess({ mode: webAccess.mode, hosts: webAccess.hosts, restart })
+    applyWebAccess(res)
+    if (res?.restarting) {
+      ElMessage.success(t('webAccess.restarting'))
+      // 协议随模式变：切到直连 → https；从直连切回 nginx → http。其余情况原地刷新
+      let proto = window.location.protocol
+      if (res.mode === 'direct') proto = 'https:'
+      else if (wasHttps && proto === 'https:') proto = 'http:'
+      const target = `${proto}//${window.location.host}${window.location.pathname}${window.location.hash}`
+      setTimeout(() => { window.location.href = target }, 12000)
+    } else {
+      ElMessage.success(t('systemConfig.saveSuccess'))
+    }
+  } catch {
+    /* 错误由 axios 拦截器提示 */
+  } finally {
+    webAccessSaving.value = false
+  }
+}
+
+async function regenerateWebCert() {
+  webCertRegenerating.value = true
+  try {
+    applyWebAccess(await configApi.regenerateWebCert())
+    ElMessage.success(t('webAccess.regenerated'))
+  } catch {
+    /* 错误由 axios 拦截器提示 */
+  } finally {
+    webCertRegenerating.value = false
+  }
+}
 
 // ===== Cookie 注入域名 =====
 const proxyLoading = ref(false)
@@ -1905,6 +2066,7 @@ onMounted(() => {
   pollImageJob()
   loadPrinterParams()
   loadProxyBase()
+  loadWebAccess()
 
   scrollRoot = pageRef.value?.closest('.main-content') || null
   ;(scrollRoot || window).addEventListener('scroll', syncActiveSection, { passive: true })
@@ -2147,6 +2309,17 @@ onUnmounted(() => {
 }
 .sc-field--wide {
   grid-column: span 2;
+}
+.sc-wa-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--el-text-color-secondary);
+}
+.sc-wa-mono {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  word-break: break-all;
 }
 .sc-field--stack {
   margin-top: 16px;

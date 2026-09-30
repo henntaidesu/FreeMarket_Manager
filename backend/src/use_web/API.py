@@ -28,6 +28,7 @@ from ..auth import require_auth
 from .login.API import router as login_router
 from .dashboard.API import router as dashboard_router
 from .system.API import router as system_router
+from .system.API import public_router as system_public_router
 from .product_types.API import router as product_types_router
 from .web_drive.API import router as web_drive_router
 from .on_sale_items.API import router as on_sale_items_router
@@ -69,6 +70,9 @@ router.include_router(mercari_image_public_router, tags=["mercari-image"])
 # 返回字段是白名单挑出来的，不是库存行原样外发——条码/SKU/货架/归属人/内部备注都不在其中，
 # 见 store/units/store_query.py 模块注释。每个处理器自己调 check_public_rate_limit。
 router.include_router(store_public_router, prefix="/store", tags=["store-public"])
+
+# 网页自签证书下载（公钥证书，非机密；手机浏览器直接打开才能安装）
+router.include_router(system_public_router, prefix="/system", tags=["system-public"])
 
 # ============ 需要认证的端点 ============
 _AUTH = [Depends(require_auth)]

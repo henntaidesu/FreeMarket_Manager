@@ -32,6 +32,13 @@ from .units.app_config_handler import (
     get_proxy_public_base,
     put_proxy_public_base,
 )
+from .units.web_access_handler import (
+    WebAccessOut,
+    download_web_cert,
+    get_web_access,
+    post_regenerate_cert,
+    put_web_access,
+)
 from .units.homecoming_handler import (
     HomecomingStatusOut,
     get_homecoming,
@@ -167,6 +174,15 @@ router.add_api_route("/image-hosting/migrate", post_image_hosting_migrate, metho
 router.add_api_route("/image-hosting/rollback", post_image_hosting_rollback, methods=["POST"], response_model=MigrationStatusOut, dependencies=_ADMIN)
 router.add_api_route("/image-hosting/migration", get_image_hosting_migration, methods=["GET"], response_model=MigrationStatusOut)
 router.add_api_route("/image-hosting/migration/cancel", post_image_hosting_migration_cancel, methods=["POST"], response_model=MigrationStatusOut, dependencies=_ADMIN)
+
+# 网页访问方式：nginx 反代 HTTP / 直连端口自签 HTTPS（改动需重启，限管理员）
+router.add_api_route("/web-access", get_web_access, methods=["GET"], response_model=WebAccessOut)
+router.add_api_route("/web-access", put_web_access, methods=["PUT"], response_model=WebAccessOut, dependencies=_ADMIN)
+router.add_api_route("/web-access/regenerate-cert", post_regenerate_cert, methods=["POST"], response_model=WebAccessOut, dependencies=_ADMIN)
+
+# 公开：自签证书下载（手机要用浏览器直接打开这个地址才能装证书，带不了 Bearer 头）
+public_router = APIRouter()
+public_router.add_api_route("/web-access/cert", download_web_cert, methods=["GET"])
 
 # SSL MITM 代理控制（start/stop 限管理员）
 router.add_api_route("/ssl-mitm/status", get_status, methods=["GET"])

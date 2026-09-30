@@ -18,6 +18,13 @@ export const configApi = {
   // payload: { public_base, base_path }。base_path 省略则不动已存的挂载子路径。
   putProxyPublicBase: (payload) =>
     http.put('/use_web/system/proxy-public-base', payload),
+  // 网页访问方式：{ mode: 'nginx' | 'direct', hosts, running_https, pending_restart, cert_* }
+  // PUT { mode, hosts, restart }：direct 时顺带生成自签证书；restart=true 则保存后通过 restart.bat 重启
+  getWebAccess: () => http.get('/use_web/system/web-access'),
+  putWebAccess: (data) => http.put('/use_web/system/web-access', data),
+  regenerateWebCert: () => http.post('/use_web/system/web-access/regenerate-cert'),
+  // 公开下载地址（手机浏览器直接打开才能安装证书，不走 axios）
+  webCertUrl: '/mercariV2/src/use_web/system/web-access/cert',
   // 回国模式：{ enabled, on_sale_count, suspended_count, task_id }
   // PUT 立即写开关（上架随即被禁），暂停/恢复整批商品由 system.homecoming 任务执行
   getHomecoming: () => http.get('/use_web/system/homecoming'),

@@ -1,6 +1,8 @@
 import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
+import fs from 'node:fs'
+import path from 'node:path'
 
 /** 在 @vite/client 之前注入，避免手机切后台后 HMR 重连触发 location.reload */
 function resumeGuardFirstPlugin() {
@@ -20,7 +22,42 @@ function resumeGuardFirstPlugin() {
 const websideRoot = fileURLToPath(new URL('.', import.meta.url))
 const DEV_PORT = 9600
 
-// dev server 始终是纯 HTTP —— HTTPS 由前置 nginx 反代终止，本进程不再自带证书。
+// 系统配置「网页访问方式」= 直连 HTTPS 时，后端启动会把实际生效的状态写到这里
+// （backend/src/web_tls.py::write_state）。dev 下浏览器连的是本 server，所以要跟着一起说 https，
+// 并把代理目标换成 https 的后端。文件不存在 / 读不了 = 纯 HTTP（nginx 模式）。
+const WEB_TLS_STATE = path.resolve(websideRoot, '../backend/data/web_tls/state.json')
+
+function readWebTls() {
+  try {
+    const st = JSON.parse(fs.readFileSync(WEB_TLS_STATE, 'utf-8'))
+    if (st?.https && st.cert && st.key) {
+      return { https: { cert: fs.readFileSync(st.cert), key: fs.readFileSync(st.key) } }
+    }
+  } catch {
+    /* 没有状态文件或证书读不了：按 HTTP */
+  }
+  return { https: undefined }
+}
+
+/** 后端切换访问方式并重启后会改写 state.json；监视它并自行重启，免得还要手动重启 npm run dev */
+function webTlsWatchPlugin() {
+  return {
+    name: 'web-tls-watch',
+    configureServer(server) {
+      server.watcher.add(WEB_TLS_STATE)
+      const onChange = (file) => {
+        if (path.resolve(file) === WEB_TLS_STATE) {
+          server.config.logger.info('[web-tls] 访问方式已变更，重启 dev server', { timestamp: true })
+          server.restart()
+        }
+      }
+      server.watcher.on('change', onChange)
+      server.watcher.on('add', onChange)
+    }
+  }
+}
+
+// nginx 模式下 dev server 是纯 HTTP —— HTTPS 由前置 nginx 反代终止；直连模式见上面的 WEB_TLS_STATE。
 // 不做任何主机名绑定：allowedHosts 放行全部，HMR 的主机名也由浏览器按当前页面推断，
 // 所以换域名、直连内网 IP、多个域名同时指过来都不用改配置。
 // 唯一需要显式告诉 Vite 的是「浏览器侧是怎么连上来的」：经 nginx 走 https 时 HMR 必须用
@@ -39,8 +76,10 @@ export default defineConfig(({ mode }) => {
     publicOriginUrl = undefined
   }
 
-  // 浏览器侧协议 = 用户地址栏里的协议（经 nginx 时是 https），与 dev server 自身监听的协议无关
-  const clientHttps = publicOriginUrl?.protocol === 'https:'
+  const webTls = readWebTls()
+  const backendTarget = webTls.https ? 'https://127.0.0.1:9601' : 'http://127.0.0.1:9601'
+  // 浏览器侧协议 = 用户地址栏里的协议（经 nginx 时是 https；直连 HTTPS 时本 server 自己就是 https）
+  const clientHttps = publicOriginUrl ? publicOriginUrl.protocol === 'https:' : !!webTls.https
   const originPort = publicOriginUrl
     ? Number(publicOriginUrl.port || (clientHttps ? 443 : 80))
     : DEV_PORT
@@ -49,7 +88,7 @@ export default defineConfig(({ mode }) => {
   const hmrClientPortFinal = Number.isFinite(hmrClientPort) ? hmrClientPort : DEV_PORT
 
   return {
-    plugins: [resumeGuardFirstPlugin(), vue()],
+    plugins: [resumeGuardFirstPlugin(), vue(), webTlsWatchPlugin()],
     build: {
       // 压缩 CSS 时按 Safari 15 的能力来：默认 target 允许媒体查询范围语法，
       // 会把 `@media (max-width: 768px)` 压成 `@media (width<=768px)`——
@@ -66,6 +105,7 @@ export default defineConfig(({ mode }) => {
       host: '0.0.0.0',
       port: DEV_PORT,
       strictPort: true,
+      https: webTls.https,
       // 放行全部 Host：不绑定域名。代价是关掉了 DNS 重绑定防护，仅限自用/内网。
       allowedHosts: true,
       cors: true,
@@ -73,15 +113,18 @@ export default defineConfig(({ mode }) => {
       hmr: { protocol: clientHttps ? 'wss' : 'ws', clientPort: hmrClientPortFinal },
       proxy: {
         '/mercariV2': {
-          target: 'http://127.0.0.1:9601',
+          target: backendTarget,
+          secure: false,
           changeOrigin: true
         },
         '/api': {
-          target: 'http://127.0.0.1:9601',
+          target: backendTarget,
+          secure: false,
           changeOrigin: true
         },
         '/imges': {
-          target: 'http://127.0.0.1:9601',
+          target: backendTarget,
+          secure: false,
           changeOrigin: true
         },
         // 对外商城：由后端挂载（src/store_static.py），必须转发过去。
@@ -90,7 +133,8 @@ export default defineConfig(({ mode }) => {
         // 注意这里代理到的是 storefront 的**构建产物**（storefront/dist），没有 HMR；
         // 要改商城前端本身，另开 `cd storefront && npm run dev`（9602 端口）。
         '/store': {
-          target: 'http://127.0.0.1:9601',
+          target: backendTarget,
+          secure: false,
           changeOrigin: true
         }
       }

@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """Uvicorn 启动。
 
-**后端不再自带 TLS，永远以普通 HTTP 监听**，由前置 nginx 终止 HTTPS。
-nginx 需转发 X-Forwarded-Proto / X-Forwarded-For，后端已开启 proxy_headers；
-信任的代理来源由 MERCARI_FORWARDED_ALLOW_IPS 控制（默认 127.0.0.1，即 nginx 与后端同机）。
+监听方式由系统配置「网页访问方式」决定（见 ``web_tls.py``）：
+- nginx（默认）：普通 HTTP，由前置 nginx 终止 HTTPS。nginx 需转发 X-Forwarded-Proto /
+  X-Forwarded-For，后端已开启 proxy_headers；信任的代理来源由 MERCARI_FORWARDED_ALLOW_IPS
+  控制（默认 127.0.0.1，即 nginx 与后端同机）。
+- direct：直连端口，后端加载系统自签证书提供 HTTPS（摄像头等功能需要安全上下文）。
 """
 
 from __future__ import annotations
@@ -75,7 +77,16 @@ def run(app: FastAPI) -> None:
     port = int((os.environ.get("MERCARI_PORT") or default_port).strip())
     forwarded_allow_ips = (os.environ.get("MERCARI_FORWARDED_ALLOW_IPS") or "127.0.0.1").strip()
 
-    print(f"[mercari] HTTP 启动：http://{host}:{port}  (HTTPS 由前置 nginx 终止)")
+    from .web_tls import resolve_ssl, write_state
+
+    certfile, keyfile = resolve_ssl()
+    write_state(bool(certfile), port, certfile, keyfile)
+    ssl_kwargs: dict = {}
+    if certfile and keyfile:
+        ssl_kwargs = {"ssl_certfile": certfile, "ssl_keyfile": keyfile}
+        print(f"[mercari] HTTPS 直连启动：https://{host}:{port}  (自签证书 {certfile})")
+    else:
+        print(f"[mercari] HTTP 启动：http://{host}:{port}  (HTTPS 由前置 nginx 终止)")
 
     config = uvicorn.Config(
         app,
@@ -86,6 +97,7 @@ def run(app: FastAPI) -> None:
         # 优雅停机上限：避免在途请求（如浏览器自动化长调用）把停机卡死，
         # 导致 server.run() 一直不返回、下方的强制退出永远走不到。
         timeout_graceful_shutdown=5,
+        **ssl_kwargs,
     )
     server = uvicorn.Server(config)
 

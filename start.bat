@@ -8,7 +8,7 @@ set ROOT=%~dp0
 set BACKEND=%ROOT%backend
 set WEBSIDE=%ROOT%webside
 
-rem Both servers listen on plain HTTP. Put nginx in front if you need HTTPS.
+rem HTTP by default; System Config - Web access = Direct HTTPS makes both servers use a self-signed cert.
 
 echo [1/2] Activating conda env mercari and starting backend (python main.py)...
 call conda activate mercari
@@ -42,7 +42,7 @@ if errorlevel 1 (
 
 echo.
 echo ========================================
-echo   Frontend ^(HTTP^):  http://localhost:9600
+echo   Frontend:  http://localhost:9600  ^(https:// when System Config - Web access = Direct HTTPS^)
 echo   Backend API:  http://localhost:9601
 echo   API docs:     http://localhost:9601/docs
 echo   Press Ctrl+C to stop

@@ -91,8 +91,19 @@ npm install
 npm run dev
 ```
 
-Frontend server: **http://localhost:9600** — plain HTTP, no built-in TLS anywhere in this app.
-HTTPS is terminated by an external nginx reverse proxy.
+Frontend server: **http://localhost:9600** by default. How the browser gets HTTPS is the
+**网页访问方式** switch (System 配置 → 网页访问方式, `src/web_tls.py`, stored in `system.db`,
+env fallback `MERCARI_ACCESS_MODE`; takes effect on restart):
+- `nginx` (default): uvicorn / Vite listen on plain HTTP, an external nginx terminates HTTPS.
+- `direct`: uvicorn **and** Vite serve HTTPS themselves with a system-generated self-signed cert in
+  `backend/data/web_tls/` (SAN = localhost + hostname + LAN IPv4 + the domains typed in the UI;
+  ≤825 days + serverAuth EKU, or iOS refuses it outright). Camera features (拍照发货 / 扫码) need a
+  secure context, so without nginx this mode is mandatory. `server.run()` writes the *effective*
+  state to `backend/data/web_tls/state.json`; `vite.config.js` reads it (HTTPS + `https://` proxy
+  target) and watches it, restarting itself when the backend comes back in the other mode.
+  Only `python main.py` goes through `server.run()` — a bare `uvicorn main:app` is always HTTP
+  (`note_external_launch` corrects `state.json` then). `restart.bat` probes health over https
+  (`curl.exe -k`) before http.
 - **No host binding**: `allowedHosts: true` (DNS-rebinding protection deliberately off, self-hosted
   only) and the HMR client infers its hostname from the page, so any domain or LAN IP works unchanged.
 - Behind nginx over https: set `MERCARI_DEV_PUBLIC_ORIGIN=https://yourhost` in
@@ -1210,8 +1221,9 @@ lets the user choose SQLite/MySQL, test the MySQL connection, and switch backend
 - `CORS_ORIGINS`: Comma-separated allowed origins. Unset → `*` with credentials **disabled**; set → those origins with credentials enabled.
 - `MERCARI_HOST` / `MERCARI_PORT`: uvicorn bind (defaults `0.0.0.0`, and `9601` in dev / `9600` when frozen).
 - `MERCARI_FORWARDED_ALLOW_IPS` (default `127.0.0.1`): which peers may set `X-Forwarded-*`. uvicorn runs
-  with `proxy_headers=True` and **never serves TLS itself** — HTTPS is nginx's job. There are no
-  `MERCARI_SSL_*` / `MERCARI_FORCE_HTTP` variables; the frozen build no longer generates a self-signed cert.
+  with `proxy_headers=True`; it serves TLS itself only in 网页访问方式 = `direct` (see Frontend
+  server above). There are no `MERCARI_SSL_*` / `MERCARI_FORCE_HTTP` variables.
+- `MERCARI_ACCESS_MODE` (`nginx` / `direct`): fallback for the 网页访问方式 switch when the UI hasn't set it.
 - `MERCARI_AUTO_FETCH` / `MERCARI_AUTO_FETCH_TICK_SEC` / `MERCARI_AUTO_FETCH_INITIAL_DELAY_SEC`: Background sync loop toggle & cadence (first run is deliberately delayed ~180s to avoid contending with startup).
 - `MERCARI_PROXY_AUTO_START` / `MERCARI_PROXY_PORT` / `MERCARI_PROXY_BIND_HOST` (default `0.0.0.0`) / `MERCARI_PROXY_ALLOW_LAN` (set `0` = this machine only) / `MERCARI_PROXY_UPSTREAM` / `MERCARI_PROXY_CERT_DIR`: Node reverse proxy (see Auxiliary Subsystems).
 - `MERCARI_PROXY_BASE_PATH` (default empty = root mount): mount the proxy under a subpath such as

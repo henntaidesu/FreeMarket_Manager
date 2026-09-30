@@ -114,6 +114,10 @@ async def _on_startup(force_headed_debug: bool = False) -> None:
 
     asyncio.create_task(_run_maintenance())
 
+    from .web_tls import note_external_launch
+
+    note_external_launch()
+
     # 全部启动步骤完成（同步初始化 + 后台任务已调度），标记系统就绪。
     mark_ready()
     logging.getLogger(__name__).info("系统启动完成，健康检查已就绪")

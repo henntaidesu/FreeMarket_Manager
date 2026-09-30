@@ -15,12 +15,27 @@ set RELEASE=%ROOT%Releases\%VERSION%
 rem ===== Activate conda env mercari =====
 echo.
 echo [0/3] Activating conda env mercari ...
+rem "conda activate" only works after the conda hook is loaded into cmd ("conda init").
+rem If it fails, locate the conda install from conda.exe on PATH (or CONDA_EXE) and load
+rem condabin\conda_hook.bat for this session only, then retry.
+call conda activate mercari >nul 2>&1
+if not errorlevel 1 goto :conda_ok
+set "CONDA_ROOT="
+if defined CONDA_EXE for %%i in ("%CONDA_EXE%") do set "CONDA_ROOT=%%~dpi.."
+if not defined CONDA_ROOT for /f "delims=" %%i in ('where conda 2^>nul') do if not defined CONDA_ROOT set "CONDA_ROOT=%%~dpi.."
+if not defined CONDA_ROOT goto :conda_fail
+if not exist "%CONDA_ROOT%\condabin\conda_hook.bat" goto :conda_fail
+call "%CONDA_ROOT%\condabin\conda_hook.bat"
 call conda activate mercari
-if %errorlevel% neq 0 (
-    echo ERROR: failed to activate conda env mercari
-    pause
-    exit /b 1
-)
+if errorlevel 1 goto :conda_fail
+goto :conda_ok
+:conda_fail
+echo ERROR: failed to activate conda env mercari
+echo        Run "conda init cmd.exe" once, or check that the env exists: conda env list
+pause
+exit /b 1
+:conda_ok
+python -c "import sys; print('Using python:', sys.executable)"
 
 rem ===== Ensure pyinstaller is available =====
 rem NOTE: call it via "python -m PyInstaller" (NOT the bare "pyinstaller" command).
