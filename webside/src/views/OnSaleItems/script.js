@@ -10,6 +10,7 @@ import { mercariImageUrlList } from '@/utils/mercariImage.js'
 import { useMercariAccountStore } from '@/stores/mercariAccount.js'
 import { useSyncLockStore } from '@/stores/syncLock.js'
 import { useViewModeStore } from '@/stores/viewMode.js'
+import { useReviseExtras } from './useReviseExtras.js'
 
 export default defineComponent({
   setup() {
@@ -909,6 +910,9 @@ export default defineComponent({
       shipping_duration: '',
       shipping_from_area_id: '',
     })
+    /** 图片 / 商品类型 / 商品状态 / 配送方法（仅煤炉行） */
+    const reviseExtrasApi = useReviseExtras(t)
+    const reviseIsYahoo = computed(() => String(detailViewBase.value?.platform || '').trim() === 'yahoo')
     /** 商品说明末行的「暗码」（管理番号暗号）；编辑时锁定不可改，保存时原样回拼 */
     const reviseDescCipher = ref('')
     /** 打开修改弹窗时的原始值快照；提交时只下发与快照不同的字段 */
@@ -1175,8 +1179,7 @@ export default defineComponent({
       const { body, cipher } = splitListingCipher(detailListingBodyText.value || '')
       reviseForm.listing_description = body
       reviseDescCipher.value = cipher
-      // 配送について：发货时效 / 发货地区 / 配送料の負担按当前值预填（运费负担 / 发货地区在表单中已屏蔽，
-      // 因与快照相等而永不下发；发货时效仍可改）。
+      // 配送について：发货时效 / 发货地区 / 配送料の負担按当前值预填（未改动的与快照相等，不会下发）。
       reviseForm.shipping_duration = base.shipping_duration_id ? String(base.shipping_duration_id) : ''
       reviseForm.shipping_from_area_id = base.shipping_from_area_id ? String(base.shipping_from_area_id) : ''
       reviseForm.shipping_payer = base.shipping_payer_id ? String(base.shipping_payer_id) : ''
@@ -1189,6 +1192,7 @@ export default defineComponent({
         shipping_from_area_id: reviseForm.shipping_from_area_id,
         shipping_payer: reviseForm.shipping_payer,
       }
+      reviseExtrasApi.resetReviseExtras(base)
       reviseDialogVisible.value = true
     }
 
@@ -1233,6 +1237,7 @@ export default defineComponent({
       if (duration !== String(orig.shipping_duration || '').trim()) changed.shipping_duration = duration || undefined
       const area = String(reviseForm.shipping_from_area_id || '').trim()
       if (area !== String(orig.shipping_from_area_id || '').trim()) changed.shipping_from_area_id = area || undefined
+      if (!reviseIsYahoo.value) Object.assign(changed, reviseExtrasApi.reviseExtrasChangedFields())
       if (Object.keys(changed).length === 0) {
         ElMessage.warning(t('onSaleItems.reviseNoChange'))
         return
@@ -1744,6 +1749,8 @@ export default defineComponent({
       reviseForm,
       reviseDescCipher,
       openReviseDialog,
+      ...reviseExtrasApi,
+      reviseIsYahoo,
       submitReviseDetail,
       shippingDurationEditOptions,
       shippingPayerEditOptions,

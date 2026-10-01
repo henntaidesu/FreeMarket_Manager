@@ -55,7 +55,7 @@ async def handle_full_update(task: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def handle_revise(task: Dict[str, Any]) -> Dict[str, Any]:
-    """修改单件在售商品（标题 / 价格 / 说明 / 配送三项）。不占全局同步锁。"""
+    """修改单件在售商品（标题 / 价格 / 说明 / 配送 / 图片 / 类别 / 状态）。不占全局同步锁。"""
     from ...use_web.web_drive.units.web_drive_handler.items import (
         ReviseMercariItemBody,
         revise_on_sale_item,
@@ -72,6 +72,10 @@ async def handle_revise(task: Dict[str, Any]) -> Dict[str, Any]:
             shipping_payer=payload.get("shipping_payer"),
             shipping_duration=payload.get("shipping_duration"),
             shipping_from_area_id=payload.get("shipping_from_area_id"),
+            image_urls=payload.get("image_urls"),
+            product_type_id=payload.get("product_type_id"),
+            condition=payload.get("condition"),
+            shipping_method=payload.get("shipping_method"),
             use_mitm_proxy=bool(payload.get("use_mitm_proxy", True)),
             progress_job_id=jid,
         )

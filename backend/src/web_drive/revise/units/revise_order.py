@@ -1,8 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-Mercari 在售商品修改：用同步/自动化专用无头 profile（mercari_{id}__sync）经 MITM 打开编辑页，填写「标题/价格/商品说明」
+Mercari 在售商品修改：用同步/自动化专用无头 profile（mercari_{id}__sync）经 MITM 打开编辑页，填写
+「图片 / 类别 / 商品状态 / 配送方法」（见 ``revise_fields``）与「标题 / 价格 / 商品说明 / 配送三项下拉」，
 并点击「変更する」提交。提交成功后**不再从煤炉重新同步列表**，而是直接把改动写回本地
 ``on_sale_items`` 数据库（浏览器由队列空闲超时关闭）。
+
+改了图片 / 类别 / 状态 / 配送方法时，提交后在同一会话里再读一次 ``items/get`` 回写本地：
+这几项本地存的是煤炉侧的 id 与展示名（类别三级名、状态名、原图 URL），拿我们提交的值去猜
+只会写出和煤炉不一致的数据。
 
 流程（cookie 由 Edge 持久化自动维护）：
   1. ``mitm_automation_browser(account_id, start_url=edit_url)`` 进入同步/自动化专用无头 profile ``mercari_{id}__sync``
@@ -13,7 +18,7 @@ Mercari 在售商品修改：用同步/自动化专用无头 profile（mercari_{
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from ...listing.units.post_to_macket import (
     DEFAULT_PAGE_LOAD_TIMEOUT_MS,
@@ -27,6 +32,7 @@ from ...delete.units.delete_order import (
     _page_for_session,
 )
 from ....use_mercari.sync.sync_progress import make_sync_reporter
+from . import revise_fields as rf
 
 log = logging.getLogger(__name__)
 
@@ -180,6 +186,39 @@ def _update_local_on_sale_item(
     return int(db.execute_update(sql, tuple(params) + tuple(ids)) or 0)
 
 
+async def _refresh_local_from_item_get(mgr: Any, browser_key: str, item_id: str) -> None:
+    """同一会话打开商品页截获 ``items/get``，把说明 / 配送 / 图片 / 状态 / 类别写回 on_sale_items。
+
+    只写在售行，不走 ``detail_sync_inventory_from_item_get_response`` 的库存重绑：修改不改说明末行
+    暗码（前端锁定），绑定关系不会因此变化。
+    """
+    from ....use_mercari.get_order.mercari_item_get import fetch_mercari_item_get_in_browser_session
+    from ....use_mercari.on_sale.on_sale_item_detail_sync.parsing import (
+        _persist_listing_description_for_item,
+        extract_detail_extras,
+        extract_shipping_duration,
+        extract_shipping_payer,
+    )
+
+    resp = await fetch_mercari_item_get_in_browser_session(mgr, browser_key, item_id, timeout=60)
+    data = resp.get("data") if isinstance(resp, dict) else None
+    if not isinstance(data, dict):
+        raise RuntimeError("items/get 响应缺少 data")
+    dur_id, dur_name = extract_shipping_duration(data)
+    payer_id, payer_name = extract_shipping_payer(data)
+    desc = data.get("description")
+    _persist_listing_description_for_item(
+        item_id,
+        str(data.get("id") or "").strip() or None,
+        desc if isinstance(desc, str) else None,
+        shipping_duration_id=dur_id,
+        shipping_duration_name=dur_name,
+        shipping_payer_id=payer_id,
+        shipping_payer_name=payer_name,
+        extras=extract_detail_extras(data),
+    )
+
+
 async def revise_mercari_item(
     manager: Any,
     account_key: str,
@@ -191,6 +230,10 @@ async def revise_mercari_item(
     shipping_payer: Optional[str] = None,
     shipping_duration: Optional[str] = None,
     shipping_from_area_id: Optional[str] = None,
+    image_urls: Optional[Sequence[str]] = None,
+    category_positions: Optional[Sequence[int]] = None,
+    condition: Optional[str] = None,
+    shipping_method: Optional[str] = None,
     proxy_server: Optional[str] = None,  # noqa: ARG001 — MITM 由 mitm_automation_browser 统一配置
     page_load_timeout_ms: int = DEFAULT_PAGE_LOAD_TIMEOUT_MS,
     element_timeout_ms: int = REVISE_ELEMENT_TIMEOUT_MS,
@@ -205,6 +248,13 @@ async def revise_mercari_item(
       - ``shipping_payer``：``2``=送料込み(出品者負担) / ``1``=着払い(購入者負担)
       - ``shipping_duration``：``1``/``2``/``3``（= shipping_duration_id）
       - ``shipping_from_area_id``：``1``~``47`` 都道府県 / ``99`` 未定
+
+    另外四项（均为 None = 不改）：
+      - ``image_urls``：修改后的**完整**图片列表（按顺序），整组替换编辑页上的现有图片；
+        可混用 ``/imges/…`` 与煤炉原图 URL（保留的旧图由前端原样传回，这里重新下载再传）
+      - ``category_positions``：类别按钮位置数组（商品类型映射 ``mercari_category_positions``）
+      - ``condition``：``new_unused`` / ``almost_unused`` / ``good`` / ``fair`` / ``used`` / ``bad``
+      - ``shipping_method``：``undecided`` / ``rakuraku`` / ``yuuyu`` / ``tanome`` / ``regular_mail``
     """
     from ...core.manager import EdgeWebDriveManager
     from ...core.mitm_session import mitm_automation_browser
@@ -236,6 +286,10 @@ async def revise_mercari_item(
     duration_val = (shipping_duration or "").strip() or None
     area_val = (shipping_from_area_id or "").strip() or None
 
+    positions_val = [int(p) for p in (category_positions or [])] or None
+    condition_val = (condition or "").strip() or None
+    method_val = (shipping_method or "").strip() or None
+
     if (
         not name_val
         and desc_val is None
@@ -243,8 +297,24 @@ async def revise_mercari_item(
         and payer_val is None
         and duration_val is None
         and area_val is None
+        and image_urls is None
+        and positions_val is None
+        and condition_val is None
+        and method_val is None
     ):
         raise ValueError("没有需要修改的字段")
+
+    # 图片在打开浏览器之前全部落成本地文件：任何一张取不到就整件放弃，
+    # 不能等删光了编辑页上的旧图才发现新图凑不齐。
+    local_images: Optional[List[str]] = None
+    if image_urls is not None:
+        local_images = []
+        for u in image_urls:
+            lp = rf.resolve_revise_image(str(u or "").strip())
+            if not lp:
+                rf.cleanup_temp_images(local_images)
+                raise ValueError(f"图片无法读取：{u}")
+            local_images.append(lp)
 
     auto_key = mercari_automation_key(account_id)
     edit_url = build_sell_edit_url(item_id)
@@ -268,89 +338,122 @@ async def revise_mercari_item(
         "browser_closed": False,
     }
 
-    report("open_edit_page", f"正在打开编辑页（{seg}）…")
-    async with mitm_automation_browser(
-        account_id,
-        start_url=edit_url,
-    ) as (mgr, browser_key):
-        page = await _page_for_session(mgr, browser_key)
+    try:
+        report("open_edit_page", f"正在打开编辑页（{seg}）…")
+        async with mitm_automation_browser(
+            account_id,
+            start_url=edit_url,
+        ) as (mgr, browser_key):
+            page = await _page_for_session(mgr, browser_key)
 
-        try:
-            await page.wait_for_load_state("networkidle", timeout=page_load_timeout_ms)
-        except Exception:
+            try:
+                await page.wait_for_load_state("networkidle", timeout=page_load_timeout_ms)
+            except Exception:
+                try:
+                    await page.wait_for_load_state(
+                        "domcontentloaded", timeout=page_load_timeout_ms
+                    )
+                except Exception:
+                    pass
+
+            if positions_val is not None:
+                report("category", "正在修改类别…")
+                result["category_path"] = await rf.select_category(
+                    page, positions_val, timeout_ms=element_timeout_ms
+                )
+                result["filled"].append("category")
+            if condition_val is not None:
+                report("condition", "正在修改商品状态…")
+                await rf.select_condition(page, condition_val, timeout_ms=element_timeout_ms)
+                result["filled"].append("condition")
+            if method_val is not None:
+                report("shipping_method", "正在修改配送方法…")
+                await rf.select_shipping_method(page, method_val, timeout_ms=element_timeout_ms)
+                result["filled"].append("shipping_method")
+            if local_images is not None:
+                report("images", f"正在替换商品图片（{len(local_images)} 张）…")
+                await rf.replace_photos(page, local_images, timeout_ms=element_timeout_ms)
+                result["filled"].append("images")
+
+            report("fill_form", "正在填写商品信息…")
+            if name_val:
+                await _fill_value(
+                    page, NAME_INPUT_SELECTOR, name_val, element_timeout_ms=element_timeout_ms
+                )
+                result["filled"].append("name")
+            if price_val is not None:
+                await _fill_price_value(
+                    page, str(price_val), element_timeout_ms=element_timeout_ms
+                )
+                result["filled"].append("price")
+            if desc_val is not None:
+                await _fill_value(
+                    page, DESC_TEXTAREA_SELECTOR, desc_val, element_timeout_ms=element_timeout_ms
+                )
+                result["filled"].append("description")
+            if payer_val is not None:
+                await _select_option_value(
+                    page, SHIPPING_PAYER_SELECT_SELECTOR, payer_val,
+                    element_timeout_ms=element_timeout_ms,
+                )
+                result["filled"].append("shipping_payer")
+            if area_val is not None:
+                await _select_option_value(
+                    page, SHIPPING_FROM_AREA_SELECT_SELECTOR, area_val,
+                    element_timeout_ms=element_timeout_ms,
+                )
+                result["filled"].append("shipping_from_area")
+            if duration_val is not None:
+                await _select_option_value(
+                    page, SHIPPING_DURATION_SELECT_SELECTOR, duration_val,
+                    element_timeout_ms=element_timeout_ms,
+                )
+                result["filled"].append("shipping_duration")
+
+            await page.wait_for_timeout(500)
+
+            report("submit", "正在提交修改「変更する」…")
+            submit_btn = page.locator(SUBMIT_BTN_SELECTOR).first
+            await submit_btn.wait_for(state="visible", timeout=element_timeout_ms)
+            await submit_btn.scroll_into_view_if_needed()
+            await submit_btn.click(timeout=element_timeout_ms)
+
+            # 校验提交成功：成功后煤炉会离开编辑页（/sell/edit/...）跳转到商品页/出品一覧。
+            # 若超时内仍停留在编辑页，说明被煤炉校验拦截（价格超范围 / 配送方法未选 / 说明超长等），
+            # 视为失败并抛异常——避免把「煤炉未改成功」的新值静默写回本地库。
+            # 用 element_timeout_ms（30s）而非 page_load_timeout_ms（12s）：网络较慢时成功跳转可能 >12s，
+            # 放宽以免把「其实已改、只是跳转慢」误判为失败。
+            try:
+                await page.wait_for_function(
+                    "() => !(location.pathname || '').includes('/sell/edit/')",
+                    timeout=element_timeout_ms,
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    "提交「変更する」后仍停留在编辑页，修改可能被煤炉校验拦截（未写回本地）"
+                ) from exc
+            result["revise_confirmed"] = True
+
             try:
                 await page.wait_for_load_state(
                     "domcontentloaded", timeout=page_load_timeout_ms
                 )
             except Exception:
                 pass
+            await page.wait_for_timeout(1000)
 
-        report("fill_form", "正在填写商品信息…")
-        if name_val:
-            await _fill_value(
-                page, NAME_INPUT_SELECTOR, name_val, element_timeout_ms=element_timeout_ms
-            )
-            result["filled"].append("name")
-        if price_val is not None:
-            await _fill_price_value(
-                page, str(price_val), element_timeout_ms=element_timeout_ms
-            )
-            result["filled"].append("price")
-        if desc_val is not None:
-            await _fill_value(
-                page, DESC_TEXTAREA_SELECTOR, desc_val, element_timeout_ms=element_timeout_ms
-            )
-            result["filled"].append("description")
-        if payer_val is not None:
-            await _select_option_value(
-                page, SHIPPING_PAYER_SELECT_SELECTOR, payer_val,
-                element_timeout_ms=element_timeout_ms,
-            )
-            result["filled"].append("shipping_payer")
-        if area_val is not None:
-            await _select_option_value(
-                page, SHIPPING_FROM_AREA_SELECT_SELECTOR, area_val,
-                element_timeout_ms=element_timeout_ms,
-            )
-            result["filled"].append("shipping_from_area")
-        if duration_val is not None:
-            await _select_option_value(
-                page, SHIPPING_DURATION_SELECT_SELECTOR, duration_val,
-                element_timeout_ms=element_timeout_ms,
-            )
-            result["filled"].append("shipping_duration")
-
-        await page.wait_for_timeout(500)
-
-        report("submit", "正在提交修改「変更する」…")
-        submit_btn = page.locator(SUBMIT_BTN_SELECTOR).first
-        await submit_btn.wait_for(state="visible", timeout=element_timeout_ms)
-        await submit_btn.scroll_into_view_if_needed()
-        await submit_btn.click(timeout=element_timeout_ms)
-
-        # 校验提交成功：成功后煤炉会离开编辑页（/sell/edit/...）跳转到商品页/出品一覧。
-        # 若超时内仍停留在编辑页，说明被煤炉校验拦截（价格超范围 / 配送方法未选 / 说明超长等），
-        # 视为失败并抛异常——避免把「煤炉未改成功」的新值静默写回本地库。
-        # 用 element_timeout_ms（30s）而非 page_load_timeout_ms（12s）：网络较慢时成功跳转可能 >12s，
-        # 放宽以免把「其实已改、只是跳转慢」误判为失败。
-        try:
-            await page.wait_for_function(
-                "() => !(location.pathname || '').includes('/sell/edit/')",
-                timeout=element_timeout_ms,
-            )
-        except Exception as exc:
-            raise RuntimeError(
-                "提交「変更する」后仍停留在编辑页，修改可能被煤炉校验拦截（未写回本地）"
-            ) from exc
-        result["revise_confirmed"] = True
-
-        try:
-            await page.wait_for_load_state(
-                "domcontentloaded", timeout=page_load_timeout_ms
-            )
-        except Exception:
-            pass
-        await page.wait_for_timeout(1000)
+            if {"images", "category", "condition", "shipping_method"} & set(result["filled"]):
+                report("refresh_local", "正在读取煤炉最新商品详情…")
+                try:
+                    await _refresh_local_from_item_get(mgr, browser_key, seg)
+                    result["local_refreshed"] = True
+                except Exception as exc:
+                    # 修改已在煤炉生效，本地回写失败不能把整件判成失败；下次详情同步会补上
+                    log.warning("[revise_mercari_item] 修改后重读 items/get 失败 item=%s: %s", seg, exc)
+                    result["local_refresh_error"] = str(exc)[:300]
+    finally:
+        # 中途失败（如类别点错）时替换图片那步还没跑到，临时文件在这里兜底删掉
+        rf.cleanup_temp_images(local_images or [])
 
     result["browser_closed"] = True
 

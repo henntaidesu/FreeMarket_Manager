@@ -15,3 +15,34 @@
 .batch-pick-mode-active .el-table tbody tr {
   cursor: pointer;
 }
+
+/* ── 弹窗外框 ────────────────────────────────────────────────
+   弹窗一律 teleport 到 <body>（main.js 把 append-to-body 默认改成了 true），
+   scoped 的 `:deep(.x.el-dialog)` 编译成 `[data-v-xxx] .x.el-dialog`，要求祖先带作用域属性，
+   挂到 body 后永远匹配不到，所以外框规则只能写在全局样式里。
+   注意是**同一个元素**，不能写成后代选择器：`<el-dialog class="…">` 的 class 通过
+   $attrs 落在 ElDialogContent 的根节点上，而那个根节点本身就是 .el-dialog。 */
+/* 批量修改弹窗：两个「留空即不改」的下拉 */
+.purchase-batch-dialog .el-form-item { margin-bottom: 14px; }
+.purchase-batch-dialog .el-form-item:last-child { margin-bottom: 0; }
+/* 取引详情弹窗：尺寸口径与订单详情一致——宽度跟着视口走，高度**写死** 75vh
+   （不是 max-height），内容区自己滚，弹窗本身不随内容忽高忽低。 */
+.purchase-detail-dialog.el-dialog {
+  width: clamp(920px, 66vw, 1420px) !important;
+  max-width: 94vw;
+  --el-dialog-border-radius: 8px;
+  margin: calc(12.5 * var(--app-vh)) auto !important;
+  height: calc(75 * var(--app-vh));
+  display: flex;
+  flex-direction: column;
+}
+/* 无标题栏：show-close=false 之后表头里已经没有 × 了，整块拿掉不再占高度 */
+.purchase-detail-dialog .el-dialog__header {
+  display: none;
+}
+.purchase-detail-dialog .el-dialog__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  padding-top: 0;
+}

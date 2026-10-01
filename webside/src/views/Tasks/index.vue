@@ -2,23 +2,23 @@
   <div>
     <!-- 筛选 + 概览 -->
     <el-card shadow="never" class="search-card">
-      <el-row :gutter="0" align="middle" class="search-row">
-        <el-col :span="24" class="search-left-group">
-          <el-select v-model="filters.status" :placeholder="t('tasks.statusFilter')" clearable @change="onFilterChange" style="width:100%">
+      <div class="search-row">
+        <div class="search-left-group">
+          <el-select v-model="filters.status" :placeholder="t('tasks.statusFilter')" clearable @change="onFilterChange">
             <el-option :label="t('tasks.statusPending')" value="pending" />
             <el-option :label="t('tasks.statusRunning')" value="running" />
             <el-option :label="t('tasks.statusSuccess')" value="success" />
             <el-option :label="t('tasks.statusFailed')" value="failed" />
             <el-option :label="t('tasks.statusCanceled')" value="canceled" />
           </el-select>
-          <el-select v-model="filters.task_type" :placeholder="t('tasks.typeFilter')" clearable @change="onFilterChange" style="width:100%">
+          <el-select v-model="filters.task_type" :placeholder="t('tasks.typeFilter')" clearable @change="onFilterChange">
             <el-option v-for="(label, key) in taskTypes" :key="key" :label="label" :value="key" />
           </el-select>
-          <el-select v-model="filters.account_id" :placeholder="t('tasks.accountFilter')" clearable filterable @change="onFilterChange" style="width:100%">
+          <el-select v-model="filters.account_id" :placeholder="t('tasks.accountFilter')" clearable filterable @change="onFilterChange">
             <el-option v-for="a in accounts" :key="a.id" :label="a.account_name || `#${a.id}`" :value="a.id" />
           </el-select>
-        </el-col>
-      </el-row>
+        </div>
+      </div>
 
       <div class="task-summary">
         <el-tag type="info" effect="plain" size="small">{{ t('tasks.summaryPending', { n: stats.pending }) }}</el-tag>

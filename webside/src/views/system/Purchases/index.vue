@@ -3,10 +3,11 @@
   <div :class="{ 'batch-pick-mode-active': batchMode }">
     <!-- 筛选 + 同步 -->
     <el-card shadow="never" class="search-card">
-      <el-row :gutter="0" align="middle" class="search-row">
-        <el-col :xs="24" :md="16" class="search-left-group">
+      <div class="search-row">
+        <div class="search-left-group">
           <el-input
             v-model="filters.keyword"
+            class="search-keyword"
             :placeholder="t('purchases.keywordPlaceholder')"
             clearable
             @keyup.enter="onFilterChange"
@@ -18,7 +19,6 @@
             clearable
             filterable
             @change="onFilterChange"
-            style="width:100%"
           >
             <el-option v-for="a in accounts" :key="a.id" :label="a.account_name || `#${a.id}`" :value="a.id" />
           </el-select>
@@ -27,7 +27,6 @@
             :placeholder="t('purchases.stateFilter')"
             clearable
             @change="onFilterChange"
-            style="width:100%"
           >
             <el-option
               v-for="s in states"
@@ -41,7 +40,6 @@
             :placeholder="t('purchases.settlementFilter')"
             clearable
             @change="onFilterChange"
-            style="width:100%"
           >
             <el-option
               v-for="o in settlementOptions"
@@ -56,7 +54,6 @@
             clearable
             filterable
             @change="onFilterChange"
-            style="width:100%"
           >
             <!-- 0 是「未指定归属人」的哨兵值，与后端 _build_filter 约定一致 -->
             <el-option :label="t('purchases.ownerUnassigned')" :value="OWNER_UNASSIGNED" />
@@ -67,8 +64,8 @@
               :value="u.id"
             />
           </el-select>
-        </el-col>
-        <el-col :xs="24" :md="8" class="search-actions">
+        </div>
+        <div class="search-actions">
           <!-- 先点「多选」进入选择模式，再点行 / 卡片勾选——与在售商品页同一套交互。
                没有常驻的勾选框：表格里多一列、卡片上压一个框，平时都是白占地方。 -->
           <template v-if="!batchMode">
@@ -94,20 +91,18 @@
             >{{ t('purchases.batchEdit') }}</el-button>
             <el-button @click="exitBatchMode">{{ t('common.cancel') }}</el-button>
           </template>
-        </el-col>
-      </el-row>
+        </div>
+      </div>
     </el-card>
 
-    <!-- 代购结算汇总：跟随上面的筛选条件，不受分页影响 -->
+    <!-- 代购结算汇总：只统计未结算（其余筛选条件照常跟随），不受分页影响 -->
     <el-card shadow="never" class="stats-card" v-loading="statsLoading">
       <div class="stat-grid">
         <div
           v-for="card in statCards"
           :key="card.key"
           class="stat-card"
-          :class="{ 'is-clickable': card.settlementStatus != null, 'is-active': card.active }"
           :style="{ borderTopColor: card.color }"
-          @click="onStatCardClick(card)"
         >
           <div class="stat-icon" :style="{ background: card.color + '20', color: card.color }">
             <el-icon size="20"><component :is="card.icon" /></el-icon>

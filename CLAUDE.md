@@ -567,8 +567,10 @@ header, not cookies, so the dangerous wildcard+credentials combination never occ
 
 **分两个页面**：`/#/system/purchases`（购入商品）是逐行改标记与归属人的地方；
 `/#/system/purchase-settlement`（购入结算，`views/system/PurchaseSettlement/`）是按人对账
-的地方——选购入期间与账号，看每个归属人的 代购成本 / 已结算 / 无需结算 / 未结算，折算
-人民币（复用出售结算的 `/settlement/exchange-rate`），再整批「标记已结算」。它**没有**
+的地方——选购入期间与账号，**只看未结算**：每个还有未结算的归属人一张卡片，折算
+人民币（复用出售结算的 `/settlement/exchange-rate`），明细带商品图，再整批「标记已结算」。
+已结算的行只从工具栏「已结算单」回看（只读）。购入商品页的汇总条同样恒为未结算口径
+（前端给 `stats` 固定传 `settlement_status=0`），与列表的结算筛选脱钩。它**没有**
 出售结算那套耗材分摊 / 分成比例 / 结算记录快照：代购的结算状态就落在 `purchase_items`
 那一列上、可以来回改，不需要再存一份快照。
 
@@ -1306,6 +1308,16 @@ defaults to **9600 when frozen** (the .exe serves the API and the built SPA toge
 no Vite to collide with). Override with `MERCARI_PORT` / `MERCARI_HOST`.
 
 **Network Access**: Vite and uvicorn are both bound to `0.0.0.0` — LAN access via `https://<your-ip>:9600`.
+
+## 列表页的筛选栏与统计条（`webside/src/styles/page-modules.css`）
+
+全站列表页的筛选栏（`search-card → search-row → search-left-group + search-actions`）、
+统计条（`stats-card → stat-grid → stat-card`）与带条数的筛选 chip（`search-filter-chip`）
+只有这一份样式，结构写在该文件头部注释里。新页面照抄结构即可，**不要在页内 style.css 重写
+这些类**：scoped 规则特异性更高，页内留一份就会把共用样式整段顶掉，各页又会慢慢漂开。
+也不要再用 `el-row`/`el-col` 排筛选栏——`:md="16"` 把两块写死成百分比，控件多了挤在左边。
+控件的最小宽度（普通 150px、关键词 180px、日期区间 240px）与手机端两两一行也都在这里。
+例外：仪表盘的 KPI 卡（带环比与迷你图）与仓库页卡片头的汇总是各自的版式，没有并进来。
 
 ## Adding a New API Route
 

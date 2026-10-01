@@ -1,10 +1,11 @@
 <template>
   <div :class="{ 'batch-pick-mode-active': batchMode }">
     <el-card shadow="never" class="search-card">
-      <el-row :gutter="0" align="middle" class="search-row">
-        <el-col :xs="24" :md="14" class="search-left-group">
+      <div class="search-row">
+        <div class="search-left-group">
           <el-input
             v-model="filters.keyword"
+            class="search-keyword"
             :placeholder="t('onSaleItems.searchPlaceholderFull')"
             clearable
             @change="onFilterChange"
@@ -13,7 +14,6 @@
             v-model="filters.seller_id"
             :placeholder="t('onSaleItems.sellerPlaceholder')"
             clearable
-            style="min-width: 200px; width: 100%"
             @change="onFilterChange"
           >
             <el-option
@@ -27,7 +27,6 @@
             v-model="filters.platform"
             :placeholder="t('onSaleItems.platformFilterPlaceholder')"
             clearable
-            style="min-width: 140px; width: 100%"
             @change="onFilterChange"
           >
             <el-option
@@ -41,7 +40,6 @@
             v-model="filters.status"
             :placeholder="t('onSaleItems.statusFilterPlaceholder')"
             clearable
-            style="min-width: 160px; width: 100%"
             @change="onFilterChange"
           >
             <el-option
@@ -55,7 +53,6 @@
             v-model="filters.listing_type"
             :placeholder="t('onSaleItems.listingTypePlaceholder')"
             clearable
-            style="min-width: 140px; width: 100%"
             @change="onFilterChange"
           >
             <el-option
@@ -69,7 +66,6 @@
             v-model="filters.shipping_duration_id"
             :placeholder="t('onSaleItems.shippingDurationPlaceholder')"
             clearable
-            style="min-width: 160px; width: 100%"
             @change="onFilterChange"
           >
             <el-option
@@ -79,8 +75,8 @@
               :value="s.value"
             />
           </el-select>
-        </el-col>
-        <el-col :xs="24" :md="10" class="search-actions">
+        </div>
+        <div class="search-actions">
           <!-- 以下三项已改为提交任务队列：提交即返回，不再受全局同步锁阻挡 -->
           <template v-if="!batchMode">
             <el-button type="primary" :icon="Download" :loading="syncLoading" @click="runSync">
@@ -127,8 +123,8 @@
             </el-button>
             <el-button @click="exitBatchMode">{{ t('common.cancel') }}</el-button>
           </template>
-        </el-col>
-      </el-row>
+        </div>
+      </div>
     </el-card>
 
     <el-card shadow="never" class="table-card">
@@ -848,13 +844,76 @@
             </el-form-item>
           </div>
 
-          <!-- 运费负担 / 发货地区：暂时屏蔽（保留代码，仅隐藏 UI 选项） -->
-          <el-form-item v-if="false" :label="t('onSaleItems.shippingPayerLabel')">
-            <el-select v-model="reviseForm.shipping_payer" :placeholder="t('onSaleItems.keepUnchanged')" clearable>
-              <el-option v-for="o in shippingPayerEditOptions" :key="o.value" :label="o.label" :value="o.value" />
-            </el-select>
-          </el-form-item>
-          <el-form-item v-if="false" :label="t('onSaleItems.shippingFromAreaLabel')">
+          <!-- 以下为煤炉专有：图片 / 商品类型 / 商品状态 / 配送方法 / 运费负担（雅虎后端暂不支持） -->
+          <template v-if="!reviseIsYahoo">
+            <el-form-item :label="t('onSaleItems.reviseImages', { n: reviseExtras.images.length })">
+              <div class="osr-images">
+                <div v-if="reviseExtrasPhotosUnknown" class="osr-hint">{{ t('onSaleItems.reviseImagesUnknown') }}</div>
+                <div class="osr-images__list">
+                  <div v-for="(url, idx) in reviseExtras.images" :key="url + '#' + idx" class="osr-images__item">
+                    <img :src="url" alt="" referrerpolicy="no-referrer" />
+                    <span class="osr-images__idx">{{ idx + 1 }}</span>
+                    <div class="osr-images__ops">
+                      <el-button link size="small" :disabled="idx === 0" @click="moveReviseImage(idx, -1)">←</el-button>
+                      <el-button link size="small" type="danger" @click="removeReviseImage(idx)">✕</el-button>
+                      <el-button link size="small" :disabled="idx === reviseExtras.images.length - 1" @click="moveReviseImage(idx, 1)">→</el-button>
+                    </div>
+                  </div>
+                  <el-upload
+                    class="osr-images__add"
+                    :show-file-list="false"
+                    :auto-upload="false"
+                    accept="image/*"
+                    multiple
+                    :disabled="reviseExtrasUploading || reviseExtras.images.length >= 20"
+                    :on-change="uploadReviseImage"
+                  >
+                    <div class="osr-images__add-box" v-loading="reviseExtrasUploading">+</div>
+                  </el-upload>
+                </div>
+                <div v-if="reviseInventoryImages(detailViewBase).length" class="osr-images__inv">
+                  <span class="osr-hint">{{ t('onSaleItems.reviseAddFromInventory') }}</span>
+                  <img
+                    v-for="u in reviseInventoryImages(detailViewBase)"
+                    :key="u"
+                    :src="u"
+                    alt=""
+                    class="osr-images__inv-thumb"
+                    @click="addReviseImage(u)"
+                  />
+                </div>
+              </div>
+            </el-form-item>
+
+            <div class="osr-grid osr-grid--wide">
+              <el-form-item :label="t('onSaleItems.reviseProductType')">
+                <el-select
+                  v-model="reviseExtras.product_type_id"
+                  :placeholder="reviseCurrentCategoryPath(detailViewBase) || t('onSaleItems.keepUnchanged')"
+                  clearable
+                  filterable
+                >
+                  <el-option v-for="o in reviseProductTypeOptions" :key="o.value" :label="o.label" :value="o.value" />
+                </el-select>
+              </el-form-item>
+              <el-form-item :label="t('onSaleItems.reviseCondition')">
+                <el-select v-model="reviseExtras.condition" :placeholder="t('onSaleItems.keepUnchanged')" clearable>
+                  <el-option v-for="o in reviseConditionOptions" :key="o.value" :label="o.label" :value="o.value" />
+                </el-select>
+              </el-form-item>
+              <el-form-item :label="t('onSaleItems.reviseShippingMethod')">
+                <el-select v-model="reviseExtras.shipping_method" :placeholder="t('onSaleItems.keepUnchanged')" clearable>
+                  <el-option v-for="o in reviseShippingMethodOptions" :key="o.value" :label="o.label" :value="o.value" />
+                </el-select>
+              </el-form-item>
+              <el-form-item :label="t('onSaleItems.shippingPayerLabel')">
+                <el-select v-model="reviseForm.shipping_payer" :placeholder="t('onSaleItems.keepUnchanged')" clearable>
+                  <el-option v-for="o in shippingPayerEditOptions" :key="o.value" :label="o.label" :value="o.value" />
+                </el-select>
+              </el-form-item>
+            </div>
+          </template>
+          <el-form-item :label="t('onSaleItems.shippingFromAreaLabel')">
             <el-select v-model="reviseForm.shipping_from_area_id" :placeholder="t('onSaleItems.keepUnchanged')" clearable filterable>
               <el-option v-for="o in shippingFromAreaOptions" :key="o.value" :label="o.label" :value="o.value" />
             </el-select>

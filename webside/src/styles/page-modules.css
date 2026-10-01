@@ -1,0 +1,401 @@
+/* ===== 列表页通用模块：筛选栏 + 统计条 =====
+   全站列表页共用同一套结构，各页 style.css 不再重写这几个类（scoped 规则的
+   特异性更高，页内留一份就会把这里整段顶掉）。页内只写本页独有的差异。
+
+   筛选栏结构（不要再套 el-row / el-col：:md="16" 这类栅格把两块写死成百分比宽，
+   控件一多就挤在左边、按钮区空着，窄屏也没法按内容换行）：
+
+     <el-card shadow="never" class="search-card">
+       <div class="search-row">
+         <div class="search-left-group"> 筛选控件… </div>
+         <div class="search-actions"> 按钮… </div>
+       </div>
+     </el-card>
+
+   统计条结构：
+
+     <el-card shadow="never" class="stats-card">
+       <div class="stat-grid">
+         <div class="stat-card" :style="{ borderTopColor: color }">
+           <div class="stat-icon" :style="{ background: color + '20', color }">图标</div>
+           <div class="stat-info">
+             <div class="stat-value">值</div>
+             <div class="stat-label">标签</div>
+           </div>
+         </div>
+       </div>
+     </el-card>
+
+   断点与 App.vue / useIsMobile() 同为 768px。 */
+
+/* ── 筛选栏 ─────────────────────────────────────────────── */
+.search-card,
+.stats-card {
+  margin-bottom: 16px;
+  border-radius: 8px;
+}
+
+.search-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+}
+
+/* 控件区：按内容换行。flex-basis 480px 让它在宽屏上占住主要空间，
+   放不下时整块掉到按钮区上方，而不是把按钮挤成竖条 */
+.search-left-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  flex: 1 1 480px;
+  min-width: 0;
+}
+
+/* 控件宽度：App.vue 给所有输入类控件写死了 180px !important，这里按「可伸缩 +
+   最小宽度」重新定。最小宽度保证选中的值读得出来——压到几十像素的下拉比换行更糟 */
+.search-left-group > .el-input,
+.search-left-group > .el-select,
+.search-left-group > .el-cascader,
+.search-left-group > .el-date-editor {
+  width: auto !important;
+  /* 可放大到 260px：一行放不满时把余量分给各控件，行尾不留参差的空缺 */
+  flex: 1 1 180px;
+  min-width: 150px !important;
+  max-width: 260px;
+}
+/* 关键词框通常是第一个、也最常用，给它多一点 */
+.search-left-group > .search-keyword {
+  flex-basis: 220px;
+  min-width: 180px !important;
+  max-width: 320px;
+}
+/* 日期区间在 180px 下两端日期都读不全 */
+.search-left-group > .el-date-editor--daterange,
+.search-left-group > .el-date-editor--datetimerange,
+.search-left-group > .el-range-editor.el-input__wrapper {
+  flex: 1 1 280px;
+  min-width: 240px !important;
+  max-width: 340px;
+}
+/* 控件旁的一句汇总文字（如「共 N 条，缺 X 项」） */
+.search-left-group > .search-summary {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--el-text-color-secondary);
+}
+/* 开关式筛选 chip 组：在控件区里单独占一行 */
+.search-left-group > .search-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  flex: 1 1 100%;
+  min-width: 0;
+}
+/* 分段切换（el-radio-group）按内容宽，不伸缩 */
+.search-left-group > .el-radio-group {
+  flex: 0 0 auto;
+}
+/* 带标签的控件：<div class="search-field"><span class="search-label">…</span>控件</div> */
+.search-left-group > .search-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.search-field > .search-label {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+  white-space: nowrap;
+}
+.search-field > .el-input,
+.search-field > .el-select,
+.search-field > .el-date-editor {
+  min-width: 150px !important;
+}
+.search-field > .el-date-editor--daterange {
+  width: 280px !important;
+  min-width: 240px !important;
+}
+.search-field > .el-input-number {
+  width: 110px;
+  flex: 0 0 auto;
+}
+/* 字段后面的单位 / 小按钮（如汇率的「日元」「刷新」） */
+.search-field > .search-suffix {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  white-space: nowrap;
+}
+
+/* 按钮区：靠右，放不下时换行；间距交给 gap，去掉 Element 相邻按钮的 margin */
+.search-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+.search-actions .el-button + .el-button {
+  margin-left: 0;
+}
+
+/* ── 筛选 chip（带条数徽标的快捷筛选，待办 / 通知用）──────────
+   结构：<div class="search-filter-chip [search-filter-chip--active]">标签
+          <span class="search-filter-chip__count [--zero]">N</span></div> */
+.search-filter-chip {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  line-height: 1;
+  padding: 0 14px;
+  border: 1px solid var(--el-border-color, #dcdfe6);
+  border-radius: 16px;
+  background: var(--el-fill-color-light, #f5f7fa);
+  color: var(--el-text-color-secondary, #909399);
+  font-size: 13px;
+  transition: all 0.2s ease;
+}
+/* 触摸屏点过之后 :hover 会一直留着：未选中的 chip 显示成蓝框蓝字，
+   和真正选中的 --active 只差一个底色，很容易读成已经筛上了 */
+@media (hover: hover) {
+  .search-filter-chip:hover {
+    border-color: var(--el-color-primary, #409eff);
+    color: var(--el-color-primary, #409eff);
+  }
+  .search-filter-chip--active:hover {
+    color: #fff;
+  }
+}
+.search-filter-chip--active {
+  border-color: var(--el-color-primary, #409eff);
+  background: var(--el-color-primary, #409eff);
+  color: #fff;
+}
+/* chip 上的条数：圆形徽标。
+   两位数以上时靠 min-width + 胶囊圆角自然撑成药丸，不会把数字裁掉。 */
+.search-filter-chip__count {
+  margin-left: 6px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--el-color-primary, #409eff);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+/* 0 条：压成灰色，避免一排「0」抢注意力 */
+.search-filter-chip__count--zero {
+  background: var(--el-text-color-disabled, #c0c4cc);
+  color: #fff;
+}
+/* 选中态 chip 本身是实心主色，徽标反色才看得清 */
+.search-filter-chip--active .search-filter-chip__count {
+  background: #fff;
+  color: var(--el-color-primary, #409eff);
+}
+.search-filter-chip--active .search-filter-chip__count--zero {
+  background: rgba(255, 255, 255, 0.55);
+  color: var(--el-color-primary, #409eff);
+}
+
+/* ── 统计条 ─────────────────────────────────────────────── */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+}
+.stat-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  /* 与表格 / 卡片同一套深蓝底（App.vue 的 --el-table-tr-bg-color） */
+  border: 1px solid #2a3446;
+  border-top: 3px solid #2a3446;
+  background: #131c2f;
+}
+.stat-icon {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.stat-info {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.stat-value {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--el-text-color-primary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stat-label {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stat-value.is-primary { color: var(--el-color-primary); }
+.stat-value.is-warning { color: var(--el-color-warning); }
+/* 值下面的第二行（如折算人民币） */
+.stat-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--el-color-success);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stat-sub.is-muted { color: var(--el-text-color-secondary); }
+/* 统计条下方的口径提示（如「还有 N 笔未抓详情，汇总偏低」） */
+.stats-hint {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--el-color-warning);
+}
+/* 点一下即切换筛选的统计卡 */
+.stat-card.is-clickable { cursor: pointer; }
+.stat-card.is-active { box-shadow: 0 0 0 1px var(--el-color-primary) inset; }
+@media (hover: hover) {
+  .stat-card.is-clickable:hover { border-color: var(--el-color-primary-light-5); }
+}
+
+/* ── 小屏 ───────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .search-card,
+  .stats-card {
+    margin-bottom: 12px;
+  }
+  .search-row {
+    gap: 10px;
+  }
+  /* 控件两两一行；屏幕窄到放不下两个最小宽度时自动退成一个一行 */
+  .search-left-group {
+    flex-basis: 100%;
+    gap: 8px;
+  }
+  .search-left-group > .el-input,
+  .search-left-group > .el-select,
+  .search-left-group > .el-cascader,
+  .search-left-group > .el-date-editor,
+  .search-left-group > .search-keyword {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 140px !important;
+    max-width: none;
+  }
+  /* 分段切换独占一行、各段等宽 */
+  .search-left-group > .el-radio-group {
+    flex: 1 1 100%;
+    display: flex;
+  }
+  .search-left-group > .el-radio-group > .el-radio-button {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .search-left-group > .el-radio-group .el-radio-button__inner {
+    width: 100%;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  /* 关键词与日期区间独占一行 */
+  .search-left-group > .search-keyword,
+  .search-left-group > .el-date-editor--daterange,
+  .search-left-group > .el-date-editor--datetimerange,
+  .search-left-group > .el-range-editor.el-input__wrapper,
+  .search-left-group > .search-field {
+    flex: 1 1 100%;
+    min-width: 0 !important;
+    max-width: none;
+  }
+  /* 带标签的字段一行一个，标签列对齐 */
+  .search-field > .search-label {
+    min-width: 5em;
+  }
+  .search-field > .el-input,
+  .search-field > .el-select,
+  .search-field > .el-date-editor,
+  .search-field > .el-date-editor--daterange {
+    flex: 1 1 auto;
+    width: auto !important;
+    min-width: 0 !important;
+  }
+  /* 按钮满宽平分；按钮多时按最小宽度换行 */
+  .search-actions {
+    width: 100%;
+    margin-left: 0;
+    justify-content: stretch;
+  }
+  /* 直接子元素才是弹性项：el-tooltip 包出来的 <span>、el-dropdown 都算 */
+  .search-actions > * {
+    flex: 1 1 110px;
+    min-width: 0;
+  }
+  .search-actions > span > .el-button,
+  .search-actions > .el-dropdown > .el-button {
+    width: 100%;
+  }
+  /* 按钮区里的下拉（如平台筛选）独占一行 */
+  .search-actions > .el-select {
+    flex: 1 1 100%;
+    width: auto !important;
+  }
+  .search-actions > .batch-pick-count,
+  .search-actions > .listing-pick-count {
+    flex: 1 1 100%;
+    text-align: center;
+  }
+  /* chip 是拇指最常点的地方：32px 偏小 */
+  .search-filter-chip {
+    height: 36px;
+  }
+
+  /* 375px 屏：两列 */
+  .stat-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 8px;
+  }
+  .stat-card {
+    gap: 8px;
+    padding: 10px;
+  }
+  .stat-icon {
+    width: 30px;
+    height: 30px;
+  }
+  .stat-value {
+    font-size: 16px;
+  }
+}

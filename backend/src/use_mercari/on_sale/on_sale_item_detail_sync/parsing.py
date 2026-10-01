@@ -2,6 +2,7 @@
 """在售商品详情解析：mercari id / 描述 token / まとめ判定 / 管理暗号提示 / 描述持久化"""
 from __future__ import annotations
 
+import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
 from ....db_manage.models.on_sale_items.on_sale_item import OnSaleItemModel
@@ -156,6 +157,50 @@ def extract_shipping_payer(data: Any) -> Tuple[Optional[int], Optional[str]]:
     """从 items/get 的 data.shipping_payer 抽取 (id, 展示名「送料込み(出品者負担)」)。id 2=出品者/1=購入者。"""
     return _extract_id_name(data, "shipping_payer")
 
+def extract_detail_extras(data: Any) -> Dict[str, Any]:
+    """items/get 里列表接口不带、或修改后需要立刻反映的字段 → on_sale_items 列。
+
+    只收录响应里**确实带着**的键：雅虎侧喂进来的伪 items/get 没有图片 / 状态 / 类别，
+    缺键就不写，免得把已有值抹成 NULL。
+    """
+    if not isinstance(data, dict):
+        return {}
+    out: Dict[str, Any] = {}
+    photos = data.get("photos")
+    if isinstance(photos, list):
+        urls = [str(u).strip() for u in photos if isinstance(u, str) and str(u).strip()]
+        out["photos_json"] = json.dumps(urls, ensure_ascii=False)
+    if isinstance(data.get("item_condition"), dict):
+        out["item_condition_id"], out["item_condition_name"] = _extract_id_name(data, "item_condition")
+    if isinstance(data.get("shipping_method"), dict):
+        out["shipping_method_id"], _ = _extract_id_name(data, "shipping_method")
+    if isinstance(data.get("shipping_from_area"), dict):
+        out["shipping_from_area_id"], out["shipping_from_area_name"] = _extract_id_name(
+            data, "shipping_from_area"
+        )
+    ntiers = data.get("item_category_ntiers") or data.get("item_category")
+    if isinstance(ntiers, dict) and ntiers.get("id") is not None:
+        def _i(v: Any) -> Optional[int]:
+            try:
+                return int(v) if v is not None and str(v) != "" else None
+            except (TypeError, ValueError):
+                return None
+
+        def _s(v: Any) -> Optional[str]:
+            return str(v).strip() or None if v is not None else None
+
+        # 与列表同步 mercari_list_item_to_row 同一套列、同一口径
+        out["category_id"] = _i(ntiers.get("id"))
+        out["category_name"] = _s(ntiers.get("name"))
+        out["parent_category_id"] = _i(ntiers.get("parent_category_id"))
+        out["parent_category_name"] = _s(ntiers.get("parent_category_name"))
+        out["category_root_id"] = _i(ntiers.get("root_category_id"))
+        out["category_root_name"] = _s(ntiers.get("root_category_name"))
+        parents = data.get("parent_categories_ntiers")
+        if isinstance(parents, list):
+            out["parent_categories_json"] = json.dumps(parents, ensure_ascii=False)
+    return out
+
 def _persist_listing_description_for_item(
     request_item_id: str,
     api_item_id: Optional[str],
@@ -164,8 +209,11 @@ def _persist_listing_description_for_item(
     shipping_duration_name: Optional[str] = None,
     shipping_payer_id: Optional[int] = None,
     shipping_payer_name: Optional[str] = None,
+    extras: Optional[Dict[str, Any]] = None,
 ) -> None:
     """
+    ``extras``：``extract_detail_extras`` 的结果（图片 / 状态 / 类别 / 配送方法等），原样写入对应列。
+
     将 items/get 返回的 data.description、data.shipping_duration（発送までの日数）与
     data.shipping_payer（配送料の負担）写入 on_sale_items，供在售列表与「查看详情」展示。
     按多种 item_id 写法匹配本地一行。
@@ -197,5 +245,7 @@ def _persist_listing_description_for_item(
         ob.shipping_duration_name = shipping_duration_name
         ob.shipping_payer_id = shipping_payer_id
         ob.shipping_payer_name = shipping_payer_name
+        for col, val in (extras or {}).items():
+            setattr(ob, col, val)
         ob.save()
         return

@@ -1,11 +1,13 @@
 <template>
   <div>
     <el-card shadow="never" class="search-card">
-      <el-row justify="end">
-        <el-button type="primary" @click="openDialog()">
-          <el-icon><Plus /></el-icon> {{ t('system.addCategory') }}
-        </el-button>
-      </el-row>
+      <div class="search-row">
+        <div class="search-actions">
+          <el-button type="primary" @click="openDialog()">
+            <el-icon><Plus /></el-icon> {{ t('system.addCategory') }}
+          </el-button>
+        </div>
+      </div>
     </el-card>
 
     <el-card shadow="never" class="table-card">

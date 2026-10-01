@@ -1,10 +1,11 @@
 <template>
   <div>
     <el-card shadow="never" class="search-card">
-      <el-row :gutter="0" align="middle" class="search-row">
-        <el-col :xs="24" :md="16" class="search-left-group">
+      <div class="search-row">
+        <div class="search-left-group">
           <el-input
             v-model="filters.keyword"
+            class="search-keyword"
             clearable
             @change="onFilterChange"
           />
@@ -12,7 +13,6 @@
             v-model="filters.platform"
             :placeholder="t('orders.platformFilterPlaceholder')"
             clearable
-            style="width: 100%"
             @change="onFilterChange"
           >
             <el-option v-for="p in platformFilterOptions" :key="p.value" :label="p.label" :value="p.value" />
@@ -21,7 +21,6 @@
             v-model="filters.seller_id"
             :placeholder="t('orders.sellerFilterPlaceholder')"
             clearable
-            style="width: 100%"
             @change="onFilterChange"
           >
             <el-option v-for="s in sellerOptions" :key="s.value" :label="s.label" :value="s.value" />
@@ -30,7 +29,6 @@
             v-model="filters.status"
             :placeholder="t('orders.statusFilterPlaceholder')"
             clearable
-            style="width: 100%"
             @change="onFilterChange"
           >
             <el-option v-for="item in orderListStatusFilterOptions" :key="item.value" :label="item.label" :value="item.value" />
@@ -39,7 +37,6 @@
             v-model="filters.owner_user_id"
             :placeholder="t('orders.ownerFilterPlaceholder')"
             clearable
-            style="width: 100%"
             @change="onFilterChange"
           >
             <el-option
@@ -52,7 +49,6 @@
           <!-- 日期区间比较哪一列：购入时间（默认） / 确认时间 -->
           <el-select
             v-model="timeField"
-            style="width: 100%"
             @change="onFilterChange"
           >
             <el-option v-for="o in timeFieldOptions" :key="o.value" :label="o.label" :value="o.value" />
@@ -64,39 +60,36 @@
             :start-placeholder="t('common.startDate')"
             :end-placeholder="t('common.endDate')"
             value-format="YYYY-MM-DD"
-            style="width: 100%"
             @change="onFilterChange"
           />
-        </el-col>
-        <el-col :xs="24" :md="8" class="search-actions">
+        </div>
+        <div class="search-actions">
           <!-- 提交到任务队列即返回，不再受全局同步锁阻挡（排队执行由后端 worker 保证） -->
           <el-button type="success" :icon="RefreshRight" :loading="syncLoading && syncMode === 'newData'" :disabled="syncLoading" @click="runSync('newData')">{{ t('orders.updateList') }}</el-button>
           <el-button type="primary" :icon="Refresh" :loading="syncLoading && syncMode === 'statusRefresh'" :disabled="syncLoading" @click="runSync('statusRefresh')">{{ t('orders.updateStatus') }}</el-button>
-        </el-col>
-      </el-row>
+        </div>
+      </div>
     </el-card>
 
     <!-- 数据分析统计卡片：手机端不展示（与库存管理一致） -->
-    <el-card v-if="!isMobile" class="section-card order-stats-wrap" shadow="never" v-loading="statsLoading">
-      <el-row :gutter="16" class="stat-row order-stat-row">
-        <el-col :xs="12" :sm="12" :md="8" :lg="4" v-for="card in orderStatCards" :key="card.label">
-          <div
-            class="stat-card order-stat-card"
-            :class="card.cardClass"
-            :style="{ borderTopColor: card.color }"
-          >
-            <div class="stat-icon" :style="{ background: card.color + '20', color: card.color }">
-              <el-icon size="22"><component :is="card.icon" /></el-icon>
-            </div>
-            <div class="stat-info">
-              <div class="stat-value-row">
-                <span class="stat-value" :class="card.valueClass">{{ card.display }}</span>
-              </div>
-              <div class="stat-label">{{ card.label }}</div>
-            </div>
+    <el-card v-if="!isMobile" class="stats-card" shadow="never" v-loading="statsLoading">
+      <div class="stat-grid">
+        <div
+          v-for="card in orderStatCards"
+          :key="card.label"
+          class="stat-card"
+          :class="card.cardClass"
+          :style="{ borderTopColor: card.color }"
+        >
+          <div class="stat-icon" :style="{ background: card.color + '20', color: card.color }">
+            <el-icon size="20"><component :is="card.icon" /></el-icon>
           </div>
-        </el-col>
-      </el-row>
+          <div class="stat-info">
+            <div class="stat-value" :class="card.valueClass">{{ card.display }}</div>
+            <div class="stat-label">{{ card.label }}</div>
+          </div>
+        </div>
+      </div>
     </el-card>
 
     <el-card shadow="never" class="table-card">
@@ -1320,3 +1313,4 @@
 
 <script src="./script.js"></script>
 <style scoped src="./style.css"></style>
+<style src="./style.global.css"></style>

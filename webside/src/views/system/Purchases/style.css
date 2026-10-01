@@ -1,9 +1,4 @@
-.search-card { margin-bottom: 16px; border-radius: 8px; }
-.search-row { justify-content: space-between; }
-.search-left-group { display: flex; align-items: center; gap: 20px; }
-/* 三个按钮（同步 / 查询 / 批量修改）在窄一点的屏上放不下一行，允许换行 */
-.search-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
-.search-actions :deep(.el-button + .el-button) { margin-left: 0; }
+/* 筛选栏 / 统计条的结构与样式在 src/styles/page-modules.css（全站共用），这里不再重写 */
 .table-card { border-radius: 8px; }
 .pagination { margin-top: 16px; display: flex; justify-content: flex-end; }
 
@@ -34,31 +29,8 @@
 }
 .row-actions :deep(.el-button + .el-button) { margin-left: 0; }
 
-/* ── 手机端：与系统日志页同款处理 ────────────────────────────
-   全站给输入类控件写死了 `width: 180px !important`，显式宽度压过
-   align-items: stretch，光竖排不够，必须显式改回满宽。 */
+/* ── 手机端 ── */
 @media (max-width: 768px) {
-  .search-card { margin-bottom: 12px; }
-  .search-left-group {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-  }
-  .search-left-group :deep(.el-select),
-  .search-left-group :deep(.el-input) {
-    width: 100% !important;
-    max-width: none !important;
-  }
-  .search-actions {
-    justify-content: stretch;
-    margin-top: 8px;
-    gap: 8px;
-  }
-  .search-actions :deep(.el-button) {
-    flex: 1 1 0;
-    min-width: 0;
-    margin-left: 0;
-  }
   .pagination {
     justify-content: center;
     margin-top: 12px;
@@ -70,96 +42,8 @@
   }
 }
 
-/* ── 代购结算：汇总条 ─────────────────────────────────────────
-   口径跟随上方筛选，不受分页影响；三个结算桶可点，点一下即切换筛选。 */
-.stats-card { margin-bottom: 16px; border-radius: 8px; }
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
-}
-.stat-card {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--el-border-color-lighter);
-  border-top: 3px solid var(--el-border-color);
-  background: var(--el-bg-color-overlay);
-  min-width: 0;
-}
-.stat-card.is-clickable { cursor: pointer; }
-.stat-card.is-clickable:hover { border-color: var(--el-color-primary-light-5); }
-/* 正被当作筛选条件的那个桶 */
-.stat-card.is-active { box-shadow: 0 0 0 1px var(--el-color-primary) inset; }
-.stat-icon {
-  flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.stat-info { min-width: 0; }
-.stat-value {
-  font-size: 17px;
-  font-weight: 600;
-  line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.stat-label {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  margin-top: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-/* 多选模式下工具栏左侧的「已选 N 项」 */
-.batch-pick-count {
-  font-size: 13px;
-  font-weight: 600;
-  color: #67c23a;
-  margin-right: 4px;
-  white-space: nowrap;
-}
-.cell-muted { color: var(--el-text-color-placeholder); }
-
-/* 批量修改弹窗：两个「留空即不改」的下拉 */
-.batch-edit-hint {
-  margin-bottom: 12px;
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-}
-:deep(.purchase-batch-dialog .el-form-item) { margin-bottom: 14px; }
-:deep(.purchase-batch-dialog .el-form-item:last-child) { margin-bottom: 0; }
-
-/* 行内可改的单元格（归属人 / 结算状态） */
-.editable-cell {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  cursor: pointer;
-  max-width: 100%;
-}
-.editable-cell.is-empty { color: var(--el-text-color-placeholder); }
-.editable-cell:hover { color: var(--el-color-primary); }
-/* 多选模式下的只读态：去掉「可点」的暗示，整行的点击归勾选 */
-.editable-cell.is-static { cursor: inherit; }
-.editable-cell.is-static:hover { color: inherit; }
-.editable-cell.is-static.is-empty:hover { color: var(--el-text-color-placeholder); }
 .editable-caret { font-size: 11px; opacity: 0.6; }
 .settlement-tag { cursor: pointer; }
-
-@media (max-width: 768px) {
-  .stats-card { margin-bottom: 12px; }
-  .stat-grid { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
-  .stat-value { font-size: 15px; }
-}
 
 /* ── 卡片视图 ────────────────────────────────────────────────
    排布、配色与取数都沿用库存 / 订单页的卡片（.inv-card / .ord-card）：定宽网格、
@@ -306,31 +190,8 @@
   min-height: 20px;
 }
 
-/* ── 取引详情弹窗 ────────────────────────────────────────────
-   尺寸口径与订单详情一致：宽度跟着视口走，高度**写死** 75vh（不是 max-height），
-   内容区自己滚，弹窗本身不随内容忽高忽低。
-   注意是**同一个元素**，不能写成后代选择器：`<el-dialog class="…">` 的 class 通过
-   $attrs 落在 ElDialogContent 的根节点上，而那个根节点本身就是 .el-dialog。
-   弹窗是就地渲染（el-dialog 默认 append-to-body=false），所以 :deep 够得到它。 */
-:deep(.purchase-detail-dialog.el-dialog) {
-  width: clamp(920px, 66vw, 1420px) !important;
-  max-width: 94vw;
-  --el-dialog-border-radius: 8px;
-  margin: calc(12.5 * var(--app-vh)) auto !important;
-  height: calc(75 * var(--app-vh));
-  display: flex;
-  flex-direction: column;
-}
-/* 无标题栏：show-close=false 之后表头里已经没有 × 了，整块拿掉不再占高度 */
-:deep(.purchase-detail-dialog .el-dialog__header) {
-  display: none;
-}
-:deep(.purchase-detail-dialog .el-dialog__body) {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: hidden;
-  padding-top: 0;
-}
+/* 取引详情弹窗的外框规则（.el-dialog / __header / __body）在 style.global.css：
+   弹窗 teleport 到 <body> 后，scoped 的 :deep() 找不到带作用域属性的祖先。 */
 
 /* 手机：一行两列，图框同比缩小。断点用 768px 与 isMobile 对齐 */
 @media (max-width: 768px) {

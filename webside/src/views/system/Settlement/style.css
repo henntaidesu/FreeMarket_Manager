@@ -11,26 +11,10 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ── 工具栏 ─────────────────────────────────────────────── */
-.toolbar-card { margin-bottom: 16px; border-radius: 8px; }
-.toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px 16px;
-}
-.toolbar-field { display: flex; align-items: center; gap: 10px; }
-.toolbar-label { font-size: 13px; color: var(--el-text-color-secondary); white-space: nowrap; }
-.toolbar-actions { display: flex; gap: 8px; margin-left: auto; }
-/* 全局把日期控件压成 180px，区间选择器在这个宽度下几乎读不出日期 */
-.toolbar :deep(.range-picker.el-date-editor) {
-  width: 300px !important;
-  min-width: 300px !important;
-}
+/* 筛选栏 / 页面统计条的结构与样式在 src/styles/page-modules.css（全站共用）。
+   下面的 stat-strip / stat-tile 只剩结算记录详情弹窗在用。 */
 
 /* ── 汇总条 ─────────────────────────────────────────────── */
-.summary-card { margin-bottom: 16px; border-radius: 8px; }
 .stat-strip {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
@@ -56,12 +40,6 @@
 .stat-tile-sub { font-size: 12px; color: var(--el-color-success); }
 .stat-tile-sub.muted { color: var(--el-text-color-secondary); }
 .warn, .stat-tile-value.warn { color: var(--el-color-danger); }
-.rate-input-wrap { display: flex; align-items: center; gap: 6px; }
-.rate-input-wrap .rate-prefix,
-.rate-input-wrap .rate-suffix { font-size: 12px; color: var(--el-text-color-secondary); white-space: nowrap; }
-.rate-input-wrap :deep(.rate-input) { width: 96px; }
-.rate-input-wrap :deep(.rate-input .el-input) { width: 100% !important; }
-.summary-hint { margin-top: 12px; font-size: 12px; color: var(--el-text-color-secondary); }
 
 /* ── 成本明细（耗材 / 设备）：宽屏并排，窄屏堆叠 ──────────── */
 .cost-grid {
@@ -265,34 +243,7 @@
 
 /* ── 手机端（iOS / Android）────────────────────────────────── */
 @media (max-width: 768px) {
-  .toolbar-card,
-  .summary-card {
-    margin-bottom: 12px;
-  }
-  /* 「结算区间」标签与区间选择器原本并排一行。上面为了让日期读得出来
-     把选择器锁成 width/min-width 300px，而 375px 屏上卡片内只有 303px
-     可用，减去标签和间距后剩 230 出头——min-width 顶不动，整页会被撑出
-     横向滚动条。手机上标签换行到上方，选择器满宽。 */
-  .toolbar-field {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 6px;
-    width: 100%;
-  }
-  .toolbar :deep(.range-picker.el-date-editor) {
-    width: 100% !important;
-    min-width: 0 !important;
-  }
-  .toolbar-actions {
-    margin-left: 0;
-    width: 100%;
-  }
-  .toolbar-actions :deep(.el-button) {
-    flex: 1 1 0;
-    margin-left: 0;
-  }
-
-  /* 汇总条 6 块单列排下来要划一屏半，两列刚好 */
+  /* 详情弹窗的汇总条：单列排下来要划一屏半，两列刚好 */
   .stat-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -303,14 +254,6 @@
   .stat-tile-value {
     font-size: 17px;
   }
-  /* 汇率那块内容最多（前缀 + 输入 + 后缀 + 刷新），单独占满一行 */
-  .stat-tile:has(.rate-input-wrap) {
-    grid-column: 1 / -1;
-  }
-  .rate-input-wrap {
-    flex-wrap: wrap;
-  }
-
   /* 待结算物品登记：三个字段各自够宽才好输，改成品名独占一行 */
   .pending-form :deep(.pending-name),
   .pending-form :deep(.pending-name .el-input) {

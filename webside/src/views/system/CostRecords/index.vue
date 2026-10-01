@@ -1,12 +1,12 @@
 <template>
   <div>
     <el-card shadow="never" class="search-card">
-      <el-row :gutter="0" align="middle" class="search-row">
-        <el-col :xs="24" :md="16" class="search-left-group">
-          <el-select v-model="filters.type" :placeholder="t('system.costRecordTypeFilter')" clearable @change="onFilterChange" style="width: 100%">
+      <div class="search-row">
+        <div class="search-left-group">
+          <el-select v-model="filters.type" :placeholder="t('system.costRecordTypeFilter')" clearable @change="onFilterChange">
             <el-option v-for="item in typeOptions" :key="item.value" :label="item.label" :value="item.value" />
           </el-select>
-          <el-select v-model="filters.warehouse_id" :placeholder="t('system.costRecordSelectWarehouse')" clearable @change="onFilterChange" style="width: 100%">
+          <el-select v-model="filters.warehouse_id" :placeholder="t('system.costRecordSelectWarehouse')" clearable @change="onFilterChange">
             <el-option v-for="w in warehouses" :key="w.id" :label="warehouseShelfLabel(w)" :value="w.id" />
           </el-select>
           <el-date-picker
@@ -18,11 +18,11 @@
             value-format="YYYY-MM-DD"
             @change="onFilterChange"
           />
-        </el-col>
-        <el-col :xs="24" :md="8" class="search-actions">
+        </div>
+        <div class="search-actions">
           <el-button type="primary" @click="openCreate">{{ t('system.costRecordCreate') }}</el-button>
-        </el-col>
-      </el-row>
+        </div>
+      </div>
     </el-card>
 
     <el-card shadow="never" class="table-card">

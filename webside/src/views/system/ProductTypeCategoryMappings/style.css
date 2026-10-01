@@ -1,8 +1,6 @@
-.search-card { margin-bottom: 16px; border-radius: 8px; }
+/* 筛选栏的结构与样式在 src/styles/page-modules.css（全站共用），这里不再重写 */
 .table-card { border-radius: 8px; }
-.mapping-summary { font-size: 13px; color: var(--el-text-color-secondary); }
-.mapping-actions { display: flex; gap: 8px; align-items: center; }
-.missing-filter { width: 150px; }
+
 .pos-cell { font-variant-numeric: tabular-nums; }
 
 /* 编辑弹层：煤炉 / 雅虎 各一张卡片，每张卡片一条点选路径 */
@@ -10,32 +8,8 @@
 .platform-card__title { font-weight: 600; }
 .product-type-item { max-width: 320px; }
 
-/* ── 手机端（iOS / Android）──────────────────────────────────
-   汇总文字与「筛选 + 新增」原本是 space-between 的一行，375px 下放不开。 */
+/* ── 手机端（iOS / Android）── */
 @media (max-width: 768px) {
-  .search-card { margin-bottom: 12px; }
-  .search-card :deep(.el-row) {
-    display: block;
-  }
-  .mapping-summary {
-    margin-bottom: 10px;
-    line-height: 1.5;
-  }
-  .mapping-actions {
-    gap: 8px;
-  }
-  /* .missing-filter 的 150px 会被全局那条 `width: 180px !important` 压掉，
-     光靠 flex 拉不动，必须显式满宽 */
-  .mapping-actions :deep(.missing-filter) {
-    flex: 1 1 auto;
-    width: auto !important;
-    min-width: 0;
-    max-width: none !important;
-  }
-  .mapping-actions :deep(.el-button) {
-    flex: 0 0 auto;
-    margin-left: 0;
-  }
   /* 弹窗里商品类型输入框的 320px 上限在窄屏下没意义 */
   .product-type-item {
     max-width: none;

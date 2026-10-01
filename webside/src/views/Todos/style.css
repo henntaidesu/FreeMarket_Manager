@@ -1,99 +1,4 @@
-.search-card {
-  margin-bottom: 16px;
-  border-radius: 8px;
-}
-.search-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-}
-.search-left-group {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.search-actions {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-left: auto;
-}
-.search-left-group .search-filter-chip {
-  flex: 0 0 auto;
-  white-space: nowrap;
-  cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  height: 32px;
-  line-height: 1;
-  padding: 0 14px;
-  border: 1px solid var(--el-border-color, #dcdfe6);
-  border-radius: 16px;
-  background: var(--el-fill-color-light, #f5f7fa);
-  color: var(--el-text-color-secondary, #909399);
-  font-size: 13px;
-  transition: all 0.2s ease;
-}
-/* 触摸屏点过之后 :hover 会一直留着。这页的 chip 就是主筛选器，
-   粘住的蓝框蓝字和真正选中的 --active 只差一个底色，很容易读成已经筛上了 */
-@media (hover: hover) {
-  .search-left-group .search-filter-chip:hover {
-    border-color: var(--el-color-primary, #409eff);
-    color: var(--el-color-primary, #409eff);
-  }
-  .search-left-group .search-filter-chip--active:hover {
-    color: #fff;
-  }
-}
-.search-left-group .search-filter-chip--active {
-  border-color: var(--el-color-primary, #409eff);
-  background: var(--el-color-primary, #409eff);
-  color: #fff;
-}
-/* chip 上的条数：圆形徽标。
-   两位数以上时靠 min-width + 胶囊圆角自然撑成药丸，不会把数字裁掉。 */
-.search-left-group .search-filter-chip__count {
-  margin-left: 6px;
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: var(--el-color-primary, #409eff);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-}
-/* 0 条：压成灰色，避免一排「0」抢注意力 */
-.search-left-group .search-filter-chip__count--zero {
-  background: var(--el-text-color-disabled, #c0c4cc);
-  color: #fff;
-}
-/* 选中态 chip 本身是实心主色，徽标反色才看得清 */
-.search-left-group .search-filter-chip--active .search-filter-chip__count {
-  background: #fff;
-  color: var(--el-color-primary, #409eff);
-}
-.search-left-group .search-filter-chip--active .search-filter-chip__count--zero {
-  background: rgba(255, 255, 255, 0.55);
-  color: var(--el-color-primary, #409eff);
-}
+/* 筛选栏 / 筛选 chip 的结构与样式在 src/styles/page-modules.css（全站共用），这里不再重写 */
 .table-card {
   border-radius: 8px;
 }
@@ -416,35 +321,6 @@
     bottom: 44px;
   }
 
-  /* 八个 chip 是这页的主筛选器，也是拇指最常点的地方：32px 偏小 */
-  .search-left-group {
-    gap: 8px;
-  }
-  .search-left-group .search-filter-chip {
-    height: 36px;
-  }
-  /* 平台下拉 + 最多三个按钮，右对齐会排成参差不齐的几行；
-     下拉独占一行、按钮两列等宽 */
-  .search-actions {
-    margin-left: 0;
-    width: 100%;
-    justify-content: stretch;
-    gap: 8px;
-  }
-  .search-actions :deep(.todos-platform-filter) {
-    flex: 1 1 100%;
-    width: 100% !important;
-    max-width: none !important;
-  }
-  .search-actions :deep(.el-button) {
-    flex: 1 1 calc(50% - 4px);
-    min-width: 0;
-    margin-left: 0;
-  }
-  .search-card {
-    margin-bottom: 12px;
-  }
-
   /* 分页贴右缘时单手够不到 */
   .pagination {
     justify-content: center;
@@ -466,25 +342,8 @@
     height: 42px;
   }
 }
-/* ─── 交易详情面板 / 发货向导：两个弹窗都限制在可见视口内 ───
-   EP 默认弹窗从顶部 15vh 起往下排、高度随内容走，iPad 上一旦比屏幕高就得整页下拉才能
-   看到底部按钮。这里配合模板上的 align-center（垂直居中）把高度按 --app-vh 封顶，
-   剩下的在 body 内部滚动；宽度也按视口封顶，免得竖屏 iPad 上还要横向拉。
-   注意是**同一个元素**：class 经 $attrs 落在 ElDialogContent 的根节点上，而那个根节点
-   本身就是 .el-dialog，写成后代选择器 `.todo-detail-dialog .el-dialog` 匹配不到。 */
-:deep(.todo-detail-dialog.el-dialog),
-:deep(.todo-ship-dialog.el-dialog) {
-  max-width: 94vw;
-  max-height: calc(92 * var(--app-vh));
-  display: flex;
-  flex-direction: column;
-}
-:deep(.todo-detail-dialog .el-dialog__body),
-:deep(.todo-ship-dialog .el-dialog__body) {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-}
+/* 交易详情面板 / 发货向导的外框规则（.el-dialog / __body）在 style.global.css：
+   弹窗 teleport 到 <body> 后，scoped 的 :deep() 找不到带作用域属性的祖先。 */
 
 /* ─── 交易详情面板 ─── */
 .detail-header {

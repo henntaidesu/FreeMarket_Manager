@@ -1,38 +1,9 @@
-.search-card { margin-bottom: 16px; border-radius: 8px; }
-.search-left-group { display: flex; gap: 12px; }
-.search-actions { display: flex; justify-content: flex-end; }
+/* 筛选栏的结构与样式在 src/styles/page-modules.css（全站共用），这里不再重写 */
 .table-card { border-radius: 8px; }
 .pagination { margin-top: 16px; display: flex; justify-content: flex-end; }
 
-/* ── 手机端（iOS / Android）──────────────────────────────────
-   筛选下拉横排在 375px 屏上放不下；且全站给输入类控件写死了
-   `width: 180px !important`，显式宽度压过 align-items: stretch，
-   光竖排不够，必须在这里显式改回满宽。 */
+/* ── 手机端（iOS / Android）── */
 @media (max-width: 768px) {
-  .search-card { margin-bottom: 12px; }
-  .search-left-group {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-  }
-  .search-left-group :deep(.el-select),
-  .search-left-group :deep(.el-input),
-  .search-left-group :deep(.el-cascader),
-  .search-left-group :deep(.el-date-editor) {
-    width: 100% !important;
-    max-width: none !important;
-  }
-  /* 操作按钮平分一行，别右对齐后在窄屏排出参差 */
-  .search-actions {
-    justify-content: stretch;
-    margin-top: 8px;
-    gap: 8px;
-  }
-  .search-actions :deep(.el-button) {
-    flex: 1 1 0;
-    min-width: 0;
-    margin-left: 0;
-  }
   /* 分页贴右缘时单手够不到 */
   .pagination {
     justify-content: center;

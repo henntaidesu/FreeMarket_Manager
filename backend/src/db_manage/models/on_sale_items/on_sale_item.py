@@ -49,6 +49,9 @@ _ON_SALE_ITEM_LIST_KEYS: Tuple[str, ...] = (
     "impression_boost_status",
     "auction_info_json",
     "listing_description",
+    "photos_json",
+    "item_condition_id",
+    "item_condition_name",
     "synced_at",
     "is_delete",
     "counted_on_sale",
@@ -259,6 +262,25 @@ class OnSaleItemModel(BaseModel):
                 "default": None,
             },
             "listing_description": {
+                "type": "TEXT",
+                "not_null": False,
+                "default": None,
+            },
+            # 以下三列只来自单件详情 items/get（列表接口 items/get_items 不带），由详情同步与
+            # 在售修改（修改后重读一次 items/get）回写；从未抓过详情的行为 NULL。
+            # photos_json：原图 URL 的 JSON 数组（顺序即煤炉上的图片顺序），在售修改的图片编辑以它为起点。
+            "photos_json": {
+                "type": "TEXT",
+                "not_null": False,
+                "default": None,
+            },
+            # 商品の状態：煤炉 item_condition.id（1 新品、未使用 … 6 全体的に状態が悪い）
+            "item_condition_id": {
+                "type": "INTEGER",
+                "not_null": False,
+                "default": None,
+            },
+            "item_condition_name": {
                 "type": "TEXT",
                 "not_null": False,
                 "default": None,

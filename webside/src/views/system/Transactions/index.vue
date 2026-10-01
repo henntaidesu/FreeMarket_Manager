@@ -2,20 +2,20 @@
   <div>
     <!-- 筛选 -->
     <el-card shadow="never" class="search-card">
-      <el-row :gutter="0" align="middle" class="search-row">
-        <el-col :xs="24" :md="16" class="search-left-group">
-          <el-select v-model="filters.type" :placeholder="t('system.txTypeFilter')" clearable @change="load" style="width:100%">
+      <div class="search-row">
+        <div class="search-left-group">
+          <el-select v-model="filters.type" :placeholder="t('system.txTypeFilter')" clearable @change="load">
             <el-option :label="t('system.txIn')" value="in" />
             <el-option :label="t('system.txOut')" value="out" />
             <el-option :label="t('system.txTransfer')" value="transfer" />
           </el-select>
-          <el-select v-model="filters.warehouse_id" :placeholder="t('system.txWarehousePick')" clearable @change="load" style="width:100%">
+          <el-select v-model="filters.warehouse_id" :placeholder="t('system.txWarehousePick')" clearable @change="load">
             <el-option v-for="w in warehouses" :key="w.id" :label="warehouseShelfLabel(w)" :value="w.id" />
           </el-select>
-        </el-col>
-        <el-col :xs="24" :md="8" class="search-actions">
-        </el-col>
-      </el-row>
+        </div>
+        <div class="search-actions">
+        </div>
+      </div>
     </el-card>
 
     <el-card shadow="never" class="table-card">

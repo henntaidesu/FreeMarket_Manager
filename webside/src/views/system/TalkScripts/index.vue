@@ -1,29 +1,35 @@
 <template>
   <div>
-    <el-card shadow="never" class="list-card" v-loading="loading">
-      <!-- 工具栏：搜索 + 分类筛选 -->
-      <div class="toolbar">
-        <el-input
-          v-model="keyword"
-          :placeholder="t('talkScripts.searchPlaceholder')"
-          clearable
-          class="toolbar-search"
-          @keyup.enter="load"
-          @clear="load"
-        >
-          <template #prefix><el-icon><Search /></el-icon></template>
-        </el-input>
-        <el-select
-          v-model="categoryFilter"
-          class="toolbar-filter"
-          clearable
-          :placeholder="t('talkScripts.allCategories')"
-          @change="load"
-        >
-          <el-option v-for="c in categories" :key="c" :label="c" :value="c" />
-        </el-select>
-        <el-button :icon="Search" type="primary" @click="load">{{ t('common.search') }}</el-button>
+    <!-- 筛选栏：搜索 + 分类筛选 -->
+    <el-card shadow="never" class="search-card">
+      <div class="search-row">
+        <div class="search-left-group">
+          <el-input
+            v-model="keyword"
+            :placeholder="t('talkScripts.searchPlaceholder')"
+            clearable
+            class="search-keyword"
+            @keyup.enter="load"
+            @clear="load"
+          >
+            <template #prefix><el-icon><Search /></el-icon></template>
+          </el-input>
+          <el-select
+            v-model="categoryFilter"
+            clearable
+            :placeholder="t('talkScripts.allCategories')"
+            @change="load"
+          >
+            <el-option v-for="c in categories" :key="c" :label="c" :value="c" />
+          </el-select>
+        </div>
+        <div class="search-actions">
+          <el-button :icon="Search" type="primary" @click="load">{{ t('common.search') }}</el-button>
+        </div>
       </div>
+    </el-card>
+
+    <el-card shadow="never" class="list-card" v-loading="loading">
 
       <el-row :gutter="16">
         <el-col
@@ -270,19 +276,6 @@ onMounted(() => {
 .list-card {
   border-radius: 8px;
 }
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 16px;
-}
-.toolbar-search {
-  width: 280px;
-  max-width: 100%;
-}
-.toolbar-filter {
-  width: 180px;
-}
 .card-col {
   margin-bottom: 16px;
 }
@@ -378,30 +371,8 @@ onMounted(() => {
   font-size: 24px;
 }
 
-/* ── 手机端（iOS / Android）──────────────────────────────────
-   卡片本身靠 el-col 的 :xs 已自动单列，这里补的是工具栏。 */
+/* ── 手机端（iOS / Android）── 筛选栏见 src/styles/page-modules.css */
 @media (max-width: 768px) {
-  .toolbar {
-    gap: 8px;
-    margin-bottom: 12px;
-  }
-  /* 搜索框写的 280px 其实早就被全局那条 `width: 180px !important` 压成 180
-     了；手机上直接独占一行，筛选与搜索按钮平分第二行 */
-  .toolbar-search {
-    flex: 1 1 100%;
-    width: 100% !important;
-    max-width: none !important;
-  }
-  .toolbar-filter {
-    flex: 1 1 0;
-    width: auto !important;
-    min-width: 0;
-    max-width: none !important;
-  }
-  .toolbar :deep(.el-button) {
-    flex: 0 0 auto;
-    margin-left: 0;
-  }
   .card-col {
     margin-bottom: 12px;
   }

@@ -390,3 +390,59 @@
   color: #94a3b8;
   font-size: 12px;
 }
+
+/* ===== 编辑商品 / 扫码弹窗外框 =====
+   弹窗一律 teleport 到 <body>（main.js 把 append-to-body 默认改成了 true），
+   scoped 的 `:deep(.x.el-dialog)` 编译成 `[data-v-xxx] .x.el-dialog`，要求祖先带作用域属性，
+   挂到 body 后永远匹配不到，所以外框规则只能写在这里。
+   注意是**同一个元素**，不能写成后代选择器：`<el-dialog class="…">` 的 class 通过 $attrs
+   落在 ElDialogContent 的根节点上，而那个根节点本身就是 .el-dialog。 */
+/* 宽 70vw，高**跟着内容走**、80vh 封顶：写死 height 会让内容排完后底下空一大片。
+   头/底固定，body 不滚动，滚动只作为兜底发生在左侧表单栏内部，右侧图片栏始终留在视线里。
+   `.product-dialog` 还挂在组合商品/拆分两个小弹窗上，那两个不该被限成 80vh，
+   所以这条按尺寸生效的规则只认编辑商品弹窗。 */
+.product-dialog.el-dialog:not(.combined-product-dialog) {
+  margin: calc(10 * var(--app-vh)) auto !important;
+  max-height: calc(80 * var(--app-vh));
+  display: flex;
+  flex-direction: column;
+}
+/* 圆角与库存卡片 / 表单里的分区卡片同为 8px，EP 默认的 --el-border-radius-base 只有 4px，
+   在这么大一块面板上几乎看不出圆角 */
+.product-dialog--edit.el-dialog {
+  --el-dialog-border-radius: 8px;
+}
+.product-dialog .el-dialog__header {
+  padding-bottom: 10px;
+}
+/* 编辑商品弹窗既没有标题也不要关闭叉号（EP 把叉号渲染在 header 里），整块头部去掉不留空档。
+   关窗走点击遮罩 / Esc */
+.product-dialog--edit .el-dialog__header {
+  display: none;
+}
+.product-dialog .el-dialog__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  padding: 0 16px;
+}
+.product-dialog .el-dialog__footer {
+  padding: 10px 16px;
+  border-top: 1px solid #263352;
+}
+@media (max-width: 768px) {
+  /* 移动端三栏纵向堆叠：改由弹窗 body 整体滚动，各栏不再单独限高 */
+  .product-dialog .el-dialog__body {
+    display: block;
+    overflow-y: auto;
+  }
+  .product-dialog.el-dialog,
+  .scan-dialog.el-dialog {
+    margin-top: calc(6 * var(--app-vh)) !important;
+  }
+  .product-dialog .el-dialog__body,
+  .scan-dialog .el-dialog__body {
+    padding: 14px;
+  }
+}

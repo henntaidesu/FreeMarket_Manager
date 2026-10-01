@@ -165,3 +165,33 @@
 .batch-pick-mode-active .el-table tbody tr {
   cursor: pointer;
 }
+
+/* ===== 在售商品详情弹窗外框 =====
+   弹窗一律 teleport 到 <body>（main.js 把 append-to-body 默认改成了 true），
+   scoped 的 `:deep(.x.el-dialog)` 编译成 `[data-v-xxx] .x.el-dialog`，要求祖先带作用域属性，
+   挂到 body 后永远匹配不到，所以外框规则只能写在全局样式里。 */
+/* ===== 在售商品详情弹窗 ===== */
+/* 宽度跟着视口走：1080p(可能带 125/150% 缩放) 到 4K 都不留大片空白、也不会挤爆。
+   clamp 下限保证左右分栏塞得下，上限保证 4K 上正文不会宽到读不动。 */
+/* 注意是**同一个元素**，不能写成后代选择器：`<el-dialog class="…">` 的 class 通过 $attrs
+   落在 ElDialogContent 的根节点上，而那个根节点本身就是 .el-dialog。 */
+.on-sale-detail-dialog.el-dialog {
+  width: clamp(880px, 62vw, 1360px) !important;
+  max-width: 94vw;
+  /* 与页面卡片同为 8px（默认 --el-border-radius-base 是 4px，太直） */
+  --el-dialog-border-radius: 8px;
+  /* 高度封顶 + body 内部滚动：1080p 竖向只有 ~900px 可用，整窗滚动会把底部按钮顶出屏幕 */
+  margin: calc(6 * var(--app-vh)) auto !important;
+  max-height: calc(88 * var(--app-vh));
+  display: flex;
+  flex-direction: column;
+}
+/* 无标题栏：show-close=false 之后表头里已经没有 × 了，整块拿掉不再占高度 */
+.on-sale-detail-dialog .el-dialog__header {
+  display: none;
+}
+.on-sale-detail-dialog .el-dialog__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}

@@ -1,26 +1,6 @@
-.search-card {
-  margin-bottom: 16px;
-  border-radius: 8px;
-}
-
+/* 筛选栏的结构与样式在 src/styles/page-modules.css（全站共用），这里不再重写 */
 .table-card {
   border-radius: 8px;
-}
-
-.memos-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.memos-toolbar-spacer {
-  flex: 1;
-  min-width: 0;
-}
-
-.memos-search {
-  width: 240px;
 }
 
 .memos-search-icon {
@@ -100,41 +80,8 @@
   margin-top: 4px;
 }
 
-/* ── 手机端（iOS / Android）──────────────────────────────────
-   工具栏是「三个分页标签 + 搜索 + 弹性占位 + 按钮」的一行，375px 下放不开。 */
+/* ── 手机端（iOS / Android）── */
 @media (max-width: 768px) {
-  .search-card { margin-bottom: 12px; }
-  .memos-toolbar {
-    gap: 8px;
-  }
-  .memos-toolbar :deep(.el-radio-group) {
-    flex: 1 1 100%;
-    display: flex;
-  }
-  .memos-toolbar :deep(.el-radio-button) {
-    flex: 1 1 0;
-    min-width: 0;
-  }
-  .memos-toolbar :deep(.el-radio-button__inner) {
-    width: 100%;
-    padding-left: 0;
-    padding-right: 0;
-  }
-  /* 240px 会被全局那条 `width: 180px !important` 压掉，必须显式满宽 */
-  .memos-search {
-    flex: 1 1 100%;
-    width: 100% !important;
-    max-width: none !important;
-  }
-  /* 弹性占位在竖排后只会凭空撑出一行空白 */
-  .memos-toolbar-spacer {
-    display: none;
-  }
-  .memos-toolbar :deep(.el-button) {
-    flex: 1 1 calc(50% - 4px);
-    min-width: 0;
-    margin-left: 0;
-  }
   /* 分页贴右缘时单手够不到 */
   .memos-pagination {
     justify-content: center;

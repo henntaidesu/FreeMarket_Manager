@@ -1,22 +1,4 @@
-.search-card {
-  margin-bottom: 16px;
-  border-radius: 8px;
-}
-.search-row {
-  justify-content: space-between;
-}
-.search-left-group {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-.search-actions {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 10px;
-}
+/* 筛选栏的结构与样式在 src/styles/page-modules.css（全站共用），这里不再重写 */
 .table-card {
   border-radius: 8px;
 }
@@ -233,41 +215,6 @@
     flex-basis: 140px;
   }
 
-  /* 六个筛选下拉各自带着内联 min-width（200 / 160 / 140px）。手机上它们本来
-     就一行一个，却只占 200px 宽、右边空一大条；一律拉满整行。
-     这里的 min-width:0 是安全的：flex-basis 100% 保证每个控件独占一行，
-     不存在被同行的兄弟挤扁的情形（全局那条已因此撤掉）。 */
-  .search-left-group {
-    gap: 8px;
-  }
-  .search-left-group :deep(.el-input),
-  .search-left-group :deep(.el-select) {
-    flex: 1 1 100%;
-    width: 100% !important;
-    min-width: 0 !important;
-    max-width: none !important;
-  }
-
-  /* 批量改价模式下这里最多 6 个按钮，右对齐会排成参差不齐的几行；
-     改成两列等宽，行末不留豁口 */
-  .search-actions {
-    justify-content: stretch;
-    margin-top: 8px;
-    gap: 8px;
-  }
-  .search-actions :deep(.el-button) {
-    flex: 1 1 calc(50% - 4px);
-    min-width: 0;
-    margin-left: 0;
-  }
-  .batch-pick-count {
-    flex: 1 1 100%;
-    text-align: center;
-  }
-
-  .search-card {
-    margin-bottom: 12px;
-  }
   /* 分页贴右缘时单手够不到 */
   .pagination {
     justify-content: center;
@@ -285,31 +232,8 @@
   }
 }
 
-/* ===== 在售商品详情弹窗 ===== */
-/* 宽度跟着视口走：1080p(可能带 125/150% 缩放) 到 4K 都不留大片空白、也不会挤爆。
-   clamp 下限保证左右分栏塞得下，上限保证 4K 上正文不会宽到读不动。 */
-/* 注意是**同一个元素**，不能写成后代选择器：`<el-dialog class="…">` 的 class 通过 $attrs
-   落在 ElDialogContent 的根节点上，而那个根节点本身就是 .el-dialog。 */
-:deep(.on-sale-detail-dialog.el-dialog) {
-  width: clamp(880px, 62vw, 1360px) !important;
-  max-width: 94vw;
-  /* 与页面卡片同为 8px（默认 --el-border-radius-base 是 4px，太直） */
-  --el-dialog-border-radius: 8px;
-  /* 高度封顶 + body 内部滚动：1080p 竖向只有 ~900px 可用，整窗滚动会把底部按钮顶出屏幕 */
-  margin: calc(6 * var(--app-vh)) auto !important;
-  max-height: calc(88 * var(--app-vh));
-  display: flex;
-  flex-direction: column;
-}
-/* 无标题栏：show-close=false 之后表头里已经没有 × 了，整块拿掉不再占高度 */
-:deep(.on-sale-detail-dialog .el-dialog__header) {
-  display: none;
-}
-:deep(.on-sale-detail-dialog .el-dialog__body) {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-}
+/* 在售商品详情弹窗的外框规则（.el-dialog / __header / __body）在 style.global.css：
+   弹窗 teleport 到 <body> 后，scoped 的 :deep() 找不到带作用域属性的祖先。 */
 .osd {
   display: flex;
   flex-direction: column;
@@ -767,4 +691,61 @@
   font-size: 12px;
   color: var(--el-text-color-secondary);
   line-height: 1.4;
+}
+
+/* 修改弹窗：商品类型 / 状态 / 配送方法 / 运费负担，两列等宽（类型名较长，窄列会截断） */
+.osr-grid--wide {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  justify-content: stretch;
+}
+@media (max-width: 560px) {
+  .osr-grid--wide { grid-template-columns: minmax(0, 1fr); }
+}
+.on-sale-revise-form :deep(.el-select) { width: 100%; }
+.osr-hint {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.4;
+}
+/* 图片：整组替换，顺序即煤炉上的展示顺序（第 1 张是封面） */
+.osr-images { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.osr-images__list { display: flex; flex-wrap: wrap; gap: 8px; }
+.osr-images__item {
+  position: relative;
+  width: 88px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--el-fill-color-light);
+}
+.osr-images__item img { display: block; width: 88px; height: 88px; object-fit: cover; }
+.osr-images__idx {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  font-size: 11px;
+  color: #fff;
+  text-shadow: 0 0 3px rgba(0, 0, 0, 0.8);
+}
+.osr-images__ops { display: flex; justify-content: space-between; padding: 0 2px; }
+.osr-images__add-box {
+  width: 88px;
+  height: 88px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  color: var(--el-text-color-secondary);
+  border: 1px dashed var(--el-border-color);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.osr-images__inv { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.osr-images__inv-thumb {
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid var(--el-border-color);
 }

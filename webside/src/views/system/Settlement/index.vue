@@ -1,53 +1,31 @@
 <template>
   <div class="settlement-page">
-    <el-card shadow="never" class="toolbar-card">
-      <div class="toolbar">
-        <div class="toolbar-field">
-          <span class="toolbar-label">{{ t('system.settlementRecordPeriod') }}</span>
-          <el-date-picker
-            v-model="dateRange"
-            type="daterange"
-            class="range-picker"
-            :range-separator="t('common.to')"
-            :start-placeholder="t('common.startDate')"
-            :end-placeholder="t('common.endDate')"
-            :disabled-date="disabledDate"
-            value-format="x"
-          />
-        </div>
-        <div class="toolbar-actions">
-          <el-button type="success" :loading="saving" :disabled="!loaded || !tableRows.length" @click="saveSettlement">{{ t('system.settlementSave') }}</el-button>
-        </div>
-      </div>
-    </el-card>
-
-    <el-card shadow="never" class="summary-card">
-      <div class="stat-strip">
-        <div class="stat-tile">
-          <div class="stat-tile-label">{{ t('system.settlementOverallNet') }}</div>
-          <div class="stat-tile-value">JP¥{{ formatYen(overall.net_income) }}</div>
-        </div>
-        <div class="stat-tile">
-          <div class="stat-tile-label">{{ t('system.settlementAssignedNet') }}</div>
-          <div class="stat-tile-value">JP¥{{ formatYen(assignedNet) }}</div>
-        </div>
-        <div class="stat-tile" v-if="unassignedNet !== 0">
-          <div class="stat-tile-label">{{ t('system.settlementUnassignedNet') }}</div>
-          <div class="stat-tile-value warn">JP¥{{ formatYen(unassignedNet) }}</div>
-        </div>
-        <div class="stat-tile">
-          <div class="stat-tile-label">{{ t('system.settlementRate') }}</div>
-          <div class="rate-input-wrap">
-            <span class="rate-prefix">{{ t('system.settlementRateCny') }}</span>
+    <el-card shadow="never" class="search-card">
+      <div class="search-row">
+        <div class="search-left-group">
+          <div class="search-field">
+            <span class="search-label">{{ t('system.settlementRecordPeriod') }}</span>
+            <el-date-picker
+              v-model="dateRange"
+              type="daterange"
+              :range-separator="t('common.to')"
+              :start-placeholder="t('common.startDate')"
+              :end-placeholder="t('common.endDate')"
+              :disabled-date="disabledDate"
+              value-format="x"
+            />
+          </div>
+          <!-- 汇率是换算参数，不是统计结果，所以放在筛选栏里 -->
+          <div class="search-field">
+            <span class="search-label">{{ t('system.settlementRateCny') }}</span>
             <el-input-number
               v-model="exchangeRate"
               :min="0"
               :precision="4"
               :step="0.1"
               :controls="false"
-              class="rate-input"
             />
-            <span class="rate-suffix">{{ t('system.settlementRateJpyUnit') }}</span>
+            <span class="search-suffix">{{ t('system.settlementRateJpyUnit') }}</span>
             <el-button
               size="small"
               type="primary"
@@ -58,18 +36,48 @@
             >{{ t('system.settlementRateRefresh') }}</el-button>
           </div>
         </div>
-        <div class="stat-tile">
-          <div class="stat-tile-label">{{ t('system.settlementTotalFinal') }}</div>
-          <div class="stat-tile-value">JP¥{{ formatYen(totals.final_amount) }}</div>
-          <div class="stat-tile-sub muted">{{ t('system.settlementSettleFee', { rate: feePercent }) }} -JP¥{{ formatYen(totals.settlement_fee) }}</div>
-        </div>
-        <div class="stat-tile is-primary">
-          <div class="stat-tile-label">{{ t('system.settlementPayoutTotal') }}</div>
-          <div class="stat-tile-value strong">JP¥{{ formatYen(totals.payout_amount) }}</div>
-          <div class="stat-tile-sub" v-if="hasRate">≈ CN¥{{ formatCny(totals.payout_amount_cny) }}</div>
+        <div class="search-actions">
+          <el-button type="success" :loading="saving" :disabled="!loaded || !tableRows.length" @click="saveSettlement">{{ t('system.settlementSave') }}</el-button>
         </div>
       </div>
-      <div class="summary-hint" v-if="unassignedNet !== 0">{{ t('system.settlementUnassignedHint') }}</div>
+    </el-card>
+
+    <el-card shadow="never" class="stats-card">
+      <div class="stat-grid">
+        <div class="stat-card" style="border-top-color: #409eff">
+          <div class="stat-info">
+            <div class="stat-value">JP¥{{ formatYen(overall.net_income) }}</div>
+            <div class="stat-label">{{ t('system.settlementOverallNet') }}</div>
+          </div>
+        </div>
+        <div class="stat-card" style="border-top-color: #409eff">
+          <div class="stat-info">
+            <div class="stat-value">JP¥{{ formatYen(assignedNet) }}</div>
+            <div class="stat-label">{{ t('system.settlementAssignedNet') }}</div>
+          </div>
+        </div>
+        <div class="stat-card" v-if="unassignedNet !== 0" style="border-top-color: #e6a23c">
+          <div class="stat-info">
+            <div class="stat-value is-warning">JP¥{{ formatYen(unassignedNet) }}</div>
+            <div class="stat-label">{{ t('system.settlementUnassignedNet') }}</div>
+          </div>
+        </div>
+        <div class="stat-card" style="border-top-color: #909399">
+          <div class="stat-info">
+            <div class="stat-value">JP¥{{ formatYen(totals.final_amount) }}</div>
+            <div class="stat-sub is-muted">{{ t('system.settlementSettleFee', { rate: feePercent }) }} -JP¥{{ formatYen(totals.settlement_fee) }}</div>
+            <div class="stat-label">{{ t('system.settlementTotalFinal') }}</div>
+          </div>
+        </div>
+        <div class="stat-card" style="border-top-color: #67c23a">
+          <div class="stat-info">
+            <div class="stat-value is-primary">JP¥{{ formatYen(totals.payout_amount) }}</div>
+            <div class="stat-sub" v-if="hasRate">≈ CN¥{{ formatCny(totals.payout_amount_cny) }}</div>
+            <div class="stat-label">{{ t('system.settlementPayoutTotal') }}</div>
+          </div>
+        </div>
+      </div>
+      <div class="stats-hint" v-if="unassignedNet !== 0">{{ t('system.settlementUnassignedHint') }}</div>
     </el-card>
 
     <div class="cost-grid">

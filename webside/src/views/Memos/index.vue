@@ -1,46 +1,47 @@
 <template>
   <div>
     <el-card shadow="never" class="search-card">
-      <div class="memos-toolbar">
-        <el-radio-group v-model="tab" @change="onTabChange">
-          <el-radio-button label="inbox">
-            {{ t('memos.tabInbox') }}
-            <el-badge
-              v-if="unread > 0"
-              :value="unread"
-              :max="99"
-              class="memos-badge"
-            />
-          </el-radio-button>
-          <el-radio-button label="processed">{{ t('memos.tabProcessed') }}</el-radio-button>
-          <el-radio-button label="sent">{{ t('memos.tabSent') }}</el-radio-button>
-        </el-radio-group>
+      <div class="search-row">
+        <div class="search-left-group">
+          <el-radio-group v-model="tab" @change="onTabChange">
+            <el-radio-button label="inbox">
+              {{ t('memos.tabInbox') }}
+              <el-badge
+                v-if="unread > 0"
+                :value="unread"
+                :max="99"
+                class="memos-badge"
+              />
+            </el-radio-button>
+            <el-radio-button label="processed">{{ t('memos.tabProcessed') }}</el-radio-button>
+            <el-radio-button label="sent">{{ t('memos.tabSent') }}</el-radio-button>
+          </el-radio-group>
 
-        <el-input
-          v-model="keyword"
-          :placeholder="t('memos.searchPlaceholder')"
-          clearable
-          class="memos-search"
-          @keyup.enter="reload(1)"
-          @clear="reload(1)"
-        >
-          <template #suffix>
-            <el-icon class="memos-search-icon" @click="reload(1)"><Search /></el-icon>
-          </template>
-        </el-input>
-
-        <div class="memos-toolbar-spacer" />
-
-        <el-button
-          v-if="tab === 'inbox'"
-          :disabled="unread === 0"
-          @click="markAllRead"
-        >
-          <el-icon><Check /></el-icon> {{ t('memos.markAllProcessed') }}
-        </el-button>
-        <el-button type="primary" @click="openComposeDialog">
-          <el-icon><EditPen /></el-icon> {{ t('memos.compose') }}
-        </el-button>
+          <el-input
+            v-model="keyword"
+            :placeholder="t('memos.searchPlaceholder')"
+            clearable
+            class="search-keyword"
+            @keyup.enter="reload(1)"
+            @clear="reload(1)"
+          >
+            <template #suffix>
+              <el-icon class="memos-search-icon" @click="reload(1)"><Search /></el-icon>
+            </template>
+          </el-input>
+        </div>
+        <div class="search-actions">
+          <el-button
+            v-if="tab === 'inbox'"
+            :disabled="unread === 0"
+            @click="markAllRead"
+          >
+            <el-icon><Check /></el-icon> {{ t('memos.markAllProcessed') }}
+          </el-button>
+          <el-button type="primary" @click="openComposeDialog">
+            <el-icon><EditPen /></el-icon> {{ t('memos.compose') }}
+          </el-button>
+        </div>
       </div>
     </el-card>
 

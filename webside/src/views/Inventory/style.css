@@ -1,136 +1,4 @@
-.section-card { margin-bottom: 16px; border-radius: 8px; }
-.inventory-stats-wrap { margin-bottom: 16px; }
-.inventory-stat-row { margin-bottom: 0; }
-.stat-row .el-col { margin-bottom: 16px; }
-.inv-stat-card {
-  background: #131c2f;
-  border-radius: 8px;
-  padding: 16px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  border-top: 3px solid;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  border: 1px solid #2a3446;
-}
-.inv-stat-icon {
-  width: 46px;
-  height: 46px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.inv-stat-value { font-size: 22px; font-weight: 700; color: #ecf2ff; }
-.inv-stat-label { font-size: 12px; color: #9ba8bf; margin-top: 2px; }
-.search-card { margin-bottom: 16px; border-radius: 8px; }
-.search-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
-.search-actions--ios {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
-}
-.search-actions-ios-row {
-  display: flex;
-  flex-wrap: nowrap;
-  gap: 8px;
-  width: 100%;
-  justify-content: stretch;
-}
-.search-actions-ios-row :deep(.el-button) {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-}
-/* 两行结构：第一行搜索+下拉，第二行筛选卡片（左）+ 操作按钮（右） */
-.search-row {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.search-controls-row {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-  width: 100%;
-}
-.search-filters-row {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-.search-bottom-row {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-  width: 100%;
-}
-.search-chips-row {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.search-bottom-row .search-actions {
-  flex: 0 0 auto;
-  margin-left: auto;
-}
-.search-input-control,
-.search-select-control {
-  width: 180px;
-  max-width: 180px;
-}
-.search-filters-row .search-select-control {
-  width: 180px;
-  max-width: 180px;
-}
-.search-chips-row .search-filter-chip {
-  flex: 0 0 auto;
-  white-space: nowrap;
-  cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  height: 32px;
-  line-height: 1;
-  padding: 0 14px;
-  border: 1px solid var(--el-border-color, #dcdfe6);
-  border-radius: 16px;
-  background: var(--el-fill-color-light, #f5f7fa);
-  color: var(--el-text-color-secondary, #909399);
-  font-size: 13px;
-  transition: all 0.2s ease;
-}
-/* 触摸屏点过之后 :hover 会一直留着：未选中的筛选卡片会一直显示成蓝框蓝字，
-   和真正选中的 --active 只差一个底色，很容易看成已经筛上了 */
-@media (hover: hover) {
-  .search-chips-row .search-filter-chip:hover {
-    border-color: var(--el-color-primary, #409eff);
-    color: var(--el-color-primary, #409eff);
-  }
-  .search-chips-row .search-filter-chip--active:hover {
-    color: #fff;
-  }
-}
-.search-chips-row .search-filter-chip--active {
-  border-color: var(--el-color-primary, #409eff);
-  background: var(--el-color-primary, #409eff);
-  color: #fff;
-}
+/* 筛选栏 / 统计条 / 筛选 chip 的结构与样式在 src/styles/page-modules.css（全站共用），这里不再重写 */
 .product-field-inline {
   display: flex;
   align-items: center;
@@ -160,42 +28,8 @@
   text-align: center;
 }
 /* ===== 编辑商品弹窗（分区卡片 + 标签置顶）===== */
-/* 宽 70vw，高**跟着内容走**、80vh 封顶：写死 height 会让内容排完后底下空一大片。
-   头/底固定，body 不滚动，滚动只作为兜底发生在左侧表单栏内部，右侧图片栏始终留在视线里。
-   注意是**同一个元素**，不能写成后代选择器：`<el-dialog class="…">` 的 class 通过 $attrs
-   落在 ElDialogContent 的根节点上，而那个根节点本身就是 .el-dialog。
-   `.product-dialog` 还挂在组合商品/拆分两个小弹窗上，那两个不该被限成 80vh，
-   所以这条按尺寸生效的规则只认编辑商品弹窗。 */
-:deep(.product-dialog.el-dialog:not(.combined-product-dialog)) {
-  margin: calc(10 * var(--app-vh)) auto !important;
-  max-height: calc(80 * var(--app-vh));
-  display: flex;
-  flex-direction: column;
-}
-/* 圆角与库存卡片 / 表单里的分区卡片同为 8px，EP 默认的 --el-border-radius-base 只有 4px，
-   在这么大一块面板上几乎看不出圆角 */
-:deep(.product-dialog--edit.el-dialog) {
-  --el-dialog-border-radius: 8px;
-}
-:deep(.product-dialog .el-dialog__header) {
-  padding-bottom: 10px;
-}
-/* 编辑商品弹窗既没有标题也不要关闭叉号（EP 把叉号渲染在 header 里），整块头部去掉不留空档。
-   关窗走点击遮罩 / Esc */
-:deep(.product-dialog--edit .el-dialog__header) {
-  display: none;
-}
-:deep(.product-dialog .el-dialog__body) {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: hidden;
-  display: flex;
-  padding: 0 16px;
-}
-:deep(.product-dialog .el-dialog__footer) {
-  padding: 10px 16px;
-  border-top: 1px solid #263352;
-}
+/* 弹窗外框（.el-dialog / __header / __body / __footer）的尺寸规则在 style.global.css：
+   弹窗 teleport 到 <body> 后，scoped 的 :deep() 找不到带作用域属性的祖先。 */
 .product-edit-form {
   flex: 1 1 auto;
   min-width: 0;
@@ -1006,11 +840,7 @@ a.pef-lcard:hover {
   text-align: center;
 }
 @media (max-width: 768px) {
-  /* 移动端三栏纵向堆叠：改由弹窗 body 整体滚动，各栏不再单独限高 */
-  :deep(.product-dialog .el-dialog__body) {
-    display: block;
-    overflow-y: auto;
-  }
+  /* 移动端三栏纵向堆叠：改由弹窗 body 整体滚动（规则在 style.global.css），各栏不再单独限高 */
   .product-edit-form {
     display: block;
   }
@@ -1693,57 +1523,6 @@ a.pef-lcard:hover {
 }
 
 @media (max-width: 768px) {
-  .search-controls-row {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-    width: 100%;
-  }
-  .search-input-control {
-    width: 100%;
-    max-width: none;
-  }
-  .search-filters-row {
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: 8px;
-    width: 100%;
-  }
-  .search-filters-row .search-select-control {
-    flex: 1;
-    width: 0;
-    min-width: 0;
-    max-width: none;
-  }
-  .search-bottom-row {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
-  }
-  .search-chips-row {
-    gap: 8px;
-  }
-  .search-chips-row .search-filter-chip {
-    flex: 0 0 auto;
-    text-align: center;
-  }
-  .search-bottom-row .search-actions {
-    margin-left: 0;
-    width: 100%;
-    justify-content: stretch;
-  }
-  /* 非 iOS 小屏：保持纵向满宽按钮，与原先一致 */
-  .search-actions:not(.search-actions--ios) {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .search-actions:not(.search-actions--ios) :deep(.el-button) {
-    width: 100%;
-    margin-left: 0;
-  }
-  .search-actions--ios {
-    margin-top: 4px;
-  }
   .table-scroll {
     -webkit-overflow-scrolling: touch;
   }
@@ -1756,10 +1535,6 @@ a.pef-lcard:hover {
     row-gap: 6px;
     justify-content: center;
   }
-  /* 四个筛选卡片是这页主要的筛选入口，32px 在手机上偏小 */
-  .search-chips-row .search-filter-chip {
-    height: 36px;
-  }
   .row-actions {
     gap: 4px;
   }
@@ -1771,32 +1546,6 @@ a.pef-lcard:hover {
   }
   .image-upload-area.large {
     height: 150px;
-  }
-  :deep(.product-dialog.el-dialog),
-  :deep(.scan-dialog.el-dialog) {
-    margin-top: calc(6 * var(--app-vh)) !important;
-  }
-  :deep(.product-dialog .el-dialog__body),
-  :deep(.scan-dialog .el-dialog__body) {
-    padding: 14px;
-  }
-}
-
-/* ===== 桌面 / 平板（含 iPad，>768px）：第二行操作按钮单行右对齐，与左侧筛选卡片同处第二行 ===== */
-@media (min-width: 769px) {
-  /* iPad 上 iOS 模板原本把按钮拆成多行并拉伸，这里展平为同一行、自然宽度、右对齐 */
-  .search-bottom-row .search-actions--ios {
-    flex-direction: row;
-    align-items: center;
-    gap: 8px;
-  }
-  .search-bottom-row .search-actions-ios-row {
-    display: contents;
-  }
-  .search-bottom-row .search-actions :deep(.el-button) {
-    flex: 0 0 auto;
-    min-width: auto;
-    margin: 0;
   }
 }
 

@@ -1,6 +1,4 @@
-.search-card { margin-bottom: 16px; border-radius: 8px; }
-.search-row { justify-content: space-between; }
-.search-left-group { display: flex; align-items: center; gap: 20px; }
+/* 筛选栏的结构与样式在 src/styles/page-modules.css（全站共用），这里不再重写 */
 .pagination { margin-top: 16px; display: flex; justify-content: flex-end; }
 
 .task-summary {
@@ -138,16 +136,8 @@
   color: #3a4456;
 }
 
-/* 窄屏：筛选竖排、标题允许换行 */
+/* 窄屏：标题允许换行 */
 @media (max-width: 768px) {
-  .search-left-group { flex-direction: column; align-items: stretch; gap: 10px; }
-  /* align-items: stretch 拉不动这三个下拉：全站给输入类控件写死了
-     `width: 180px !important`，显式宽度压过交叉轴拉伸，竖排后每个只占 180px、
-     右边空一大条。必须在这里显式改回满宽。 */
-  .search-left-group :deep(.el-select) {
-    width: 100% !important;
-    max-width: none !important;
-  }
   .task-card__head { flex-wrap: wrap; }
   .task-card__title { flex-basis: 100%; order: 3; white-space: normal; }
   /* 取消 / 重试是 link 按钮，默认高度只有 24px 左右，拇指点不准 */
@@ -162,7 +152,6 @@
     row-gap: 6px;
     justify-content: center;
   }
-  .search-card { margin-bottom: 12px; }
 }
 
 /* ── 详情弹窗 ───────────────────────────────────────────────── */

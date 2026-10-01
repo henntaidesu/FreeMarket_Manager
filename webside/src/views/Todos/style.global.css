@@ -59,25 +59,25 @@
   gap: 4px;
 }
 
-/* ─── 手机端：交易详情 / 发货向导弹窗按可见视口封顶，内部滚动 ───
-   style.css 里那两条同名规则用的是 scoped 的 `:deep(.todo-*-dialog.el-dialog)`，
-   编译出来是 `[data-v-xxx] .todo-detail-dialog.el-dialog` —— 后代选择器，要求
-   祖先带作用域属性；而弹窗 teleport 到了 <body>，祖先全是 Element 自己的
-   .el-overlay，不可能带这个属性，所以那两条一直没生效。
-   这里只补手机档：不写 max-width（那是桌面观感，改了会动到现有布局），
-   只把高度按 --app-vh 封顶 + body 内部滚动，让发货向导的提交按钮
-   在小屏上始终留在弹窗里，不必靠遮罩层整体下拉去够。 */
-@media (max-width: 768px) {
-  .todo-detail-dialog.el-dialog,
-  .todo-ship-dialog.el-dialog {
-    display: flex;
-    flex-direction: column;
-    max-height: calc(92 * var(--app-vh));
-  }
-  .todo-detail-dialog .el-dialog__body,
-  .todo-ship-dialog .el-dialog__body {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow-y: auto;
-  }
+/* ─── 交易详情面板 / 发货向导：两个弹窗都限制在可见视口内 ───
+   EP 默认弹窗从顶部 15vh 起往下排、高度随内容走，iPad 上一旦比屏幕高就得整页下拉才能
+   看到底部按钮。这里配合模板上的 align-center（垂直居中）把高度按 --app-vh 封顶，
+   剩下的在 body 内部滚动；宽度也按视口封顶，免得竖屏 iPad 上还要横向拉。
+   必须写在全局样式：弹窗一律 teleport 到 <body>（main.js 把 append-to-body 默认改成了 true），
+   scoped 的 `:deep(.todo-*-dialog.el-dialog)` 编译成 `[data-v-xxx] .todo-detail-dialog.el-dialog`，
+   要求祖先带作用域属性，挂到 body 后匹配不到。
+   注意是**同一个元素**：class 经 $attrs 落在 ElDialogContent 的根节点上，而那个根节点
+   本身就是 .el-dialog，写成后代选择器 `.todo-detail-dialog .el-dialog` 匹配不到。 */
+.todo-detail-dialog.el-dialog,
+.todo-ship-dialog.el-dialog {
+  max-width: 94vw;
+  max-height: calc(92 * var(--app-vh));
+  display: flex;
+  flex-direction: column;
+}
+.todo-detail-dialog .el-dialog__body,
+.todo-ship-dialog .el-dialog__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }

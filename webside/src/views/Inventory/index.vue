@@ -1,73 +1,48 @@
 <template>
   <div :class="{ 'listing-pick-mode-active': listingPickMode }">
-    <!-- 库存统计卡片（全库汇总）；手机端不展示 -->
-    <el-card v-if="!isMobile" class="section-card inventory-stats-wrap" shadow="never">
-      <el-row :gutter="16" class="stat-row inventory-stat-row">
-        <el-col :xs="12" :sm="12" :md="8" :lg="4" v-for="card in inventoryStatCards" :key="card.label">
-          <div class="inv-stat-card" :style="{ borderTopColor: card.color }">
-            <div class="inv-stat-icon" :style="{ background: card.color + '20', color: card.color }">
-              <el-icon size="22"><component :is="card.icon" /></el-icon>
-            </div>
-            <div class="inv-stat-info">
-              <div class="inv-stat-value">{{ inventorySummary[card.key] ?? '-' }}</div>
-              <div class="inv-stat-label">{{ card.label }}</div>
-            </div>
-          </div>
-        </el-col>
-      </el-row>
-    </el-card>
-
     <el-card shadow="never" class="search-card" :class="{ 'search-card--ios': isIOS }">
       <div class="search-row">
-        <!-- 第一行：搜索框 + 下拉筛选 -->
-        <div class="search-controls-row">
-          <el-input v-model="keyword" class="search-input-control" clearable @change="load" prefix-icon="Search" />
-          <div class="search-filters-row">
-            <el-cascader
-              v-model="filterCategoryPath"
-              :options="categoryCascaderOptions"
-              :props="categoryCascaderProps"
-              :show-all-levels="false"
-              class="search-select-control"
-              :placeholder="t('inventory.allCategories')"
-              popper-class="product-type-cascader-popper"
-              filterable
-              clearable
+        <div class="search-left-group">
+          <el-input v-model="keyword" class="search-keyword" clearable @change="load" prefix-icon="Search" />
+          <el-cascader
+            v-model="filterCategoryPath"
+            :options="categoryCascaderOptions"
+            :props="categoryCascaderProps"
+            :show-all-levels="false"
+            :placeholder="t('inventory.allCategories')"
+            popper-class="product-type-cascader-popper"
+            filterable
+            clearable
+          />
+          <el-cascader
+            v-model="filterWarehousePath"
+            :options="warehouseCascaderOptionsWithDefault"
+            :props="warehouseCascaderProps"
+            :show-all-levels="false"
+            :placeholder="t('inventory.warehouseShelfNamePlaceholder')"
+            popper-class="product-type-cascader-popper"
+            clearable
+            @change="handleFilterWarehouseChange"
+          />
+          <el-select
+            v-model="filterProductType"
+            :placeholder="t('inventory.productType')"
+            filterable
+            clearable
+            @change="handleFilterProductTypeChange"
+          >
+            <el-option
+              v-for="opt in productTypeCascaderOptions"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
             />
-            <el-cascader
-              v-model="filterWarehousePath"
-              :options="warehouseCascaderOptionsWithDefault"
-              :props="warehouseCascaderProps"
-              :show-all-levels="false"
-              class="search-select-control"
-              :placeholder="t('inventory.warehouseShelfNamePlaceholder')"
-              popper-class="product-type-cascader-popper"
-              clearable
-              @change="handleFilterWarehouseChange"
-            />
-            <el-select
-              v-model="filterProductType"
-              class="search-select-control"
-              :placeholder="t('inventory.productType')"
-              filterable
-              clearable
-              @change="handleFilterProductTypeChange"
-            >
-              <el-option
-                v-for="opt in productTypeCascaderOptions"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-              />
-            </el-select>
-            <el-select v-model="filterOwnerUserId" class="search-select-control" :placeholder="t('inventory.allOwners')" clearable @change="load">
-              <el-option v-for="u in ownerUsers" :key="u.id" :label="u.display_name || u.username" :value="u.id" />
-            </el-select>
-          </div>
-        </div>
-        <!-- 第二行：筛选卡片（居左） + 操作按钮（居右） -->
-        <div class="search-bottom-row">
-          <div class="search-chips-row">
+          </el-select>
+          <el-select v-model="filterOwnerUserId" :placeholder="t('inventory.allOwners')" clearable @change="load">
+            <el-option v-for="u in ownerUsers" :key="u.id" :label="u.display_name || u.username" :value="u.id" />
+          </el-select>
+          <!-- 开关式筛选：单独占一行 -->
+          <div class="search-chips">
             <div
               class="search-filter-chip"
               :class="{ 'search-filter-chip--active': hideNoWarehouseSlot }"
@@ -101,37 +76,40 @@
               @keyup.enter="viewAutoListingOnly = !viewAutoListingOnly"
             >{{ t('inventory.viewAutoListingOnly') }}</div>
           </div>
-          <div class="search-actions" :class="{ 'search-actions--ios': isIOS }">
-          <template v-if="isIOS">
-            <template v-if="!listingPickMode">
-              <div class="search-actions-ios-row">
-                <el-button type="success" plain @click="openNoBarcodeEntry">{{ t('inventory.noBarcodeInbound') }}</el-button>
-                <el-button type="primary" plain @click="openImageSearch">{{ t('inventory.imageSearch') }}</el-button>
-              </div>
-              <div class="search-actions-ios-row">
-                <el-button @click="enterListingPickMode()">{{ t('inventory.combinedProduct') }}</el-button>
-              </div>
-            </template>
-            <template v-else>
-              <div class="search-actions-ios-row listing-pick-actions">
-                <span class="listing-pick-count">{{ t('inventory.selectedCount', { count: listingPickIds.size }) }}</span>
-                <el-button type="primary" :disabled="!listingPickIds.size" @click="confirmListingPick">{{ t('common.next') }}</el-button>
-                <el-button @click="exitListingPickMode">{{ t('inventory.cancelSelection') }}</el-button>
-              </div>
-            </template>
+        </div>
+        <div class="search-actions">
+          <template v-if="!listingPickMode">
+            <el-button type="success" plain @click="openNoBarcodeEntry">{{ t('inventory.noBarcodeInbound') }}</el-button>
+            <el-button type="primary" plain @click="openImageSearch">{{ t('inventory.imageSearch') }}</el-button>
+            <el-button @click="enterListingPickMode()">{{ t('inventory.combinedProduct') }}</el-button>
           </template>
           <template v-else>
-            <template v-if="!listingPickMode">
-              <el-button type="success" plain @click="openNoBarcodeEntry">{{ t('inventory.noBarcodeInbound') }}</el-button>
-              <el-button type="primary" plain @click="openImageSearch">{{ t('inventory.imageSearch') }}</el-button>
-              <el-button @click="enterListingPickMode()">{{ t('inventory.combinedProduct') }}</el-button>
-            </template>
-            <template v-else>
-              <span class="listing-pick-count">{{ t('inventory.selectedCount', { count: listingPickIds.size }) }}</span>
-              <el-button type="primary" :disabled="!listingPickIds.size" @click="confirmListingPick">{{ t('inventory.nextCreateCombined') }}</el-button>
-              <el-button @click="exitListingPickMode">{{ t('inventory.cancelSelection') }}</el-button>
-            </template>
+            <span class="listing-pick-count">{{ t('inventory.selectedCount', { count: listingPickIds.size }) }}</span>
+            <!-- 手机上按钮平分一行，长文案放不下 -->
+            <el-button type="primary" :disabled="!listingPickIds.size" @click="confirmListingPick">
+              {{ isMobile ? t('common.next') : t('inventory.nextCreateCombined') }}
+            </el-button>
+            <el-button @click="exitListingPickMode">{{ t('inventory.cancelSelection') }}</el-button>
           </template>
+        </div>
+      </div>
+    </el-card>
+
+    <!-- 库存统计卡片（全库汇总，不随上面的筛选变化）；手机端不展示 -->
+    <el-card v-if="!isMobile" class="stats-card" shadow="never">
+      <div class="stat-grid">
+        <div
+          v-for="card in inventoryStatCards"
+          :key="card.label"
+          class="stat-card"
+          :style="{ borderTopColor: card.color }"
+        >
+          <div class="stat-icon" :style="{ background: card.color + '20', color: card.color }">
+            <el-icon size="20"><component :is="card.icon" /></el-icon>
+          </div>
+          <div class="stat-info">
+            <div class="stat-value">{{ inventorySummary[card.key] ?? '-' }}</div>
+            <div class="stat-label">{{ card.label }}</div>
           </div>
         </div>
       </div>

@@ -1,13 +1,14 @@
 <template>
   <div>
     <el-card shadow="never" class="search-card">
-      <el-row :gutter="12" align="middle">
-        <el-col :xs="24" :md="16" class="search-left-group">
+      <div class="search-row">
+        <div class="search-left-group">
           <el-select v-model="filters.type" :placeholder="t('system.costExpenseUsageType')" clearable @change="onFilterChange">
             <el-option v-for="item in typeOptions" :key="item.value" :label="item.label" :value="item.value" />
           </el-select>
           <el-input
             v-model="filters.order_no"
+            class="search-keyword"
             clearable
             @change="onFilterChange"
           />
@@ -23,11 +24,11 @@
             value-format="x"
             @change="onFilterChange"
           />
-        </el-col>
-        <el-col :xs="24" :md="8" class="search-actions">
+        </div>
+        <div class="search-actions">
           <el-button type="primary" @click="openCreate">{{ t('system.costExpenseAdd') }}</el-button>
-        </el-col>
-      </el-row>
+        </div>
+      </div>
     </el-card>
 
     <el-card shadow="never" class="table-card">

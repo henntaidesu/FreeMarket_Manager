@@ -1,25 +1,27 @@
 <template>
   <div>
     <el-card shadow="never" class="search-card">
-      <el-row justify="space-between" align="middle">
-        <div class="mapping-summary">
-          {{ t('system.mappingSummary', {
-            total: rows.length,
-            mercari: missingMercariCount,
-            yahoo: missingYahooCount,
-          }) }}
-        </div>
-        <div class="mapping-actions">
-          <el-select v-model="missingFilter" class="missing-filter" :placeholder="t('system.missingFilterLabel')">
+      <div class="search-row">
+        <div class="search-left-group">
+          <el-select v-model="missingFilter" :placeholder="t('system.missingFilterLabel')">
             <el-option :label="t('system.missingFilterAll')" value="" />
             <el-option :label="t('system.missingFilterMercari')" value="mercari" />
             <el-option :label="t('system.missingFilterYahoo')" value="yahoo" />
           </el-select>
+          <span class="search-summary">
+            {{ t('system.mappingSummary', {
+              total: rows.length,
+              mercari: missingMercariCount,
+              yahoo: missingYahooCount,
+            }) }}
+          </span>
+        </div>
+        <div class="search-actions">
           <el-button type="primary" @click="openDialog()">
             <el-icon><Plus /></el-icon> {{ t('system.addMapping') }}
           </el-button>
         </div>
-      </el-row>
+      </div>
     </el-card>
 
     <el-card shadow="never" class="table-card">

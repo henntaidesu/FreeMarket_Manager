@@ -2,19 +2,19 @@
   <div>
     <!-- 筛选 -->
     <el-card shadow="never" class="search-card">
-      <el-row :gutter="0" align="middle" class="search-row">
-        <el-col :xs="24" :md="16" class="search-left-group">
-          <el-select v-model="filters.category" :placeholder="t('system.logCategoryFilter')" clearable @change="onFilterChange" style="width:100%">
+      <div class="search-row">
+        <div class="search-left-group">
+          <el-select v-model="filters.category" :placeholder="t('system.logCategoryFilter')" clearable @change="onFilterChange">
             <el-option :label="t('system.logCatAutoRelist')" value="auto_relist" />
             <el-option :label="t('system.logCatAutoFetch')" value="auto_fetch" />
             <el-option :label="t('system.logCatOperation')" value="operation" />
             <el-option :label="t('system.logCatListing')" value="listing" />
           </el-select>
-          <el-select v-model="filters.account_id" :placeholder="t('system.logAccountFilter')" clearable filterable @change="onFilterChange" style="width:100%">
+          <el-select v-model="filters.account_id" :placeholder="t('system.logAccountFilter')" clearable filterable @change="onFilterChange">
             <el-option v-for="a in accounts" :key="a.id" :label="a.account_name || `#${a.id}`" :value="a.id" />
           </el-select>
-        </el-col>
-      </el-row>
+        </div>
+      </div>
     </el-card>
 
     <el-card shadow="never" class="table-card">

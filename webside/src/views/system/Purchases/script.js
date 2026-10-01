@@ -209,7 +209,9 @@ export default defineComponent({
     async function loadStats() {
       statsLoading.value = true
       try {
-        stats.value = await purchaseApi.stats(currentParams())
+        // 汇总条只看未结算：它回答的是「还有多少钱没结」，已结算 / 无需结算不进来。
+        // 与列表的结算状态筛选脱钩，列表照常能筛已结算的行。
+        stats.value = await purchaseApi.stats({ ...currentParams(), settlement_status: SETTLEMENT_UNSETTLED })
       } catch {
         stats.value = null
       } finally {
@@ -392,10 +394,10 @@ export default defineComponent({
       if (top) cardObserver.observe(top)
     }
 
-    // 顶部汇总条。口径跟着当前筛选走（含结算状态），与下方列表对得上。
+    // 顶部汇总条：恒为未结算口径（其余筛选条件照常跟随），见 loadStats。
     const statCards = computed(() => {
       const s = stats.value || {}
-      const cards = [
+      return [
         {
           key: 'count',
           label: t('purchases.statTotalCount'),
@@ -425,29 +427,7 @@ export default defineComponent({
           icon: 'Van'
         }
       ]
-      // 三个结算桶：点一下即切换筛选，所以它们忽略结算状态筛选（后端同口径）
-      const buckets = Array.isArray(s.by_settlement) ? s.by_settlement : []
-      for (const opt of settlementOptions.value) {
-        const b = buckets.find((x) => Number(x.settlement_status) === opt.value) || {}
-        cards.push({
-          key: `st-${opt.value}`,
-          label: `${opt.label}（${b.count || 0}）`,
-          display: yen0(b.sum_cost),
-          color: opt.color,
-          icon: opt.value === SETTLEMENT_SETTLED ? 'CircleCheck' : opt.value === SETTLEMENT_EXCLUDED ? 'Remove' : 'Clock',
-          settlementStatus: opt.value,
-          active: hasValue(filters.value.settlement_status) && filters.value.settlement_status === opt.value
-        })
-      }
-      return cards
     })
-
-    function onStatCardClick(card) {
-      if (card.settlementStatus == null) return
-      filters.value.settlement_status = card.active ? null : card.settlementStatus
-      onFilterChange()
-    }
-
 
     // 列表只带留言条数，正文按需拉一次；表格与卡片打开的是同一个弹窗，所以只有这一个入口
     async function loadMessages(itemId) {
@@ -832,7 +812,6 @@ export default defineComponent({
       rowClassName,
       toggleSelectAll,
       onFilterChange,
-      onStatCardClick,
       setRowSettlement,
       setRowOwner,
       runSync,
