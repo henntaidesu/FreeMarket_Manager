@@ -81,3 +81,14 @@
   min-height: 0;
   overflow-y: auto;
 }
+/* 拍照页：不许出现滚动条，取景区收缩去适应视口，让「拍照」按钮在任何设备上都直接可点。
+   从 body 到取景区整条链都是竖向 flex + min-height:0，弹窗被 max-height 封顶时只压缩取景区。 */
+.todo-ship-dialog--camera .el-dialog__body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.todo-ship-dialog--camera .ship-flow-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}

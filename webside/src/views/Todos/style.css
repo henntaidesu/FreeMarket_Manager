@@ -1046,21 +1046,23 @@
 }
 
 /* QR 扫描镜像弹窗 */
+/* 取景区有一个期望高度，弹窗放不下时由 flex 压缩（min-height:0）；
+   画面绝对定位 + contain，自身尺寸不会把取景区撑高 */
 .qr-scan-stage {
   position: relative;
   width: 100%;
-  min-height: 360px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  flex: 1 1 auto;
+  height: calc(60 * var(--app-vh));
+  min-height: 0;
   background: #000;
   border-radius: 8px;
   overflow: hidden;
 }
 .qr-scan-video {
+  position: absolute;
+  inset: 0;
   width: 100%;
-  height: auto;
-  max-height: calc(70 * var(--app-vh));
+  height: 100%;
   display: block;
   object-fit: contain;
   background: #000;
@@ -1076,18 +1078,11 @@
   font-size: 12px;
   text-align: center;
 }
-/* 取景/拍照提示（弹窗底部一行） */
-.qr-scan-tip {
-  margin-top: 10px;
-  font-size: 13px;
-  line-height: 1.5;
-  color: #a8b4ce;
-  text-align: center;
-}
 /* 页内操作按钮（生成发货码 / 拍照 / 重拍 / 提交扫码）。向导没有 footer 槽，
    靠这两条把按钮压到表单右下角：整页撑满 body，按钮 margin-top:auto 吸底 */
 .qr-scan-step,
 .ship-facility-section {
+  min-height: 0;
   flex: 1;
   display: flex;
   flex-direction: column;

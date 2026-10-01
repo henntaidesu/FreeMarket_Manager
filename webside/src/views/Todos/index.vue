@@ -1181,7 +1181,7 @@
       v-model="shippingDialogVisible"
       :title="shipFlowVirtual ? t('todos.virtualShipTitle') : t('todos.pickSizeAndLocation')"
       width="820px"
-      class="todo-ship-dialog"
+      :class="['todo-ship-dialog', { 'todo-ship-dialog--camera': shippingStep === 'yqr' || shippingStep === 'qrscan' }]"
       align-center
       :close-on-click-modal="false"
       destroy-on-close
@@ -1388,7 +1388,6 @@
             {{ t('todos.cameraOpenFailed') }}: {{ qrCamError }}
           </div>
         </div>
-        <div v-if="!qrShot" class="qr-scan-tip">{{ t('todos.yahoo.qrAimTip') }}</div>
         <div class="qr-scan-actions">
           <el-button
             v-if="!qrShot"
@@ -1464,7 +1463,6 @@
             {{ t('todos.cameraOpenFailed') }}: {{ qrCamError }}
           </div>
         </div>
-        <div class="qr-scan-tip">{{ qrShot ? t('todos.qrShotTip') : t('todos.qrAimTip') }}</div>
         <div class="qr-scan-actions">
           <el-button v-if="qrShot" @click="retakeQrShot">{{ t('todos.qrRetake') }}</el-button>
           <el-button
