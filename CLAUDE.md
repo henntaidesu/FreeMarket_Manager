@@ -224,7 +224,9 @@ Key tables in `backend/src/db_manage/models/`:
   管理番号映射回库存的地方都必须走 `_resolve_inventory_id`（= `inventory_barcode.resolve_inventory_id`），
   不能只查存在性**，否则会绑到已软删的旧行。历史处理由系统配置「条码识别」开关排一条
   `system.barcode_history` 任务（识别 → 合并，都幂等）；出品预扣减未结清的组暂缓合并。新增商品上传图片时
-  `upload-image?detect_barcode=1` 识别并返回同条码商品，前端提示并跳转。
+  `upload-image?detect_barcode=1` 识别条码。**一码多品**：写入条码前（自动识别 / 框选 / OCR 候选都走
+  前端 `assignBarcode`）查 `/inventory/barcode-family`，条码本身或其 `条码-N` 已用在别的商品上就问
+  「是否一码多品」——是则记成下一个编号 `条码-N`（字符串不同，历史处理永远不会把它们合并），否则跳转原商品。
 - **warehouses**: Storage locations (shelf names duplicable per warehouse)
 - **product_type_category_mappings**: 商品类型主表 (one row = one 商品类型). `inventory.product_type_id` → `mapping_id` (TEXT PK, numeric, auto-incremented on create, never user-visible). See 商品类型映射 below.
 - **shop_accounts**: Marketplace account config (headers in `value` JSON field, `platform`,
@@ -1256,6 +1258,11 @@ lets the user choose SQLite/MySQL, test the MySQL connection, and switch backend
   Absolute — never renewed or slid forward — so the user re-clicks Cookie 注入 when it lapses.
   A larger value is clamped down rather than honoured.
 - `IMAGE_SEARCH_AUTO_INDEX` / `IMAGE_SEARCH_MODEL_URL` / `IMAGE_SEARCH_THREADS`: CLIP image-search indexing.
+- `OCR_MODEL_AUTO_DOWNLOAD` (默认开) / `OCR_REC_MODEL_URL` / `OCR_DET_MODEL_URL`: 本地 OCR
+  （`src/onnx_ocr/`，PP-OCRv5 mobile 识别 16.6MB + 检测 4.8MB，ONNX，从 ModelScope 下载到 `backend/models/`），
+  框选识别条码的数字兜底与框选识别商品名称（中/日/英）共用。启动后后台下载，没下成则首次用到时再下。
+  **刻意不用 easyocr**：打包的 exe 默认不带 easyocr/torch/cv2（`BUNDLE_OCR=0`），而 ONNX Runtime 本来就在；
+  检测后处理用行投影代替 DB 轮廓（那要 cv2），输入都是人框出的一小块水平文字，够用。
 - `MEMORY_RECYCLE_AUTO` / `MEMORY_RECYCLE_INTERVAL_SEC` / `MEMORY_RECYCLE_MIN_RSS_MB` / `MEMORY_RECYCLE_INITIAL_DELAY_SEC`: Periodic RSS trimming (`memory_recycle.py`) — this app runs for days with a browser attached.
 - `PUBLIC_RATE_LIMIT` / `PUBLIC_RATE_LIMIT_BURST` (120) / `PUBLIC_RATE_LIMIT_RPS` (20): per-IP token
   bucket on the two **unauthenticated** image endpoints (`/inventory/image-thumb`,

@@ -21,7 +21,7 @@ from .units.inventory_images import find_by_image, upload_inventory_image
 from .image_search import image_search, image_search_status
 from .units.inventory_public_handler import get_image_thumb
 from .units.ocr_handler import ocr_region
-from .units.scan_handler import scan_barcode
+from .units.scan_handler import get_barcode_family, ocr_name_region, scan_barcode, scan_barcode_region
 from .units.ai_listing_handler import generate_listing_ai
 
 router = APIRouter()
@@ -35,6 +35,8 @@ router.add_api_route("", list_inventory, methods=["GET"])
 # 汇总（条目数 / 总数量）——须在 /{pid} 之前注册，避免被动态段捕获
 router.add_api_route("/summary", inventory_summary, methods=["GET"])
 router.add_api_route("/barcode/{barcode}", find_by_barcode, methods=["GET"])
+# 「一码多品」：条码及其 -N 编号已用在哪些商品上 + 下一个可用编号（须在 /{pid} 之前注册）
+router.add_api_route("/barcode-family", get_barcode_family, methods=["GET"])
 router.add_api_route("/find-by-image", find_by_image, methods=["POST"])
 # 图片搜索（CLIP 相似度检索，多结果带 match_score）
 router.add_api_route("/image-search", image_search, methods=["POST"])
@@ -67,3 +69,7 @@ router.add_api_route("/ocr-region", ocr_region, methods=["POST"])
 
 # 条形码扫描（库存页面"扫码识别商品"）
 router.add_api_route("/scan-barcode", scan_barcode, methods=["POST"])
+# 框选识别条码（库存表单）：后端按选区裁剪，图床图片同样可用
+router.add_api_route("/scan-barcode-region", scan_barcode_region, methods=["POST"])
+# 框选识别商品名称（本地 PP-OCRv5，中/日/英）
+router.add_api_route("/ocr-name-region", ocr_name_region, methods=["POST"])

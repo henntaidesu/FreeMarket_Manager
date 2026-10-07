@@ -573,7 +573,12 @@
                都已把 form.barcode 填好，没有需要人手输入的场景 -->
           <div class="pef-inline-row">
             <el-form-item class="pef-field--name" :label="t('inventory.productNameCol')">
-              <el-input v-model="form.name" class="listing-field-fullwidth" type="text" clearable />
+              <el-input v-model="form.name" class="listing-field-fullwidth" type="text" clearable>
+                <!-- 框选识别商品名称：在商品图上框住标题文字 -->
+                <template #append>
+                  <el-button @click="openRegionRecognize('name')">{{ t('inventory.nameRegionBtn') }}</el-button>
+                </template>
+              </el-input>
             </el-form-item>
             <el-form-item class="pef-field--cat" :label="t('inventory.gameCategory')" prop="category_id">
               <div class="product-field-inline">
@@ -1291,6 +1296,14 @@
               >
                 {{ t('common.upload') }}
               </el-button>
+              <!-- 框选识别条码：自动识别没认出来（条码太小 / 模糊 / 图里有多个条码）时手动框一下。
+                   新建（商品入库）时也一直显示，没图时点了提示先上传 -->
+              <el-button
+                v-if="Number(form.is_combined || 0) !== 1"
+                plain
+                size="small"
+                @click="openRegionRecognize('barcode')"
+              >{{ t('inventory.barcodeRegionBtn') }}</el-button>
               <span v-if="form.images.length >= MAX_INVENTORY_IMAGES" class="img-count-hint">{{ t('inventory.reachedLimit') }}</span>
               <span class="inventory-images-aside-header__count">{{ form.images.length }} / {{ MAX_INVENTORY_IMAGES }}</span>
             </div>
@@ -2001,6 +2014,25 @@
       :capture="canPickImageWithCamera ? 'environment' : undefined"
       style="display:none"
       @change="handleContCapture"
+    />
+    <RegionRecognizeDialog
+      v-model="barcodeRegionVisible"
+      :mode="regionMode"
+      :images="form.images.filter(Boolean)"
+      :current-id="form.id"
+      :owner-user-id="form.owner_user_id"
+      :current-barcode="form.product_barcode || ''"
+      :current-name="form.name || ''"
+      @apply="applyRegionBarcode"
+      @apply-name="applyRegionName"
+    />
+    <BarcodeDuplicatePrompt
+      v-model="dupPrompt.visible"
+      :family="dupPrompt.family"
+      :default-target-id="dupPrompt.defaultTargetId"
+      @multi="(code) => onDupPromptChoose('multi', code)"
+      @jump="(id) => onDupPromptChoose('jump', id)"
+      @cancel="onDupPromptChoose('cancel')"
     />
     <!-- ===== OCR 框选弹窗 ===== -->
     <el-dialog

@@ -5,13 +5,14 @@
 ``inventory.barcode`` 仍是内部唯一编号，没识别到条码的商品保持 uuid。
 """
 from .decode import decode_image, decode_image_bytes, decode_inventory_images, is_generated_barcode
-from .resolve import find_by_product_barcode, resolve_inventory_id
+from .resolve import barcode_family, find_by_product_barcode, resolve_inventory_id
 
 __all__ = [
     "decode_image",
     "decode_image_bytes",
     "decode_inventory_images",
     "is_generated_barcode",
+    "barcode_family",
     "find_by_product_barcode",
     "resolve_inventory_id",
 ]

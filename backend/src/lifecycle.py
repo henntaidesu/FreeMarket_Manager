@@ -66,6 +66,16 @@ async def _on_startup(force_headed_debug: bool = False) -> None:
         except Exception as exc:
             logging.getLogger(__name__).warning("图片搜索索引线程未启动: %s", exc)
 
+    # ②.6 本地 OCR 模型（PP-OCRv5 mobile ONNX，识别 + 检测约 21MB；框选识别条码/商品名称用）：
+    #      不在就后台下载，不阻塞启动
+    if _env_enabled("OCR_MODEL_AUTO_DOWNLOAD"):
+        try:
+            from .onnx_ocr import start_background_download
+
+            start_background_download()
+        except Exception as exc:
+            logging.getLogger(__name__).warning("OCR 模型下载线程未启动: %s", exc)
+
     # ③ 应用「强制有头调试」全局开关（在任何浏览器启动前设定）
     from .web_drive.core.manager import set_force_headed_debug
 

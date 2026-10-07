@@ -52,3 +52,50 @@ def find_by_product_barcode(code: str) -> List[Dict[str, Any]]:
         (bc, bc),
     )
     return [{"id": int(r[0]), "name": r[1], "owner_user_id": r[2]} for r in rows or []]
+
+
+def barcode_family(code: str) -> Dict[str, Any]:
+    """「一码多品」：同一个条码印在不同商品上（盲盒不同款等），各商品的条码记成 ``code-1``、``code-2``…
+    返回该条码本身及其编号版本已用在哪些未删除商品上，以及下一个可用的编号 ``next_code``。"""
+    import json as _json
+
+    base = (code or "").strip()
+    out: Dict[str, Any] = {"code": base, "items": [], "next_code": None}
+    if not base:
+        return out
+    # LIKE 转义用 '!'：MySQL 字符串字面量里 '\' 本身是转义符，ESCAPE '\' 会把引号吃掉
+    esc = base.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+    rows = DatabaseManager().execute_query(
+        """
+        SELECT p.[id], p.[name], p.[owner_user_id], COALESCE(u.[display_name], u.[username]),
+               p.[product_barcode], p.[barcode], p.[images_json]
+        FROM [inventory] p
+        LEFT JOIN [users] u ON u.[id] = p.[owner_user_id]
+        WHERE COALESCE(p.[is_delete], 0) = 0 AND COALESCE(p.[is_combined], 0) = 0
+          AND (p.[product_barcode] = ? OR p.[barcode] = ? OR p.[product_barcode] LIKE ? ESCAPE '!')
+        ORDER BY p.[id] DESC
+        """,
+        (base, base, esc + "-%"),
+    ) or []
+    max_n = 0
+    for iid, name, owner_id, owner_name, pb, bc, images_json in rows:
+        used = (pb or "").strip() or (bc or "").strip()
+        if used != base:
+            suffix = used[len(base) + 1:] if used.startswith(base + "-") else ""
+            if not suffix.isdigit():
+                continue  # LIKE 命中但后缀不是纯数字：不是本条码的编号版本
+            max_n = max(max_n, int(suffix))
+        try:
+            imgs = _json.loads(images_json) if images_json else []
+        except (TypeError, ValueError):
+            imgs = []
+        out["items"].append({
+            "id": int(iid),
+            "name": name,
+            "owner_user_id": owner_id,
+            "owner_user_name": owner_name,
+            "product_barcode": used,
+            "image": imgs[0] if isinstance(imgs, list) and imgs else None,
+        })
+    out["next_code"] = f"{base}-{max_n + 1}"
+    return out

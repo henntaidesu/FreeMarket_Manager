@@ -91,3 +91,42 @@ def decode_inventory_images_detail(paths: List[str]) -> Dict[str, List[str]]:
 def decode_inventory_images(paths: List[str]) -> List[str]:
     """同上，只要去重后的条码列表。"""
     return list(decode_inventory_images_detail(paths).keys())
+
+
+def gtin_check_ok(code: str) -> bool:
+    """EAN-8 / UPC-A(12) / EAN-13 / GTIN-14 的校验位是否正确（OCR 兜底读数字时用来排序）。"""
+    s = str(code or "").strip()
+    if not s.isdigit() or len(s) not in (8, 12, 13, 14):
+        return False
+    digits = [int(c) for c in s]
+    body, check = digits[:-1], digits[-1]
+    total = sum(v * (3 if i % 2 == 0 else 1) for i, v in enumerate(reversed(body)))
+    return (10 - total % 10) % 10 == check
+
+
+def _variants(img: Image.Image):
+    """框选识别的增强序列：原图 → 灰度拉对比 → 再锐化；每种放大到约 900 / 1800 px 宽。"""
+    from PIL import ImageFilter, ImageOps
+
+    gray = ImageOps.autocontrast(ImageOps.grayscale(img), cutoff=2)
+    bases = (img, gray, gray.filter(ImageFilter.UnsharpMask(radius=2, percent=180, threshold=2)))
+    for target in (900, 1800):
+        scale = min(4.0, target / max(1, img.width))
+        for b in bases:
+            yield b if scale <= 1.05 else b.resize((int(b.width * scale), int(b.height * scale)), Image.LANCZOS)
+
+
+def decode_image_robust(img: Image.Image) -> List[str]:
+    """``decode_image`` 的加强版（框选识别用）：依次尝试增强后的图与两种二值化，命中即返回。
+    比单次识别慢几倍，所以不用在逐件跑的历史处理里。"""
+    for v in _variants(img):
+        for binarizer in (zxingcpp.Binarizer.LocalAverage, zxingcpp.Binarizer.GlobalHistogram):
+            results = zxingcpp.read_barcodes(v, formats=FORMATS, try_rotate=True, binarizer=binarizer)
+            out: List[str] = []
+            for r in results:
+                text = clean_text(r.text)
+                if text and text not in out:
+                    out.append(text)
+            if out:
+                return out
+    return []

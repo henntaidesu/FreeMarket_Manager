@@ -8,6 +8,12 @@ export const inventoryApi = {
   pendingOutboundLines: (id) => http.get(`/use_web/inventory/${id}/pending-outbound-lines`),
   usedInCombos: (id) => http.get(`/use_web/inventory/${id}/used-in-combos`),
   linkedItems: (id) => http.get(`/use_web/inventory/${id}/linked-items`),
+  // 框选识别条码：body = { image_path | image_data, x, y, w, h }（比例坐标，不传即整张图）
+  scanBarcodeRegion: (body) => http.post('/use_web/inventory/scan-barcode-region', body, { timeout: 60000 }),
+  // 框选识别商品名称（同一 body 结构）→ { text, lines, error }
+  ocrNameRegion: (body) => http.post('/use_web/inventory/ocr-name-region', body, { timeout: 120000 }),
+  // 一码多品：条码及其 -N 编号已用在哪些商品上 → { code, items, next_code }
+  barcodeFamily: (code) => http.get('/use_web/inventory/barcode-family', { params: { code } }),
   findByBarcode: (barcode) => http.get(`/use_web/inventory/barcode/${encodeURIComponent(barcode)}`),
   findByImage: (file) => {
     const fd = new FormData()

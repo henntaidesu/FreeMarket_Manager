@@ -32,6 +32,8 @@ import {
 } from '@/constants/mercariJapanAreas.js'
 import { MERCARI_UNDECIDED_AREA_ID } from '@/composables/useListingPlatform.js'
 import { useInventoryBatches } from './useInventoryBatches.js'
+import RegionRecognizeDialog from './RegionRecognizeDialog.vue'
+import BarcodeDuplicatePrompt from './BarcodeDuplicatePrompt.vue'
 
 /**
  * 无码入库上次选择（游戏分类 / 商品类型 / 所属货架 + 商品归属）。
@@ -43,6 +45,8 @@ let noBarcodeLastSelections = null
 export default defineComponent({
   components: {
     WarningFilled,
+    RegionRecognizeDialog,
+    BarcodeDuplicatePrompt,
   },
   setup() {
     const { t } = useI18n()
@@ -4064,6 +4068,26 @@ export default defineComponent({
      * targetIdx < 0 表示追加，>= 0 表示写入/替换该槽位。
      * 来源可为隐藏 file input 或拖拽放下的文件。
      */
+    // ---- 框选识别（条码 / 商品名称），入口在编辑弹窗图片区与名称输入框 ----
+    const barcodeRegionVisible = ref(false)
+    const regionMode = ref('barcode')
+    function openRegionRecognize(mode) {
+      if (!form.value.images.filter(Boolean).length) {
+        ElMessage.warning(t('inventory.regionNeedImage'))
+        return
+      }
+      regionMode.value = mode
+      barcodeRegionVisible.value = true
+    }
+    /** 框选结果里点了「设为本商品条码」：同样过一遍冲突提示（一码多品 / 跳转原商品） */
+    function applyRegionBarcode(code) {
+      return assignBarcode(code)
+    }
+    function applyRegionName(text) {
+      form.value.name = text
+      ElMessage.success(t('inventory.nameRegionApplied', { name: text }))
+    }
+
     // ---- 上传图片识别条码 → 查重 ----
     /** 还没有产品条码的普通商品，上传图片时顺带识别 */
     function shouldDetectBarcode() {
@@ -4092,63 +4116,68 @@ export default defineComponent({
       editActiveTab.value = 'batches'
     }
 
+    // ---- 条码写入：冲突时问「是否一码多品」----
+    const dupPrompt = reactive({ visible: false, family: { code: '', items: [], next_code: '' }, defaultTargetId: null })
+    let dupPromptResolve = null
+
+    function askBarcodeDuplicate(family, defaultTargetId) {
+      return new Promise((resolve) => {
+        dupPromptResolve = resolve
+        dupPrompt.family = family
+        dupPrompt.defaultTargetId = defaultTargetId
+        dupPrompt.visible = true
+      })
+    }
+
+    function onDupPromptChoose(action, value) {
+      dupPrompt.visible = false
+      const resolve = dupPromptResolve
+      dupPromptResolve = null
+      if (resolve) resolve({ action, value })
+    }
+
     /**
-     * 处理上传接口返回的条码识别结果。返回 true = 已跳转到已有商品，调用方不要再把图片写进当前表单。
-     * 同条码 + 同归属人 → 提示并跳转（新建时放弃新建）；只有别的归属人有 → 可选择跳转或继续用该条码新建；
-     * 没有重复 → 直接记为本商品的条码。
+     * 把条码写进当前表单（上传自动识别 / 框选识别 / OCR 候选都走这里）。返回 true = 已跳转到原商品，
+     * 调用方不要再往当前表单写东西。
+     * 该条码（含已编号的 条码-N）没被别的商品用过 → 直接写入；用过 → 问是否「一码多品」：
+     * 是 → 写入下一个编号 条码-N（与其它款各自独立，历史处理也不会合并）；否 → 跳转原商品（草稿丢弃）。
      */
+    async function assignBarcode(rawCode) {
+      const code = String(rawCode || '').trim()
+      if (!code) return false
+      let family
+      try {
+        family = await inventoryApi.barcodeFamily(code)
+      } catch {
+        return false
+      }
+      const curId = Number(form.value.id || 0)
+      const items = (family?.items || []).filter((it) => Number(it.id) !== curId)
+      if (!items.length) {
+        form.value.product_barcode = code
+        ElMessage.success(t('inventory.barcodeDetected', { code }))
+        return false
+      }
+      const owner = Number(form.value.owner_user_id || 0)
+      const preferred = items.find((it) => Number(it.owner_user_id || 0) === owner) || items[0]
+      const choice = await askBarcodeDuplicate({ ...family, items }, preferred.id)
+      if (choice.action === 'multi') {
+        form.value.product_barcode = choice.value
+        ElMessage.success(t('inventory.dupMultiApplied', { code: choice.value }))
+        return false
+      }
+      if (choice.action === 'jump') {
+        await jumpToExistingInventory(choice.value)
+        return true
+      }
+      return false
+    }
+
+    /** 上传接口顺带识别出的条码：还没有条码的普通商品才处理。返回 true = 已跳转，图片不再写入当前表单 */
     async function handleDetectedBarcode(res) {
       const code = String(res?.barcode || '').trim()
       if (!code || !shouldDetectBarcode()) return false
-      const curId = Number(form.value.id || 0)
-      const matches = (Array.isArray(res?.matches) ? res.matches : []).filter((m) => Number(m.id) !== curId)
-      const owner = Number(form.value.owner_user_id || 0)
-      const sameOwner = matches.find((m) => Number(m.owner_user_id || 0) === owner)
-      const isDraft = !curId || Number(formCreatedInSession) === curId
-      const label = (m) => `#${m.id} ${m.name || ''}`.trim()
-      if (sameOwner) {
-        if (!isDraft) {
-          ElMessage.warning(t('inventory.barcodeOwnedByOther', { code, item: label(sameOwner) }))
-          return false
-        }
-        try {
-          await ElMessageBox.confirm(
-            t('inventory.barcodeDuplicateJump', { code, item: label(sameOwner) }),
-            t('inventory.barcodeDuplicateTitle'),
-            { confirmButtonText: t('inventory.barcodeJumpBtn'), cancelButtonText: t('common.cancel'), type: 'warning' }
-          )
-        } catch {
-          return false
-        }
-        await jumpToExistingInventory(sameOwner.id)
-        return true
-      }
-      if (matches.length && isDraft) {
-        let action = 'continue'
-        try {
-          await ElMessageBox.confirm(
-            t('inventory.barcodeDuplicateOtherOwner', { code, item: label(matches[0]) }),
-            t('inventory.barcodeDuplicateTitle'),
-            {
-              confirmButtonText: t('inventory.barcodeJumpBtn'),
-              cancelButtonText: t('inventory.barcodeContinueBtn'),
-              distinguishCancelAndClose: true,
-              type: 'warning'
-            }
-          )
-          action = 'jump'
-        } catch (e) {
-          action = e === 'close' ? 'none' : 'continue'
-        }
-        if (action === 'jump') {
-          await jumpToExistingInventory(matches[0].id)
-          return true
-        }
-        if (action === 'none') return false
-      }
-      form.value.product_barcode = code
-      ElMessage.success(t('inventory.barcodeDetected', { code }))
-      return false
+      return assignBarcode(code)
     }
 
     async function applyInventoryImageFile(file, targetIdx) {
@@ -4934,6 +4963,13 @@ export default defineComponent({
       openSplitDialog,
       openCopyDialog,
       openAddBatch,
+      barcodeRegionVisible,
+      regionMode,
+      openRegionRecognize,
+      applyRegionBarcode,
+      applyRegionName,
+      dupPrompt,
+      onDupPromptChoose,
       ...inventoryBatches,
       submitSplitOrCopy,
       listingPickMode,

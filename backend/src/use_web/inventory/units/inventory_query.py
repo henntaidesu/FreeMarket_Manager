@@ -99,9 +99,13 @@ def list_inventory(
     params = []
     kw = (keyword or "").strip()
     if kw:
-        # 条码精确匹配：图片识别出的产品条码，或历史上扫码录入的 barcode
-        clauses = ["p.name LIKE ?", "p.listing_title LIKE ?", "p.product_barcode = ?", "p.barcode = ?"]
-        kw_params = [f"%{kw}%", f"%{kw}%", kw, kw]
+        # 条码精确匹配：图片识别出的产品条码（含「一码多品」的 条码-N），或历史上扫码录入的 barcode
+        kw_esc = kw.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+        clauses = [
+            "p.name LIKE ?", "p.listing_title LIKE ?", "p.product_barcode = ?", "p.barcode = ?",
+            "p.product_barcode LIKE ? ESCAPE '!'",
+        ]
+        kw_params = [f"%{kw}%", f"%{kw}%", kw, kw, f"{kw_esc}-%"]
         # 纯数字 → 按管理番号（inventory.id）精确匹配
         mgmt_id_exact: Optional[int] = None
         if kw.isdigit():
