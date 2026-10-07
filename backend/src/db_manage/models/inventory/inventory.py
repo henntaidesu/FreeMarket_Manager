@@ -54,6 +54,13 @@ class InventoryModel(BaseModel):
                 'default': None,
                 'max_length': 16,
             },
+            # 识别冲突时的候选条码：JSON [{"code": "...", "images": ["/imges/..."]}]，供人工处理弹窗展示
+            # 每个条码出自哪几张图；冲突处理掉后清空
+            'barcode_candidates': {
+                'type': 'TEXT',
+                'not_null': False,
+                'default': None,
+            },
             # 同条码合并后的去向（目标商品 id）。在售描述末尾暗号里仍是旧番号，
             # 解析时经 inventory_barcode.resolve_inventory_id 转到这里
             'merged_into_id': {

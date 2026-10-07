@@ -32,6 +32,11 @@ export const configApi = {
   // 条码识别（历史数据）：PUT enable=true 即排一条 system.barcode_history 任务
   getBarcodeHistory: () => http.get('/use_web/system/barcode-history'),
   putBarcodeHistory: (enable) => http.put('/use_web/system/barcode-history', { enable }),
+  // 条码冲突人工处理：body = { barcode } 或 { mark_none: true }
+  listBarcodeConflicts: () => http.get('/use_web/system/barcode-history/conflicts'),
+  // 已跳过（图片里无条码）的商品：params = { page, page_size, keyword }
+  listBarcodeSkipped: (params) => http.get('/use_web/system/barcode-history/skipped', { params }),
+  resolveBarcodeConflict: (id, body) => http.post(`/use_web/system/barcode-history/conflicts/${id}`, body),
   // 一键修改发货时效：{ target, target_name, pending, already, total, task_id }
   // GET 只算件数（pending = 时效 ≠ 目标的在售商品）；POST 把整批修改交给 system.shipping_duration 任务
   getShippingDurationPreview: (params) =>

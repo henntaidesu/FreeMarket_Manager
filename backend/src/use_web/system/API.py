@@ -47,7 +47,10 @@ from .units.homecoming_handler import (
 from .units.barcode_history_handler import (
     BarcodeHistoryStatusOut,
     get_barcode_history,
+    list_barcode_conflicts,
+    list_barcode_skipped,
     put_barcode_history,
+    resolve_barcode_conflict,
 )
 from .units.shipping_duration_handler import (
     ShippingDurationPreviewOut,
@@ -137,6 +140,10 @@ router.add_api_route("/homecoming", put_homecoming, methods=["PUT"], response_mo
 # 条码识别（历史数据）：开启即排一条任务，识别历史商品图片条码并合并同条码同归属人的商品
 router.add_api_route("/barcode-history", get_barcode_history, methods=["GET"], response_model=BarcodeHistoryStatusOut)
 router.add_api_route("/barcode-history", put_barcode_history, methods=["PUT"], response_model=BarcodeHistoryStatusOut)
+# 条码冲突（多张图识别出不同条码）的人工处理：列表 + 逐个选定条码 / 标记无条码
+router.add_api_route("/barcode-history/conflicts", list_barcode_conflicts, methods=["GET"])
+router.add_api_route("/barcode-history/skipped", list_barcode_skipped, methods=["GET"])
+router.add_api_route("/barcode-history/conflicts/{inv_id}", resolve_barcode_conflict, methods=["POST"], response_model=BarcodeHistoryStatusOut)
 
 # 一键修改发货时效（把范围内在售商品的発送までの日数整批改成同一个值）
 router.add_api_route("/shipping-duration", get_shipping_duration, methods=["GET"], response_model=ShippingDurationPreviewOut)

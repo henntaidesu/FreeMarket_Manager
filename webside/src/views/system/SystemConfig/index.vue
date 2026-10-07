@@ -331,8 +331,21 @@
                 :disabled="!barcodeHistory.enabled"
                 @click="submitBarcodeHistory(true)"
               >{{ t('barcodeHistory.rerun') }}</el-button>
+              <!-- 多张图识别出不同条码的商品：在弹窗里按管理番号逐个看图定夺 -->
+              <el-button
+                :type="barcodeHistory.conflict_count ? 'warning' : 'default'"
+                :disabled="!barcodeHistory.conflict_count"
+                @click="barcodeConflictVisible = true"
+              >{{ t('barcodeHistory.handleConflicts', { n: barcodeHistory.conflict_count }) }}</el-button>
+              <!-- 图片里没识别到条码的商品：列表里点管理番号直接打开库存表单 -->
+              <el-button
+                :disabled="!barcodeHistory.none_count"
+                @click="barcodeSkippedVisible = true"
+              >{{ t('barcodeHistory.viewSkipped', { n: barcodeHistory.none_count }) }}</el-button>
               <span class="sc-note">{{ t('barcodeHistory.rerunTip') }}</span>
             </div>
+            <BarcodeConflictDialog v-model="barcodeConflictVisible" @resolved="applyBarcodeHistory" />
+            <BarcodeSkippedDialog v-model="barcodeSkippedVisible" />
           </div>
         </section>
 
@@ -1006,6 +1019,8 @@ import { setLocale, SUPPORTED_LOCALES } from '@/i18n'
 import { authApi, configApi, proxyUserApi, shopAccountApi } from '@/api/index.js'
 import { databaseApi } from '@/api/database'
 import { imageHostingApi } from '@/api/image_hosting'
+import BarcodeConflictDialog from './BarcodeConflictDialog.vue'
+import BarcodeSkippedDialog from './BarcodeSkippedDialog.vue'
 import {
   printTestLabel,
   loadPrinterConfig,
@@ -1558,6 +1573,8 @@ const barcodeHistory = reactive({
 })
 const barcodeHistoryLoading = ref(false)
 const barcodeHistorySubmitting = ref(false)
+const barcodeConflictVisible = ref(false)
+const barcodeSkippedVisible = ref(false)
 
 function applyBarcodeHistory(res) {
   barcodeHistory.enabled = !!res?.enabled

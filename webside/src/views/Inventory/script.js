@@ -3,6 +3,7 @@ import { ElMessage } from '@/utils/notify'
 import { ElMessageBox } from 'element-plus'
 import { WarningFilled } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
 import {
   inventoryApi,
   categoryApi,
@@ -45,6 +46,8 @@ export default defineComponent({
   },
   setup() {
     const { t } = useI18n()
+    const route = useRoute()
+    const router = useRouter()
     const syncLockStore = useSyncLockStore()
 
     const list = ref([])
@@ -4764,7 +4767,26 @@ export default defineComponent({
       listingCategoryMappings.value = mappings
       await Promise.all([load(), loadInventoryStats()])
       await setupCardObserver()
+      openFromRouteQuery()
     })
+
+    /**
+     * ``/inventory?open=<管理番号>``：直接打开该商品的编辑表单（系统配置「条码识别」的
+     * 跳过/冲突列表点管理番号跳过来）。打开后把参数从地址栏去掉，刷新页面不会再弹一次。
+     */
+    async function openFromRouteQuery() {
+      const id = Number(route.query.open)
+      if (!Number.isInteger(id) || id <= 0) return
+      const { open: _open, ...rest } = route.query
+      router.replace({ query: rest })
+      try {
+        openDialog(await inventoryApi.get(id))
+      } catch {
+        // 商品不存在 / 已删除：拦截器已提示
+      }
+    }
+    // 已在库存页时再从别处带参数跳过来，onMounted 不会再跑
+    watch(() => route.query.open, (v) => { if (v) openFromRouteQuery() })
 
     onBeforeUnmount(() => {
       window.removeEventListener('resize', updateViewportState)

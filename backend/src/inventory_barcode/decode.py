@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 import logging
 import re
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import zxingcpp
 from PIL import Image
@@ -75,13 +75,19 @@ def decode_image_bytes(data: Optional[bytes]) -> List[str]:
         return []
 
 
-def decode_inventory_images(paths: List[str]) -> List[str]:
-    """逐张读取商品图（经 image_storage，兼容图床）并识别，返回去重后的条码列表。"""
+def decode_inventory_images_detail(paths: List[str]) -> Dict[str, List[str]]:
+    """逐张读取商品图（经 image_storage，兼容图床）并识别：``{条码: [出现在哪几张图]}``，按首次出现排序。"""
     from ..use_web.image_storage import read_image_bytes
 
-    out: List[str] = []
+    out: Dict[str, List[str]] = {}
     for p in paths or []:
         for code in decode_image_bytes(read_image_bytes(p)):
-            if code not in out:
-                out.append(code)
+            out.setdefault(code, [])
+            if p not in out[code]:
+                out[code].append(p)
     return out
+
+
+def decode_inventory_images(paths: List[str]) -> List[str]:
+    """同上，只要去重后的条码列表。"""
+    return list(decode_inventory_images_detail(paths).keys())

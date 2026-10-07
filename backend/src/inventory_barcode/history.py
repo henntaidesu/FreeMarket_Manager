@@ -6,7 +6,8 @@
 1. 识别：``barcode_scan_status IS NULL`` 的商品逐个识别——
    · ``barcode`` 列里本来就是扫码录入的真实条码 → 直接采用，不看图；
    · 否则读全部商品图识别：识别到 1 个 → ``found``；一个都没有 → ``none``（条码保持 uuid，
-     以后跳过）；多张图识别出不同条码 → ``conflict``（不自动处理，留给人工）。
+     以后跳过）；多张图识别出不同条码 → ``conflict``（不自动处理，在系统配置页
+     「处理冲突」里人工选定，见 conflicts.py）。
 2. 合并：同产品条码 + 同归属人 的商品，全部并入其中管理番号最大的那个（见 merge.py）。
    有出品预扣减未结清的组本轮跳过，下一轮再并。
 """
@@ -18,7 +19,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from ..db_manage.database import DatabaseManager
 from ..db_manage.models.system.config_entry import ConfigEntryModel
-from .decode import decode_inventory_images, is_generated_barcode
+from .decode import decode_inventory_images_detail, is_generated_barcode
 from .merge import merge_blockers, merge_into
 
 log = logging.getLogger(__name__)
@@ -88,22 +89,27 @@ def scan_pending(report: Report = None, should_stop: Callable[[], bool] = lambda
         if report and (i == 1 or i % 10 == 0 or i == len(rows)):
             report("识别条码", f"{i}/{len(rows)}（识别到 {stats['found']}，无条码 {stats['none']}）")
         code: Optional[str] = None
+        candidates: Optional[str] = None
         state = "none"
         if (product_barcode or "").strip():
             code, state = product_barcode.strip(), "found"
         elif (barcode or "").strip() and not is_generated_barcode(barcode):
             code, state = barcode.strip(), "found"
         else:
-            codes = decode_inventory_images(_paths(images_json))
-            if len(codes) == 1:
-                code, state = codes[0], "found"
-            elif len(codes) > 1:
+            found = decode_inventory_images_detail(_paths(images_json))
+            if len(found) == 1:
+                code, state = next(iter(found)), "found"
+            elif len(found) > 1:
+                # 记下每个条码出自哪几张图，人工处理弹窗（conflicts.py）据此展示
                 state = "conflict"
-                log.info("[barcode_history] 商品 %s 识别出多个条码 %s，标记冲突", iid, codes)
+                candidates = json.dumps(
+                    [{"code": c, "images": imgs} for c, imgs in found.items()], ensure_ascii=False
+                )
+                log.info("[barcode_history] 商品 %s 识别出多个条码 %s，标记冲突", iid, list(found))
         db.execute_update(
-            "UPDATE [inventory] SET [product_barcode] = ?, [barcode_scan_status] = ? "
+            "UPDATE [inventory] SET [product_barcode] = ?, [barcode_scan_status] = ?, [barcode_candidates] = ? "
             "WHERE [id] = ? AND [barcode_scan_status] IS NULL",
-            (code, state, int(iid)),
+            (code, state, candidates, int(iid)),
         )
         stats[state] += 1
     return stats
