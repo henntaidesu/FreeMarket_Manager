@@ -99,8 +99,9 @@ def list_inventory(
     params = []
     kw = (keyword or "").strip()
     if kw:
-        clauses = ["p.name LIKE ?", "p.listing_title LIKE ?"]
-        kw_params = [f"%{kw}%", f"%{kw}%"]
+        # 条码精确匹配：图片识别出的产品条码，或历史上扫码录入的 barcode
+        clauses = ["p.name LIKE ?", "p.listing_title LIKE ?", "p.product_barcode = ?", "p.barcode = ?"]
+        kw_params = [f"%{kw}%", f"%{kw}%", kw, kw]
         # 纯数字 → 按管理番号（inventory.id）精确匹配
         mgmt_id_exact: Optional[int] = None
         if kw.isdigit():
@@ -196,8 +197,12 @@ def inventory_summary():
 
 
 def find_by_barcode(barcode: str):
-    """根据条形码精确查找商品（用于连续扫码流程）"""
-    inventory_items = _query_inventory_with_joins(" AND p.barcode = ? LIMIT 1", (barcode.strip(),))
+    """根据条形码精确查找商品（连续扫码等）：内部编号或图片识别出的产品条码均可，新的在前。"""
+    bc = barcode.strip()
+    inventory_items = _query_inventory_with_joins(
+        " AND (p.barcode = ? OR p.product_barcode = ?)", (bc, bc), order_sql="ORDER BY p.id DESC",
+        limit_sql="LIMIT 1",
+    )
     if not inventory_items:
         return {"found": False, "inventory": None}
     return {"found": True, "inventory": inventory_items[0]}

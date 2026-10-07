@@ -29,6 +29,9 @@ export const configApi = {
   // PUT 立即写开关（上架随即被禁），暂停/恢复整批商品由 system.homecoming 任务执行
   getHomecoming: () => http.get('/use_web/system/homecoming'),
   putHomecoming: (enable) => http.put('/use_web/system/homecoming', { enable }),
+  // 条码识别（历史数据）：PUT enable=true 即排一条 system.barcode_history 任务
+  getBarcodeHistory: () => http.get('/use_web/system/barcode-history'),
+  putBarcodeHistory: (enable) => http.put('/use_web/system/barcode-history', { enable }),
   // 一键修改发货时效：{ target, target_name, pending, already, total, task_id }
   // GET 只算件数（pending = 时效 ≠ 目标的在售商品）；POST 把整批修改交给 system.shipping_duration 任务
   getShippingDurationPreview: (params) =>

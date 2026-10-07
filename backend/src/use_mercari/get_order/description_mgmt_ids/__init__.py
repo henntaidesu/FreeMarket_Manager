@@ -15,6 +15,7 @@ from .inventory_resolve import (
     _extract_bundle_product_titles,
     _inventory_id_by_barcode,
     _inventory_id_exists,
+    _resolve_inventory_id,
     _is_bundle_order_description,
     _resolve_inventory_id_by_bundle_title,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "_extract_bundle_product_titles",
     "_inventory_id_by_barcode",
     "_inventory_id_exists",
+    "_resolve_inventory_id",
     "_is_bundle_order_description",
     "_resolve_inventory_id_by_bundle_title",
     "refresh_inventory_pending_outbound_qty",

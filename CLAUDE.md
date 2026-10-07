@@ -216,6 +216,14 @@ Key tables in `backend/src/db_manage/models/`:
   所以新增改 `quantity` 的路径事后必须调 `recompute_listable_quantity`。没有批次行的历史商品不迁移，
   首次打开批次页 / 扫码入库时才把当时数量原样转成一个批次。`inventory.warehouse_id` 对已分批商品
   = 先进先出队首批次的仓位；仓位统计与按仓位筛选走 `stock_locations_sql()`。组合商品不分批。
+- **inventory 的条码三列**（`src/inventory_barcode/`）：`product_barcode` = 从商品图识别出的产品条码，
+  **不唯一**（同条码按归属人各留一个商品）；`barcode` 仍是内部唯一编号（多为 uuid，没识别到条码就保持）。
+  `barcode_scan_status`：NULL 未处理 / found / none（图里无条码，跳过）/ conflict（多个不同条码，人工）/
+  merged。`merged_into_id`：同条码合并后旧商品的去向——**在售描述暗号里仍是旧番号，凡是把解出的
+  管理番号映射回库存的地方都必须走 `_resolve_inventory_id`（= `inventory_barcode.resolve_inventory_id`），
+  不能只查存在性**，否则会绑到已软删的旧行。历史处理由系统配置「条码识别」开关排一条
+  `system.barcode_history` 任务（识别 → 合并，都幂等）；出品预扣减未结清的组暂缓合并。新增商品上传图片时
+  `upload-image?detect_barcode=1` 识别并返回同条码商品，前端提示并跳转。
 - **warehouses**: Storage locations (shelf names duplicable per warehouse)
 - **product_type_category_mappings**: 商品类型主表 (one row = one 商品类型). `inventory.product_type_id` → `mapping_id` (TEXT PK, numeric, auto-incremented on create, never user-visible). See 商品类型映射 below.
 - **shop_accounts**: Marketplace account config (headers in `value` JSON field, `platform`,

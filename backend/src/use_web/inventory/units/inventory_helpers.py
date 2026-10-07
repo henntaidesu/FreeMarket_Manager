@@ -13,6 +13,8 @@ INVENTORY_COLUMNS = [
     "id",
     "name",
     "barcode",
+    "product_barcode",
+    "barcode_scan_status",
     "sku",
     "category_id",
     "product_type_id",

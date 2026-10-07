@@ -44,6 +44,11 @@ from .units.homecoming_handler import (
     get_homecoming,
     put_homecoming,
 )
+from .units.barcode_history_handler import (
+    BarcodeHistoryStatusOut,
+    get_barcode_history,
+    put_barcode_history,
+)
 from .units.shipping_duration_handler import (
     ShippingDurationPreviewOut,
     get_shipping_duration,
@@ -128,6 +133,10 @@ router.add_api_route("/printer-params", put_printer_params, methods=["PUT"], res
 # 回国模式（开启=全部在售暂停出售 + 禁止上架；关闭=恢复本模式暂停的那些）
 router.add_api_route("/homecoming", get_homecoming, methods=["GET"], response_model=HomecomingStatusOut)
 router.add_api_route("/homecoming", put_homecoming, methods=["PUT"], response_model=HomecomingStatusOut)
+
+# 条码识别（历史数据）：开启即排一条任务，识别历史商品图片条码并合并同条码同归属人的商品
+router.add_api_route("/barcode-history", get_barcode_history, methods=["GET"], response_model=BarcodeHistoryStatusOut)
+router.add_api_route("/barcode-history", put_barcode_history, methods=["PUT"], response_model=BarcodeHistoryStatusOut)
 
 # 一键修改发货时效（把范围内在售商品的発送までの日数整批改成同一个值）
 router.add_api_route("/shipping-duration", get_shipping_duration, methods=["GET"], response_model=ShippingDurationPreviewOut)

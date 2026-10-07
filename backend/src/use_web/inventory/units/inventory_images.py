@@ -230,7 +230,24 @@ async def find_by_image(file: UploadFile = File(...)):
     return {"found": True, "inventory": matched[0], "distance": best_distance}
 
 
-async def upload_inventory_image(file: UploadFile = File(...)):
-    """无码入库等场景：先 multipart 上传落盘，再提交表单时只传 /imges/ 路径（避免保存时再传大体积 base64）。"""
+async def upload_inventory_image(file: UploadFile = File(...), detect_barcode: bool = False):
+    """无码入库等场景：先 multipart 上传落盘，再提交表单时只传 /imges/ 路径（避免保存时再传大体积 base64）。
+
+    ``detect_barcode=1``：顺带识别图中的产品条码，并返回仓库里已有该条码的商品（``matches``，
+    新的在前），供新建商品时查重跳转。识别失败不影响上传本身。
+    """
     path = await save_upload_image(file, prefix="inv_nb")
-    return {"path": path}
+    if not detect_barcode:
+        return {"path": path}
+    import asyncio
+
+    from ....inventory_barcode import decode_image_bytes, find_by_product_barcode
+    from ...image_storage import read_image_bytes
+
+    codes = await asyncio.to_thread(lambda: decode_image_bytes(read_image_bytes(path)))
+    barcode = codes[0] if codes else None
+    return {
+        "path": path,
+        "barcode": barcode,
+        "matches": find_by_product_barcode(barcode) if barcode else [],
+    }

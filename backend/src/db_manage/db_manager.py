@@ -557,36 +557,43 @@ class DBManager:
         与上面那批 ``_migrate_*`` 不同，这个**两种方言都要跑**：MySQL 库同样是老表加新列，
         不是「从最终 schema 全新建库」。
         """
-        db = self.db
-        if not db.table_exists("purchase_items"):
-            return True
-        wanted = (
+        return self._ensure_indexes("purchase_items", (
             ("idx_purchase_items_settlement", ("settlement_status",)),
             ("idx_purchase_items_owner", ("owner_user_id",)),
-        )
+        ))
+
+    def _migrate_inventory_product_barcode_index(self) -> bool:
+        """inventory.product_barcode 是老表新列，索引同样只能在这里补（见上一个方法的说明）。"""
+        return self._ensure_indexes("inventory", (
+            ("idx_inventory_product_barcode", ("product_barcode",)),
+        ))
+
+    def _ensure_indexes(self, table: str, wanted) -> bool:
+        """补建 ``wanted``（(索引名, 列元组) 序列）中尚不存在的普通索引。两种方言都跑；失败只告警。"""
+        db = self.db
+        if not db.table_exists(table):
+            return True
         try:
             if self._is_sqlite():
                 existing = {
                     r[0]
                     for r in db.execute_query(
-                        "SELECT name FROM sqlite_master WHERE type='index' "
-                        "AND tbl_name='purchase_items'"
+                        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name=?",
+                        (table,),
                     )
                 }
             else:
                 # SHOW INDEX 的第 3 列是索引名（Key_name）
-                existing = {
-                    r[2] for r in db.execute_query("SHOW INDEX FROM [purchase_items]")
-                }
+                existing = {r[2] for r in db.execute_query(f"SHOW INDEX FROM [{table}]")}
         except Exception as e:  # noqa: BLE001
-            print(f"[WARN] 读取 purchase_items 索引失败，跳过补建: {e}")
+            print(f"[WARN] 读取 {table} 索引失败，跳过补建: {e}")
             return True
         for name, columns in wanted:
             if name in existing:
                 continue
             cols = ", ".join(f"[{c}]" for c in columns)
             try:
-                db.execute_update(f"CREATE INDEX [{name}] ON [purchase_items]({cols})")
+                db.execute_update(f"CREATE INDEX [{name}] ON [{table}]({cols})")
                 print(f"[OK] 已补建索引 {name}")
             except Exception as e:  # noqa: BLE001
                 # 索引只影响筛选/分组的速度，建不上不该让整个启动失败
@@ -850,6 +857,8 @@ class DBManager:
         if not self._migrate_todo_messages_to_table():
             return False
         if not self._migrate_purchase_items_settlement_indexes():
+            return False
+        if not self._migrate_inventory_product_barcode_index():
             return False
         return True
 

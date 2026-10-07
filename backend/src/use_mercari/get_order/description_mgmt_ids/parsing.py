@@ -28,7 +28,7 @@ def parse_order_description_outbound_tokens_with_quantity(
     for m in _BARCODE_PATTERN.finditer(s):
         spans.append((m.start(), "barcode", m.group(1) or ""))
     # ⚠️ 暗号是混淆、非加密、可伪造（见 mgmt_id_cipher.py 安全声明）。这里只做「解析」，
-    # 不做「信任」：解出的 mgmt_id 交给下游 outbound_sync 时会再经 _inventory_id_exists
+    # 不做「信任」：解出的 mgmt_id 交给下游 outbound_sync 时会再经 _resolve_inventory_id
     # 存在性校验后才落库存/出库行（真实性边界在 inventory_resolve/outbound_sync 处）。
     cipher_pos = len(s)
     strip_lines = s.splitlines()

@@ -301,6 +301,41 @@
           </div>
         </section>
 
+        <!-- 条码识别（历史数据）：打开即排一条任务——识别历史商品图片里的条码，
+             再把同条码 + 同归属人的商品并入管理番号最大的那个 -->
+        <section id="sc-barcode-history" class="sc-panel">
+          <div class="sc-panel-head">
+            <span class="sc-ic sc-ic--indigo"><el-icon :size="17"><Search /></el-icon></span>
+            <div class="sc-head-text">
+              <div class="sc-panel-title">{{ t('barcodeHistory.section') }}</div>
+              <div class="sc-panel-desc">{{ t('barcodeHistory.desc') }}</div>
+            </div>
+            <el-switch
+              v-model="barcodeHistory.enabled"
+              :loading="barcodeHistorySubmitting"
+              :disabled="barcodeHistoryLoading || barcodeHistorySubmitting"
+              @change="onBarcodeHistoryChange"
+            />
+          </div>
+          <div class="sc-panel-body" v-loading="barcodeHistoryLoading">
+            <div class="sc-hc-stats">
+              <span>{{ t('barcodeHistory.pending', { n: barcodeHistory.pending_count }) }}</span>
+              <span>{{ t('barcodeHistory.found', { n: barcodeHistory.found_count }) }}</span>
+              <span>{{ t('barcodeHistory.none', { n: barcodeHistory.none_count }) }}</span>
+              <span>{{ t('barcodeHistory.conflict', { n: barcodeHistory.conflict_count }) }}</span>
+              <span>{{ t('barcodeHistory.merged', { n: barcodeHistory.merged_count }) }}</span>
+            </div>
+            <div class="sc-actions">
+              <el-button
+                :loading="barcodeHistorySubmitting"
+                :disabled="!barcodeHistory.enabled"
+                @click="submitBarcodeHistory(true)"
+              >{{ t('barcodeHistory.rerun') }}</el-button>
+              <span class="sc-note">{{ t('barcodeHistory.rerunTip') }}</span>
+            </div>
+          </div>
+        </section>
+
         <!-- 一键修改发货时效：把范围内在售商品的「発送までの日数」整批改成同一个值 -->
         <section id="sc-shipping-duration" class="sc-panel">
           <div class="sc-panel-head">
@@ -965,7 +1000,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
-import { Plus, User, UserFilled, Lock, MagicStick, Sell, Coin, Tickets, Printer, Compass, Suitcase, Timer, Link, Picture, Connection } from '@element-plus/icons-vue'
+import { Plus, User, UserFilled, Lock, MagicStick, Sell, Coin, Tickets, Printer, Compass, Suitcase, Timer, Link, Picture, Connection, Search } from '@element-plus/icons-vue'
 import { ElMessage } from '@/utils/notify'
 import { setLocale, SUPPORTED_LOCALES } from '@/i18n'
 import { authApi, configApi, proxyUserApi, shopAccountApi } from '@/api/index.js'
@@ -1001,6 +1036,7 @@ const SECTIONS = [
   { id: 'ai', icon: 'MagicStick', labelKey: 'systemConfig.deepseekSection' },
   { id: 'listing', icon: 'Sell', labelKey: 'system.listingDefaults' },
   { id: 'homecoming', icon: 'Suitcase', labelKey: 'homecoming.section' },
+  { id: 'barcode-history', icon: 'Search', labelKey: 'barcodeHistory.section' },
   { id: 'shipping-duration', icon: 'Timer', labelKey: 'shippingDurationBatch.section' },
   { id: 'database', icon: 'Coin', labelKey: 'systemConfig.databaseSection' },
   { id: 'image-hosting', icon: 'Picture', labelKey: 'systemConfig.imageHostingSection' },
@@ -1513,6 +1549,62 @@ async function onHomecomingChange(val) {
 /** 重试：按当前开关方向再跑一轮，只处理上一轮没做完的商品 */
 function retryHomecoming() {
   return submitHomecoming(homecoming.enabled)
+}
+
+// ===== 条码识别（历史数据）=====
+// 打开开关即排一条任务（识别 + 合并），两步都幂等：再跑一轮只处理还没识别的、上轮暂缓合并的。
+const barcodeHistory = reactive({
+  enabled: false, pending_count: 0, found_count: 0, none_count: 0, conflict_count: 0, merged_count: 0
+})
+const barcodeHistoryLoading = ref(false)
+const barcodeHistorySubmitting = ref(false)
+
+function applyBarcodeHistory(res) {
+  barcodeHistory.enabled = !!res?.enabled
+  for (const k of ['pending_count', 'found_count', 'none_count', 'conflict_count', 'merged_count']) {
+    barcodeHistory[k] = Number(res?.[k]) || 0
+  }
+}
+
+async function loadBarcodeHistory() {
+  barcodeHistoryLoading.value = true
+  try {
+    applyBarcodeHistory(await configApi.getBarcodeHistory())
+  } catch {
+    // 拦截器已提示
+  } finally {
+    barcodeHistoryLoading.value = false
+  }
+}
+
+async function submitBarcodeHistory(enable) {
+  barcodeHistorySubmitting.value = true
+  try {
+    applyBarcodeHistory(await configApi.putBarcodeHistory(enable))
+    if (enable) ElMessage.success(t('barcodeHistory.submitted'))
+  } catch {
+    await loadBarcodeHistory()
+  } finally {
+    barcodeHistorySubmitting.value = false
+  }
+}
+
+/** 打开前确认：合并会软删旧商品，不可一键撤销 */
+async function onBarcodeHistoryChange(val) {
+  const target = !!val
+  if (target) {
+    try {
+      await ElMessageBox.confirm(
+        t('barcodeHistory.confirmMsg', { n: barcodeHistory.pending_count }),
+        t('barcodeHistory.confirmTitle'),
+        { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') }
+      )
+    } catch {
+      barcodeHistory.enabled = false
+      return
+    }
+  }
+  await submitBarcodeHistory(target)
 }
 
 // ===== 一键修改发货时效 =====
@@ -2059,6 +2151,7 @@ onMounted(() => {
   load()
   loadListingDefaults()
   loadHomecoming()
+  loadBarcodeHistory()
   loadSdAccounts()
   loadSdPreview()
   loadDbConfig()

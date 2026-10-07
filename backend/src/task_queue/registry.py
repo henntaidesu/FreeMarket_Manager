@@ -34,6 +34,7 @@ TODOS_SEND_REACTION = "todos.send_reaction"
 ACCOUNT_SYNC_DATA = "account.sync_data"
 SYSTEM_HOMECOMING = "system.homecoming"
 SYSTEM_SHIPPING_DURATION = "system.shipping_duration"
+SYSTEM_BARCODE_HISTORY = "system.barcode_history"
 
 
 @dataclass(frozen=True)
@@ -228,6 +229,13 @@ _SPECS: Dict[str, TaskSpec] = {
         dedup_key=lambda p: SYSTEM_SHIPPING_DURATION,
         title=lambda p: "一键修改发货时效：" + _shipping_duration_scope(p),
     ),
+    SYSTEM_BARCODE_HISTORY: TaskSpec(
+        task_type=SYSTEM_BARCODE_HISTORY,
+        label_zh="条码识别（历史数据）",
+        # 识别与合并改的是同一批库存，同时只允许排一条
+        dedup_key=lambda p: SYSTEM_BARCODE_HISTORY,
+        title=lambda p: "条码识别：识别历史商品图片中的条码并合并同条码商品",
+    ),
 }
 
 
@@ -309,4 +317,7 @@ def resolve_handler(task_type: str) -> Callable:
     if tt == SYSTEM_SHIPPING_DURATION:
         from .handlers.shipping_duration import handle_shipping_duration
         return handle_shipping_duration
+    if tt == SYSTEM_BARCODE_HISTORY:
+        from .handlers.barcode_history import handle_barcode_history
+        return handle_barcode_history
     raise KeyError(f"未注册的任务类型：{task_type}")

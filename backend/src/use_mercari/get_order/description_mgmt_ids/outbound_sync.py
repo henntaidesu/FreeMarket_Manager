@@ -6,7 +6,7 @@ from typing import List, Optional
 from ....db_manage.database import DatabaseManager
 from ....db_manage.models.orders.order_outbound_line import TERMINAL_ORDER_STATUSES, OrderOutboundLineModel
 from ._common import _normalize_int_id, _normalize_match_text
-from .inventory_resolve import _extract_bundle_product_titles, _inventory_id_by_barcode, _inventory_id_exists, _is_bundle_order_description, _resolve_inventory_ids_by_bundle_title
+from .inventory_resolve import _extract_bundle_product_titles, _inventory_id_by_barcode, _is_bundle_order_description, _resolve_inventory_id, _resolve_inventory_ids_by_bundle_title
 from .parsing import parse_order_description_outbound_tokens_with_quantity
 
 
@@ -328,8 +328,8 @@ def _sync_outbound_lines_for_order_impl(
         qn = max(1, int(qty or 1))
         if kind == "mgmt_id":
             mid = int(val)
-            exists = _inventory_id_exists(mid)
-            inv_for_line = mid if exists else None
+            # 已合并的旧番号转到合并目标
+            inv_for_line = _resolve_inventory_id(mid)
             lk = "mgmt_id"
             mid_s = str(mid)
             stocked, stocked_at, deducted, kept_inv = old_token_state.get(

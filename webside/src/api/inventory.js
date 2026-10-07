@@ -26,10 +26,12 @@ export const inventoryApi = {
     })
   },
   imageSearchStatus: () => http.get('/use_web/inventory/image-search/status'),
-  uploadImage: (file, onUploadProgress, signal) => {
+  // detectBarcode：顺带识别图中产品条码，返回 { path, barcode, matches }（matches = 已有该条码的商品）
+  uploadImage: (file, onUploadProgress, signal, { detectBarcode = false } = {}) => {
     const fd = new FormData()
     fd.append('file', file, file?.name || 'inventory.jpg')
     return http.post('/use_web/inventory/upload-image', fd, {
+      params: detectBarcode ? { detect_barcode: 1 } : undefined,
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 120000,
       onUploadProgress,

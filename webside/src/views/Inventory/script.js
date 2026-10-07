@@ -188,6 +188,8 @@ export default defineComponent({
     let autosaveInFlight = null
     let formAutosaved = false
     let formAutosaveInitializing = false
+    /** 本次打开弹窗期间由实时保存新建出来的商品 id：查重跳转「放弃新建」时要把它删掉 */
+    let formCreatedInSession = null
     const formRef = ref()
     const fileInputInventoryPick = ref()
     const fileInputInventoryCapture = ref()
@@ -3079,6 +3081,7 @@ export default defineComponent({
       formAutosaved = false
       // 每次打开都回到默认模块，免得上次停在「关联商品」页
       editActiveTab.value = 'listing'
+      formCreatedInSession = null
       inventoryBatches.resetBatches()
       linkedListings.value = []
       linkedSold.value = []
@@ -3095,6 +3098,7 @@ export default defineComponent({
         ? {
             id: row.id,
             barcode: row.barcode || '',
+            product_barcode: row.product_barcode || null,
             name: row.name || null,
             sku: row.sku || null,
             category_id: row.category_id || null,
@@ -3130,6 +3134,7 @@ export default defineComponent({
         : {
             id: null,
             barcode: '',
+            product_barcode: null,
             name: null,
             sku: null,
             category_id: null,
@@ -3994,10 +3999,14 @@ export default defineComponent({
           const res = await inventoryApi.uploadImage(file, (pe) => {
             if (!pe.total) return
             nbCameraUploadPercent.value = Math.min(100, Math.round((pe.loaded / pe.total) * 100))
-          })
+          }, undefined, { detectBarcode: shouldDetectBarcode() })
           const path = res?.path || ''
           if (!path) {
             ElMessage.error(t('inventory.uploadFailedNoPath'))
+            return
+          }
+          if (await handleDetectedBarcode(res)) {
+            productImgCameraVisible.value = false
             return
           }
           if (slot < 0) {
@@ -4052,6 +4061,93 @@ export default defineComponent({
      * targetIdx < 0 表示追加，>= 0 表示写入/替换该槽位。
      * 来源可为隐藏 file input 或拖拽放下的文件。
      */
+    // ---- 上传图片识别条码 → 查重 ----
+    /** 还没有产品条码的普通商品，上传图片时顺带识别 */
+    function shouldDetectBarcode() {
+      return Number(form.value.is_combined || 0) !== 1 && !String(form.value.product_barcode || '').trim()
+    }
+
+    /** 「放弃新建」：丢掉草稿（本次弹窗里已自动建档的一并删除），打开已有商品的批次页 */
+    async function jumpToExistingInventory(id) {
+      cancelFormAutosave()
+      if (autosaveInFlight) {
+        try { await autosaveInFlight } catch { /* ignore */ }
+      }
+      const draftId = formCreatedInSession
+      formCreatedInSession = null
+      if (draftId && Number(draftId) !== Number(id)) {
+        try { await inventoryApi.remove(draftId) } catch { /* 拦截器已提示 */ }
+      }
+      let row
+      try {
+        row = await inventoryApi.get(id)
+      } catch {
+        return
+      }
+      formAutosaved = true
+      openDialog(row)
+      editActiveTab.value = 'batches'
+    }
+
+    /**
+     * 处理上传接口返回的条码识别结果。返回 true = 已跳转到已有商品，调用方不要再把图片写进当前表单。
+     * 同条码 + 同归属人 → 提示并跳转（新建时放弃新建）；只有别的归属人有 → 可选择跳转或继续用该条码新建；
+     * 没有重复 → 直接记为本商品的条码。
+     */
+    async function handleDetectedBarcode(res) {
+      const code = String(res?.barcode || '').trim()
+      if (!code || !shouldDetectBarcode()) return false
+      const curId = Number(form.value.id || 0)
+      const matches = (Array.isArray(res?.matches) ? res.matches : []).filter((m) => Number(m.id) !== curId)
+      const owner = Number(form.value.owner_user_id || 0)
+      const sameOwner = matches.find((m) => Number(m.owner_user_id || 0) === owner)
+      const isDraft = !curId || Number(formCreatedInSession) === curId
+      const label = (m) => `#${m.id} ${m.name || ''}`.trim()
+      if (sameOwner) {
+        if (!isDraft) {
+          ElMessage.warning(t('inventory.barcodeOwnedByOther', { code, item: label(sameOwner) }))
+          return false
+        }
+        try {
+          await ElMessageBox.confirm(
+            t('inventory.barcodeDuplicateJump', { code, item: label(sameOwner) }),
+            t('inventory.barcodeDuplicateTitle'),
+            { confirmButtonText: t('inventory.barcodeJumpBtn'), cancelButtonText: t('common.cancel'), type: 'warning' }
+          )
+        } catch {
+          return false
+        }
+        await jumpToExistingInventory(sameOwner.id)
+        return true
+      }
+      if (matches.length && isDraft) {
+        let action = 'continue'
+        try {
+          await ElMessageBox.confirm(
+            t('inventory.barcodeDuplicateOtherOwner', { code, item: label(matches[0]) }),
+            t('inventory.barcodeDuplicateTitle'),
+            {
+              confirmButtonText: t('inventory.barcodeJumpBtn'),
+              cancelButtonText: t('inventory.barcodeContinueBtn'),
+              distinguishCancelAndClose: true,
+              type: 'warning'
+            }
+          )
+          action = 'jump'
+        } catch (e) {
+          action = e === 'close' ? 'none' : 'continue'
+        }
+        if (action === 'jump') {
+          await jumpToExistingInventory(matches[0].id)
+          return true
+        }
+        if (action === 'none') return false
+      }
+      form.value.product_barcode = code
+      ElMessage.success(t('inventory.barcodeDetected', { code }))
+      return false
+    }
+
     async function applyInventoryImageFile(file, targetIdx) {
       if (!file) return
       if (file.size > MAX_UPLOAD_IMAGE_BYTES) {
@@ -4082,13 +4178,15 @@ export default defineComponent({
               if (!pe.total) return
               slot.percent = Math.min(100, Math.round((pe.loaded / pe.total) * 100))
             },
-            ac.signal
+            ac.signal,
+            { detectBarcode: shouldDetectBarcode() }
           )
           const path = res?.path || ''
           if (!path) {
             ElMessage.error(t('inventory.uploadFailedNoPath'))
             return
           }
+          if (await handleDetectedBarcode(res)) return
           if (targetIdx < 0) {
             if (form.value.images.length >= MAX_INVENTORY_IMAGES) {
               ElMessage.warning(t('inventory.maxImagesAllowed', { n: MAX_INVENTORY_IMAGES }))
@@ -4239,7 +4337,10 @@ export default defineComponent({
         try {
           if (isNew) {
             const created = await inventoryApi.create(payload)
-            if (created && created.id != null) form.value.id = created.id
+            if (created && created.id != null) {
+              form.value.id = created.id
+              formCreatedInSession = created.id
+            }
             if (noBarcodeEntryMode.value) writeNoBarcodeFormSelectionsCache(payload)
           } else {
             await inventoryApi.update(payload.id, payload)

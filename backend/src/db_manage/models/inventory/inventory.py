@@ -38,6 +38,29 @@ class InventoryModel(BaseModel):
                 'default': None,
                 'max_length': 128,
             },
+            # 从商品图片识别出的产品条码（EAN/JAN/UPC/Code128…）。**不唯一**：同一条码按归属人
+            # 各保留一个商品（见 inventory_barcode 包）。``barcode`` 列仍是内部唯一编号（多为 uuid）。
+            'product_barcode': {
+                'type': 'TEXT',
+                'not_null': False,
+                'default': None,
+                'max_length': 128,
+            },
+            # 条码识别状态：NULL=未处理 / found=已识别 / none=图片里没有条码（保持 uuid，跳过）/
+            # conflict=多张图识别出不同条码（人工处理）/ merged=已并入 merged_into_id
+            'barcode_scan_status': {
+                'type': 'TEXT',
+                'not_null': False,
+                'default': None,
+                'max_length': 16,
+            },
+            # 同条码合并后的去向（目标商品 id）。在售描述末尾暗号里仍是旧番号，
+            # 解析时经 inventory_barcode.resolve_inventory_id 转到这里
+            'merged_into_id': {
+                'type': 'INTEGER',
+                'not_null': False,
+                'default': None,
+            },
             'sku': {
                 'type': 'TEXT',
                 'not_null': False,
@@ -224,6 +247,7 @@ class InventoryModel(BaseModel):
             {'name': 'idx_inventory_category', 'columns': ['category_id']},
             {'name': 'idx_inventory_barcode', 'columns': ['barcode'], 'unique': True},
             {'name': 'idx_inventory_owner_user_id', 'columns': ['owner_user_id']},
+            {'name': 'idx_inventory_product_barcode', 'columns': ['product_barcode']},
         ]
 
     @classmethod

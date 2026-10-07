@@ -13,6 +13,8 @@ class StockInRequest(PydanticModel):
 class InventoryCreate(PydanticModel):
     name: Optional[str] = None
     barcode: str
+    # 上传图片时识别出的产品条码（见 upload-image?detect_barcode=1）
+    product_barcode: Optional[str] = None
     category_id: Optional[int] = None
     product_type_id: Optional[int] = None
     owner_user_id: Optional[int] = None
@@ -111,6 +113,7 @@ class InventoryCopyRequest(PydanticModel):
 class InventoryUpdate(PydanticModel):
     name: Optional[str] = None
     barcode: Optional[str] = None
+    product_barcode: Optional[str] = None
     category_id: Optional[int] = None
     product_type_id: Optional[int] = None
     owner_user_id: Optional[int] = None

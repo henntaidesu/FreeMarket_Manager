@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 from ....db_manage.database import DatabaseManager
-from ...get_order.description_mgmt_ids import _extract_bundle_product_titles, _inventory_id_by_barcode, _inventory_id_exists, _resolve_inventory_id_by_bundle_title
+from ...get_order.description_mgmt_ids import _extract_bundle_product_titles, _inventory_id_by_barcode, _resolve_inventory_id, _resolve_inventory_id_by_bundle_title
 from ...get_order.mercari_item_get import fetch_mercari_item_get
 from ...mgmt_id_cipher import MGMT_BINARY_ALPHABET, MGMT_CIPHER_ALPHABET, get_cipher_mode
 from ...sync.sync_progress import make_sync_reporter
@@ -130,9 +130,8 @@ def detail_sync_inventory_from_item_get_response(
             qty = int(token.get("quantity") or 1)
             resolved_inv_id: Optional[int] = None
             if kind == "mgmt_id":
-                mid = int(value)
-                if _inventory_id_exists(mid):
-                    resolved_inv_id = mid
+                # 已合并的旧番号转到合并目标
+                resolved_inv_id = _resolve_inventory_id(int(value))
             elif kind == "barcode":
                 resolved_inv_id = _inventory_id_by_barcode(str(value or "").strip())
             resolved_lines.append(

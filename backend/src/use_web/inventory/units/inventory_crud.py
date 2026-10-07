@@ -81,6 +81,12 @@ def create_inventory(data: InventoryCreate, _claims: dict = Depends(require_auth
         if "unique" in err and "barcode" in err:
             raise HTTPException(status_code=400, detail="保存失败，条形码可能重复")
         raise HTTPException(status_code=400, detail="保存失败，请检查填写内容后重试")
+    pb = (data.product_barcode or "").strip()
+    if pb:
+        db.execute_update(
+            "UPDATE [inventory] SET [product_barcode] = ?, [barcode_scan_status] = 'found' WHERE [id] = ?",
+            (pb, int(new_id)),
+        )
     from ....use_mercari.inventory_batches import insert_initial_batch, normalize_arrived_at
     try:
         normalize_arrived_at(data.batch_arrived_at)
@@ -106,6 +112,16 @@ def update_inventory(pid: int, data: InventoryUpdate, _claims: dict = Depends(re
         raise HTTPException(status_code=400, detail="条形码不能为空")
     if 'barcode' in update_data:
         update_data['barcode'] = update_data['barcode'].strip()
+    if 'product_barcode' in update_data:
+        pb = (update_data['product_barcode'] or '').strip() or None
+        cur_pb = db.execute_query("SELECT [product_barcode] FROM [inventory] WHERE id = ?", (pid,))
+        if pb == ((cur_pb[0][0] or '').strip() or None if cur_pb else None):
+            # 表单实时保存每次都带着它：没变就不动，免得把「无条码 / 冲突」的标记冲掉
+            update_data.pop('product_barcode')
+        else:
+            update_data['product_barcode'] = pb
+            # 写入条码 = 已识别；清空则回到未处理，下次历史处理重新识别
+            update_data['barcode_scan_status'] = 'found' if pb else None
     existing = db.execute_query(
         """
         SELECT images_json, warehouse_id, owner_user_id,
@@ -158,7 +174,7 @@ def update_inventory(pid: int, data: InventoryUpdate, _claims: dict = Depends(re
     if "auto_listing_watermark" in update_data:
         update_data["auto_listing_watermark"] = 1 if int(update_data.get("auto_listing_watermark") or 0) == 1 else 0
     allowed_fields = {
-        "name", "barcode", "category_id", "product_type_id", "owner_user_id", "warehouse_id", "price",
+        "name", "barcode", "product_barcode", "barcode_scan_status", "category_id", "product_type_id", "owner_user_id", "warehouse_id", "price",
         "quantity",
         # on_sale_quantity 刻意不在白名单：见 InventoryUpdate 上的说明，它由 inventory_counters
         # 事件驱动维护，任何表单写入都会覆盖同步结果。老客户端仍会带上该字段，在此丢弃。

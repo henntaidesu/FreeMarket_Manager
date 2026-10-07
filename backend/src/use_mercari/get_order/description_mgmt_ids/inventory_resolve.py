@@ -16,22 +16,29 @@ def _inventory_id_exists(inv_id: int) -> bool:
     )
     return bool(r)
 
+def _resolve_inventory_id(inv_id: int) -> Optional[int]:
+    """管理番号 → 实际库存 id：存在即原样返回，已因同条码合并则转到合并目标，不存在返回 None。
+    在售描述暗号里的旧番号必须走这里，否则会绑到已软删的旧商品上。"""
+    from ....inventory_barcode import resolve_inventory_id
+
+    return resolve_inventory_id(inv_id)
+
 def _inventory_id_by_barcode(barcode: str) -> Optional[int]:
-    """按条形码精确匹配（与库存表 TRIM 后比较）。"""
+    """按条形码精确匹配（与库存表 TRIM 后比较）；也认图片识别出的产品条码。
+    未删除的、管理番号新的优先；命中已合并的行则转到合并目标。"""
     bc = (barcode or "").strip()
     if not bc:
         return None
     db = DatabaseManager()
     r = db.execute_query(
-        "SELECT [id] FROM [inventory] WHERE TRIM(IFNULL([barcode], '')) = ? LIMIT 1",
-        (bc,),
+        "SELECT [id] FROM [inventory] "
+        "WHERE TRIM(IFNULL([barcode], '')) = ? OR TRIM(IFNULL([product_barcode], '')) = ? "
+        "ORDER BY COALESCE([is_delete], 0) ASC, [id] DESC LIMIT 1",
+        (bc, bc),
     )
     if not r or r[0][0] is None:
         return None
-    try:
-        return int(r[0][0])
-    except (TypeError, ValueError):
-        return None
+    return _resolve_inventory_id(r[0][0])
 
 def _is_bundle_order_description(text: Optional[str]) -> bool:
     s = str(text or "").strip()
@@ -196,13 +203,14 @@ def _collect_bundle_title_ids(
     # ⚠️ 真实性边界（authenticity boundary）：暗号本身只是混淆、无密钥、可伪造
     # （见 mgmt_id_cipher.py 安全声明）。此处之所以可信，靠的**不是暗号自身**，而是
     # 两道独立约束：(1) desc 来自 _query_on_sale_rows_for_bundle(seller_id=…) 已按**卖出账号**
-    # 隔离过滤的在售记录——绝不跨账号；(2) 解出的 inventory.id 再经 _inventory_id_exists 存在性
+    # 隔离过滤的在售记录——绝不跨账号；(2) 解出的 inventory.id 再经 _resolve_inventory_id 存在性
     # 校验。二者共同构成真实性边界；切勿删掉账号隔离或存在性检查而「仅信任解码结果」。
     for cur_item_id, desc, _status, _is_delete, _created, _row_id in matches:
         for mid, _qty in parse_trailing_cipher_mgmt_tokens(desc):
-            if mid not in seen and _inventory_id_exists(mid):
-                seen.add(mid)
-                out.append((mid, cur_item_id))
+            rid = _resolve_inventory_id(mid)
+            if rid is not None and rid not in seen:
+                seen.add(rid)
+                out.append((rid, cur_item_id))
 
     # 回退：按 mercari_item_id 反查 inventory（仅在上面已按账号过滤出的 item_ids 内）。
     item_ids = [m[0] for m in matches]

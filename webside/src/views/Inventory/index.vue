@@ -3,7 +3,14 @@
     <el-card shadow="never" class="search-card" :class="{ 'search-card--ios': isIOS }">
       <div class="search-row">
         <div class="search-left-group">
-          <el-input v-model="keyword" class="search-keyword" clearable @change="load" prefix-icon="Search" />
+          <el-input
+            v-model="keyword"
+            class="search-keyword"
+            clearable
+            :placeholder="t('inventory.keywordBarcodePlaceholder')"
+            prefix-icon="Search"
+            @change="load"
+          />
           <el-cascader
             v-model="filterCategoryPath"
             :options="categoryCascaderOptions"
@@ -556,6 +563,11 @@
               :title="`${t('inventory.mgmtCipherTitle')}（${t('common.copy')}）`"
               @click="copyMgmtIdCipher"
             >{{ t('inventory.mgmtCipher') }} {{ editFormMgmtIdCipher }}</span>
+            <!-- 从商品图片识别出的产品条码（上传图片时识别 / 系统配置里的历史数据处理） -->
+            <span
+              v-if="form.product_barcode"
+              class="pef-section__badge"
+            >{{ t('inventory.productBarcode') }} {{ form.product_barcode }}</span>
           </div>
           <!-- 条码不再出现在表单里：进入弹窗的三条路径（扫码入库 / 商品入库 / 编辑已有行）
                都已把 form.barcode 填好，没有需要人手输入的场景 -->
