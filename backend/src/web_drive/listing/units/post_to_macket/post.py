@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import urllib.request
 from typing import Any, Dict, List, Optional, Sequence
 from ._constants import DEFAULT_ELEMENT_TIMEOUT_MS, DEFAULT_PAGE_LOAD_TIMEOUT_MS, DESCRIPTION_TEXTAREA_XPATH, NAME_INPUT_XPATH, PHOTO_ADD_BUTTON_XPATH, SALE_ELEMENT_TIMEOUT_MS, SELL_CREATE_URL, SUBMIT_BUTTON_TEXTS, SUBMIT_CONFIRM_TIMEOUT_MS, SWITCH_INPUT_XPATH
 from ._helpers import ListingAborted, _abort_listing, _click_by_texts, _make_listing_progress_reporter, _react_set_input, _react_set_textarea, _resolve_image_to_local
-from ._sell_wizard import _ensure_left_sell_wizard, _wait_post_category_for_delayed_sell_wizard
+from ._sell_wizard import _ensure_left_sell_wizard, _retry_after_wizard_jump, _url_is_sell_wizard, _wait_post_category_for_delayed_sell_wizard
 from .fields_basic import _select_category, _select_condition, _set_sale_type_and_price
 from .fields_shipping import _select_shipping_method, _set_shipping_days, _set_shipping_from, _set_shipping_payer
 
@@ -62,7 +63,22 @@ async def post_to_market(
         raise TypeError("manager 须为 EdgeWebDriveManager 实例")
 
     progress_key = (progress_job_id or "").strip() or None
-    report = _make_listing_progress_reporter(progress_key)
+    _report_progress = _make_listing_progress_reporter(progress_key)
+
+    # 诊断：主页面每次 URL 变化（含 SPA 路由切换）连同当时所处步骤记进 url_trail。
+    # 失败时无截图、无日志可看，这是判断「操作时页面是否已跳走（如延迟进入 sell/wizard）」的唯一证据。
+    t0 = time.monotonic()
+    current_step = ["init"]
+    url_trail: List[str] = []
+
+    def report(step: str, label_zh: str) -> None:
+        current_step[0] = step
+        _report_progress(step, label_zh)
+
+    def _trail(url: str, note: str = "") -> None:
+        url_trail.append(
+            f"{time.monotonic() - t0:.1f}s [{current_step[0]}]{note} {url}"
+        )
 
     # ── 解析图片为本地路径 ───────────────────────────────────────────────── #
     local_images: List[str] = []
@@ -132,6 +148,7 @@ async def post_to_market(
         "submitted": False,
         "aborted": False,
         "browser_kept_open": False,
+        "url_trail": url_trail,
     }
 
     # ── 1. 独立无头出品浏览器（登录态从主 profile 克隆，流程结束即关闭） ── #
@@ -141,6 +158,24 @@ async def post_to_market(
     ) as (mgr, browser_key):
         page = await mgr.active_tab_page(browser_key)
         result["url"] = page.url
+        _trail(page.url, " start")
+        # 进入 sell/wizard 的次数：_retry_after_wizard_jump 据此判断某步失败是否因中途跳了向导
+        wizard_hits = [0]
+
+        def _on_navigated(frame: Any) -> None:
+            if frame != page.main_frame:
+                return
+            _trail(frame.url)
+            if _url_is_sell_wizard(frame.url):
+                wizard_hits[0] += 1
+
+        page.on("framenavigated", _on_navigated)
+
+        async def _step(step_fn: Any) -> Any:
+            return await _retry_after_wizard_jump(
+                page, step_fn, wizard_hits,
+                element_timeout_ms=element_timeout_ms, report=report,
+            )
 
         # ── 2. 等待页面可交互 ────────────────────────────────────────────────── #
         report("page_load", "等待出品页加载完成…")
@@ -270,13 +305,13 @@ async def post_to_market(
             if status:
                 report("condition", "正在选择商品状态…")
                 try:
-                    await _select_condition(
+                    await _step(lambda: _select_condition(
                         page,
                         status,
                         element_timeout_ms=element_timeout_ms,
                         page_load_timeout_ms=page_load_timeout_ms,
                         report=report,
-                    )
+                    ))
                     result["condition_set"] = True
                 except ListingAborted:
                     raise
@@ -294,7 +329,8 @@ async def post_to_market(
             desc_str = (description or "").strip()
             if desc_str:
                 report("description", "正在填写商品说明…")
-                try:
+
+                async def _fill_description() -> None:
                     desc_loc = page.locator(f"xpath={DESCRIPTION_TEXTAREA_XPATH}").or_(
                         page.locator('textarea[name="description"]')
                     ).or_(page.locator('[data-testid="input-description"] textarea'))
@@ -307,6 +343,9 @@ async def post_to_market(
                         await desc_loc.first.focus()
                         await page.keyboard.press("Control+a")
                         await page.keyboard.type(desc_str, delay=0)
+
+                try:
+                    await _step(_fill_description)
                     result["description_filled"] = True
                 except Exception as exc:
                     _abort_listing(
@@ -319,10 +358,10 @@ async def post_to_market(
             if shipping_payer:
                 report("shipping_payer", "正在设置配送费负担…")
                 try:
-                    await _set_shipping_payer(
+                    await _step(lambda: _set_shipping_payer(
                         page, shipping_payer,
                         element_timeout_ms=element_timeout_ms,
-                    )
+                    ))
                     result["shipping_payer_set"] = True
                 except Exception as exc:
                     _abort_listing(
@@ -335,11 +374,11 @@ async def post_to_market(
             if shipping_method:
                 report("shipping_method", "正在选择配送方法…")
                 try:
-                    await _select_shipping_method(
+                    await _step(lambda: _select_shipping_method(
                         page, shipping_method,
                         element_timeout_ms=element_timeout_ms,
                         page_load_timeout_ms=page_load_timeout_ms,
-                    )
+                    ))
                     result["shipping_method_set"] = True
                 except Exception as exc:
                     _abort_listing(
@@ -352,10 +391,10 @@ async def post_to_market(
             if shipping_from_area_id:
                 report("shipping_from", "正在选择发货地址…")
                 try:
-                    await _set_shipping_from(
+                    await _step(lambda: _set_shipping_from(
                         page, shipping_from_area_id,
                         element_timeout_ms=element_timeout_ms,
-                    )
+                    ))
                     result["shipping_from_set"] = True
                 except Exception as exc:
                     _abort_listing(
@@ -368,10 +407,10 @@ async def post_to_market(
             if shipping_days:
                 report("shipping_days", "正在选择发货天数…")
                 try:
-                    await _set_shipping_days(
+                    await _step(lambda: _set_shipping_days(
                         page, shipping_days,
                         element_timeout_ms=element_timeout_ms,
-                    )
+                    ))
                     result["shipping_days_set"] = True
                 except Exception as exc:
                     _abort_listing(
@@ -383,7 +422,7 @@ async def post_to_market(
             # ── 步骤 10+11：选择出售类型 + 填写价格 ──────────────────────────────── #
             report("sale_price", "正在设置销售方式与价格…")
             try:
-                await _set_sale_type_and_price(
+                await _step(lambda: _set_sale_type_and_price(
                     page,
                     sale_type,
                     price,
@@ -391,7 +430,7 @@ async def post_to_market(
                     element_timeout_ms=SALE_ELEMENT_TIMEOUT_MS,
                     wizard_timeout_ms=element_timeout_ms,
                     report=report,
-                )
+                ))
                 result["sale_type_set"] = True
                 result["price_filled"] = True
             except ListingAborted:
@@ -513,6 +552,7 @@ async def post_to_market(
 
         try:
             result["url"] = page.url
+            _trail(page.url, " end")
         except Exception:
             pass
 

@@ -152,10 +152,6 @@
 .el-table tr.listing-pick-row-selected.hover-row > td.el-table__cell {
   background-color: rgba(103, 194, 58, 0.32) !important;
 }
-.el-table tbody tr.listing-pick-row-disabled {
-  cursor: not-allowed !important;
-  opacity: 0.55;
-}
 /* 选择模式下，整张表行的鼠标指针变为可点击 */
 .listing-pick-mode-active .el-table tbody tr {
   cursor: pointer;

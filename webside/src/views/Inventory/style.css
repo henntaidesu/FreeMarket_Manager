@@ -937,7 +937,6 @@ a.pef-lcard:hover {
 }
 .inv-card.is-alert { border-color: #f56c6c; }
 .inv-card.is-picked { border-color: #67c23a; box-shadow: 0 0 0 1px #67c23a inset; }
-.inv-card.is-pick-disabled { opacity: 0.45; cursor: not-allowed; }
 /* 图框固定高度 + cover 裁剪：商品图长宽比五花八门，
    交给图片自己定高会让每张卡片高度都不一样 */
 .inv-card-thumb {

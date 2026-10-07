@@ -198,6 +198,7 @@ async def handle_listing(task: Dict[str, Any]) -> Dict[str, Any]:
     # 已点过「出品する」但结果未确认：挂牌可能已生成，绝不能当失败重来
     uncertain = bool(data.get("submit_clicked") or data.get("submit_uncertain") or data.get("submit_error"))
     failures = _collect_failures(data)
+    url_trail = [str(x) for x in (data.get("url_trail") or [])]
 
     title = str(payload.get("name") or "")
     price = int(payload.get("price") or 0)
@@ -229,7 +230,7 @@ async def handle_listing(task: Dict[str, Any]) -> Dict[str, Any]:
             "error",
             f"出品失败：{title}（¥{price}）" + (f"：{'；'.join(failures)}" if failures else ""),
             account_id,
-            {**log_detail, "failures": failures},
+            {**log_detail, "failures": failures, "url_trail": url_trail},
         )
 
     # 确认没点到出品按钮 → 确未挂牌，占用可以立刻还回去；否则继续持有等在售同步核销
@@ -241,8 +242,10 @@ async def handle_listing(task: Dict[str, Any]) -> Dict[str, Any]:
 
     if not submitted and not uncertain:
         # 确认未挂牌：任务落 failed（任务页红色可见），worker 据此异常类型释放预扣减
+        # 失败时 data 不落库，只有这条 error 可见——页面 URL 轨迹必须拼在这里才看得到
+        trail_text = ("\n页面URL轨迹：\n" + "\n".join(url_trail[-30:])) if url_trail else ""
         raise ListingNotSubmittedError(
-            "出品未完成：" + ("；".join(failures) if failures else "未点击出品按钮")
+            "出品未完成：" + ("；".join(failures) if failures else "未点击出品按钮") + trail_text
         )
 
     return {

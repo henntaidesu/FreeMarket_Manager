@@ -11,7 +11,20 @@ set WEBSIDE=%ROOT%webside
 rem HTTP by default; System Config - Web access = Direct HTTPS makes both servers use a self-signed cert.
 
 echo [1/2] Activating conda env mercari and starting backend (python main.py)...
-call conda activate mercari
+call conda activate mercari >nul 2>&1
+if /i "%CONDA_DEFAULT_ENV%"=="mercari" goto :conda_ok
+rem Without "conda init cmd.exe", "conda" resolves to Scripts\conda.exe, which cannot activate.
+rem Fall back to the activate.bat next to it.
+set "CONDA_ACT="
+for /f "delims=" %%C in ('where conda 2^>nul') do if not defined CONDA_ACT if exist "%%~dpCactivate.bat" set "CONDA_ACT=%%~dpCactivate.bat"
+if defined CONDA_ACT call "%CONDA_ACT%" mercari
+if /i "%CONDA_DEFAULT_ENV%"=="mercari" goto :conda_ok
+echo [ERROR] Failed to activate conda env "mercari". Check: conda env list
+pause
+exit /b 1
+:conda_ok
+for /f "delims=" %%P in ('where python') do echo Using python: %%P& goto :py_shown
+:py_shown
 
 cd /d %BACKEND%
 start /b python main.py

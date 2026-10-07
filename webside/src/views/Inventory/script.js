@@ -568,13 +568,17 @@ export default defineComponent({
       }
     }
 
-    /** 组合商品「在列表中选择」模式 */
+    /** 「多选商品」模式：勾选后可批量改库存位置，或创建组合商品 */
     const listingPickMode = ref(false)
     /** 已选中的库存 id 集合 */
     const listingPickIds = ref(new Set())
     /** id → 勾选当时的整行。分页/滚动窗口下，别的页勾中的行不在 list.value 里，
-     *  确认组合时只能从这里取 */
+     *  确认操作时只能从这里取 */
     const listingPickRows = new Map()
+    /** 批量修改库存位置弹窗 */
+    const batchWarehouseDialogVisible = ref(false)
+    const batchWarehousePath = ref([])
+    const batchWarehouseSubmitting = ref(false)
     const listingCategoryMappings = ref([])
     const noBarcodeEntryMode = ref(false)
     /** 无码入库且新建：选图后立即上传服务器，保存时只提交 /imges/ 路径 */
@@ -1548,11 +1552,16 @@ export default defineComponent({
       return path ? [...path] : []
     }
 
-    async function saveWarehouseInline(row, path) {
+    /** 级联选中路径 → warehouse_id；「默认仓库」等非货位节点得到 null（未分配） */
+    function warehouseIdFromCascaderPath(path) {
       const picked = Array.isArray(path) ? path[path.length - 1] : null
       const normalized =
         picked && String(picked).startsWith('WHS:') ? Number(String(picked).slice(4)) : null
-      const newId = Number.isFinite(normalized) ? normalized : null
+      return Number.isFinite(normalized) ? normalized : null
+    }
+
+    async function saveWarehouseInline(row, path) {
+      const newId = warehouseIdFromCascaderPath(path)
       if ((row.warehouse_id || null) === newId) {
         editingWarehouseRowId.value = null
         return
@@ -3504,7 +3513,8 @@ export default defineComponent({
       return Number(row?.quantity ?? 0) > 0
     }
 
-    /** 进入「组合商品」：在列表中单选或多选库存后再填表单（单条时可调「每套数量」） */
+    /** 进入「多选商品」：勾选任意库存行，再选「修改库存位置」或「组合商品」。
+     *  勾选本身不设限制，组合的条件（isListingPickSelectable）在点「组合商品」时才校验 */
     async function enterListingPickMode() {
       listingPickMode.value = true
       listingPickIds.value = new Set()
@@ -3662,14 +3672,6 @@ export default defineComponent({
         listingPickIds.value = next
         return
       }
-      if (Number(row?.is_combined || 0) === 1) {
-        ElMessage.warning(t('inventory.combinedCannotBeSource'))
-        return
-      }
-      if (listableQuantity(row) <= 0) {
-        ElMessage.warning(t('inventory.cannotSelectZeroStock'))
-        return
-      }
       next.add(row.id)
       listingPickRows.set(row.id, row)
       listingPickIds.value = next
@@ -3682,9 +3684,6 @@ export default defineComponent({
       }
       if (listingPickMode.value && listingPickIds.value.has(row?.id)) {
         classes.push('listing-pick-row-selected')
-      }
-      if (listingPickMode.value && !isListingPickSelectable(row)) {
-        classes.push('listing-pick-row-disabled')
       }
       if (!inventoryRowCanExpand(row)) {
         classes.push('inventory-row-no-expand')
@@ -3722,15 +3721,83 @@ export default defineComponent({
       }
       // 从勾选时记下的行取，而不是从当前页找：分页/滚动窗口之后，
       // 在别的页勾中的行早已不在 list.value 里了
-      const rows = [...listingPickIds.value]
-        .map((id) => listingPickRows.get(id))
-        .filter((r) => r && isListingPickSelectable(r))
-      if (!rows.length) {
-        ElMessage.warning(t('inventory.selectionInvalidForCombined'))
+      const picked = [...listingPickIds.value].map((id) => listingPickRows.get(id)).filter(Boolean)
+      // 勾选时不再拦截（同一份勾选也用于改库存位置），不能组合的在这里整体拒绝，
+      // 而不是悄悄剔除——否则建出来的组合少了用户以为选上的那几件
+      const invalid = picked.filter((r) => !isListingPickSelectable(r) || listableQuantity(r) <= 0)
+      if (invalid.length) {
+        ElMessage.warning(t('inventory.selectionHasInvalidForCombined', {
+          ids: invalid.map((r) => `#${r.id}`).join('、')
+        }))
         return
       }
       await exitListingPickMode()
-      openCombinedProductDialog(rows)
+      openCombinedProductDialog(picked)
+    }
+
+    function openBatchWarehouseDialog() {
+      if (!listingPickIds.value.size) {
+        ElMessage.warning(t('inventory.pickAtLeastOne'))
+        return
+      }
+      batchWarehousePath.value = []
+      batchWarehouseDialogVisible.value = true
+    }
+
+    /** 批量修改库存位置。组合商品不占货位（列表里该列显示「-」），跳过 */
+    async function submitBatchWarehouse() {
+      if (!batchWarehousePath.value?.length) {
+        ElMessage.warning(t('inventory.pickWarehouseFirst'))
+        return
+      }
+      const newId = warehouseIdFromCascaderPath(batchWarehousePath.value)
+      const rows = [...listingPickIds.value]
+        .map((id) => listingPickRows.get(id))
+        .filter((r) => r && Number(r.is_combined || 0) !== 1)
+      const skipped = listingPickIds.value.size - rows.length
+      if (!rows.length) {
+        ElMessage.warning(t('inventory.batchWarehouseNoTarget'))
+        return
+      }
+      batchWarehouseSubmitting.value = true
+      let ok = 0
+      const failed = []
+      try {
+        for (const r of rows) {
+          if ((r.warehouse_id || null) === newId) {
+            ok += 1
+            continue
+          }
+          try {
+            await inventoryApi.update(r.id, { warehouse_id: newId })
+            ok += 1
+          } catch {
+            failed.push(r.id)
+          }
+        }
+      } finally {
+        batchWarehouseSubmitting.value = false
+      }
+      if (failed.length) {
+        // 只留下失败的那几条勾选，弹窗不关，可直接重试
+        ElMessage.error(t('inventory.batchWarehousePartialFailed', {
+          ok,
+          failed: failed.map((id) => `#${id}`).join('、')
+        }))
+        listingPickIds.value = new Set(failed)
+        for (const id of [...listingPickRows.keys()]) {
+          if (!listingPickIds.value.has(id)) listingPickRows.delete(id)
+        }
+        await load({ resetPage: false })
+        return
+      }
+      batchWarehouseDialogVisible.value = false
+      ElMessage.success(
+        skipped > 0
+          ? t('inventory.batchWarehouseDoneSkipped', { count: ok, skipped })
+          : t('inventory.batchWarehouseDone', { count: ok })
+      )
+      await exitListingPickMode()
     }
 
     function triggerInventoryImageFilePick(slotIdx, mode) {
@@ -4951,7 +5018,6 @@ export default defineComponent({
       normalizeCombinedProductItemQty,
       submitCombinedProduct,
       onListingFormSaved,
-      isListingPickSelectable,
       enterListingPickMode,
       exitListingPickMode,
       toggleListingPickRow,
@@ -4960,6 +5026,11 @@ export default defineComponent({
       onCardClick,
       closeAllInlineEditors,
       confirmListingPick,
+      batchWarehouseDialogVisible,
+      batchWarehousePath,
+      batchWarehouseSubmitting,
+      openBatchWarehouseDialog,
+      submitBatchWarehouse,
       triggerInventoryImageFilePick,
       triggerInventoryFileOnlyClick,
       stopProductImgCameraStream,

@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import urllib.request
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple, TypeVar
 from ._constants import DEFAULT_PAGE_LOAD_TIMEOUT_MS, SELL_WIZARD_BACK_BUTTON_TESTID, SELL_WIZARD_BACK_BUTTON_XPATH, SELL_WIZARD_BACK_TEXT, SELL_WIZARD_BROWSER_BACK_TIMEOUT_MS, SELL_WIZARD_POST_CATEGORY_POLL_S, SELL_WIZARD_POST_CATEGORY_WAIT_S, SELL_WIZARD_URL_FRAGMENT, SELL_WIZARD_XPATH_CLICK_TIMEOUT_MS, SHIPPING_METHODS_URL_FRAGMENT
-from ._helpers import _abort_listing
+from ._helpers import ListingAborted, _abort_listing
 
 log = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 
 def _url_is_sell_wizard(url: str) -> bool:
@@ -250,3 +252,41 @@ async def _ensure_left_sell_wizard(
             error_key="sell_wizard_error",
             exc="无法返回出品表单（仍停留在 sell/wizard）",
         )
+
+async def _retry_after_wizard_jump(
+    page: Any,
+    step_fn: Callable[[], Awaitable[T]],
+    wizard_hits: List[int],
+    *,
+    element_timeout_ms: int,
+    report: Optional[Callable[[str, str], None]] = None,
+) -> T:
+    """
+    执行一步表单操作；若失败且其间页面跳进了 sell/wizard，退回表单后重做一次。
+
+    煤炉选完类型后会**延迟**跳 sell/wizard，实测晚到 7.6s（选类型后的固定等待只有
+    SELL_WIZARD_POST_CATEGORY_WAIT_S）。跳转落在哪一步中途，哪一步就因表单被整页替换而
+    超时 / 元素脱离 DOM——这正是出品失败散落在状态、说明、配送各步的原因。
+
+    ``wizard_hits`` 由调用方在 framenavigated 里对进入向导计数：执行前后计数变化说明
+    跳转发生在这一步中途；当前 URL 仍是向导则说明发生在两步之间。两者都不是则是真实
+    失败，原样抛出。只重做一次，重做仍失败照常抛出。
+    """
+    before = wizard_hits[0]
+    try:
+        return await step_fn()
+    except ListingAborted:
+        raise
+    except Exception as exc:
+        try:
+            on_wizard = _url_is_sell_wizard(str(page.url or ""))
+        except Exception:
+            on_wizard = False
+        if wizard_hits[0] == before and not on_wizard:
+            raise
+        log.info("[post_to_market] 步骤执行中跳入 sell/wizard（%s），退回表单后重做", exc)
+        print("[出品] 步骤执行中跳入 sell/wizard，退回表单后重做该步", flush=True)
+    await _leave_sell_wizard_if_present(
+        page, element_timeout_ms=element_timeout_ms, report=report
+    )
+    return await step_fn()

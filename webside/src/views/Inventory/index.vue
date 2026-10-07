@@ -81,13 +81,15 @@
           <template v-if="!listingPickMode">
             <el-button type="success" plain @click="openNoBarcodeEntry">{{ t('inventory.noBarcodeInbound') }}</el-button>
             <el-button type="primary" plain @click="openImageSearch">{{ t('inventory.imageSearch') }}</el-button>
-            <el-button @click="enterListingPickMode()">{{ t('inventory.combinedProduct') }}</el-button>
+            <el-button @click="enterListingPickMode()">{{ t('inventory.multiSelect') }}</el-button>
           </template>
           <template v-else>
             <span class="listing-pick-count">{{ t('inventory.selectedCount', { count: listingPickIds.size }) }}</span>
-            <!-- 手机上按钮平分一行，长文案放不下 -->
+            <el-button type="primary" :disabled="!listingPickIds.size" @click="openBatchWarehouseDialog">
+              {{ t('inventory.batchChangeWarehouse') }}
+            </el-button>
             <el-button type="primary" :disabled="!listingPickIds.size" @click="confirmListingPick">
-              {{ isMobile ? t('common.next') : t('inventory.nextCreateCombined') }}
+              {{ t('inventory.combinedProduct') }}
             </el-button>
             <el-button @click="exitListingPickMode">{{ t('inventory.cancelSelection') }}</el-button>
           </template>
@@ -454,8 +456,7 @@
             class="inv-card"
             :class="{
               'is-alert': isInventoryAlertRow(row),
-              'is-picked': listingPickMode && listingPickIds.has(row.id),
-              'is-pick-disabled': listingPickMode && !isListingPickSelectable(row)
+              'is-picked': listingPickMode && listingPickIds.has(row.id)
             }"
             @click="onCardClick(row)"
           >
@@ -1583,6 +1584,30 @@
         <el-button @click="combinedProductDialogVisible = false">{{ t('common.cancel') }}</el-button>
         <el-button type="primary" :loading="combinedProductSubmitting" @click="submitCombinedProduct">
           {{ t('inventory.createCombinedProduct') }}
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="batchWarehouseDialogVisible"
+      :title="t('inventory.batchChangeWarehouse')"
+      :width="isMobile ? '94vw' : '480px'"
+      destroy-on-close
+    >
+      <p class="cell-muted">{{ t('inventory.batchWarehouseHint', { count: listingPickIds.size }) }}</p>
+      <el-cascader
+        v-model="batchWarehousePath"
+        :options="warehouseCascaderOptionsWithDefault"
+        :props="warehouseCascaderProps"
+        separator="-"
+        :placeholder="t('inventory.warehouseShelfArrowPlaceholder')"
+        popper-class="product-type-cascader-popper"
+        style="width: 100%"
+      />
+      <template #footer>
+        <el-button @click="batchWarehouseDialogVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="batchWarehouseSubmitting" @click="submitBatchWarehouse">
+          {{ t('common.confirm') }}
         </el-button>
       </template>
     </el-dialog>
