@@ -208,6 +208,13 @@ Key tables in `backend/src/db_manage/models/`:
 
 - **users**: User accounts with bcrypt passwords
 - **inventory**: Products with barcode, SKU, price, quantity, images (filesystem paths in `images_json`; images saved under `backend/imges/`)
+- **inventory_batches**: 到货批次（批次号 / 到货时间 / 仓位 / 数量 / 备注），一个管理番号下多批。
+  **已分批商品 `inventory.quantity == Σ批次数量`**，总数在表单上只读、只能改批次。其余直接改
+  `quantity` 的路径（售出/出库/回吐/组合级联/拆分）不用管批次：`recompute_listable_quantity`
+  先调 `use_mercari/inventory_batches.reconcile_batches`，把差额按到货时间**先进先出**落到批次上，
+  所以新增改 `quantity` 的路径事后必须调 `recompute_listable_quantity`。没有批次行的历史商品不迁移，
+  首次打开批次页 / 扫码入库时才把当时数量原样转成一个批次。`inventory.warehouse_id` 对已分批商品
+  = 先进先出队首批次的仓位；仓位统计与按仓位筛选走 `stock_locations_sql()`。组合商品不分批。
 - **warehouses**: Storage locations (shelf names duplicable per warehouse)
 - **product_type_category_mappings**: 商品类型主表 (one row = one 商品类型). `inventory.product_type_id` → `mapping_id` (TEXT PK, numeric, auto-incremented on create, never user-visible). See 商品类型映射 below.
 - **shop_accounts**: Marketplace account config (headers in `value` JSON field, `platform`,

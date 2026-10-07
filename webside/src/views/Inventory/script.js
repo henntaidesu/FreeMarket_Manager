@@ -30,6 +30,7 @@ import {
   normalizeShippingFromSeed
 } from '@/constants/mercariJapanAreas.js'
 import { MERCARI_UNDECIDED_AREA_ID } from '@/composables/useListingPlatform.js'
+import { useInventoryBatches } from './useInventoryBatches.js'
 
 /**
  * 无码入库上次选择（游戏分类 / 商品类型 / 所属货架 + 商品归属）。
@@ -512,6 +513,11 @@ export default defineComponent({
       splitDialogVisible.value = true
     }
 
+    /** 「新增批次」：新到的货不再复制出一个新管理番号，而是记成本商品的一个批次 */
+    function openAddBatch() {
+      editActiveTab.value = 'batches'
+    }
+
     function openCopyDialog(row) {
       if (!row || !row.id) return
       // 组合商品的构成明细不在复制范围内，照抄出来会是个引用着别人库存却没有预留的空壳
@@ -734,7 +740,7 @@ export default defineComponent({
       cancel_request: { label: t('orders.statusCancelRequest'), tag: 'danger' },
     }))
 
-    /** 编辑弹窗的模块切换：出品设置（默认）/ 关联商品 */
+    /** 编辑弹窗的模块切换：出品设置（默认）/ 批次 / 关联商品 */
     const editActiveTab = ref('listing')
 
     // ---- 关联商品：平台在售商品 + 已售出订单（都由 /linked-items 一次取回）----
@@ -1454,7 +1460,10 @@ export default defineComponent({
       const parts = [row?.inv_wh_name, row?.inv_shelf_name, row?.inv_shelf_code]
         .map((v) => String(v ?? '').trim())
         .filter(Boolean)
-      return parts.length ? parts.join('-') : '-'
+      const base = parts.length ? parts.join('-') : '-'
+      // 已分批商品显示的是先进先出队首批次的仓位；货还分散在别处时提示一下
+      const more = Number(row?.batch_warehouse_count || 0) - 1
+      return more > 0 ? `${base} ${t('inventory.moreBatchShelves', { n: more })}` : base
     }
 
     function displayOwnerName(row) {
@@ -1864,6 +1873,26 @@ export default defineComponent({
     })
 
     const warehouseCascaderOptions = computed(() => warehouseTreeMeta.value.roots)
+
+    // ---- 批次：商品总数 = Σ批次数量，只在「批次」页改 ----
+    const inventoryBatches = useInventoryBatches({
+      form,
+      warehouseTreeMeta,
+      t,
+      onItemUpdated(item) {
+        if (!item || Number(item.id) !== Number(form.value.id)) return
+        for (const k of ['quantity', 'warehouse_id', 'on_sale_quantity', 'pending_outbound_qty', 'combined_quantity']) {
+          if (item[k] !== undefined) form.value[k] = item[k]
+        }
+        syncQuantityEditFromForm()
+        syncWarehouseCascaderPathByWarehouseId(form.value.warehouse_id)
+        // 批次改动已直接落库：关窗时刷新列表
+        formAutosaved = true
+      }
+    })
+    watch(editActiveTab, (v) => {
+      if (v === 'batches') inventoryBatches.loadBatches()
+    })
 
     // 在真实仓库分组之上追加「默认仓库」合成节点：顶部筛选用它筛未分配货位的商品，
     // 表格内联编辑用它把已分配的货位清回未分配（弹窗表单靠 clearable 叉号清空，不用这份选项）
@@ -3050,6 +3079,7 @@ export default defineComponent({
       formAutosaved = false
       // 每次打开都回到默认模块，免得上次停在「关联商品」页
       editActiveTab.value = 'listing'
+      inventoryBatches.resetBatches()
       linkedListings.value = []
       linkedSold.value = []
       linkedItemsLoadedFor = null
@@ -3130,7 +3160,11 @@ export default defineComponent({
             is_combined: 0,
             combined_items: null,
             combined_quantity: 0,
-            pending_outbound_qty: 0
+            pending_outbound_qty: 0,
+            // 首个批次（数量 / 仓位即上方的数量与所属货架）
+            batch_no: '',
+            batch_arrived_at: null,
+            batch_remark: ''
           }
       syncFormLegacyImageFieldsFromImages()
       syncQuantityEditFromForm()
@@ -4134,6 +4168,18 @@ export default defineComponent({
       delete payload.is_combined
       delete payload.combined_items
       delete payload.combined_quantity
+      if (payload.id) {
+        // 首批字段只在建档时用
+        delete payload.batch_no
+        delete payload.batch_arrived_at
+        delete payload.batch_remark
+        // 已建档的普通商品：总数与仓位由批次维护（总数只读）。form 里的是快照，回传会被后端拒绝
+        // （总数）或被当成「整件换仓位」把全部批次搬走（仓位），所以一律不带
+        if (Number(form.value.is_combined || 0) !== 1) {
+          delete payload.quantity
+          delete payload.warehouse_id
+        }
+      }
       // 在售/待出都是后端事件驱动维护的派生计数，弹窗里只读展示。form 里的值是打开那一刻的
       // 快照，跟着自动保存回传会把期间在售同步写下的新值覆盖掉（在售虚高、可上架永远差一件）。
       delete payload.on_sale_quantity
@@ -4766,6 +4812,8 @@ export default defineComponent({
       splitConfirmText,
       openSplitDialog,
       openCopyDialog,
+      openAddBatch,
+      ...inventoryBatches,
       submitSplitOrCopy,
       listingPickMode,
       listingPickIds,

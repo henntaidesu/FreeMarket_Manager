@@ -48,6 +48,7 @@ from .models import (
     GotionRowModel,
     ImageEmbeddingModel,
     ImageAssetModel,
+    InventoryBatchModel,
 )
 
 
@@ -698,6 +699,7 @@ class DBManager:
             CategoryModel,    # 无外键依赖
             WarehouseModel,   # 无外键依赖
             InventoryModel,   # 依赖 categories
+            InventoryBatchModel,  # 库存批次（依赖 inventory / warehouses，仅顺序习惯）
             TransactionModel, # 依赖 inventory, warehouses
             CostRecordModel,  # 依赖 warehouses（可为空）
             CostExpenseModel,  # 成本支出

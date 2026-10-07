@@ -20,6 +20,7 @@ from .system.system_log import SystemLogModel
 from .system.task_queue import TaskQueueModel
 from .inventory.inventory import InventoryModel
 from .inventory.image_embedding import ImageEmbeddingModel
+from .inventory.inventory_batch import InventoryBatchModel
 from .orders.order import OrderModel
 from .orders.order_note import OrderNoteModel
 from .orders.order_outbound_line import OrderOutboundLineModel
@@ -76,4 +77,5 @@ __all__ = [
     'GotionColumnModel',
     'GotionRowModel',
     'ImageEmbeddingModel',
+    'InventoryBatchModel',
 ]

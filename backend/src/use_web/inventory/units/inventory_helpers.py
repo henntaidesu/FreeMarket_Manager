@@ -57,6 +57,8 @@ def _row_to_inventory_detail(row: tuple) -> dict:
         "product_type_name",
         "owner_user_name",
         "combined_quantity",
+        "batch_count",
+        "batch_warehouse_count",
     ]
     return dict(zip(keys, row))
 
@@ -175,7 +177,9 @@ def _query_inventory_with_joins(
                w.name AS inv_shelf_code,
                ptcm.product_type AS product_type_name,
                COALESCE(u.display_name, u.username) AS owner_user_name,
-               COALESCE(cr.reserved, 0) AS combined_quantity
+               COALESCE(cr.reserved, 0) AS combined_quantity,
+               COALESCE(bt.batch_count, 0) AS batch_count,
+               COALESCE(bt.batch_wh_count, 0) AS batch_warehouse_count
         FROM [inventory] p
         LEFT JOIN [categories] c ON c.id = p.category_id
         LEFT JOIN [warehouses] w ON w.id = p.warehouse_id
@@ -183,6 +187,11 @@ def _query_inventory_with_joins(
                ON ptcm.mapping_id = CAST(p.product_type_id AS TEXT)
         LEFT JOIN [users] u ON u.id = p.owner_user_id
         LEFT JOIN {combined_reserved_agg} cr ON cr.src_id = p.id
+        LEFT JOIN (
+            SELECT inventory_id, COUNT(*) AS batch_count,
+                   COUNT(DISTINCT CASE WHEN quantity > 0 THEN COALESCE(warehouse_id, 0) END) AS batch_wh_count
+            FROM [inventory_batches] GROUP BY inventory_id
+        ) bt ON bt.inventory_id = p.id
         WHERE COALESCE(p.is_delete, 0) = 0 {where_sql}
         {order_sql}
         {limit_sql}

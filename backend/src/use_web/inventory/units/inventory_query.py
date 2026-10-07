@@ -127,11 +127,18 @@ def list_inventory(
     if owner_user_id:
         where_parts.append("AND p.owner_user_id = ?")
         params.append(owner_user_id)
+    # 已分批商品的货可能分散在多个仓位：任一有货批次在该仓位即命中
     if warehouse_id:
-        where_parts.append("AND p.warehouse_id = ?")
-        params.append(warehouse_id)
+        where_parts.append(
+            "AND (p.warehouse_id = ? OR EXISTS (SELECT 1 FROM [inventory_batches] ib "
+            "WHERE ib.inventory_id = p.id AND ib.warehouse_id = ? AND ib.quantity > 0))"
+        )
+        params.extend([warehouse_id, warehouse_id])
     if warehouse_unassigned:
-        where_parts.append("AND p.warehouse_id IS NULL")
+        where_parts.append(
+            "AND (p.warehouse_id IS NULL OR EXISTS (SELECT 1 FROM [inventory_batches] ib "
+            "WHERE ib.inventory_id = p.id AND ib.warehouse_id IS NULL AND ib.quantity > 0))"
+        )
     if warehouse_id or warehouse_unassigned:
         # 组合商品没有货架号（仓库位置恒为「-」），按货架筛选时不应出现在结果里
         where_parts.append("AND COALESCE(p.is_combined, 0) = 0")

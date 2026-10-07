@@ -81,6 +81,15 @@ def create_inventory(data: InventoryCreate, _claims: dict = Depends(require_auth
         if "unique" in err and "barcode" in err:
             raise HTTPException(status_code=400, detail="保存失败，条形码可能重复")
         raise HTTPException(status_code=400, detail="保存失败，请检查填写内容后重试")
+    from ....use_mercari.inventory_batches import insert_initial_batch, normalize_arrived_at
+    try:
+        normalize_arrived_at(data.batch_arrived_at)
+    except ValueError:
+        data.batch_arrived_at = None
+    insert_initial_batch(
+        int(new_id), quantity=int(data.quantity or 0), warehouse_id=data.warehouse_id,
+        batch_no=data.batch_no, arrived_at=data.batch_arrived_at, remark=data.batch_remark,
+    )
     # 新行的 listable_quantity 需立即落库，否则展示值（读取时重算）与出品预扣减的 CAS 判据不一致
     from ....use_mercari.inventory_counters import recompute_listable_quantity
     recompute_listable_quantity([int(new_id)])
@@ -160,6 +169,16 @@ def update_inventory(pid: int, data: InventoryUpdate, _claims: dict = Depends(re
         "images_json",
     }
     update_data = {k: v for k, v in update_data.items() if k in allowed_fields}
+    # 已启用批次：总数 = Σ批次，只能在批次页改；整件换仓位 = 全部批次一起搬
+    from ....use_mercari.inventory_batches import has_batches, move_all_batches
+    batched = not old_is_combined and has_batches(pid)
+    if batched and "quantity" in update_data:
+        cur_q = db.execute_query("SELECT COALESCE(quantity, 0) FROM [inventory] WHERE id = ?", (pid,))
+        if int(update_data["quantity"] or 0) != int(cur_q[0][0] if cur_q else 0):
+            raise HTTPException(status_code=400, detail="该商品已启用批次，总数不可直接修改，请在「批次」页修改各批次数量")
+        update_data.pop("quantity")
+    if batched and "warehouse_id" in update_data and update_data["warehouse_id"] != old_warehouse_id:
+        move_all_batches(pid, update_data["warehouse_id"])
     # 组合商品上调套数前校验来源子商品是否够预留（排除本组合自身既有预留），避免幽灵预留
     if old_is_combined and "quantity" in update_data:
         from .inventory_combined import _validate_combined_quantity_for_update

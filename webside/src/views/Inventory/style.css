@@ -302,6 +302,54 @@ a.pef-lcard:hover {
 .pef-lcard__id {
   font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
 }
+/* 批次页：汇总一行 → 批次表（行内即改即存）→ 新增一行 */
+.pef-batches {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.pef-batch-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.pef-batch-summary__fifo,
+.pef-batch-hint {
+  font-size: 12px;
+  color: #7c869a;
+}
+.pef-batch-table {
+  width: 100%;
+}
+.pef-batch-table .pef-batch-date.el-date-editor,
+.pef-batch-table .pef-batch-shelf,
+.pef-batch-table .pef-batch-qty {
+  width: 100%;
+}
+.pef-batch-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.pef-batch-add__no { width: 120px; }
+.pef-batch-add .pef-batch-date.el-date-editor { width: 190px; }
+.pef-batch-add .pef-batch-shelf { width: 200px; }
+.pef-batch-add .pef-batch-qty { width: 100px; }
+.pef-batch-add__remark { flex: 1 1 140px; min-width: 120px; }
+.pef-batch-first {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0 12px;
+}
+.pef-batch-first__remark { grid-column: 1 / -1; }
+@media (max-width: 640px) {
+  .pef-batch-add > * { flex: 1 1 100%; width: 100% !important; }
+}
 .pef-linked-empty {
   padding: 28px 4px;
   text-align: center;

@@ -51,6 +51,10 @@ def stock_in_inventory(pid: int, data: StockInRequest):
             db.dialect.commit(conn)
     except HTTPException:
         raise
+    # 新到的货记进「今天、该仓位」的批次（未分批商品先把原有数量转成历史批次）
+    from ....use_mercari.inventory_batches import receive_stock
+
+    receive_stock(pid, data.quantity, data.warehouse_id, data.remark)
     new_qty = db.execute_query("SELECT quantity FROM [inventory] WHERE id = ?", (pid,))
     return {"success": True, "new_quantity": (new_qty[0][0] if new_qty else 0), "inventory_id": pid}
 
@@ -104,6 +108,10 @@ def stock_out_inventory(pid: int, data: StockInRequest):
             db.dialect.commit(conn)
     except HTTPException:
         raise
+    # 已分批商品：按先进先出从批次扣减
+    from ....use_mercari.inventory_batches import reconcile_batches
+
+    reconcile_batches([pid])
     # 组合商品：套数已扣减并提交，级联扣减来源子商品物理库存（普通商品为空操作）。
     # 须在事务提交后调用，避免与外层 BEGIN IMMEDIATE 写锁互相阻塞。
     from ....use_mercari.inventory_counters import cascade_combined_child_deduction

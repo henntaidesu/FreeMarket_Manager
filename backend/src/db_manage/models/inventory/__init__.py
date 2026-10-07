@@ -3,5 +3,6 @@
 
 from .inventory import InventoryModel
 from .image_embedding import ImageEmbeddingModel
+from .inventory_batch import InventoryBatchModel
 
-__all__ = ["InventoryModel", "ImageEmbeddingModel"]
+__all__ = ["InventoryModel", "ImageEmbeddingModel", "InventoryBatchModel"]

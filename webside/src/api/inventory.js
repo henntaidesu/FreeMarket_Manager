@@ -41,6 +41,11 @@ export const inventoryApi = {
   removeCombinedComponent: (id, componentId) => http.delete(`/use_web/inventory/${id}/combined-components/${componentId}`),
   split: (id, data) => http.post(`/use_web/inventory/${id}/split`, data),
   copy: (id, data) => http.post(`/use_web/inventory/${id}/copy`, data),
+  // 批次（一个管理番号下按到货批次分仓位记数量）
+  listBatches: (id) => http.get(`/use_web/inventory/${id}/batches`),
+  createBatch: (id, data) => http.post(`/use_web/inventory/${id}/batches`, data),
+  updateBatch: (id, batchId, data) => http.put(`/use_web/inventory/${id}/batches/${batchId}`, data),
+  deleteBatch: (id, batchId) => http.delete(`/use_web/inventory/${id}/batches/${batchId}`),
   update: (id, data) => http.put(`/use_web/inventory/${id}`, data),
   remove: (id) => http.delete(`/use_web/inventory/${id}`),
   stockIn: (id, data) => http.post(`/use_web/inventory/${id}/stock-in`, data),

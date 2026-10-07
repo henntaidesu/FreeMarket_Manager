@@ -100,10 +100,16 @@ class WarehouseModel(BaseModel):
     #: 实测本库 39 个仓位**全部**对不上，流水净额合计 -558 而实际在库 513——页面上直接显示
     #: 负数库存。全系统其它地方（可上架、组合预留、库存列表）也都以 inventory.quantity 为
     #: 权威值，这里跟着对齐；transactions 保留为出入库审计流水，不承担库存推导职责。
+    #: 已启用批次的商品按各批次所在仓位分别计入（见 inventory_batches.stock_locations_sql）。
     _STATS_COLS = (
-        "COALESCE(SUM(COALESCE([quantity], 0)), 0) AS total_quantity, "
-        "COALESCE(SUM(CASE WHEN COALESCE([quantity], 0) > 0 THEN 1 ELSE 0 END), 0) AS product_types"
+        "COALESCE(SUM(COALESCE(sl.quantity, 0)), 0) AS total_quantity, "
+        "COUNT(DISTINCT CASE WHEN COALESCE(sl.quantity, 0) > 0 THEN sl.inventory_id END) AS product_types"
     )
+
+    @staticmethod
+    def _stock_locations() -> str:
+        from ....use_mercari.inventory_batches import stock_locations_sql
+        return stock_locations_sql()
 
     @classmethod
     def get_stats(cls, warehouse_id: int) -> Dict[str, int]:
@@ -112,8 +118,8 @@ class WarehouseModel(BaseModel):
         rows = db.execute_query(
             f"""
             SELECT {cls._STATS_COLS}
-            FROM [inventory]
-            WHERE COALESCE([is_delete], 0) = 0 AND [warehouse_id] = ?
+            FROM {cls._stock_locations()} sl
+            WHERE sl.warehouse_id = ?
             """,
             (warehouse_id,),
         )
@@ -134,10 +140,10 @@ class WarehouseModel(BaseModel):
         db = cls().db
         rows = db.execute_query(
             f"""
-            SELECT [warehouse_id], {cls._STATS_COLS}
-            FROM [inventory]
-            WHERE COALESCE([is_delete], 0) = 0 AND [warehouse_id] IS NOT NULL
-            GROUP BY [warehouse_id]
+            SELECT sl.warehouse_id, {cls._STATS_COLS}
+            FROM {cls._stock_locations()} sl
+            WHERE sl.warehouse_id IS NOT NULL
+            GROUP BY sl.warehouse_id
             """
         )
         out: Dict[int, Dict[str, int]] = {}

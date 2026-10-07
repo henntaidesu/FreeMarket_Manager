@@ -125,7 +125,15 @@ def recompute_listable_quantity(inv_ids: Optional[Iterable[int]] = None) -> int:
     """重算并落库 inventory.listable_quantity = max(0, 库存 - 在售 - 待出 - 组合预留 - 出品预扣减)。
 
     inv_ids 为空时重算全表；返回受影响行数。
+
+    几乎所有改 inventory.quantity 的路径事后都会走到这里，所以先在这里把总数的变动按
+    先进先出落到批次上（见 inventory_batches 模块说明）。
     """
+    from .inventory_batches import reconcile_batches
+
+    if inv_ids is not None:
+        inv_ids = list(inv_ids)
+    reconcile_batches(inv_ids)
     db = DatabaseManager()
     expr = _listable_sql_expr()
     if inv_ids is None:

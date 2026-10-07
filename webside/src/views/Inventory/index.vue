@@ -671,7 +671,28 @@
                 @blur="applyPriceEditToForm"
               />
             </el-form-item>
-            <el-form-item class="pef-field--qty" :label="t('inventory.stockQuantity')" prop="quantity">
+            <!-- 已建档的普通商品：总数 = Σ批次数量，只读，改数量去下方「批次」页。
+                 新建商品时这里填的是首个批次的数量；组合商品（套数）不分批，照旧可改。 -->
+            <el-form-item
+              v-if="batchesEnabled"
+              class="pef-field--qty"
+              :label="t('inventory.totalQuantity')"
+            >
+              <el-tooltip :content="t('inventory.totalQuantityReadonlyTip')" placement="top">
+                <el-input
+                  :model-value="String(form.quantity ?? 0)"
+                  class="product-qty-input"
+                  readonly
+                  @click="openAddBatch"
+                />
+              </el-tooltip>
+            </el-form-item>
+            <el-form-item
+              v-else
+              class="pef-field--qty"
+              :label="form.id ? t('inventory.stockQuantity') : t('inventory.firstBatchQuantity')"
+              prop="quantity"
+            >
               <el-input
                 v-model="quantityEdit"
                 placeholder=""
@@ -685,9 +706,12 @@
                  换行，没有再藏的理由。
                  紧跟在库存数量右边，并显示「仓库-货架名-货架号」完整路径：只显示末级的
                  货架号（"01"、"A-3"）在多个仓库里会重复，光看选中值分不出是哪个仓库的。 -->
+            <!-- 已建档的普通商品各批次各自选仓位（「批次」页），这里只在新建（首批仓位）
+                 与组合商品时出现 -->
             <el-form-item
+              v-if="!batchesEnabled"
               class="pef-field--shelf"
-              :label="t('inventory.belongingShelf')"
+              :label="form.id ? t('inventory.belongingShelf') : t('inventory.firstBatchShelf')"
               prop="warehouse_id"
             >
               <!-- 同上：不用叉号，改用带「默认仓库」节点的选项表回到未分配货位 -->
@@ -925,15 +949,15 @@
               size="default"
               @click="openSplitDialog(form)"
             >{{ t('inventory.split') }}</el-button>
-            <!-- 复制：同一份商品资料再开一个管理番号，但来源库存不动——新到的货沿用旧资料时用它，
-                 拆分是把已有的货挪出去，两件事 -->
+            <!-- 新增批次：新到的货记成本商品的一个批次（原「复制」会再开一个管理番号）。
+                 拆分是把已有的货挪到另一个归属人名下，两件事 -->
             <el-button
-              v-if="form.id && Number(form.is_combined || 0) !== 1"
+              v-if="batchesEnabled"
               type="primary"
               plain
               size="default"
-              @click="openCopyDialog(form)"
-            >{{ t('inventory.copyProduct') }}</el-button>
+              @click="openAddBatch"
+            >{{ t('inventory.addBatch') }}</el-button>
             <!-- 出品已改为提交任务队列：不受全局同步锁阻挡；可上架为 0 时仍禁用（后端亦会二次把关） -->
             <el-tooltip
               v-if="form.id"
@@ -981,6 +1005,158 @@
           </div>
         </section>
         </div>
+        </el-tab-pane>
+
+        <el-tab-pane v-if="Number(form.is_combined || 0) !== 1" name="batches">
+          <template #label>
+            {{ t('inventory.batches') }}
+            <span v-if="batchRows.length" class="pef-tab-count">{{ batchRows.length }}</span>
+          </template>
+          <div class="pef-batches">
+            <!-- 新建：商品还没建档（实时保存在条码+图片+单价齐了才建），批次表无处挂，
+                 先填首个批次的批次号/到货时间/备注，数量与仓位用上方两栏 -->
+            <template v-if="!batchesEnabled">
+              <div class="pef-batch-hint">{{ t('inventory.firstBatchHint') }}</div>
+              <div class="pef-batch-first">
+                <el-form-item :label="t('inventory.batchNo')">
+                  <el-input v-model="form.batch_no" :placeholder="t('inventory.batchNoPlaceholder')" clearable />
+                </el-form-item>
+                <el-form-item :label="t('inventory.arrivedAt')">
+                  <el-date-picker
+                    v-model="form.batch_arrived_at"
+                    type="datetime"
+                    value-format="YYYY-MM-DD HH:mm:ss"
+                    :placeholder="t('inventory.arrivedAtNowPlaceholder')"
+                  />
+                </el-form-item>
+                <el-form-item :label="t('inventory.batchRemark')" class="pef-batch-first__remark">
+                  <el-input v-model="form.batch_remark" clearable />
+                </el-form-item>
+              </div>
+            </template>
+            <template v-else>
+              <div class="pef-batch-summary">
+                <span>{{ t('inventory.batchSummary', { total: Number(form.quantity || 0), count: batchRows.length }) }}</span>
+                <span class="pef-batch-summary__fifo">{{ t('inventory.batchFifoTip') }}</span>
+              </div>
+              <el-table
+                v-loading="batchLoading"
+                :data="batchRows"
+                size="small"
+                border
+                class="pef-batch-table"
+                :empty-text="t('inventory.noBatches')"
+              >
+                <el-table-column :label="t('inventory.batchNo')" min-width="120">
+                  <template #default="{ row }">
+                    <el-input
+                      v-model="row.batch_no"
+                      size="small"
+                      :placeholder="t('inventory.batchNoPlaceholder')"
+                      @change="(v) => saveBatchField(row, 'batch_no', v)"
+                    />
+                  </template>
+                </el-table-column>
+                <el-table-column :label="t('inventory.arrivedAt')" min-width="190">
+                  <template #default="{ row }">
+                    <el-date-picker
+                      v-model="row.arrived_at"
+                      type="datetime"
+                      size="small"
+                      value-format="YYYY-MM-DD HH:mm:ss"
+                      :clearable="false"
+                      class="pef-batch-date"
+                      @change="(v) => saveBatchField(row, 'arrived_at', v)"
+                    />
+                  </template>
+                </el-table-column>
+                <el-table-column :label="t('inventory.belongingShelf')" min-width="200">
+                  <template #default="{ row }">
+                    <el-cascader
+                      :model-value="warehousePathOf(row.warehouse_id)"
+                      :options="warehouseCascaderOptionsWithDefault"
+                      :props="warehouseCascaderProps"
+                      separator="-"
+                      size="small"
+                      class="pef-batch-shelf"
+                      popper-class="product-type-cascader-popper"
+                      @change="(p) => saveBatchField(row, 'warehouse_id', warehouseIdOfPath(p))"
+                    />
+                  </template>
+                </el-table-column>
+                <el-table-column :label="t('inventory.batchQuantity')" width="120" align="center">
+                  <template #default="{ row }">
+                    <el-input-number
+                      v-model="row.quantity"
+                      :min="0"
+                      :step="1"
+                      step-strictly
+                      size="small"
+                      controls-position="right"
+                      class="pef-batch-qty"
+                      @change="(v) => saveBatchField(row, 'quantity', v)"
+                    />
+                  </template>
+                </el-table-column>
+                <el-table-column :label="t('inventory.batchRemark')" min-width="140">
+                  <template #default="{ row }">
+                    <el-input
+                      v-model="row.remark"
+                      size="small"
+                      @change="(v) => saveBatchField(row, 'remark', v)"
+                    />
+                  </template>
+                </el-table-column>
+                <el-table-column width="64" align="center">
+                  <template #default="{ row }">
+                    <el-popconfirm
+                      :title="t('inventory.batchDeleteConfirm', { qty: Number(row.quantity || 0) })"
+                      @confirm="removeBatch(row)"
+                    >
+                      <template #reference>
+                        <el-button link type="danger" size="small">{{ t('inventory.batchDelete') }}</el-button>
+                      </template>
+                    </el-popconfirm>
+                  </template>
+                </el-table-column>
+              </el-table>
+              <!-- 新增一行：到货时间默认此刻，数量默认 1 -->
+              <div class="pef-batch-add">
+                <el-input v-model="newBatch.batch_no" size="small" :placeholder="t('inventory.batchNo')" class="pef-batch-add__no" />
+                <el-date-picker
+                  v-model="newBatch.arrived_at"
+                  type="datetime"
+                  size="small"
+                  value-format="YYYY-MM-DD HH:mm:ss"
+                  :clearable="false"
+                  class="pef-batch-date"
+                />
+                <el-cascader
+                  :model-value="warehousePathOf(newBatch.warehouse_id)"
+                  :options="warehouseCascaderOptionsWithDefault"
+                  :props="warehouseCascaderProps"
+                  separator="-"
+                  size="small"
+                  class="pef-batch-shelf"
+                  popper-class="product-type-cascader-popper"
+                  @change="(p) => { newBatch.warehouse_id = warehouseIdOfPath(p) }"
+                />
+                <el-input-number
+                  v-model="newBatch.quantity"
+                  :min="0"
+                  :step="1"
+                  step-strictly
+                  size="small"
+                  controls-position="right"
+                  class="pef-batch-qty"
+                />
+                <el-input v-model="newBatch.remark" size="small" :placeholder="t('inventory.batchRemark')" class="pef-batch-add__remark" />
+                <el-button type="primary" size="small" :loading="batchSaving" @click="addBatch">
+                  {{ t('inventory.addBatch') }}
+                </el-button>
+              </div>
+            </template>
+          </div>
         </el-tab-pane>
 
         <el-tab-pane name="linked">

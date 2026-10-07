@@ -66,6 +66,13 @@ def create_transaction(data: TransactionCreate):
     if not tx.save():
         raise HTTPException(status_code=500, detail="记录保存失败")
 
+    # 批次：入库记进当天该仓位的批次，出库按先进先出扣减（未分批商品为空操作）
+    from .....use_mercari.inventory_batches import receive_stock, reconcile_batches
+    if data.type == "in":
+        receive_stock(data.inventory_id, data.quantity, data.warehouse_id, data.remark)
+    else:
+        reconcile_batches([data.inventory_id])
+
     result = TransactionModel.find_detail_list(page=1, page_size=1)
     items = result.get('items', [])
     return items[0] if items else tx.to_dict()
