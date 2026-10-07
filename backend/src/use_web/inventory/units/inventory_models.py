@@ -37,8 +37,7 @@ class InventoryCreate(PydanticModel):
     image_front: Optional[str] = None
     image_back: Optional[str] = None
     images: Optional[List[str]] = None
-    # 首个批次（quantity / warehouse_id 即首批的数量与仓位）
-    batch_no: Optional[str] = None
+    # 首个批次（quantity / warehouse_id 即首批的数量与仓位；批次号自动编号）
     batch_arrived_at: Optional[str] = None
     batch_remark: Optional[str] = None
 
@@ -54,7 +53,6 @@ class InventoryCreate(PydanticModel):
 
 
 class InventoryBatchCreate(PydanticModel):
-    batch_no: Optional[str] = None
     arrived_at: Optional[str] = None
     warehouse_id: Optional[int] = None
     quantity: int = 0
@@ -62,10 +60,9 @@ class InventoryBatchCreate(PydanticModel):
 
 
 class InventoryBatchUpdate(PydanticModel):
-    batch_no: Optional[str] = None
+    # 批次号自动编号、数量建批后不可改，均不在此列
     arrived_at: Optional[str] = None
     warehouse_id: Optional[int] = None
-    quantity: Optional[int] = None
     remark: Optional[str] = None
 
 

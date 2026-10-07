@@ -32,7 +32,7 @@ class InventoryBatchModel(BaseModel):
                 'type': 'INTEGER',
                 'not_null': True,
             },
-            # 批次号 / 批次名（可空，手填）
+            # 批次号：系统按商品自动编号 1、2、3…（见 inventory_batches._next_batch_no）
             'batch_no': {
                 'type': 'TEXT',
                 'not_null': False,

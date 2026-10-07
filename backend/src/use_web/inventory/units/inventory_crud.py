@@ -88,7 +88,7 @@ def create_inventory(data: InventoryCreate, _claims: dict = Depends(require_auth
         data.batch_arrived_at = None
     insert_initial_batch(
         int(new_id), quantity=int(data.quantity or 0), warehouse_id=data.warehouse_id,
-        batch_no=data.batch_no, arrived_at=data.batch_arrived_at, remark=data.batch_remark,
+        arrived_at=data.batch_arrived_at, remark=data.batch_remark,
     )
     # 新行的 listable_quantity 需立即落库，否则展示值（读取时重算）与出品预扣减的 CAS 判据不一致
     from ....use_mercari.inventory_counters import recompute_listable_quantity

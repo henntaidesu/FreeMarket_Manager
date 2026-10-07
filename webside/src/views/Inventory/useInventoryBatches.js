@@ -21,10 +21,11 @@ export function useInventoryBatches({ form, warehouseTreeMeta, t, onItemUpdated 
   }
 
   function emptyNewBatch() {
-    return { batch_no: '', arrived_at: nowStr(), warehouse_id: null, quantity: 1, remark: '' }
+    // 批次号由后端自动编号；数量是手输文本，提交时再校验
+    return { arrived_at: nowStr(), warehouse_id: null, quantity: '', remark: '' }
   }
 
-  /** 已建档、非组合商品才有批次 */
+  /** 已建档、非组合商品才有批次。批次只可改 到货时间 / 仓位 / 备注 */
   const batchesEnabled = computed(() => {
     const id = Number(form.value?.id)
     return Number.isFinite(id) && id > 0 && Number(form.value?.is_combined || 0) !== 1
@@ -79,11 +80,16 @@ export function useInventoryBatches({ form, warehouseTreeMeta, t, onItemUpdated 
   async function addBatch() {
     if (!batchesEnabled.value) return
     const nb = newBatch.value
-    const qty = Math.max(0, Math.round(Number(nb.quantity || 0)))
+    const raw = String(nb.quantity ?? '').trim()
+    const qty = /^\d+$/.test(raw) ? parseInt(raw, 10) : NaN
+    // 建好后数量不可改，所以这里就把 0 / 非整数挡掉
+    if (!Number.isInteger(qty) || qty <= 0) {
+      ElMessage.warning(t('inventory.batchQuantityInvalid'))
+      return
+    }
     batchSaving.value = true
     try {
       applyResult(await inventoryApi.createBatch(Number(form.value.id), {
-        batch_no: String(nb.batch_no || '').trim() || null,
         arrived_at: nb.arrived_at || null,
         warehouse_id: nb.warehouse_id ?? null,
         quantity: qty,
@@ -100,13 +106,8 @@ export function useInventoryBatches({ form, warehouseTreeMeta, t, onItemUpdated 
 
   async function saveBatchField(row, field, value) {
     if (!batchesEnabled.value || !row?.id) return
-    let v = value
-    if (field === 'quantity') {
-      v = Math.max(0, Math.round(Number(value ?? 0)))
-      if (!Number.isFinite(v)) return
-    }
     try {
-      applyResult(await inventoryApi.updateBatch(Number(form.value.id), row.id, { [field]: v }))
+      applyResult(await inventoryApi.updateBatch(Number(form.value.id), row.id, { [field]: value }))
     } catch {
       // 失败时重拉，把行内输入还原成库里的值
       loadBatches(true)

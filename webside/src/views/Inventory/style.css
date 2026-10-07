@@ -326,9 +326,12 @@ a.pef-lcard:hover {
   width: 100%;
 }
 .pef-batch-table .pef-batch-date.el-date-editor,
-.pef-batch-table .pef-batch-shelf,
-.pef-batch-table .pef-batch-qty {
+.pef-batch-table .pef-batch-shelf {
   width: 100%;
+}
+.pef-batch-no,
+.pef-batch-qty-text {
+  font-variant-numeric: tabular-nums;
 }
 .pef-batch-add {
   display: flex;
@@ -336,7 +339,6 @@ a.pef-lcard:hover {
   align-items: center;
   gap: 8px;
 }
-.pef-batch-add__no { width: 120px; }
 .pef-batch-add .pef-batch-date.el-date-editor { width: 190px; }
 .pef-batch-add .pef-batch-shelf { width: 200px; }
 .pef-batch-add .pef-batch-qty { width: 100px; }

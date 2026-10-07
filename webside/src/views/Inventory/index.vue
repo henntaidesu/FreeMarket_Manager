@@ -1018,9 +1018,6 @@
             <template v-if="!batchesEnabled">
               <div class="pef-batch-hint">{{ t('inventory.firstBatchHint') }}</div>
               <div class="pef-batch-first">
-                <el-form-item :label="t('inventory.batchNo')">
-                  <el-input v-model="form.batch_no" :placeholder="t('inventory.batchNoPlaceholder')" clearable />
-                </el-form-item>
                 <el-form-item :label="t('inventory.arrivedAt')">
                   <el-date-picker
                     v-model="form.batch_arrived_at"
@@ -1047,14 +1044,10 @@
                 class="pef-batch-table"
                 :empty-text="t('inventory.noBatches')"
               >
-                <el-table-column :label="t('inventory.batchNo')" min-width="120">
+                <!-- 批次号由系统按商品自动编号 1、2、3… -->
+                <el-table-column :label="t('inventory.batchNo')" width="72" align="center">
                   <template #default="{ row }">
-                    <el-input
-                      v-model="row.batch_no"
-                      size="small"
-                      :placeholder="t('inventory.batchNoPlaceholder')"
-                      @change="(v) => saveBatchField(row, 'batch_no', v)"
-                    />
+                    <span class="pef-batch-no">{{ row.batch_no || '-' }}</span>
                   </template>
                 </el-table-column>
                 <el-table-column :label="t('inventory.arrivedAt')" min-width="190">
@@ -1084,18 +1077,10 @@
                     />
                   </template>
                 </el-table-column>
-                <el-table-column :label="t('inventory.batchQuantity')" width="120" align="center">
+                <!-- 已添加批次的数量不可手改，只随售出/出库按先进先出自动扣减 -->
+                <el-table-column :label="t('inventory.batchQuantity')" width="80" align="center">
                   <template #default="{ row }">
-                    <el-input-number
-                      v-model="row.quantity"
-                      :min="0"
-                      :step="1"
-                      step-strictly
-                      size="small"
-                      controls-position="right"
-                      class="pef-batch-qty"
-                      @change="(v) => saveBatchField(row, 'quantity', v)"
-                    />
+                    <span class="pef-batch-qty-text">{{ Number(row.quantity || 0) }}</span>
                   </template>
                 </el-table-column>
                 <el-table-column :label="t('inventory.batchRemark')" min-width="140">
@@ -1120,9 +1105,8 @@
                   </template>
                 </el-table-column>
               </el-table>
-              <!-- 新增一行：到货时间默认此刻，数量默认 1 -->
+              <!-- 新增一行：批次号自动编号，到货时间默认此刻，数量手输（建好后不可改） -->
               <div class="pef-batch-add">
-                <el-input v-model="newBatch.batch_no" size="small" :placeholder="t('inventory.batchNo')" class="pef-batch-add__no" />
                 <el-date-picker
                   v-model="newBatch.arrived_at"
                   type="datetime"
@@ -1141,14 +1125,13 @@
                   popper-class="product-type-cascader-popper"
                   @change="(p) => { newBatch.warehouse_id = warehouseIdOfPath(p) }"
                 />
-                <el-input-number
+                <el-input
                   v-model="newBatch.quantity"
-                  :min="0"
-                  :step="1"
-                  step-strictly
                   size="small"
-                  controls-position="right"
+                  inputmode="numeric"
+                  :placeholder="t('inventory.batchQuantity')"
                   class="pef-batch-qty"
+                  @keyup.enter="addBatch"
                 />
                 <el-input v-model="newBatch.remark" size="small" :placeholder="t('inventory.batchRemark')" class="pef-batch-add__remark" />
                 <el-button type="primary" size="small" :loading="batchSaving" @click="addBatch">

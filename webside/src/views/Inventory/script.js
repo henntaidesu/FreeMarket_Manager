@@ -3161,8 +3161,7 @@ export default defineComponent({
             combined_items: null,
             combined_quantity: 0,
             pending_outbound_qty: 0,
-            // 首个批次（数量 / 仓位即上方的数量与所属货架）
-            batch_no: '',
+            // 首个批次（数量 / 仓位即上方的数量与所属货架；批次号自动编号）
             batch_arrived_at: null,
             batch_remark: ''
           }
@@ -4170,7 +4169,6 @@ export default defineComponent({
       delete payload.combined_quantity
       if (payload.id) {
         // 首批字段只在建档时用
-        delete payload.batch_no
         delete payload.batch_arrived_at
         delete payload.batch_remark
         // 已建档的普通商品：总数与仓位由批次维护（总数只读）。form 里的是快照，回传会被后端拒绝

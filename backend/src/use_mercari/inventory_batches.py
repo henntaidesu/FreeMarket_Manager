@@ -2,8 +2,9 @@
 """库存批次：一个管理番号下按到货批次记数量与仓位（表 ``inventory_batches``）。
 
 数量模型（与 inventory_counters 的说明对照着读）：
-  · **已启用批次**的商品：``inventory.quantity == Σ 批次数量``。总数只能通过改批次变动，
-    库存表单上的总数只读。
+  · **已启用批次**的商品：``inventory.quantity == Σ 批次数量``。总数只能通过新增/删除批次
+    变动，库存表单上的总数只读；批次建好后数量也不可手改，只随售出/出库自动扣减。
+  · 批次号由系统按商品自动编号（1、2、3…），不手填。
   · **未分批**的商品（一条批次都没有）：历史行，照旧只看 ``inventory.quantity`` /
     ``inventory.warehouse_id``。现有数据不做迁移——第一次对它做批次操作（打开批次页、
     新增批次、扫码入库）时，才把当时的数量原样转成一个批次（``materialize_legacy``），
@@ -61,6 +62,15 @@ def _dt_str(v: Any) -> Optional[str]:
     return str(v)
 
 
+def _next_batch_no(db: DatabaseManager, inv_id: int) -> str:
+    """批次号由系统按商品自动编号：1、2、3…（取该商品已有最大编号 + 1，删掉的号不复用）。"""
+    rows = db.execute_query(
+        "SELECT [batch_no] FROM [inventory_batches] WHERE [inventory_id] = ?", (int(inv_id),)
+    )
+    nums = [int(str(r[0]).strip()) for r in rows or [] if r[0] is not None and str(r[0]).strip().isdigit()]
+    return str(max(nums, default=0) + 1)
+
+
 def has_batches(inv_id: int) -> bool:
     rows = DatabaseManager().execute_query(
         "SELECT 1 FROM [inventory_batches] WHERE [inventory_id] = ? LIMIT 1", (int(inv_id),)
@@ -96,21 +106,21 @@ def materialize_legacy(inv_id: int, *, quantity_override: Optional[int] = None) 
         "INSERT INTO [inventory_batches] "
         "([inventory_id], [batch_no], [arrived_at], [warehouse_id], [quantity], [remark], [created_at]) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (int(inv_id), None, _dt_str(meta[2]) or now_str(), meta[1], qty, _LEGACY_REMARK, now_str()),
+        (int(inv_id), _next_batch_no(db, inv_id), _dt_str(meta[2]) or now_str(), meta[1], qty,
+         _LEGACY_REMARK, now_str()),
     )
     return True
 
 
 def insert_initial_batch(inv_id: int, *, quantity: int, warehouse_id: Optional[int],
-                         batch_no: Optional[str] = None, arrived_at: Any = None,
-                         remark: Optional[str] = None) -> None:
+                         arrived_at: Any = None, remark: Optional[str] = None) -> None:
     """新建商品时调用：inventory 行已按 quantity 落库，这里只补上与之相等的首个批次。"""
     db = DatabaseManager()
     db.execute_insert(
         "INSERT INTO [inventory_batches] "
         "([inventory_id], [batch_no], [arrived_at], [warehouse_id], [quantity], [remark], [created_at]) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (int(inv_id), (batch_no or "").strip() or None, normalize_arrived_at(arrived_at),
+        (int(inv_id), _next_batch_no(db, inv_id), normalize_arrived_at(arrived_at),
          warehouse_id, max(0, int(quantity or 0)), (remark or "").strip() or None, now_str()),
     )
 
@@ -259,7 +269,7 @@ def _log_tx(db: DatabaseManager, tx_type: str, inv_id: int, warehouse_id: Option
     )
 
 
-def create_batch(inv_id: int, *, batch_no: Optional[str], arrived_at: Any,
+def create_batch(inv_id: int, *, arrived_at: Any,
                  warehouse_id: Optional[int], quantity: int, remark: Optional[str],
                  tx_remark: str = "新增批次") -> int:
     """新增一个批次：总数 += quantity。未分批商品先把现有数量转成历史批次。返回新批次 id。"""
@@ -272,7 +282,7 @@ def create_batch(inv_id: int, *, batch_no: Optional[str], arrived_at: Any,
             "INSERT INTO [inventory_batches] "
             "([inventory_id], [batch_no], [arrived_at], [warehouse_id], [quantity], [remark], [created_at]) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (int(inv_id), (batch_no or "").strip() or None, arrived, warehouse_id, qty,
+            (int(inv_id), _next_batch_no(db, inv_id), arrived, warehouse_id, qty,
              (remark or "").strip() or None, now_str()),
         )
         if qty:
@@ -298,50 +308,30 @@ def get_batch(batch_id: int) -> Optional[Dict[str, Any]]:
 
 
 def update_batch(batch_id: int, fields: Dict[str, Any]) -> None:
-    """改批次。数量按差额同步到总数（条件更新，防并发扣成负数）；其余字段直接写。"""
+    """改批次的到货时间 / 仓位 / 备注。批次号由系统编号，数量建批后不可手改
+    （只随售出/出库按先进先出自动扣减）。"""
     db = DatabaseManager()
     cur = get_batch(batch_id)
     if not cur:
         raise LookupError("批次不存在")
+    if "quantity" in fields and fields["quantity"] is not None and int(fields["quantity"]) != cur["quantity"]:
+        raise ValueError("已添加的批次数量不可修改")
     inv_id = cur["inventory_id"]
     sets: Dict[str, Any] = {}
-    for k in ("batch_no", "remark"):
-        if k in fields:
-            sets[k] = (str(fields[k] or "")).strip() or None
+    if "remark" in fields:
+        sets["remark"] = (str(fields["remark"] or "")).strip() or None
     if "arrived_at" in fields:
         sets["arrived_at"] = normalize_arrived_at(fields["arrived_at"])
     if "warehouse_id" in fields:
         sets["warehouse_id"] = fields["warehouse_id"]
-    delta = 0
-    if "quantity" in fields and fields["quantity"] is not None:
-        new_q = int(fields["quantity"])
-        if new_q < 0:
-            raise ValueError("批次数量不能小于 0")
-        delta = new_q - cur["quantity"]
-    wh_after = sets.get("warehouse_id", cur["warehouse_id"])
+    if not sets:
+        return
     with db.transaction():
-        if delta:
-            hit = db.execute_update(
-                "UPDATE [inventory_batches] SET [quantity] = [quantity] + ? "
-                "WHERE [id] = ? AND [quantity] + ? >= 0",
-                (delta, int(batch_id), delta),
-            )
-            if not hit:
-                raise ValueError("批次数量已被其它操作改动，请刷新后重试")
-            hit = db.execute_update(
-                "UPDATE [inventory] SET [quantity] = COALESCE([quantity], 0) + ? "
-                "WHERE [id] = ? AND COALESCE([quantity], 0) + ? >= 0",
-                (delta, int(inv_id), delta),
-            )
-            if not hit:
-                raise ValueError("商品总数不足，请刷新后重试")
-            _log_tx(db, "in" if delta > 0 else "out", inv_id, wh_after, abs(delta), "批次数量调整")
-        if sets:
-            set_sql = ", ".join(f"[{k}] = ?" for k in sets)
-            db.execute_update(
-                f"UPDATE [inventory_batches] SET {set_sql} WHERE [id] = ?",
-                tuple(sets.values()) + (int(batch_id),),
-            )
+        set_sql = ", ".join(f"[{k}] = ?" for k in sets)
+        db.execute_update(
+            f"UPDATE [inventory_batches] SET {set_sql} WHERE [id] = ?",
+            tuple(sets.values()) + (int(batch_id),),
+        )
         _sync_head_warehouse(db, inv_id)
 
 
@@ -397,7 +387,8 @@ def receive_stock(inv_id: int, qty: int, warehouse_id: Optional[int], remark: Op
                 "INSERT INTO [inventory_batches] "
                 "([inventory_id], [batch_no], [arrived_at], [warehouse_id], [quantity], [remark], [created_at]) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (int(inv_id), None, now_str(), warehouse_id, int(qty), (remark or "").strip() or "扫码入库",
+                (int(inv_id), _next_batch_no(db, inv_id), now_str(), warehouse_id, int(qty),
+                 (remark or "").strip() or "扫码入库",
                  now_str()),
             )
         _sync_head_warehouse(db, inv_id)

@@ -50,7 +50,7 @@ def create_inventory_batch(pid: int, data: InventoryBatchCreate):
         raise HTTPException(status_code=400, detail="批次数量不能小于 0")
     try:
         ib.create_batch(
-            pid, batch_no=data.batch_no, arrived_at=data.arrived_at,
+            pid, arrived_at=data.arrived_at,
             warehouse_id=data.warehouse_id, quantity=data.quantity, remark=data.remark,
         )
     except ValueError as exc:

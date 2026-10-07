@@ -209,7 +209,8 @@ Key tables in `backend/src/db_manage/models/`:
 - **users**: User accounts with bcrypt passwords
 - **inventory**: Products with barcode, SKU, price, quantity, images (filesystem paths in `images_json`; images saved under `backend/imges/`)
 - **inventory_batches**: 到货批次（批次号 / 到货时间 / 仓位 / 数量 / 备注），一个管理番号下多批。
-  **已分批商品 `inventory.quantity == Σ批次数量`**，总数在表单上只读、只能改批次。其余直接改
+  批次号按商品自动编号 1、2、3…（不手填、删掉的号不复用）；**批次建好后数量不可手改**，只能新增/删除批次，
+  或随售出/出库自动扣减。**已分批商品 `inventory.quantity == Σ批次数量`**，总数在表单上只读。其余直接改
   `quantity` 的路径（售出/出库/回吐/组合级联/拆分）不用管批次：`recompute_listable_quantity`
   先调 `use_mercari/inventory_batches.reconcile_batches`，把差额按到货时间**先进先出**落到批次上，
   所以新增改 `quantity` 的路径事后必须调 `recompute_listable_quantity`。没有批次行的历史商品不迁移，
