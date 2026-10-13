@@ -110,8 +110,10 @@ async def post_to_market(
             report("watermark", f"正在为 {len(local_images)} 张图片添加水印…")
             local_images = apply_watermark_to_images(local_images, wm_text, wm_avatar)
 
-        # ── 左下角嵌入「管理暗码」（inventory.id）：肉眼近不可见、程序可读 ── #
-        # id 从说明末行暗号解析（组合出品含多 id 时仅嵌首个）；全程吞异常不阻断出品。
+    # ── 左下角嵌入「管理暗码」（inventory.id）：肉眼近不可见、程序可读 ── #
+    # 它是订单/在售反查库存的主方法（见 use_mercari/image_mgmt_ids.py），所以不跟可见水印开关走。
+    # id 从说明末行暗号解析（组合出品含多 id 时仅嵌首个）；全程吞异常不阻断出品。
+    if local_images:
         try:
             from src.use_mercari.mgmt_id_cipher import parse_trailing_cipher_mgmt_tokens
             from src.use_mercari.mgmt_image_cipher import embed_mgmt_code_in_file

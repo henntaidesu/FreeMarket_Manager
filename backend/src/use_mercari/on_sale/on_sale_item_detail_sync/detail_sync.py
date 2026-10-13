@@ -2,10 +2,12 @@
 """商品详情(items/get) → 库存回写主流程"""
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Dict, List, Optional
 from ....db_manage.database import DatabaseManager
 from ...get_order.description_mgmt_ids import _extract_bundle_product_titles, _inventory_id_by_barcode, _resolve_inventory_id, _resolve_inventory_id_by_bundle_title
 from ...get_order.mercari_item_get import fetch_mercari_item_get
+from ...image_mgmt_ids import is_photo_bundle, listing_image_ids, uncovered_bundle_titles
 from ...mgmt_id_cipher import MGMT_BINARY_ALPHABET, MGMT_CIPHER_ALPHABET, get_cipher_mode
 from ...sync.sync_progress import make_sync_reporter
 from .parsing import _is_matome_listing_bundle_by_title_and_description, _join_mercari_item_ids, _mercari_response_ok, _normalize_mercari_item_id, _on_sale_quantity_from_status, _persist_listing_description_for_item, _split_mercari_item_ids, extract_detail_extras, extract_mgmt_barcode_hints, extract_shipping_duration, extract_shipping_payer, parse_listing_description_tokens_with_quantity, resolve_inventory_id_from_listing_description
@@ -58,7 +60,26 @@ def detail_sync_inventory_from_item_get_response(
     sync["shipping_payer_id"] = ship_payer_id
     sync["shipping_payer_name"] = ship_payer_name
 
+    matome_bundle = _is_matome_listing_bundle_by_title_and_description(listing_name_str, desc_text)
+    # 每张图一件的组合商品：比 matome_bundle 宽——雅虎标题带「まとめ買い」即算，
+    # 说明里不必有「■ 商品内容」（那种只能靠图片认件，标题兜底无从谈起）
+    photo_bundle = matome_bundle or is_photo_bundle(
+        listing_name_str, desc_text, data.get("platform")
+    )
+
+    # 图片左下角管理暗码是主方法，说明文本为兜底（见 use_mercari/image_mgmt_ids.py）
+    image_ids, image_ids_raw = listing_image_ids(
+        mid_api or str(item_id or "").strip(), data.get("photos"), bundle=photo_bundle
+    )
+    sync["image_inventory_ids"] = image_ids
+    # 说明里没有标题清单的组合商品，图片认出了件就走组合分支（标题兜底那段自然为空）
+    matome_bundle = matome_bundle or (photo_bundle and bool(image_ids))
+    sync["matome_bundle"] = matome_bundle
+
     if persist_description:
+        extras = extract_detail_extras(data)
+        if image_ids_raw is not None:
+            extras["image_mgmt_ids"] = image_ids_raw
         _persist_listing_description_for_item(
             str(item_id or "").strip(),
             mid_api,
@@ -67,16 +88,13 @@ def detail_sync_inventory_from_item_get_response(
             shipping_duration_name=ship_dur_name,
             shipping_payer_id=ship_payer_id,
             shipping_payer_name=ship_payer_name,
-            extras=extract_detail_extras(data),
+            extras=extras,
         )
 
     hints = extract_mgmt_barcode_hints(desc_text)
     sync["parsed_hints"] = hints
     parsed_tokens = parse_listing_description_tokens_with_quantity(desc_text)
     sync["parsed_tokens"] = parsed_tokens
-
-    matome_bundle = _is_matome_listing_bundle_by_title_and_description(listing_name_str, desc_text)
-    sync["matome_bundle"] = matome_bundle
 
     resolved_lines: List[Dict[str, Any]] = []
     qty_by_inventory: Dict[int, int] = {}
@@ -92,7 +110,13 @@ def detail_sync_inventory_from_item_get_response(
         )
         bundle_titles = _extract_bundle_product_titles(desc_text)
         sync["bundle_titles"] = bundle_titles
-        for title in bundle_titles:
+        # 每张图一件：图片认出的先入，标题只补图片没认出的那几件
+        for img_inv in image_ids:
+            resolved_lines.append(
+                {"kind": "image", "value": img_inv, "quantity": 1, "inventory_id": img_inv}
+            )
+            qty_by_inventory[img_inv] = max(qty_by_inventory.get(img_inv, 0), int(on_sale_qty))
+        for title in uncovered_bundle_titles(bundle_titles, image_ids, listing_seller_id):
             riv = _resolve_inventory_id_by_bundle_title(title, seller_id=listing_seller_id)
             resolved_lines.append(
                 {
@@ -116,14 +140,6 @@ def detail_sync_inventory_from_item_get_response(
             return {"api": resp, "sync": sync}
     else:
         inv_id = resolve_inventory_id_from_listing_description(desc_text)
-        if inv_id is None:
-            _alpha = MGMT_BINARY_ALPHABET if get_cipher_mode() == "binary" else MGMT_CIPHER_ALPHABET
-            sync["message"] = (
-                f"说明中未找到可关联的库存（需末行暗号（{_alpha}）或「管理ID」「管理番号」"
-                "对应已存在的库存 id，或「バーコード」对应已存在的库存条码）"
-            )
-            return {"api": resp, "sync": sync}
-
         for token in parsed_tokens:
             kind = str(token.get("kind") or "")
             value = token.get("value")
@@ -148,6 +164,21 @@ def detail_sync_inventory_from_item_get_response(
         if not qty_by_inventory and inv_id is not None:
             # 回退兼容：若解析列表为空但旧逻辑能识别到单个库存，按 status 推导 0/1。
             qty_by_inventory[int(inv_id)] = max(0, int(on_sale_qty))
+        if image_ids and image_ids[0] not in qty_by_inventory:
+            # 首图暗码与说明对不上（或说明里没有）→ 以图片为准。对得上时沿用说明的解析，
+            # 组合出品的其余 id 与数量只在说明里（图片只嵌首个 id）。
+            inv_id = image_ids[0]
+            resolved_lines = [
+                {"kind": "image", "value": inv_id, "quantity": 1, "inventory_id": inv_id}
+            ]
+            qty_by_inventory = {inv_id: 1}
+        if not qty_by_inventory:
+            _alpha = MGMT_BINARY_ALPHABET if get_cipher_mode() == "binary" else MGMT_CIPHER_ALPHABET
+            sync["message"] = (
+                f"商品图与说明中均未找到可关联的库存（需首图左下角管理暗码，或说明末行暗号（{_alpha}）"
+                "或「管理ID」「管理番号」对应已存在的库存 id，或「バーコード」对应已存在的库存条码）"
+            )
+            return {"api": resp, "sync": sync}
         sync["resolved_lines"] = resolved_lines
 
     if not mid_api:
@@ -229,7 +260,7 @@ def detail_sync_inventory_from_item_get_response(
         if matome_bundle:
             n = len(qty_by_inventory)
             sync["message"] = (
-                f"まとめ商品：已按「■ 商品内容」匹配 {n} 条库存并同步煤炉商品 ID（与订单页 bundle_title 规则一致）"
+                f"まとめ商品：已按商品图暗码 / 「■ 商品内容」匹配 {n} 条库存并同步商品 ID（与订单页规则一致）"
             )
         else:
             sync["message"] = "已同步煤炉商品 ID 与在售数量"
@@ -255,7 +286,8 @@ async def fetch_detail_and_sync_inventory(
     report("open_browser", f"正在打开商品页并截获详情（{iid_norm or '-'}）…")
     resp = await fetch_mercari_item_get(item_id, account_id=account_id)
     report("apply_inventory", "正在解析说明并回写库存关联…")
-    out = detail_sync_inventory_from_item_get_response(item_id, resp)
+    # 详情同步要下载商品图解管理暗码（阻塞 IO），放线程里跑
+    out = await asyncio.to_thread(detail_sync_inventory_from_item_get_response, item_id, resp)
     sync = out.get("sync") if isinstance(out, dict) else None
     msg = sync.get("message") if isinstance(sync, dict) else None
     report("done", f"完成：{msg or '已处理'}")

@@ -2,6 +2,7 @@
 """同步后自动补抓详情 / 重新关联库存 / 自动详情开关"""
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from ....db_manage.models.on_sale_items.on_sale_item import OnSaleItemModel
@@ -116,7 +117,10 @@ async def auto_fetch_details_for_inserted_items(
                 iid,
                 timeout=detail_timeout,
             )
-            payload = detail_sync_inventory_from_item_get_response(iid, body)
+            # 详情同步要下载商品图解管理暗码（阻塞 IO），放线程里跑
+            payload = await asyncio.to_thread(
+                detail_sync_inventory_from_item_get_response, iid, body
+            )
             sync = payload.get("sync") if isinstance(payload.get("sync"), dict) else {}
             if sync.get("updated"):
                 inventory_updated += 1

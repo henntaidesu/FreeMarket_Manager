@@ -14,6 +14,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -362,8 +363,8 @@ async def sync_yahoo_orders(
                     stats["inserted_order_nos"].append(iid)
             else:
                 stats["skipped"] += 1
-            # 出库行：按说明里的管理番号暗号把订单绑到库存（煤炉在订单详情回填时做同样的事）
-            if order.get("description"):
+            # 出库行：商品图左下角管理暗码为主、说明暗号兜底（煤炉在订单详情回填时做同样的事）
+            if await _prepare_order_image_ids(iid, order["remark"], order.get("description")):
                 try:
                     sync_outbound_lines_for_order(
                         iid, order["description"], skip_if_has_lines=True
@@ -402,6 +403,19 @@ async def sync_yahoo_orders(
         ),
     )
     return stats
+
+
+async def _prepare_order_image_ids(order_no: str, title: Any, description: Any) -> bool:
+    """售出前没同步过详情的订单，读公开商品页原图补解管理暗码；返回是否有东西可拿来绑出库行
+    （图片暗码或说明，二者皆无就不必重建）。补解失败只是退回说明兜底，不影响同步。"""
+    from ...use_mercari.image_mgmt_ids import stored_order_image_ids
+    from ..item_photos import ensure_order_image_ids
+
+    try:
+        await asyncio.to_thread(ensure_order_image_ids, order_no, title, description)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[yahoo_orders] %s 商品图管理暗码解码失败：%s", order_no, exc)
+    return bool(description) or bool(stored_order_image_ids(order_no))
 
 
 async def refresh_yahoo_order(account_id: int, order_no: str) -> Dict[str, Any]:
@@ -459,7 +473,7 @@ async def refresh_yahoo_order(account_id: int, order_no: str) -> Dict[str, Any]:
     outcome = _upsert_order(order)
     # 「更新列表」只处理新订单之后，已入库订单补绑出库行只剩这一条路了（煤炉那边
     # ``apply_item_info_to_order`` 每次回填后同样做这件事）。已绑过的由 skip_if_has_lines 跳过。
-    if description:
+    if await _prepare_order_image_ids(iid, order["remark"], description):
         try:
             sync_outbound_lines_for_order(iid, description, skip_if_has_lines=True)
         except Exception as exc:  # noqa: BLE001 绑定失败不该让刷新整体失败

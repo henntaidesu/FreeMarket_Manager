@@ -11,13 +11,19 @@
 解析到的东西塞成与煤炉 ``items/get`` 同形状的伪响应，直接交给
 ``detail_sync_inventory_from_item_get_response``——暗号解析、组合出品拆分、库存回写、
 在售数对账全部复用煤炉那一套，不重写第二份。
+
+伪响应也带 ``photos``（原图，供左下角管理暗码这一主方法解码）：优先取公开商品页
+（``item_photos.fetch_public_item``，纯 HTTP），公開停止中看不到公开页时退到编辑页 DOM 里的图片。
+``platform: yahoo`` 让まとめ判定多认标题里的「まとめ買い」（见 ``image_mgmt_ids.is_photo_bundle``）。
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
 from ...web_drive.core.yahoo_session import YAHOO_BASE_URL, yahoo_automation_browser
+from ..item_photos import EDIT_PAGE_IMAGES_JS, edit_page_photo_urls, fetch_public_item
 from ...web_drive.listing.units.post_to_yahoo._constants import (
     DESCRIPTION_PLACEHOLDER_MARK,
     NAME_INPUT_PLACEHOLDER,
@@ -62,11 +68,17 @@ def _build_pseudo_item_get(
     *,
     seller_id: Optional[str],
     status: str,
+    photos: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    """拼成煤炉 ``items/get`` 的形状，好让煤炉的详情写库逻辑原样吃下。"""
+    """拼成煤炉 ``items/get`` 的形状，好让煤炉的详情写库逻辑原样吃下。
+
+    ``photos`` 为空（两处都没取到图）时不放这个键：详情同步会沿用已存的图片暗码结果，
+    而不是把它覆盖成「解过但没读到」。
+    """
     dur = _SHIPPING_DURATION_BY_YAHOO.get(str(form.get("timeToShip") or "").strip())
     data: Dict[str, Any] = {
         "id": str(item_id).strip(),
+        "platform": "yahoo",
         "name": form.get("name"),
         "description": form.get("description"),
         "status": status,
@@ -76,6 +88,8 @@ def _build_pseudo_item_get(
         data["seller"] = {"id": str(seller_id).strip()}
     if dur:
         data["shipping_duration"] = {"id": dur[0], "name": dur[1]}
+    if photos:
+        data["photos"] = list(photos)
     return {"result": "OK", "data": data}
 
 
@@ -115,8 +129,18 @@ async def _sync_one_on_page(
         raise RuntimeError("编辑页打不开（商品可能已售出/已删除）")
     if form.get("description") is None:
         raise RuntimeError("编辑页未读到商品说明（页面结构可能已变更）")
-    resp = _build_pseudo_item_get(item_id, form, seller_id=seller_id, status=status)
-    return detail_sync_inventory_from_item_get_response(item_id, resp)
+    public = await asyncio.to_thread(fetch_public_item, item_id)
+    photos = (public or {}).get("photos") or []
+    if not photos:
+        try:
+            photos = edit_page_photo_urls(await page.evaluate(EDIT_PAGE_IMAGES_JS))
+        except Exception as exc:  # noqa: BLE001 取不到图就只用说明文本
+            log.info("[yahoo_detail] %s 编辑页图片读取失败：%s", item_id, exc)
+    resp = _build_pseudo_item_get(
+        item_id, form, seller_id=seller_id, status=status, photos=photos
+    )
+    # 要下载商品图解管理暗码（阻塞 IO），放线程里跑
+    return await asyncio.to_thread(detail_sync_inventory_from_item_get_response, item_id, resp)
 
 
 async def sync_yahoo_item_detail_one(

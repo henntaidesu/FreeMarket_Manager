@@ -429,13 +429,45 @@ header, not cookies, so the dangerous wildcard+credentials combination never occ
 2. `mercari_auto_fetch_loop()` runs on startup, periodically syncs orders & items
 3. `use_mercari/sync/`: Mercari API client wrappers (fetch orders, items, etc.)
 4. `use_mercari/on_sale/`: Incremental listing sync with local DB
-5. `mgmt_id_cipher.py`: the `-=~<>` (or `◇◆`) cipher on the **last line of the item description**.
-   This — and only this — is what binds a marketplace listing back to an inventory row.
-   `mgmt_image_cipher.py` embeds the same id into images as a QIM watermark, but is currently
-   **write-only**: `embed_mgmt_code_in_file` is called from both listing flows (and only when
-   `watermark=True`), while `decode_mgmt_code_from_file` has **no callers anywhere**. Treat it as
-   an unfinished feature, not part of the binding path — it costs CPU and alters every uploaded
-   image for no current benefit.
+5. **Binding a listing / order back to inventory has two sources: the image is primary, the text
+   is the fallback.** `mgmt_image_cipher.py` embeds `inventory.id` as a QIM watermark in the
+   **bottom-left** of every uploaded image — on every listing, independent of the visible
+   `watermark` switch. `mgmt_id_cipher.py`'s `-=~<>` (or `◇◆`) cipher on the **last line of the
+   description** is the fallback. `use_mercari/image_mgmt_ids.py` decodes: a single item reads
+   **only the first photo**; a まとめ listing reads **every photo, one item per photo**, and the
+   「■ 商品内容」 titles only fill in the items no photo was recognized for
+   (`uncovered_bundle_titles`). For a single item, the image wins only when it *disagrees* with
+   the text — when they agree the text is kept, because combined listings carry their other ids
+   and quantities only there (the image holds just the first id).
+   - Decoding needs the **original** photo (`items/get` `photos`): cell size ≈ short side / 70, so
+     an order's ~300px thumbnail has 4px cells and never decodes. Results are cached as JSON in
+     `on_sale_items.image_mgmt_ids` (written by detail sync, reused while `photos_json` is
+     unchanged) and `orders.image_mgmt_ids` (written by 订单「获取商品说明」); `"[]"` = decoded,
+     nothing found. `sync_outbound_lines_for_order` reads them — it runs inside a transaction and
+     must never download images itself.
+   - The decoder uses float geometry: Mercari downsizes to ~1080, so cells end up non-integer
+     (43px → 11.5px) and integer-only alignment drifts across 12 columns — the original decoder
+     failed on every phone-sized photo. A three-copy agreement threshold (`_MIN_AGREE`) is what
+     keeps CRC8's false positives out; don't relax it. **The wire format must not change**, or
+     already-listed images stop decoding.
+   - Switching a まとめ order from `bundle_title` lines to image lines changes the line keys, so
+     outbound state (`is_stocked_out` / `stock_deducted`) is inherited **by inventory id** —
+     otherwise an already-shipped item turns back into pending outbound and ships twice.
+   - **Yahoo photos come from the public item page, over plain HTTP** (`use_yahoo/item_photos.py`):
+     `__NEXT_DATA__` → `props.initialState.itemsState.items.item.images[].url` — originals on
+     `auctions.c.yimg.jp`, longest side 1200, aspect kept, no padding. No login, and sold items
+     still open, which is what covers orders that sold before their first detail sync
+     (`ensure_order_image_ids`, called from 更新列表 / 单行刷新). Read **only that node** and check
+     `item.id` — the page is full of other yimg images (recommendations, the `auc-pctr` resize
+     proxy). A 公開停止中 item has no public page; detail sync then falls back to the edit page's
+     `img` tags, stripping the `auc-pctr.c.yimg.jp/i/` prefix and query (that fallback is
+     unverified live). `image_mgmt_ids._download` whitelists `.yimg.jp` on top of Mercari's CDN.
+   - **What counts as "one item per photo" is `is_photo_bundle(title, description, platform)`**,
+     deliberately wider than `_is_matome_listing_bundle_by_title_and_description`: a Yahoo title
+     containing 「まとめ買い」 (or 「まとめ商品」) qualifies even when the description has no
+     「■ 商品内容」 list — those can only be bound by photo. Mercari titles count only
+     「まとめ商品」: 「まとめ買い歓迎 / 割引」 is ordinary single-item sales copy there. Orders read
+     the title from `orders.remark` and the platform from `orders.platform`.
 6. Browser automation (`web_drive/`): Playwright for listing operations
 7. SSL MITM proxy: Captures HTTP traffic to harvest tokens the public API does not expose
 

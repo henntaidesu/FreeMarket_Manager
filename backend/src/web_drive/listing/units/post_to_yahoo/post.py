@@ -316,6 +316,8 @@ async def post_to_yahoo(
         if wm_text or wm_avatar:
             report("watermark", f"正在为 {len(local_images)} 张图片添加水印…")
             local_images = apply_watermark_to_images(local_images, wm_text, wm_avatar)
+
+    if local_images:
         try:
             from src.use_mercari.mgmt_id_cipher import parse_trailing_cipher_mgmt_tokens
             from src.use_mercari.mgmt_image_cipher import embed_mgmt_code_in_file

@@ -156,48 +156,75 @@ def _cells_rows(cols: int) -> int:
 
 
 # ── 解码 ─────────────────────────────────────────────────────────────────
-def _read_cell_bits(luma, x0: int, y0: int, c: int, cols: int, h: int, w: int):
-    """逐格读均值→QIM 奇偶 bit；越界返回 None。"""
-    rows = _cells_rows(cols)
+# 平台会把原图等比缩到 ~1080 再重压 JPEG，缩放后格长通常**不是整数**（如 43px×0.268≈11.5px）。
+# 按整数格长读，12 列累积漂移半格以上就整体错位，所以几何全部用浮点、逐格单独取整。
+# 三份副本在每个 bit 位上应当一致：随机图里三份全一致的概率每位仅 1/4，用一致位数做门槛，
+# 才压得住「sync+CRC 一共 16 bit、上千次对齐尝试」带来的误报（实测出现过）。
+_MIN_AGREE = 32                    # 36 位中三份副本完全一致的位数下限
+_CELL_RANGE = (0.93, 1.07, 0.02)   # 格长相对估计值的搜索区间（吸收原图格长取整 + 缩放误差）
+
+
+def _integral(luma):
+    import numpy as np
+
+    h, w = luma.shape
+    ii = np.zeros((h + 1, w + 1), dtype=np.float64)
+    ii[1:, 1:] = luma.cumsum(axis=0).cumsum(axis=1)
+    return ii
+
+
+def _read_cell_bits(ii, x0: float, y0: float, c: float, w: int, h: int):
+    """浮点几何下逐格读「中心区」均值 → QIM 奇偶 bit（每格边界各自取整，不累积漂移）；越界 None。"""
+    import numpy as np
+
+    cols, rows = _COLS, _cells_rows(_COLS)
     if x0 < 0 or y0 < 0 or x0 + cols * c > w or y0 + rows * c > h:
         return None
-    pad = _pad(c)
-    bits: List[int] = []
-    for k in range(_TOTAL_CELLS):
-        col, row = k % cols, k // cols
-        cx, cy = x0 + col * c, y0 + row * c
-        sub = luma[cy + pad:cy + c - pad, cx + pad:cx + c - pad]
-        if sub.size == 0:
-            sub = luma[cy:cy + c, cx:cx + c]
-        bits.append(int(round(float(sub.mean()) / _Q)) & 1)
-    return bits
+    k = np.arange(_TOTAL_CELLS)
+    col, row = k % cols, k // cols
+    pad = max(1.0, c / 6.0)
+    xa = np.rint(x0 + col * c + pad).astype(int)
+    xb = np.maximum(np.rint(x0 + (col + 1) * c - pad).astype(int), xa + 1)
+    ya = np.rint(y0 + row * c + pad).astype(int)
+    yb = np.maximum(np.rint(y0 + (row + 1) * c - pad).astype(int), ya + 1)
+    sums = ii[yb, xb] - ii[ya, xb] - ii[yb, xa] + ii[ya, xa]
+    means = sums / ((xb - xa) * (yb - ya))
+    return np.rint(means / _Q).astype(int) & 1
 
 
-def _majority_payload(cell_bits: List[int]) -> List[int]:
-    """108 格 bit → 按 bitpos 对 _R 份多数表决 → 36 bit 载荷。"""
-    out: List[int] = []
-    for pos in range(_BITS_PER_COPY):
-        votes = [cell_bits[copy * _BITS_PER_COPY + pos] for copy in range(_R)]
-        out.append(1 if sum(votes) * 2 >= len(votes) else 0)
-    return out
-
-
-def _try_payload(cell_bits: List[int]) -> Optional[int]:
-    """从 108 格 bit 解出 id（含 sync 校验、全局反相修正、CRC 校验）；失败 None。"""
-    payload = _majority_payload(cell_bits)
-    sync = payload[:len(_SYNC)]
-    if sync != _SYNC:                          # 要求 sync 精确匹配（降低误报）
-        inv = [1 - b for b in payload]         # 尝试全局反相（亮度整体偏移致奇偶翻转）
-        if inv[:len(_SYNC)] == _SYNC:
-            payload = inv
-        else:
-            return None
+def _try_payload(cell_bits) -> Tuple[Optional[int], int]:
+    """108 格 bit → (id, 三份一致的位数)。sync 不符（含全局反相后）/ CRC 不过返回 (None, 0)。"""
+    copies = [list(cell_bits[i * _BITS_PER_COPY:(i + 1) * _BITS_PER_COPY]) for i in range(_R)]
+    votes = [sum(cp[pos] for cp in copies) for pos in range(_BITS_PER_COPY)]
+    agree = sum(1 for v in votes if v in (0, _R))
+    payload = [1 if v * 2 >= _R else 0 for v in votes]
+    if payload[:len(_SYNC)] != _SYNC:
+        inv = [1 - b for b in payload]         # 亮度整体偏移致奇偶翻转
+        if inv[:len(_SYNC)] != _SYNC:
+            return None, 0
+        payload = inv
     id_bits = payload[len(_SYNC):len(_SYNC) + _ID_BITS]
-    crc_bits = payload[len(_SYNC) + _ID_BITS:]
-    if crc_bits != _crc8(id_bits):
-        return None
+    if payload[len(_SYNC) + _ID_BITS:] != _crc8(id_bits):
+        return None, 0
     iid = _bits_to_int(id_bits)
-    return iid if 0 < iid <= _MAX_ID else None
+    return (iid, agree) if 0 < iid <= _MAX_ID else (None, 0)
+
+
+def _cell_candidates(w: int, h: int) -> List[Tuple[float, float]]:
+    """(格长, 边距) 候选。嵌入时格长 ∝ min(W,H)；原图短边 < 560 时格长固定 8（未被缩放则仍是 8）。"""
+    mn = min(w, h)
+    est = mn / _CELL_DIV
+    lo, hi, step = _CELL_RANGE
+    out: List[Tuple[float, float]] = []
+    f = lo
+    while f <= hi + 1e-9:
+        c = est * f
+        if c >= 5:
+            out.append((c, mn * _MARGIN_FRAC))
+        f += step
+    if est < 8 * hi:
+        out.append((8.0, float(max(6, round(mn * _MARGIN_FRAC)))))
+    return out
 
 
 def decode_mgmt_code_from_file(
@@ -205,10 +232,8 @@ def decode_mgmt_code_from_file(
 ) -> Optional[int]:
     """从图片读回 inventory.id；读不到返回 None。对等比缩放/JPEG 重压缩鲁棒。
 
-    ``validate``：可选的 id 校验回调。暴力对齐搜索中每命中一个 CRC 通过的候选，
-    仅当 ``validate(iid)`` 为真才接受，否则继续搜索。用于抑制 CRC8（仅 8 bit，约 1/256）
-    的误报——调用方可传入「存在性/账号范围」检查。默认 None = 仅沿用 ``_try_payload``
-    内的合理性边界（``0 < iid <= _MAX_ID``）。**非破坏性：只会拒绝垃圾，绝不改变正确解码。**
+    ``validate``：可选的 id 校验回调（存在性/账号范围），只接受 ``validate(iid)`` 为真的候选，
+    用于进一步压低误报。所有对齐候选里取三份副本一致度最高的那个。
     """
     try:
         import numpy as np
@@ -218,25 +243,31 @@ def decode_mgmt_code_from_file(
             im = ImageOps.exif_transpose(im0).convert("RGB")
         w, h = im.size
         a = np.asarray(im).astype(np.float32)
-        luma = 0.299 * a[..., 0] + 0.587 * a[..., 1] + 0.114 * a[..., 2]
+        ii = _integral(0.299 * a[..., 0] + 0.587 * a[..., 1] + 0.114 * a[..., 2])
 
-        c0, cols, _rows, x0_0, y0_0 = _geometry(w, h)
-        # 小范围搜索：格子尺寸 ±1、偏移 ±c（步长 2）以吸收等比缩放/取整误差
-        for c in {max(6, c0 - 1), c0, c0 + 1}:
-            _, _, _, bx, by = _geometry(w, h, cell=c)
-            step = max(1, c // 4)
-            rng = list(range(-c, c + 1, step))
-            for dy in rng:
-                for dx in rng:
-                    bits = _read_cell_bits(luma, bx + dx, by + dy, c, cols, h, w)
+        rows = _cells_rows(_COLS)
+        best: Optional[Tuple[int, int]] = None  # (agree, iid)
+        rejected: set = set()
+        for c, m in _cell_candidates(w, h):
+            bx, by = m, h - rows * c - m
+            step = max(0.5, c / 6.0)
+            n = int(c * 0.75 / step)
+            offs = [i * step for i in range(-n, n + 1)]
+            for dy in offs:
+                for dx in offs:
+                    bits = _read_cell_bits(ii, bx + dx, by + dy, c, w, h)
                     if bits is None:
                         continue
-                    iid = _try_payload(bits)
-                    # _try_payload 已保证 0 < iid <= _MAX_ID；validate 再叠加存在性/账号范围
-                    # 校验，过滤 CRC8 误报——不通过则继续搜索（等比缩放误对齐时仍可能命中正解）。
-                    if iid is not None and (validate is None or validate(iid)):
-                        return iid
-        return None
+                    iid, agree = _try_payload(bits)
+                    if iid is None or agree < _MIN_AGREE or iid in rejected:
+                        continue
+                    if best is not None and agree <= best[0]:
+                        continue
+                    if validate is not None and not validate(iid):
+                        rejected.add(iid)
+                        continue
+                    best = (agree, iid)
+        return best[1] if best else None
     except Exception as exc:  # noqa: BLE001
         log.info("[mgmt_image_cipher] 解码失败: %s (%s)", path, exc)
         return None

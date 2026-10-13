@@ -1,16 +1,19 @@
 # -*- coding: utf-8 -*-
-"""订单「获取商品说明」：重新从平台读取商品说明，写回订单并按暗号重建出库明细。
+"""订单「获取商品说明」：重新从平台读取商品说明（煤炉另读原图解左下角管理暗码），写回订单并重建出库明细。
 
 用于没关联上库存的订单（订单管理每行、待办「待发货」未关联行）。与「刷新」的区别：
 刷新走交易页、已有出库行时 ``skip_if_has_lines`` 跳过重建；这里直接读**商品页**的说明，
 并像「重新匹配商品」一样整单重建，出库行存在但没绑上库存的单子也能补绑。
+图片暗码是主方法、说明文本暗号兜底（见 ``use_mercari/image_mgmt_ids.py``）。原图：煤炉取
+items/get 的 ``photos``，雅虎取公开商品页（``use_yahoo/item_photos.py``，纯 HTTP）。
 
 只回写订单说明与出库行，**不碰库存的在售字段**：在售页「获取详情」的
 ``detail_sync_inventory_from_item_get_response`` 会按 items/get 的 status 写
 ``on_sale_quantity``，已售商品走那条路会把库存在售数改错。
 """
 
-from typing import Optional
+import asyncio
+from typing import List, Optional, Tuple
 
 from fastapi import HTTPException
 
@@ -23,13 +26,16 @@ from ..orders_models import FetchOrderItemDetailBody
 from .refresh import _is_yahoo_account
 
 
-async def _read_mercari_description(account_id: int, item_id: str) -> Optional[str]:
+async def _read_mercari_description(account_id: int, item_id: str) -> Tuple[Optional[str], List[str]]:
+    """返回 (说明, 原图 URL 列表)。"""
     from .....use_mercari.get_order.mercari_item_get import fetch_mercari_item_get
 
     resp = await fetch_mercari_item_get(item_id, account_id=account_id)
     data = resp.get("data") if isinstance(resp, dict) else None
     desc = data.get("description") if isinstance(data, dict) else None
-    return desc.strip() if isinstance(desc, str) and desc.strip() else None
+    photos = data.get("photos") if isinstance(data, dict) else None
+    urls = [str(u).strip() for u in photos if isinstance(u, str) and u.strip()] if isinstance(photos, list) else []
+    return (desc.strip() if isinstance(desc, str) and desc.strip() else None), urls
 
 
 async def _read_yahoo_description(account_id: int, item_id: str) -> Optional[str]:
@@ -69,11 +75,16 @@ async def fetch_order_item_detail(data: FetchOrderItemDetailBody):
         raise HTTPException(status_code=400, detail="未找到该订单卖家对应的 active 账号")
     aid = int(aid)
 
+    photos: List[str] = []
     try:
         if _is_yahoo_account(aid):
+            from .....use_yahoo.item_photos import fetch_public_item
+
             desc = await _read_yahoo_description(aid, order_no)
+            public = await asyncio.to_thread(fetch_public_item, order_no)
+            photos = (public or {}).get("photos") or []
         else:
-            desc = await run_mercari_serial_async(
+            desc, photos = await run_mercari_serial_async(
                 queue_key_for_mercari_account(aid),
                 lambda: _read_mercari_description(aid, order_no),
             )
@@ -82,14 +93,27 @@ async def fetch_order_item_detail(data: FetchOrderItemDetailBody):
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"获取商品说明失败: {exc}") from exc
 
-    if not desc:
-        raise HTTPException(status_code=400, detail="未读取到商品说明，未改动订单")
+    image_ids: List[int] = []
+    if photos:
+        from .....use_mercari.image_mgmt_ids import decode_photo_inventory_ids, dumps_ids, is_photo_bundle
 
-    order.description = desc
+        bundle = is_photo_bundle(order.remark, desc or order.description, order.platform)
+        image_ids = await asyncio.to_thread(decode_photo_inventory_ids, photos, bundle=bundle)
+        order.image_mgmt_ids = dumps_ids(image_ids)
+
+    if not desc and not image_ids:
+        raise HTTPException(status_code=400, detail="未读取到商品说明，商品图也没有管理暗码，未改动订单")
+
+    if desc:
+        order.description = desc
     if not order.save():
         raise HTTPException(status_code=500, detail="写入数据库失败")
-    sync_outbound_lines_for_order(order_no, desc)
+    sync_outbound_lines_for_order(order_no, order.description)
     return {
         "success": True,
-        "data": {"order_no": order_no, "linked_inventory": _linked_inventory_count(order_no)},
+        "data": {
+            "order_no": order_no,
+            "linked_inventory": _linked_inventory_count(order_no),
+            "image_inventory_ids": image_ids,
+        },
     }

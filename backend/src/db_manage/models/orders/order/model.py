@@ -158,6 +158,13 @@ class OrderModel(_AggregateMixin, _QueryMixin, BaseModel):
                 'not_null': False,
                 'default': None,
             },
+            # 商品图左下角管理暗码解出的库存 id，JSON 数组（"[]"=解过但没读到，NULL=没解过）。
+            # 出库行重建的主依据，说明文本暗号为兜底；见 use_mercari/image_mgmt_ids.py
+            'image_mgmt_ids': {
+                'type': 'TEXT',
+                'not_null': False,
+                'default': None,
+            },
             # 是否已执行过“刷新后同步库存扣减”：0=未同步，1=已同步（防重复扣减）
             'inventory_synced': {
                 'type': 'INTEGER',

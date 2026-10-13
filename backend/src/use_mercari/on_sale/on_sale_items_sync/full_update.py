@@ -6,6 +6,7 @@
 用于补齐历史商品缺失的字段（如 発送までの日数 / shipping_duration）并刷新说明与库存关联。
 """
 
+import asyncio
 from typing import Any, Dict, List, Optional
 
 from ...get_order.get_on_sale.on_sale_list import LISTINGS_PAGE_URL
@@ -86,7 +87,10 @@ async def full_update_on_sale_details_from_mercari(
                     iid,
                     timeout=_DETAIL_TIMEOUT_SEC,
                 )
-                payload = detail_sync_inventory_from_item_get_response(iid, body)
+                # 详情同步要下载商品图解管理暗码（阻塞 IO），放线程里跑
+                payload = await asyncio.to_thread(
+                    detail_sync_inventory_from_item_get_response, iid, body
+                )
                 sync = payload.get("sync") if isinstance(payload.get("sync"), dict) else {}
                 if sync.get("updated"):
                     stats["updated"] += 1

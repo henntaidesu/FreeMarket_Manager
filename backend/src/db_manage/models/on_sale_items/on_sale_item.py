@@ -274,6 +274,13 @@ class OnSaleItemModel(BaseModel):
                 "not_null": False,
                 "default": None,
             },
+            # photos_json 左下角管理暗码解出的库存 id，JSON 数组（"[]"=解过但没读到，NULL=没解过）。
+            # 单品只解首图，まとめ商品每张图一件；见 use_mercari/image_mgmt_ids.py
+            "image_mgmt_ids": {
+                "type": "TEXT",
+                "not_null": False,
+                "default": None,
+            },
             # 商品の状態：煤炉 item_condition.id（1 新品、未使用 … 6 全体的に状態が悪い）
             "item_condition_id": {
                 "type": "INTEGER",

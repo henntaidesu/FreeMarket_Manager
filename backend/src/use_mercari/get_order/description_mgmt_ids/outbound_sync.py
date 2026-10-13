@@ -8,6 +8,7 @@ from ....db_manage.models.orders.order_outbound_line import TERMINAL_ORDER_STATU
 from ._common import _normalize_int_id, _normalize_match_text
 from .inventory_resolve import _extract_bundle_product_titles, _inventory_id_by_barcode, _is_bundle_order_description, _resolve_inventory_id, _resolve_inventory_ids_by_bundle_title
 from .parsing import parse_order_description_outbound_tokens_with_quantity
+from ...image_mgmt_ids import is_photo_bundle, stored_order_image_ids, uncovered_bundle_titles
 
 
 def _order_seller_id(order_no: str) -> Optional[str]:
@@ -25,6 +26,29 @@ def _order_seller_id(order_no: str) -> Optional[str]:
         return None
     v = str(r[0][0] or "").strip()
     return v or None
+
+
+def _order_is_photo_bundle(order_no: str, description: Optional[str]) -> bool:
+    """订单是否「每张图一件」：同 listing 侧口径，雅虎订单标题（orders.remark）带「まとめ買い」也算。"""
+    r = DatabaseManager().execute_query(
+        "SELECT [remark], [platform] FROM [orders] WHERE [order_no] = ? LIMIT 1",
+        ((order_no or "").strip(),),
+    )
+    title, platform = (r[0][0], r[0][1]) if r else (None, None)
+    return is_photo_bundle(title, description, platform)
+
+
+def _token_inventory_ids(tokens) -> set:
+    """说明解析出的 token 各自对应的库存 id（与下面写行时同一套解析）。"""
+    out: set = set()
+    for kind, val, _qty in tokens:
+        rid = (
+            _resolve_inventory_id(int(val)) if kind == "mgmt_id"
+            else _inventory_id_by_barcode(str(val).strip())
+        )
+        if rid is not None:
+            out.add(int(rid))
+    return out
 
 
 def refresh_inventory_pending_outbound_qty(inventory_ids: Optional[List[int]] = None) -> None:
@@ -108,6 +132,73 @@ def _refresh_pending_outbound_impl(db, inventory_ids: Optional[List[int]] = None
     from ...inventory_counters import recompute_listable_quantity
 
     recompute_listable_quantity(inv_ids if inv_ids else None)
+
+def _write_bundle_title_lines(
+    ono: str,
+    titles: List[str],
+    old_rows,
+    used_inv_ids: set,
+    sort_idx: int,
+    touched_inv_ids: set,
+) -> int:
+    """按「■ 商品内容」标题逐行写 bundle_title 出库行，返回下一个 sort_index。"""
+    # 同名标题可能有多行（各自出库状态不同）：按标题聚成**列表**逐行配对消费，
+    # 单值字典会让后一行覆盖前一行 —— 已出库/未出库两行会拿到同一份状态
+    # （要么已扣的变回待出被二次出库，要么未扣的被标已出永不扣减）。
+    old_bundle_state_by_norm: dict = {}
+    for r in old_rows:
+        if str(r.line_kind or "").strip() != "bundle_title":
+            continue
+        nt = _normalize_match_text(str(r.management_id or ""))
+        if not nt:
+            continue
+        old_bundle_state_by_norm.setdefault(nt, []).append((
+            int(r.is_stocked_out or 0),
+            int(r.stocked_out_at) if r.stocked_out_at is not None else None,
+            int(r.stock_deducted or 0),
+        ))
+    # 账号隔离：只在本订单卖出账号（orders.data_user = seller.id）的在售记录中匹配。
+    seller_id = _order_seller_id(ono)
+    # 同名不同「管理番号」：同名标题重复出现时，逐个分配**不同**的候选库存 ID，
+    # 而非重复即整行丢弃。used_inv_ids 由调用方预置手动出库行（及图片暗码行）的库存，避免重复计。
+    title_candidates: dict = {}
+    for title in titles:
+        tnorm = _normalize_match_text(title)
+        if tnorm not in title_candidates:
+            title_candidates[tnorm] = _resolve_inventory_ids_by_bundle_title(
+                title, seller_id=seller_id
+            )
+        cands = title_candidates[tnorm]  # [(inventory_id, 原始在售 item_id), ...]
+        chosen = next((c for c in cands if c[0] not in used_inv_ids), None)
+        inv_id = chosen[0] if chosen else None
+        # 匹配到的原始在售商品 ID（on_sale_items.item_id），供页面展示来源。
+        source_item_id = chosen[1] if chosen else None
+        # 有候选但都已被手动出库行 / 其它组合行占用 → 该标题库存已覆盖，跳过不重复建行。
+        # 无任何候选（本账号内无同名在售）→ inv_id=None，仍建占位行供人工介入（与原逻辑一致）。
+        if inv_id is None and cands:
+            continue
+        if inv_id is not None:
+            used_inv_ids.add(inv_id)
+        states = old_bundle_state_by_norm.get(tnorm)
+        stocked, stocked_at, deducted = states.pop(0) if states else (0, None, 0)
+        line = OrderOutboundLineModel(
+            order_no=ono,
+            inventory_id=inv_id,
+            management_id=title,
+            source_item_id=source_item_id,
+            line_kind="bundle_title",
+            quantity=1,
+            sort_index=sort_idx,
+            is_stocked_out=stocked,
+            stocked_out_at=stocked_at,
+            stock_deducted=deducted,
+        )
+        line.save()
+        sort_idx += 1
+        if inv_id is not None:
+            touched_inv_ids.add(int(inv_id))
+    return sort_idx
+
 
 def sync_outbound_lines_for_order(
     order_no: str,
@@ -204,6 +295,34 @@ def _sync_outbound_lines_for_order_impl(
 
     OrderOutboundLineModel.delete_all("[order_no] = ?", (ono,))
     tokens = parse_order_description_outbound_tokens_with_quantity(description)
+
+    # 商品图左下角管理暗码为主、说明文本为兜底（见 use_mercari/image_mgmt_ids.py）。
+    image_ids = stored_order_image_ids(ono)
+    image_titles: List[str] = []
+    if image_ids:
+        if _order_is_photo_bundle(ono, description):
+            # まとめ：每张图一件；标题只补图片没认出的那几件（写在图片行之后）
+            image_titles = uncovered_bundle_titles(
+                _extract_bundle_product_titles(description), image_ids, _order_seller_id(ono)
+            )
+            tokens = [("mgmt_id", i, 1) for i in image_ids]
+        elif image_ids[0] not in _token_inventory_ids(tokens):
+            # 首图与说明对不上（或说明里没有）→ 以图片为准；对得上时沿用说明（含组合出品的其余 id 与数量）
+            tokens = [("mgmt_id", image_ids[0], 1)]
+        else:
+            image_ids = []
+    # 图片行的 token 可能与旧行不同（旧行是 bundle_title / 旧番号），按库存 id 继承出库状态，
+    # 否则已出库的件重建后变回待出、会被再出一次。
+    old_state_by_inv: dict = {}
+    if image_ids:
+        for r in old_rows:
+            if str(r.line_kind or "").strip() == "manual" or r.inventory_id is None:
+                continue
+            old_state_by_inv.setdefault(int(r.inventory_id), []).append((
+                int(r.is_stocked_out or 0),
+                int(r.stocked_out_at) if r.stocked_out_at is not None else None,
+                int(r.stock_deducted or 0),
+            ))
     if not tokens:
         if not _is_bundle_order_description(description):
             touched_inv_ids = set(old_inv_ids)
@@ -244,64 +363,10 @@ def _sync_outbound_lines_for_order_impl(
                     touched_inv_ids.add(int(mr.inventory_id))
             refresh_inventory_pending_outbound_qty(list(touched_inv_ids))
             return
-        # 同名标题可能有多行（各自出库状态不同）：按标题聚成**列表**逐行配对消费，
-        # 单值字典会让后一行覆盖前一行 —— 已出库/未出库两行会拿到同一份状态
-        # （要么已扣的变回待出被二次出库，要么未扣的被标已出永不扣减）。
-        old_bundle_state_by_norm: dict = {}
-        for r in old_rows:
-            if str(r.line_kind or "").strip() != "bundle_title":
-                continue
-            nt = _normalize_match_text(str(r.management_id or ""))
-            if not nt:
-                continue
-            old_bundle_state_by_norm.setdefault(nt, []).append((
-                int(r.is_stocked_out or 0),
-                int(r.stocked_out_at) if r.stocked_out_at is not None else None,
-                int(r.stock_deducted or 0),
-            ))
         touched_inv_ids = set(old_inv_ids)
-        # 账号隔离：只在本订单卖出账号（orders.data_user = seller.id）的在售记录中匹配。
-        seller_id = _order_seller_id(ono)
-        # 同名不同「管理番号」：同名标题重复出现时，逐个分配**不同**的候选库存 ID，
-        # 而非重复即整行丢弃。used_inv_ids 预置手动出库行的库存，避免与之重复计。
-        title_candidates: dict = {}
-        used_inv_ids: set = set(manual_inv_ids)
-        sort_idx = 0
-        for title in titles:
-            tnorm = _normalize_match_text(title)
-            if tnorm not in title_candidates:
-                title_candidates[tnorm] = _resolve_inventory_ids_by_bundle_title(
-                    title, seller_id=seller_id
-                )
-            cands = title_candidates[tnorm]  # [(inventory_id, 原始在售 item_id), ...]
-            chosen = next((c for c in cands if c[0] not in used_inv_ids), None)
-            inv_id = chosen[0] if chosen else None
-            # 匹配到的原始在售商品 ID（on_sale_items.item_id），供页面展示来源。
-            source_item_id = chosen[1] if chosen else None
-            # 有候选但都已被手动出库行 / 其它组合行占用 → 该标题库存已覆盖，跳过不重复建行。
-            # 无任何候选（本账号内无同名在售）→ inv_id=None，仍建占位行供人工介入（与原逻辑一致）。
-            if inv_id is None and cands:
-                continue
-            if inv_id is not None:
-                used_inv_ids.add(inv_id)
-            states = old_bundle_state_by_norm.get(tnorm)
-            stocked, stocked_at, deducted = states.pop(0) if states else (0, None, 0)
-            line = OrderOutboundLineModel(
-                order_no=ono,
-                inventory_id=inv_id,
-                management_id=title,
-                source_item_id=source_item_id,
-                line_kind="bundle_title",
-                quantity=1,
-                sort_index=sort_idx,
-                is_stocked_out=stocked,
-                stocked_out_at=stocked_at,
-                stock_deducted=deducted,
-            )
-            line.save()
-            sort_idx += 1
-            if inv_id is not None:
-                touched_inv_ids.add(int(inv_id))
+        sort_idx = _write_bundle_title_lines(
+            ono, titles, old_rows, set(manual_inv_ids), 0, touched_inv_ids
+        )
         base_idx = sort_idx
         for off, mr in enumerate(old_manual_rows):
             line = OrderOutboundLineModel(
@@ -332,9 +397,14 @@ def _sync_outbound_lines_for_order_impl(
             inv_for_line = _resolve_inventory_id(mid)
             lk = "mgmt_id"
             mid_s = str(mid)
-            stocked, stocked_at, deducted, kept_inv = old_token_state.get(
-                (lk, mid_s, qn), (0, None, 0, None)
-            )
+            old_state = old_token_state.get((lk, mid_s, qn))
+            if old_state is None and inv_for_line in old_state_by_inv:
+                stocked, stocked_at, deducted = old_state_by_inv[inv_for_line].pop(0)
+                kept_inv = None
+                if not old_state_by_inv[inv_for_line]:
+                    del old_state_by_inv[inv_for_line]
+            else:
+                stocked, stocked_at, deducted, kept_inv = old_state or (0, None, 0, None)
             # 旧行绑定的库存优先（保留手动改绑/归属转化的结果）
             if kept_inv is not None:
                 inv_for_line = kept_inv
@@ -383,6 +453,11 @@ def _sync_outbound_lines_for_order_impl(
         if line.inventory_id is not None:
             token_inv_written.add(int(line.inventory_id))
             touched_inv_ids.add(int(line.inventory_id))
+    if image_titles:
+        sort_idx = _write_bundle_title_lines(
+            ono, image_titles, old_rows, set(manual_inv_ids) | token_inv_written,
+            sort_idx, touched_inv_ids,
+        )
     base_idx = sort_idx
     for off, mr in enumerate(old_manual_rows):
         line = OrderOutboundLineModel(
