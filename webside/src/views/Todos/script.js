@@ -2068,6 +2068,28 @@ export default defineComponent({
     // 正在提交「确认签收」的 todo id（只覆盖入队那一瞬，执行本身在后台队列里）
     const cancelReceiptBusyId = ref(0)
 
+    // 「待发货」下出库明细没绑上库存的行（inventory_linked 由列表接口按 match-inventory 同口径算）：
+    // 「获取商品说明」重读商品页说明、按暗号重建出库明细，绑上后处理弹窗才能走 关联库存 → 发货
+    function showFetchItemDetail(row) {
+      return filters.value.categories.includes('wait_shipping') && Number(row?.inventory_linked) === 0
+    }
+    const hasFetchItemDetailRows = computed(() => (list.value || []).some(showFetchItemDetail))
+    const fetchItemDetailBusyId = ref(0)
+    async function onFetchItemDetail(row) {
+      const orderNo = String(row?.item_id || '').trim()
+      if (!orderNo || fetchItemDetailBusyId.value) return
+      fetchItemDetailBusyId.value = row.id
+      try {
+        await submitTask(
+          TASK_TYPES.ORDERS_FETCH_ITEM_DETAIL,
+          { order_no: orderNo, account_id: row.account_id ?? null },
+          { t },
+        )
+      } finally {
+        fetchItemDetailBusyId.value = 0
+      }
+    }
+
     async function onConfirmCancellationReceipt(row) {
       const todoId = Number(row?.id || 0)
       if (!todoId || cancelReceiptBusyId.value) return
@@ -3209,6 +3231,10 @@ export default defineComponent({
       createEmptyDetail,
       WAIT_SHIPPING_TITLE,
       invMatch,
+      showFetchItemDetail,
+      hasFetchItemDetailRows,
+      fetchItemDetailBusyId,
+      onFetchItemDetail,
       inventoryThumbUrl,
       visibleInvImages,
       invMoreCount,

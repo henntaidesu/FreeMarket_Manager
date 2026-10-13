@@ -384,6 +384,11 @@ def list_todos(
         ", ".join(f"t.[{c}]" for c in _LIST_COLS)
         + ", a.[account_name] AS account_name, o.[purchase_time] AS purchase_time"
         + ", n.[note] AS order_note"
+        # 与 match_inventory_for_item 同口径：出库明细绑上了未删除的库存才算已关联
+        + ", CASE WHEN EXISTS (SELECT 1 FROM [order_outbound_lines] l"
+        " INNER JOIN [inventory] p ON p.id = l.inventory_id"
+        " WHERE l.order_no = t.[item_id] AND COALESCE(p.is_delete, 0) = 0)"
+        " THEN 1 ELSE 0 END AS inventory_linked"
     )
     # 按「发货期限剩余时间」升序（越紧急越前）排序。截止时刻要由 shipping_duration
     # 文本（「4~7日で発送」）解析天数再与购入时间相加，SQLite / MySQL 的字符串函数不通用，
@@ -402,7 +407,7 @@ def list_todos(
         """,
         tuple(params),
     )
-    keys = list(_LIST_COLS) + ["account_name", "purchase_time", "order_note"]
+    keys = list(_LIST_COLS) + ["account_name", "purchase_time", "order_note", "inventory_linked"]
     items = [dict(zip(keys, row)) for row in rows]
     # 稳定排序：推算不出发货期限的行保持原有 id 升序垫底
     items.sort(key=_ship_deadline_sort_key)

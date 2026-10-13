@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, Optional
 
 INVENTORY_LISTING = "inventory.listing"
 ORDERS_REFRESH_ONE = "orders.refresh_one"
+ORDERS_FETCH_ITEM_DETAIL = "orders.fetch_item_detail"
 ORDERS_SYNC_NEW_DATA = "orders.sync_new_data"
 ORDERS_BATCH_REFRESH = "orders.batch_refresh"
 ON_SALE_SYNC = "on_sale.sync"
@@ -81,6 +82,12 @@ _SPECS: Dict[str, TaskSpec] = {
         label_zh="刷新订单",
         dedup_key=lambda p: f"{ORDERS_REFRESH_ONE}:{p.get('order_no')}",
         title=lambda p: f"刷新订单：{p.get('order_no') or ''}",
+    ),
+    ORDERS_FETCH_ITEM_DETAIL: TaskSpec(
+        task_type=ORDERS_FETCH_ITEM_DETAIL,
+        label_zh="获取商品说明",
+        dedup_key=lambda p: f"{ORDERS_FETCH_ITEM_DETAIL}:{p.get('order_no')}",
+        title=lambda p: f"获取商品说明（匹配库存）：{p.get('order_no') or ''}",
     ),
     ORDERS_SYNC_NEW_DATA: TaskSpec(
         task_type=ORDERS_SYNC_NEW_DATA,
@@ -257,6 +264,9 @@ def resolve_handler(task_type: str) -> Callable:
     if tt == ORDERS_REFRESH_ONE:
         from .handlers.orders import handle_refresh_one
         return handle_refresh_one
+    if tt == ORDERS_FETCH_ITEM_DETAIL:
+        from .handlers.orders import handle_fetch_item_detail
+        return handle_fetch_item_detail
     if tt == ORDERS_SYNC_NEW_DATA:
         from .handlers.orders import handle_sync_new_data
         return handle_sync_new_data

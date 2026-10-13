@@ -37,6 +37,13 @@ class RefreshOrderInfoBody(PydanticModel):
     progress_job_id: Optional[str] = None
 
 
+class FetchOrderItemDetailBody(PydanticModel):
+    """获取商品说明：重新读商品说明并重建出库明细。``account_id`` 不传时按订单卖家ID解析。"""
+
+    order_no: str
+    account_id: Optional[int] = None
+
+
 class OrderPackagingWaiveBody(PydanticModel):
     order_no: str
 

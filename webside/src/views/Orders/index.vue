@@ -399,7 +399,7 @@
             <span v-else class="cell-dash">-</span>
           </template>
         </el-table-column>
-        <el-table-column :label="t('common.operate')" width="156" fixed="right" align="center" header-align="center">
+        <el-table-column :label="t('common.operate')" width="236" fixed="right" align="center" header-align="center">
           <template #default="{ row }">
             <div class="order-row-actions">
               <el-button size="small" @click="openDetail(row)">{{ t('common.detail') }}</el-button>
@@ -408,6 +408,12 @@
                 :loading="refreshingId === row.id"
                 @click="refreshOrder(row)"
               >{{ t('common.refresh') }}</el-button>
+              <!-- 重读商品页说明并按暗号重建出库明细：没关联上库存的订单靠它补绑 -->
+              <el-button
+                size="small"
+                :loading="fetchingItemDetailId === row.id"
+                @click="fetchItemDetail(row)"
+              >{{ t('orders.fetchItemDetail') }}</el-button>
             </div>
           </template>
         </el-table-column>

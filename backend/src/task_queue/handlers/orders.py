@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""订单页三个操作的任务处理器：更新列表 / 更新状态 / 单行刷新。"""
+"""订单页操作的任务处理器：更新列表 / 更新状态 / 单行刷新 / 获取商品说明。"""
 from __future__ import annotations
 
 import logging
@@ -53,3 +53,17 @@ async def handle_refresh_one(task: Dict[str, Any]) -> Dict[str, Any]:
             progress_job_id=jid,
         )
         return await refresh_order_info(body)
+
+
+async def handle_fetch_item_detail(task: Dict[str, Any]) -> Dict[str, Any]:
+    """订单列表 / 待办未关联行「获取商品说明」：重读商品说明并按暗号匹配库存（重建出库明细）。不占全局同步锁。"""
+    from ...use_web.orders.units.orders_outbound.item_detail import fetch_order_item_detail
+    from ...use_web.orders.units.orders_models import FetchOrderItemDetailBody
+
+    payload = task.get("payload") or {}
+    aid = payload.get("account_id")
+    body = FetchOrderItemDetailBody(
+        order_no=str(payload.get("order_no") or ""),
+        account_id=int(aid) if aid not in (None, "") else None,
+    )
+    return await fetch_order_item_detail(body)

@@ -106,6 +106,7 @@ export default {
       shipOverdue: "已超时",
       timeUnit: { day: "天", hour: "小时", min: "分" },
       process: "处理",
+      fetchItemDetail: "获取商品说明",
       // 退货筛选下的「申请退货」行：不开处理弹窗，提交任务后台跑「确认收到退回商品 → 完成取消」
       confirmReceipt: "确认签收",
       confirmReceiptTitle: "确认签收退回商品",
@@ -410,6 +411,7 @@ export default {
       shipOverdue: "期限切れ",
       timeUnit: { day: "日", hour: "時間", min: "分" },
       process: "処理",
+      fetchItemDetail: "商品説明を取得",
       confirmReceipt: "受取確認",
       confirmReceiptTitle: "返送商品の受取確認",
       confirmReceiptMessage: "取引ページを開き、「返送された商品を受け取った」をクリックしてから確認ダイアログの「キャンセルを完了する」を押します。完了すると取引が終了し、このやることは削除され注文情報を更新します。この操作はバックグラウンドのタスクキューで実行され、進捗はタスク画面で確認できます。続行しますか？",
@@ -713,6 +715,7 @@ export default {
       shipOverdue: "Overdue",
       timeUnit: { day: "d", hour: "h", min: "m" },
       process: "Process",
+      fetchItemDetail: "Fetch description",
       confirmReceipt: "Confirm receipt",
       confirmReceiptTitle: "Confirm returned item received",
       confirmReceiptMessage: "This opens the transaction page, clicks 「返送された商品を受け取った」 and then confirms with 「キャンセルを完了する」. The transaction is closed, this todo is removed and the order is refreshed. It runs in the background task queue — watch its progress on the Tasks page. Continue?",

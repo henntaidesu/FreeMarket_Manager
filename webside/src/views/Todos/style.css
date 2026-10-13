@@ -1617,3 +1617,8 @@
     width: auto;
   }
 }
+/* 「待发货」未关联库存的卡片：获取商品说明按钮占满卡片宽 */
+.todo-card-fetch-detail {
+  width: 100%;
+  margin: 0;
+}

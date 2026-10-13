@@ -279,7 +279,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column :label="t('common.operate')" width="130" align="center" header-align="center" fixed="right">
+        <el-table-column :label="t('common.operate')" :width="hasFetchItemDetailRows ? 230 : 130" align="center" header-align="center" fixed="right">
           <template #default="{ row }">
             <!-- 「申请退货」行不进处理弹窗：直接确认收到退回商品并完成取消 -->
             <el-button
@@ -303,6 +303,14 @@
             </el-button>
             <el-button v-else type="primary" plain @click="onProcess(row)">
               {{ t('todos.process') }}
+            </el-button>
+            <el-button
+              v-if="showFetchItemDetail(row)"
+              plain
+              :loading="fetchItemDetailBusyId === row.id"
+              @click="onFetchItemDetail(row)"
+            >
+              {{ t('todos.fetchItemDetail') }}
             </el-button>
           </template>
         </el-table-column>
@@ -394,6 +402,14 @@
                 <span class="todo-card-ellipsis">{{ row.account_name || `#${row.account_id}` }}</span>
                 <span>{{ displayTs(purchaseTsMs(row)) }}</span>
               </div>
+              <el-button
+                v-if="showFetchItemDetail(row)"
+                size="small"
+                plain
+                class="todo-card-fetch-detail"
+                :loading="fetchItemDetailBusyId === row.id"
+                @click.stop="onFetchItemDetail(row)"
+              >{{ t('todos.fetchItemDetail') }}</el-button>
             </div>
           </div>
         </div>

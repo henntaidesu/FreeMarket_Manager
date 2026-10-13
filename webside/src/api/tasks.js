@@ -12,6 +12,7 @@ import http from './http'
 export const TASK_TYPES = {
   INVENTORY_LISTING: 'inventory.listing',
   ORDERS_REFRESH_ONE: 'orders.refresh_one',
+  ORDERS_FETCH_ITEM_DETAIL: 'orders.fetch_item_detail',
   ORDERS_SYNC_NEW_DATA: 'orders.sync_new_data',
   ORDERS_BATCH_REFRESH: 'orders.batch_refresh',
   ON_SALE_SYNC: 'on_sale.sync',

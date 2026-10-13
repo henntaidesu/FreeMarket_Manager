@@ -59,6 +59,7 @@ export default defineComponent({
     const isMobile = ref(false)
     /** 正在 Mercari 拉取详情的行 id */
     const refreshingId = ref(null)
+    const fetchingItemDetailId = ref(null)
     /** 二级列表：正在执行出库的明细键 order_no:line_id */
     const lineStockingKey = ref('')
     const manualOutboundDialogVisible = ref(false)
@@ -1951,6 +1952,23 @@ export default defineComponent({
       }
     }
 
+    /** 重读商品页说明 → 写回订单 → 按暗号整单重建出库明细（任务队列执行） */
+    async function fetchItemDetail(row) {
+      if (!row?.id) return
+      const orderNo = String(row.order_no || '').trim()
+      if (!orderNo) {
+        ElMessage.warning(t('orders.missingOrderNo'))
+        return
+      }
+      fetchingItemDetailId.value = row.id
+      try {
+        const task = await submitTask(TASK_TYPES.ORDERS_FETCH_ITEM_DETAIL, { order_no: orderNo }, { t })
+        if (task) clearOutboundExpandCache(orderNo)
+      } finally {
+        fetchingItemDetailId.value = null
+      }
+    }
+
     // ── 不加入结算 ────────────────────────────────────────────────
     // 一次性、不可撤回：标记后结算（系统 → 结算）的汇总永久不再看见这笔订单。
     // 后端没有反向接口，所以这里必须二次确认。
@@ -2072,6 +2090,8 @@ export default defineComponent({
       statsLoading,
       isMobile,
       refreshingId,
+      fetchingItemDetailId,
+      fetchItemDetail,
       lineStockingKey,
       manualOutboundDialogVisible,
       manualOutboundSaving,
