@@ -399,7 +399,7 @@
             <span v-else class="cell-dash">-</span>
           </template>
         </el-table-column>
-        <el-table-column :label="t('common.operate')" width="236" fixed="right" align="center" header-align="center">
+        <el-table-column :label="t('common.operate')" width="310" fixed="right" align="center" header-align="center">
           <template #default="{ row }">
             <div class="order-row-actions">
               <el-button size="small" @click="openDetail(row)">{{ t('common.detail') }}</el-button>
@@ -414,6 +414,15 @@
                 :loading="fetchingItemDetailId === row.id"
                 @click="fetchItemDetail(row)"
               >{{ t('orders.fetchItemDetail') }}</el-button>
+              <!-- 已发货却还有未出库的明细：一键补出库 -->
+              <el-button
+                v-if="hasUnstockedOutbound(row)"
+                size="small"
+                type="danger"
+                plain
+                :loading="stockingOutOrderNo === row.order_no"
+                @click="stockOutOrder(row)"
+              >{{ t('orders.stockOutOrder') }}</el-button>
             </div>
           </template>
         </el-table-column>
@@ -576,6 +585,25 @@
                   :loading="rematching"
                   @click="rematchProducts"
                 >{{ t('orders.rematchProducts') }}</el-button>
+                <!-- 访问平台重读说明 + 原图管理暗码再整单重建；「重新匹配」只用库里现有数据 -->
+                <el-button
+                  class="odt-chips__action"
+                  size="small"
+                  type="primary"
+                  plain
+                  :icon="Download"
+                  :loading="refetchingDetail"
+                  @click="refetchDetailInDialog"
+                >{{ t('orders.refetchDetail') }}</el-button>
+                <el-button
+                  v-if="hasUnstockedOutbound(detailRow)"
+                  class="odt-chips__action"
+                  size="small"
+                  type="danger"
+                  plain
+                  :loading="stockingOutOrderNo === form.order_no"
+                  @click="stockOutOrder(detailRow)"
+                >{{ t('orders.stockOutOrder') }}</el-button>
               </div>
 
               <div class="odt-title">{{ form.remark || '-' }}</div>

@@ -27,11 +27,16 @@ OUTBOUND_ALERT_SKIP_STATUSES: Tuple[str, ...] = (
     "cancel_request",
 )
 
-# 列表需登记包材（或确认不使用）的状态
-PACKAGING_CHECK_STATUSES: Tuple[str, ...] = (
+# 已发货之后的状态：订单列表在这些状态下检查「还有未出库的商品」与「没登记包材」并标红。
+# 待发货 / 已取消 / 取消申请中，以及更早的待处理 / 交易中 / 待付款都还没发货，不查。
+POST_SHIP_CHECK_STATUSES: Tuple[str, ...] = (
     "wait_review",
     "done",
+    "sold_out",
 )
+
+# 列表需登记包材（或确认不使用）的状态——与未出库检查同一组
+PACKAGING_CHECK_STATUSES: Tuple[str, ...] = POST_SHIP_CHECK_STATUSES
 
 
 class OrderOutboundLineModel(BaseModel):

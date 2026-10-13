@@ -139,9 +139,18 @@ class _QueryMixin:
                 ELSE 0
             END
         """
-        wait_review_pending_alert_sql = f"""
+        # 已发货（待评价/已完成/售罄）却还有已关联库存、未出库的明细。只看已绑库存的行：
+        # 没绑上的另有 has_owner_unmatched_outbound / has_no_bound_outbound 标红，也没法直接出库。
+        # 不用 pending_outbound_qty——它对终态（已完成）恒为 0，已完成单的漏出库会被藏起来。
+        unstocked_sql = f"""
             CASE
-                WHEN o.[status] = 'wait_review' AND ({pending_sql}) > 0 THEN 1
+                WHEN o.[status] NOT IN ({pkg_ph}) THEN 0
+                WHEN EXISTS (
+                    SELECT 1 FROM [order_outbound_lines] l
+                    WHERE l.[order_no] = o.[order_no]
+                      AND COALESCE(l.[is_stocked_out], 0) = 0
+                      AND IFNULL(l.[inventory_id], 0) > 0
+                ) THEN 1
                 ELSE 0
             END
         """
@@ -158,11 +167,11 @@ class _QueryMixin:
                    q.settlement_excluded,
                    q.order_note,
                    q.pending_outbound_qty, q.has_owner_unmatched_outbound, q.has_no_bound_outbound,
-                   q.has_packaging_pending,
+                   q.has_packaging_pending, q.has_unstocked_outbound,
                    CASE WHEN q.has_owner_unmatched_outbound = 1
                              OR q.has_no_bound_outbound = 1
                              OR q.has_packaging_pending = 1
-                             OR q.wait_review_pending_alert = 1
+                             OR q.has_unstocked_outbound = 1
                         THEN 1 ELSE 0 END AS order_needs_alert
             FROM (
                 SELECT o.id, o.order_no, o.order_date, o.order_updated_at, o.purchase_time,
@@ -185,7 +194,7 @@ class _QueryMixin:
                        {owner_unmatched_sql} AS has_owner_unmatched_outbound,
                        {no_bound_outbound_sql} AS has_no_bound_outbound,
                        {packaging_pending_sql} AS has_packaging_pending,
-                       {wait_review_pending_alert_sql} AS wait_review_pending_alert
+                       {unstocked_sql} AS has_unstocked_outbound
                 {base_sql}
             ) q
             ORDER BY order_needs_alert DESC,
@@ -195,11 +204,12 @@ class _QueryMixin:
         term_bind = tuple(TERMINAL_ORDER_STATUSES)
         skip_bind = tuple(OUTBOUND_ALERT_SKIP_STATUSES)
         pkg_bind = tuple(PACKAGING_CHECK_STATUSES)
-        # 派生表内各告警子句仅各算一次：pending(term) / no_bound(skip) / packaging(pkg)，
+        # 派生表内各告警子句仅各算一次：pending(term) / no_bound(skip) / packaging(pkg) / unstocked(pkg)，
         # 占位符按其在 SQL 文本中的先后绑定一次即可。
         bind = (
             term_bind
             + skip_bind
+            + pkg_bind
             + pkg_bind
             + tuple(params)
             + (page_size, (page - 1) * page_size)
@@ -216,7 +226,7 @@ class _QueryMixin:
             'settlement_excluded',
             'order_note',
             'pending_outbound_qty', 'has_owner_unmatched_outbound', 'has_no_bound_outbound',
-            'has_packaging_pending', 'order_needs_alert',
+            'has_packaging_pending', 'has_unstocked_outbound', 'order_needs_alert',
         ]
         items = [dict(zip(keys, row)) for row in rows]
         if owner_user_id is not None and int(owner_user_id) > 0:

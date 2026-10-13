@@ -10,6 +10,7 @@ import {
   WarningFilled,
   ArrowLeft,
   ArrowRight,
+  Download,
 } from '@element-plus/icons-vue'
 import {
   orderApi,
@@ -17,6 +18,7 @@ import {
   costExpenseApi,
   costRecordApi,
   authApi,
+  tasksApi,
   TASK_TYPES,
 } from '@/api/index.js'
 import { submitTask } from '@/utils/taskSubmit.js'
@@ -955,12 +957,7 @@ export default defineComponent({
         out.push(t('orders.alertOwnerUnmatched'))
       }
       if (Number(row.has_packaging_pending || 0) === 1) out.push(t('orders.alertPackagingPending'))
-      if (
-        String(row.status || '').trim() === 'wait_review' &&
-        Number(row.pending_outbound_qty || 0) > 0
-      ) {
-        out.push(t('orders.alertWaitReviewPendingOutbound'))
-      }
+      if (hasUnstockedOutbound(row)) out.push(t('orders.alertUnstockedOutbound'))
       if (!out.length && Number(row.order_needs_alert ?? 0) === 1) {
         out.push(t('orders.alertNeedsHandle'))
       }
@@ -1388,10 +1385,12 @@ export default defineComponent({
       if (Number(row.has_owner_unmatched_outbound || 0) === 1) return true
       if (Number(row.has_no_bound_outbound || 0) === 1) return true
       if (Number(row.has_packaging_pending || 0) === 1) return true
-      if (String(row.status || '').trim() === 'wait_review') {
-        return Number(row.pending_outbound_qty || 0) > 0
-      }
-      return false
+      return hasUnstockedOutbound(row)
+    }
+
+    /** 已发货（待评价/已完成/售罄）却还有已关联库存、未出库的明细（后端 has_unstocked_outbound） */
+    function hasUnstockedOutbound(row) {
+      return Number(row?.has_unstocked_outbound || 0) === 1
     }
 
     /** 展示排序：预警行置顶，其余按购入时间倒序。表格按当前页排，卡片按每批到手的那页排——
@@ -1848,6 +1847,66 @@ export default defineComponent({
       return out
     }
 
+    // ── 整单「商品出库」 ────────────────────────────────────────────
+    // 已发货却漏了出库的订单（标红）一键补出库：逐条走单行出库接口（后端原子认领 + 条件扣减，
+    // 重复点击不会二次扣减）。取整单全部明细，不受列表「归属人」筛选影响——货已经整单发走了。
+    const stockingOutOrderNo = ref('')
+
+    async function stockOutOrder(row) {
+      const ono = String(row?.order_no || '').trim()
+      if (!ono) {
+        ElMessage.warning(t('orders.missingOrderNo'))
+        return
+      }
+      let lines = []
+      try {
+        const res = await orderApi.outboundLines({ order_no: ono })
+        lines = Array.isArray(res?.items) ? res.items : []
+      } catch {
+        return
+      }
+      const todo = lines.filter(canStockOutLine)
+      if (!todo.length) {
+        ElMessage.info(t('orders.stockOutOrderNothing'))
+        load()
+        return
+      }
+      try {
+        await ElMessageBox.confirm(
+          t('orders.stockOutOrderConfirm', { n: todo.length }),
+          t('orders.stockOutOrder'),
+          { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') },
+        )
+      } catch {
+        return
+      }
+      stockingOutOrderNo.value = ono
+      let ok = 0
+      try {
+        for (const line of todo) {
+          try {
+            await orderApi.stockOutOutboundLine(line.id, {})
+            ok += 1
+          } catch {
+            // 单条失败（库存不足等）的原因已由 axios 拦截器弹出，继续出其余明细
+          }
+        }
+        const fail = todo.length - ok
+        if (fail) ElMessage.warning(t('orders.stockOutOrderPartial', { ok, fail }))
+        else ElMessage.success(t('orders.stockOutOrderDone', { n: ok }))
+        clearOutboundExpandCache(ono)
+        await load()
+        loadStats()
+        if (dialogVisible.value && String(form.value.order_no || '').trim() === ono) {
+          const fresh = list.value.find((r) => String(r.order_no || '').trim() === ono)
+          if (fresh) detailRow.value = fresh
+          await loadDetailOutboundLines(ono)
+        }
+      } finally {
+        stockingOutOrderNo.value = ''
+      }
+    }
+
     async function stockOutLine(orderRow, line) {
       const orderNo = String(orderRow?.order_no || '').trim()
       const lineId = Number(line?.id || 0)
@@ -2004,6 +2063,85 @@ export default defineComponent({
       }
     }
 
+    // ── 详情弹窗「重新获取详情」 ────────────────────────────────────
+    // 与列表行「获取商品说明」是同一个任务（重读平台商品页的说明 + 原图左下角管理暗码，
+    // 整单重建出库明细）；区别是这里**等任务跑完**再把弹窗的出库明细 / 说明换成新数据——
+    // 人就站在弹窗前看结果。「重新匹配」只用库里已有的说明与图片暗码，不访问平台。
+    const refetchingDetail = ref(false)
+    let disposed = false
+    const TASK_POLL_MS = 2500
+    const TASK_WAIT_MAX_MS = 10 * 60 * 1000
+
+    /** 轮询到任务进入终态；页面卸载或超时返回 null（任务仍在后台继续，结果去 /#/tasks 看） */
+    async function waitTaskFinished(taskId) {
+      const deadline = Date.now() + TASK_WAIT_MAX_MS
+      while (!disposed && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, TASK_POLL_MS))
+        let task = null
+        try {
+          task = (await tasksApi.detail(taskId))?.data || null
+        } catch {
+          continue
+        }
+        if (task && ['success', 'failed', 'canceled'].includes(task.status)) return task
+      }
+      return null
+    }
+
+    function taskResultData(task) {
+      let res = task?.result
+      if (typeof res === 'string') {
+        try {
+          res = JSON.parse(res)
+        } catch {
+          res = null
+        }
+      }
+      return res?.data || res || {}
+    }
+
+    async function refetchDetailInDialog() {
+      const ono = String(form.value.order_no || '').trim()
+      if (!form.value.id || !ono) {
+        ElMessage.warning(t('orders.noOrderSelected'))
+        return
+      }
+      const orderId = form.value.id
+      refetchingDetail.value = true
+      try {
+        const task = await submitTask(TASK_TYPES.ORDERS_FETCH_ITEM_DETAIL, { order_no: ono }, { t })
+        if (!task) return
+        const done = await waitTaskFinished(task.id)
+        if (!done) {
+          if (!disposed) ElMessage.info(t('orders.refetchDetailStillRunning'))
+          return
+        }
+        if (done.status !== 'success') {
+          ElMessage.error(done.error || t('orders.refetchDetailFailed'))
+          return
+        }
+        const data = taskResultData(done)
+        ElMessage.success(t('orders.refetchDetailDone', {
+          linked: Number(data.linked_inventory || 0),
+          images: (data.image_inventory_ids || []).length,
+        }))
+        clearOutboundExpandCache(ono)
+        await load()
+        loadStats()
+        // 弹窗已关或换了别的订单就不动它
+        if (dialogVisible.value && form.value.id === orderId) {
+          const fresh = list.value.find((r) => r.id === orderId)
+          if (fresh) {
+            detailRow.value = fresh
+            form.value.description = fresh.description || ''
+          }
+          await loadDetailOutboundLines(ono)
+        }
+      } finally {
+        refetchingDetail.value = false
+      }
+    }
+
     const rematching = ref(false)
     /** 根据商品说明重新匹配商品（重建出库明细） */
     async function rematchProducts() {
@@ -2047,6 +2185,7 @@ export default defineComponent({
     })
 
     onBeforeUnmount(() => {
+      disposed = true
       window.removeEventListener('resize', updateViewportState)
       teardownCardObserver()
     })
@@ -2062,6 +2201,7 @@ export default defineComponent({
       ElMessage,
       ElMessageBox,
       RefreshRight,
+      Download,
       Refresh,
       Plus,
       Minus,
@@ -2262,10 +2402,15 @@ export default defineComponent({
       inventoryThumbUrl,
       inventoryPreviewSrcList,
       stockOutLine,
+      stockingOutOrderNo,
+      stockOutOrder,
+      hasUnstockedOutbound,
       openDetail,
       refreshOrder,
       rematching,
       rematchProducts,
+      refetchingDetail,
+      refetchDetailInDialog,
       settlementExcluding,
       detailSettlementExcluded,
       excludeFromSettlement,
