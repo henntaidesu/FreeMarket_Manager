@@ -16,11 +16,28 @@
 from fastapi import APIRouter, Depends
 
 from ...auth import require_admin
+from ...page_access import require_page
 from .units.system_handler import RestartOut, restart_system
 
 # 仅管理员可调用的危险端点依赖（重启、数据库切换/迁移/备份、MITM 控制、清日志）
 _ADMIN = [Depends(require_admin)]
-from .units.users_handler import list_users, create_user, change_password
+
+
+def _page(*pages, reads_open=False):
+    """页面权限依赖（系统角色），口径见 src/page_access.py。"""
+    return [Depends(require_page(*pages, reads_open=reads_open))]
+
+
+# 系统配置页里的业务开关：读取全站都要（出品默认值、暗号模式……），改动只属于系统配置页
+_CONFIG_WRITE = _page("system/config")
+from .units.users_handler import (
+    list_users,
+    list_user_options,
+    get_me,
+    create_user,
+    update_user,
+    change_password,
+)
 from .units.app_config_handler import (
     ListingDefaultsOut,
     get_listing_defaults,
@@ -115,6 +132,7 @@ from .product_type_category_mappings.API import router as ptcm_router
 from .yahoo_category_mappings.API import router as yahoo_ycm_router
 from .settlement.API import router as settlement_router
 from .proxy_users.API import router as proxy_users_router
+from .roles.API import router as roles_router
 
 router = APIRouter()
 
@@ -125,29 +143,34 @@ router.add_api_route("/restart", restart_system, methods=["POST"], response_mode
 # 用户管理（System 页面"用户管理"区）
 router.add_api_route("/users", list_users, methods=["GET"])
 router.add_api_route("/users", create_user, methods=["POST"])
+# 注意顺序：/users/options 要在 /users/{user_id} 之前注册
+router.add_api_route("/users/options", list_user_options, methods=["GET"])
+router.add_api_route("/users/{user_id}", update_user, methods=["PUT"])
 router.add_api_route("/change-password", change_password, methods=["POST"])
+# 当前用户（含角色与可访问页面），前端据此过滤菜单与路由
+router.add_api_route("/me", get_me, methods=["GET"])
 
 # 应用配置（出品默认值）
 router.add_api_route("/listing-defaults", get_listing_defaults, methods=["GET"], response_model=ListingDefaultsOut)
-router.add_api_route("/listing-defaults", put_listing_defaults, methods=["PUT"], response_model=ListingDefaultsOut)
+router.add_api_route("/listing-defaults", put_listing_defaults, methods=["PUT"], response_model=ListingDefaultsOut, dependencies=_CONFIG_WRITE)
 router.add_api_route("/printer-params", get_printer_params, methods=["GET"], response_model=PrinterParams)
 router.add_api_route("/printer-params", put_printer_params, methods=["PUT"], response_model=PrinterParams)
 
 # 回国模式（开启=全部在售暂停出售 + 禁止上架；关闭=恢复本模式暂停的那些）
 router.add_api_route("/homecoming", get_homecoming, methods=["GET"], response_model=HomecomingStatusOut)
-router.add_api_route("/homecoming", put_homecoming, methods=["PUT"], response_model=HomecomingStatusOut)
+router.add_api_route("/homecoming", put_homecoming, methods=["PUT"], response_model=HomecomingStatusOut, dependencies=_CONFIG_WRITE)
 
 # 条码识别（历史数据）：开启即排一条任务，识别历史商品图片条码并合并同条码同归属人的商品
 router.add_api_route("/barcode-history", get_barcode_history, methods=["GET"], response_model=BarcodeHistoryStatusOut)
-router.add_api_route("/barcode-history", put_barcode_history, methods=["PUT"], response_model=BarcodeHistoryStatusOut)
+router.add_api_route("/barcode-history", put_barcode_history, methods=["PUT"], response_model=BarcodeHistoryStatusOut, dependencies=_CONFIG_WRITE)
 # 条码冲突（多张图识别出不同条码）的人工处理：列表 + 逐个选定条码 / 标记无条码
 router.add_api_route("/barcode-history/conflicts", list_barcode_conflicts, methods=["GET"])
 router.add_api_route("/barcode-history/skipped", list_barcode_skipped, methods=["GET"])
-router.add_api_route("/barcode-history/conflicts/{inv_id}", resolve_barcode_conflict, methods=["POST"], response_model=BarcodeHistoryStatusOut)
+router.add_api_route("/barcode-history/conflicts/{inv_id}", resolve_barcode_conflict, methods=["POST"], response_model=BarcodeHistoryStatusOut, dependencies=_CONFIG_WRITE)
 
 # 一键修改发货时效（把范围内在售商品的発送までの日数整批改成同一个值）
 router.add_api_route("/shipping-duration", get_shipping_duration, methods=["GET"], response_model=ShippingDurationPreviewOut)
-router.add_api_route("/shipping-duration", post_shipping_duration, methods=["POST"], response_model=ShippingDurationPreviewOut)
+router.add_api_route("/shipping-duration", post_shipping_duration, methods=["POST"], response_model=ShippingDurationPreviewOut, dependencies=_CONFIG_WRITE)
 
 # Cookie 注入域名（代理经 nginx 以独立域名发布时的对外基址）
 # PUT 限管理员：这个值决定用户点「Cookie 注入」会被送到哪个地址，等同于一次跳转目标的授权。
@@ -156,14 +179,14 @@ router.add_api_route("/proxy-public-base", put_proxy_public_base, methods=["PUT"
 
 # 管理番号暗号编码模式（隐藏页 /x9 切换：二进制 ◇◆ / 五进制 -=~<>）
 router.add_api_route("/mgmt-cipher-mode", get_mgmt_cipher_mode, methods=["GET"], response_model=MgmtCipherModeOut)
-router.add_api_route("/mgmt-cipher-mode", put_mgmt_cipher_mode, methods=["PUT"], response_model=MgmtCipherModeOut)
+router.add_api_route("/mgmt-cipher-mode", put_mgmt_cipher_mode, methods=["PUT"], response_model=MgmtCipherModeOut, dependencies=_CONFIG_WRITE)
 
 # 系统配置（DeepSeek AI：API Key / 模型 / API 地址）
 router.add_api_route("/deepseek-config", get_deepseek_config, methods=["GET"], response_model=DeepSeekConfigOut)
-router.add_api_route("/deepseek-config", put_deepseek_config, methods=["PUT"], response_model=DeepSeekConfigOut)
+router.add_api_route("/deepseek-config", put_deepseek_config, methods=["PUT"], response_model=DeepSeekConfigOut, dependencies=_CONFIG_WRITE)
 
 # 系统日志（自动上架 / 自动获取 / 操作日志）
-router.add_api_route("/system-logs", list_system_logs, methods=["GET"])
+router.add_api_route("/system-logs", list_system_logs, methods=["GET"], dependencies=_page("system/system-logs"))
 router.add_api_route("/system-logs/clear", clear_system_logs, methods=["POST"], dependencies=_ADMIN)
 # 操作日志上报（前端提示统一写入，记录登录用户）
 router.add_api_route("/operation-logs", create_operation_log, methods=["POST"])
@@ -208,21 +231,47 @@ router.add_api_route("/ssl-mitm/ca-cert", download_ca_cert, methods=["GET"])
 router.add_api_route("/ssl-mitm/last-capture", get_last_capture, methods=["GET"])
 
 # ===== 二级页面（嵌套到 /system 下） =====
-router.include_router(cost_records_router, prefix="/cost-records", tags=["cost-records"])
-router.include_router(cost_expenses_router, prefix="/cost-expenses", tags=["cost-expenses"])
-router.include_router(warehouses_router, prefix="/warehouses", tags=["warehouses"])
-router.include_router(categories_router, prefix="/categories", tags=["categories"])
-router.include_router(transactions_router, prefix="/transactions", tags=["transactions"])
+# 每组的页面权限列的是「哪些页面会调用它」，不只是它自己那一页（见 src/page_access.py）。
+# 订单 / 待办要读写包材，库存 / 订单要读仓库、分类、商品类型做筛选与表单。
+router.include_router(
+    cost_records_router, prefix="/cost-records", tags=["cost-records"],
+    dependencies=_page("system/cost-records", "system/cost-expenses", "orders", "todos"),
+)
+router.include_router(
+    cost_expenses_router, prefix="/cost-expenses", tags=["cost-expenses"],
+    dependencies=_page("system/cost-expenses", "orders", "todos"),
+)
+router.include_router(
+    warehouses_router, prefix="/warehouses", tags=["warehouses"],
+    dependencies=_page("system/warehouses", "inventory", "orders", "system/cost-records", "system/transactions"),
+)
+router.include_router(
+    categories_router, prefix="/categories", tags=["categories"],
+    dependencies=_page("system/categories", "inventory", "orders"),
+)
+router.include_router(
+    transactions_router, prefix="/transactions", tags=["transactions"],
+    dependencies=_page("system/transactions", "inventory", "dashboard"),
+)
 router.include_router(
     ptcm_router,
     prefix="/product-type-category-mappings",
     tags=["product-type-category-mappings"],
+    dependencies=_page("system/product-type-category-mappings", "inventory", "on-sale-items", "orders"),
 )
 router.include_router(
     yahoo_ycm_router,
     prefix="/yahoo-category-mappings",
     tags=["yahoo-category-mappings"],
 )
-router.include_router(settlement_router, prefix="/settlement", tags=["settlement"])
+router.include_router(
+    settlement_router, prefix="/settlement", tags=["settlement"],
+    dependencies=_page("system/settlement", "system/purchase-settlement"),
+)
 # 代购用户：购入商品「归属人」的取值来源，与能登录系统的 users 是两张表
-router.include_router(proxy_users_router, prefix="/proxy-users", tags=["proxy-users"])
+router.include_router(
+    proxy_users_router, prefix="/proxy-users", tags=["proxy-users"],
+    dependencies=_page("system/purchases", "system/purchase-settlement", "system/config"),
+)
+# 系统角色（页面访问权限）：仅管理员
+router.include_router(roles_router, prefix="/roles", tags=["roles"], dependencies=_ADMIN)

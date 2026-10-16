@@ -55,6 +55,12 @@ class UserModel(BaseModel):
                 'not_null': True,
                 'default': 0,
             },
+            # 系统角色（roles.id）：决定非管理员能进哪些页面。NULL = 未分配，不限制页面
+            'role_id': {
+                'type': 'INTEGER',
+                'not_null': False,
+                'default': None,
+            },
             # 令牌版本：改密/禁用/踢下线时自增，使旧 JWT 立即失效（配合 require_auth 校验）
             'token_version': {
                 'type': 'INTEGER',

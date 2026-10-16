@@ -24,6 +24,7 @@ use_web V2 API 聚合模块（按前端页面归类）
 from fastapi import APIRouter, Depends
 
 from ..auth import require_auth
+from ..page_access import require_page
 
 from .login.API import router as login_router
 from .dashboard.API import router as dashboard_router
@@ -77,23 +78,47 @@ router.include_router(system_public_router, prefix="/system", tags=["system-publ
 # ============ 需要认证的端点 ============
 _AUTH = [Depends(require_auth)]
 
+
+def _page(*pages, reads_open=False):
+    """登录 + 系统角色页面权限：用户拥有其中任一页面即放行（口径见 src/page_access.py）。
+
+    列的是「哪些页面会调用这组接口」——订单页要读库存、待办页要写订单出库，漏一个那页就 403。
+    只挂 ``_AUTH`` 的几组是全站共用的基础设施（任务队列、浏览器自动化、系统配置读取等），
+    不按页面拦。
+    """
+    return [Depends(require_auth), Depends(require_page(*pages, reads_open=reads_open))]
+
+
 # 控制台：整页 KPI / 趋势 / 待处理 / 库存健康度 / 平台对比的一次性聚合
-router.include_router(dashboard_router, prefix="/dashboard", tags=["dashboard"], dependencies=_AUTH)
-# 系统管理（含 6 个二级页面：cost-records / cost-expenses / warehouses / categories / transactions / product-type-category-mappings）
+router.include_router(dashboard_router, prefix="/dashboard", tags=["dashboard"], dependencies=_page("dashboard"))
+# 系统管理（含二级页面；各二级页面的页面权限在 system/API.py 里逐组挂）
 router.include_router(system_router, prefix="/system", tags=["system"], dependencies=_AUTH)
 router.include_router(product_types_router, prefix="/product-types", tags=["product-types"], dependencies=_AUTH)
 router.include_router(web_drive_router, prefix="/web-drive", tags=["web-drive"], dependencies=_AUTH)
-router.include_router(on_sale_items_router, prefix="/on-sale-items", tags=["on-sale-items"], dependencies=_AUTH)
-router.include_router(purchases_router, prefix="/purchases", tags=["purchases"], dependencies=_AUTH)
-router.include_router(orders_router, prefix="/orders", tags=["orders"], dependencies=_AUTH)
-router.include_router(inventory_router, prefix="/inventory", tags=["inventory"], dependencies=_AUTH)
-router.include_router(shop_accounts_router, prefix="/shop-accounts", tags=["shop-accounts"], dependencies=_AUTH)
-router.include_router(todos_router, prefix="/todos", tags=["todos"], dependencies=_AUTH)
-# 任务队列：出品/同步/改价等重型操作的统一提交入口与状态查询
+router.include_router(
+    on_sale_items_router, prefix="/on-sale-items", tags=["on-sale-items"],
+    dependencies=_page("on-sale-items", "inventory"),
+)
+router.include_router(
+    purchases_router, prefix="/purchases", tags=["purchases"],
+    dependencies=_page("system/purchases", "system/purchase-settlement"),
+)
+router.include_router(orders_router, prefix="/orders", tags=["orders"], dependencies=_page("orders", "todos"))
+router.include_router(
+    inventory_router, prefix="/inventory", tags=["inventory"],
+    dependencies=_page("inventory", "on-sale-items", "orders"),
+)
+# 店铺账号：账号下拉全站都要读，只有店铺账号页能改（含 Cookie / 请求头）
+router.include_router(
+    shop_accounts_router, prefix="/shop-accounts", tags=["shop-accounts"],
+    dependencies=_page("shop-accounts", reads_open=True),
+)
+router.include_router(todos_router, prefix="/todos", tags=["todos"], dependencies=_page("todos"))
+# 任务队列：出品/同步/改价等重型操作的统一提交入口与状态查询（各页面都会提交任务）
 router.include_router(tasks_router, prefix="/tasks", tags=["tasks"], dependencies=_AUTH)
-router.include_router(notifications_router, prefix="/notifications", tags=["notifications"], dependencies=_AUTH)
-router.include_router(memos_router, prefix="/memos", tags=["memos"], dependencies=_AUTH)
+router.include_router(notifications_router, prefix="/notifications", tags=["notifications"], dependencies=_page("notifications"))
+router.include_router(memos_router, prefix="/memos", tags=["memos"], dependencies=_page("system/memos"))
 # 日历：全员共享的一份事项表（前端 /system/calendar）
-router.include_router(calendar_router, prefix="/calendar", tags=["calendar"], dependencies=_AUTH)
-router.include_router(talk_scripts_router, prefix="/talk-scripts", tags=["talk-scripts"], dependencies=_AUTH)
+router.include_router(calendar_router, prefix="/calendar", tags=["calendar"], dependencies=_page("system/calendar"))
+router.include_router(talk_scripts_router, prefix="/talk-scripts", tags=["talk-scripts"], dependencies=_page("system/talk-scripts"))
 router.include_router(gotion_router, prefix="/gotion", tags=["gotion"], dependencies=_AUTH)

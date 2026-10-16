@@ -164,7 +164,7 @@ class _QueryMixin:
                    q.service_fee, q.net_income, q.carrier_display_name, q.request_class_display_name,
                    q.shipping_fee, q.tracking_no, q.ship_confirm_code, q.transaction_evidence_id, q.remark, q.description,
                    q.inventory_synced, q.inventory_synced_quantity, q.thumbnails, q.packaging_waived,
-                   q.settlement_excluded,
+                   q.settlement_excluded, q.manual_outbound_at,
                    q.order_note,
                    q.pending_outbound_qty, q.has_owner_unmatched_outbound, q.has_no_bound_outbound,
                    q.has_packaging_pending, q.has_unstocked_outbound,
@@ -187,6 +187,8 @@ class _QueryMixin:
                        COALESCE(o.[packaging_waived], 0) AS packaging_waived,
                        -- 订单详情「不加入结算」标记：前端据此隐藏按钮并打标，结算侧另行过滤
                        COALESCE(o.[settlement_excluded], 0) AS settlement_excluded,
+                       -- 手动出库表单定稿时间：非空则前端不再提供手动出库 / 重新匹配 / 改绑
+                       o.[manual_outbound_at],
                        -- 备注不在 orders 上：待办页要在订单行还没同步出来时就能写，见 order_note.py
                        (SELECT n.[note] FROM [order_notes] n
                          WHERE n.[order_no] = o.[order_no] LIMIT 1) AS order_note,
@@ -223,7 +225,7 @@ class _QueryMixin:
             'service_fee', 'net_income', 'carrier_display_name', 'request_class_display_name',
             'shipping_fee', 'tracking_no', 'ship_confirm_code', 'transaction_evidence_id', 'remark', 'description',
             'inventory_synced', 'inventory_synced_quantity', 'thumbnails', 'packaging_waived',
-            'settlement_excluded',
+            'settlement_excluded', 'manual_outbound_at',
             'order_note',
             'pending_outbound_qty', 'has_owner_unmatched_outbound', 'has_no_bound_outbound',
             'has_packaging_pending', 'has_unstocked_outbound', 'order_needs_alert',

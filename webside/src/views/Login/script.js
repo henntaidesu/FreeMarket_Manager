@@ -4,6 +4,7 @@ import { ElMessage } from '@/utils/notify'
 import { useI18n } from 'vue-i18n'
 import { authApi } from '@/api'
 import { setLocale, SUPPORTED_LOCALES } from '@/i18n'
+import { useAuthStore } from '@/stores/auth.js'
 
 export default defineComponent({
   setup() {
@@ -36,9 +37,12 @@ export default defineComponent({
       try {
         const res = await authApi.login(form)
         localStorage.setItem('auth_token', res.token)
-        localStorage.setItem('auth_user', JSON.stringify(res.user))
+        // 登录响应已带角色与可访问页面，算作核对过，路由守卫不必再拉一次 /me
+        const auth = useAuthStore()
+        auth.setUser(res.user)
+        auth.verified = true
         ElMessage.success(t('login.success'))
-        router.replace('/dashboard')
+        router.replace(auth.firstAllowedPath())
       } finally {
         loading.value = false
       }

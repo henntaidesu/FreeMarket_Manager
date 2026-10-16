@@ -18,6 +18,7 @@ from .models import (
     InventoryModel,
     TransactionModel,
     UserModel,
+    RoleModel,
     CostRecordModel,
     CostExpenseModel,
     SettlementRecordModel,
@@ -702,6 +703,7 @@ class DBManager:
         """按依赖顺序返回所有模型类"""
         return [
             UserModel,        # 无外键依赖（登录依赖）
+            RoleModel,        # 系统角色（users.role_id 指向它；鉴权每请求 LEFT JOIN）
             ConfigEntryModel,  # 键值配置（出品默认值等）
             CategoryModel,    # 无外键依赖
             WarehouseModel,   # 无外键依赖

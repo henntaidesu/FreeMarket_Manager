@@ -33,6 +33,10 @@ def create_manual_outbound_lines(data: ManualOutboundLinesBatchCreateBody):
     rows = OrderModel.find_all(where="[order_no] = ?", params=(ono,), limit=1)
     if not rows:
         raise HTTPException(status_code=404, detail="订单不存在")
+    if str(rows[0].status or "").strip() in ("cancelled", "cancel_request"):
+        raise HTTPException(status_code=400, detail="已取消 / 取消申请中的订单不能手动出库")
+    if rows[0].manual_outbound_at is not None:
+        raise HTTPException(status_code=400, detail="本单已手动出库，出库明细不可再修改")
     lines = data.lines or []
     if not lines:
         raise HTTPException(status_code=400, detail="lines 不能为空")
@@ -51,17 +55,26 @@ def create_manual_outbound_lines(data: ManualOutboundLinesBatchCreateBody):
         seen.add(inv_id)
         normalized.append((inv_id, qty, (it.management_id or "").strip()))
 
-    max_sort_rows = db.execute_query(
-        "SELECT COALESCE(MAX([sort_index]), -1) FROM [order_outbound_lines] WHERE [order_no] = ?",
-        (ono,),
-    )
-    next_sort = int(max_sort_rows[0][0] or -1) + 1
-
     touched_inv_ids: List[int] = []
     created_items = []
-    # 整批包在单一事务内：任一行失败则原子回滚（明细、库存扣减、出库流水、组合级联全部撤销），
+    now = int(time.time())
+    # 整批包在单一事务内：任一行失败则原子回滚（明细、库存扣减、出库流水、组合级联、锁定标记全部撤销），
     # 避免出现「已扣库存/已写流水但明细未落库」的中间态。
     with db.transaction():
+        # 表单只能提交一次：条件 UPDATE 抢锁，并发的第二次提交在这里落空
+        claimed = db.execute_update(
+            "UPDATE [orders] SET [manual_outbound_at] = ? "
+            "WHERE [order_no] = ? AND [manual_outbound_at] IS NULL",
+            (now, ono),
+        )
+        if claimed <= 0:
+            raise HTTPException(status_code=400, detail="本单已手动出库，出库明细不可再修改")
+        # 只给「说明与图片都没解出任何明细」的订单用；已有明细（含未绑库存的占位行）走改绑
+        if db.execute_query(
+            "SELECT 1 FROM [order_outbound_lines] WHERE [order_no] = ? LIMIT 1", (ono,)
+        ):
+            raise HTTPException(status_code=400, detail="本单已有出库明细，请在明细行上改绑库存")
+        next_sort = 0
         for idx, (inv_id, qty, mgmt) in enumerate(normalized):
             inv_rows = db.execute_query(
                 "SELECT [quantity], [warehouse_id], [name] FROM [inventory] WHERE [id] = ? LIMIT 1",
@@ -112,7 +125,7 @@ def create_manual_outbound_lines(data: ManualOutboundLinesBatchCreateBody):
                         warehouse_id,
                         qty,
                         (data.remark or "").strip() or f"订单待出库预扣减 {ono} / line#{line.id}",
-                        int(time.time()),
+                        now,
                     ),
                 )
             # 组合商品：套数已扣减，级联扣减来源子商品物理库存（普通商品为空操作）
@@ -124,7 +137,7 @@ def create_manual_outbound_lines(data: ManualOutboundLinesBatchCreateBody):
             created_items.append({"line_id": int(line.id), "inventory_id": inv_id, "quantity": qty})
 
     refresh_inventory_pending_outbound_qty(touched_inv_ids)
-    return {"success": True, "order_no": ono, "items": created_items}
+    return {"success": True, "order_no": ono, "manual_outbound_at": now, "items": created_items}
 
 def waive_order_packaging(data: OrderPackagingWaiveBody):
     """待评价/已完成：确认本单不使用包材后不再标红。"""

@@ -174,7 +174,7 @@ export function useInventoryListApiFilters(scheduleReload) {
     const [cats, whs, users, mappings] = await Promise.all([
       categoryApi.list(),
       warehouseApi.list(),
-      authApi.listUsers(),
+      authApi.listUserOptions(),
       productTypeCategoryMappingApi.list(),
     ])
     categories.value = cats

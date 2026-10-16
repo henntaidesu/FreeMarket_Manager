@@ -13,6 +13,7 @@ from fastapi import HTTPException, Request
 from pydantic import BaseModel as PydanticModel
 
 from ....auth import create_access_token
+from ....page_access import load_user_profile
 from ....db_manage.database import DatabaseManager
 from ....db_manage.models.system.user import UserModel
 
@@ -182,7 +183,8 @@ def login(data: LoginRequest, request: Request):
 
     return {
         "token": create_access_token(user_id, db_username, token_version or 0),
-        "user": {
+        # 含 is_admin / 角色 / 可访问页面：前端据此过滤菜单、决定登录后落到哪一页
+        "user": load_user_profile(user_id) or {
             "id": user_id,
             "username": db_username,
             "display_name": display_name or db_username,

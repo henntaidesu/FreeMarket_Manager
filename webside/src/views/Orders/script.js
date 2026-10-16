@@ -1393,6 +1393,17 @@ export default defineComponent({
       return Number(row?.has_unstocked_outbound || 0) === 1
     }
 
+    /** 手动出库表单已提交过（后端 manual_outbound_at）：明细锁定，不可再改 */
+    function isManualOutboundLocked(row) {
+      return row?.manual_outbound_at != null
+    }
+
+    /** 手动出库入口：仅在未锁定、非取消类订单上提供（是否已有明细由调用处的空状态保证） */
+    function canOpenManualOutbound(row) {
+      if (!row || isManualOutboundLocked(row)) return false
+      return !['cancelled', 'cancel_request'].includes(String(row.status || ''))
+    }
+
     /** 展示排序：预警行置顶，其余按购入时间倒序。表格按当前页排，卡片按每批到手的那页排——
      *  对整个滚动窗口重排会让后面接进来的预警行跳到已看过的位置上去。 */
     function sortOrderRows(rows) {
@@ -1807,15 +1818,30 @@ export default defineComponent({
         ElMessage.warning(t('orders.pleaseAddAtLeastOneRow'))
         return
       }
+      // 只能提交一次、提交后不可修改，必须二次确认
+      try {
+        await ElMessageBox.confirm(
+          t('orders.manualOutboundConfirm', { count: lines.length }),
+          t('orders.manualAddOutbound'),
+          { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') },
+        )
+      } catch {
+        return
+      }
       manualOutboundSaving.value = true
       try {
-        await orderApi.addManualOutboundLinesBatch({
+        const res = await orderApi.addManualOutboundLinesBatch({
           order_no: orderNo,
           lines,
         })
         ElMessage.success(t('orders.manualOutboundAdded', { count: lines.length }))
         manualOutboundDialogVisible.value = false
         clearOutboundExpandCache(orderNo)
+        // 从详情弹窗打开时：就地打上锁定标记并重读明细，入口与重建按钮立刻失效
+        if (detailRow.value && String(detailRow.value.order_no || '') === orderNo) {
+          detailRow.value.manual_outbound_at = res?.manual_outbound_at ?? Math.floor(Date.now() / 1000)
+          await loadDetailOutboundLines(orderNo)
+        }
         await load()
       } finally {
         manualOutboundSaving.value = false
@@ -2180,7 +2206,7 @@ export default defineComponent({
       window.addEventListener('resize', updateViewportState)
       mercariAccountStore.ensureLoaded()
       try {
-        const users = await authApi.listUsers()
+        const users = await authApi.listUserOptions()
         ownerUsers.value = Array.isArray(users) ? users : []
       } catch {
         ownerUsers.value = []
@@ -2412,6 +2438,8 @@ export default defineComponent({
       stockingOutOrderNo,
       stockOutOrder,
       hasUnstockedOutbound,
+      isManualOutboundLocked,
+      canOpenManualOutbound,
       openDetail,
       refreshOrder,
       rematching,

@@ -241,6 +241,9 @@ def _sync_outbound_lines_for_order_impl(
     ono = (order_no or "").strip()
     if not ono:
         return
+    # 手动出库表单定稿过的订单不再自动重建：所有调用方（重新匹配 / 重新获取详情 / 同步）都经过这里
+    if OrderOutboundLineModel.is_manual_locked(ono):
+        return
 
     old_rows = OrderOutboundLineModel.find_all(
         where="[order_no] = ?",

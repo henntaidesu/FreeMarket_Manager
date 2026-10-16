@@ -203,6 +203,14 @@ class OrderModel(_AggregateMixin, _QueryMixin, BaseModel):
                 'not_null': True,
                 'default': 0,
             },
+            # 手动出库表单的提交时间；非空 = 本单出库明细已人工定稿并锁定：手动出库表单不能再开，
+            # 自动重建（重新匹配 / 重新获取详情 / 同步）跳过本单，改绑与归属转化被拒绝。
+            # 一次性不可撤回，见 use_web/orders/units/orders_outbound/manual.py
+            'manual_outbound_at': {
+                'type': 'INTEGER',
+                'not_null': False,
+                'default': None,
+            },
         }
 
 

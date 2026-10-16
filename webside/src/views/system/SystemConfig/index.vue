@@ -29,7 +29,7 @@
       <!-- 侧边锚点导航：粘在滚动容器顶部，窄屏变成横向 chip 条 -->
       <nav class="sc-nav">
         <button
-          v-for="s in SECTIONS"
+          v-for="s in visibleSections"
           :key="s.id"
           type="button"
           class="sc-nav-item"
@@ -67,15 +67,15 @@
           </div>
         </section>
 
-        <!-- 账号管理 -->
-        <section id="sc-account" class="sc-panel">
+        <!-- 账号管理（仅管理员：后端 /users 是管理员接口） -->
+        <section v-if="auth.isAdmin" id="sc-account" class="sc-panel">
           <div class="sc-panel-head">
             <span class="sc-ic sc-ic--blue"><el-icon :size="17"><User /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('system.accountManagement') }}</div>
               <div class="sc-panel-desc">{{ t('systemConfig.descAccount') }}</div>
             </div>
-            <el-button type="primary" size="small" @click="openUserDialog">
+            <el-button type="primary" size="small" @click="openUserDialog()">
               <el-icon><Plus /></el-icon>
               <span class="sc-btn-text">{{ t('system.addUser') }}</span>
             </el-button>
@@ -85,6 +85,16 @@
               <el-table-column prop="id" label="ID" width="70" />
               <el-table-column prop="username" :label="t('system.username')" min-width="120" />
               <el-table-column prop="display_name" :label="t('system.displayName')" min-width="140" />
+              <!-- 管理员不受角色约束；未分配角色 = 不限制页面（见 backend/src/page_access.py） -->
+              <el-table-column :label="t('system.role')" min-width="130">
+                <template #default="{ row }">
+                  <el-tag v-if="row.is_admin" type="warning" size="small" effect="dark" round>
+                    {{ t('roles.admin') }}
+                  </el-tag>
+                  <span v-else-if="row.role_id">{{ row.role_name || ('#' + row.role_id) }}</span>
+                  <span v-else class="sc-muted">{{ t('roles.unassigned') }}</span>
+                </template>
+              </el-table-column>
               <el-table-column :label="t('common.status')" width="90" align="center">
                 <template #default="{ row }">
                   <el-tag :type="row.is_active ? 'success' : 'danger'" size="small" effect="dark" round>
@@ -94,6 +104,58 @@
               </el-table-column>
               <el-table-column prop="last_active_at" :label="t('system.lastActiveAt')" min-width="160" />
               <el-table-column prop="created_at" :label="t('common.createdAt')" min-width="160" />
+              <el-table-column :label="t('common.operate')" width="90" align="center">
+                <template #default="{ row }">
+                  <el-button link type="primary" size="small" @click="openUserDialog(row)">
+                    {{ t('common.edit') }}
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </section>
+
+        <!-- 系统角色：一个角色 = 一组允许访问的页面（仅管理员）。
+             改动即时生效：后端每请求现读角色，前端每 30 秒重拉一次当前用户 -->
+        <section v-if="auth.isAdmin" id="sc-roles" class="sc-panel">
+          <div class="sc-panel-head">
+            <span class="sc-ic sc-ic--violet"><el-icon :size="17"><Key /></el-icon></span>
+            <div class="sc-head-text">
+              <div class="sc-panel-title">{{ t('roles.section') }}</div>
+              <div class="sc-panel-desc">{{ t('roles.desc') }}</div>
+            </div>
+            <el-button type="primary" size="small" @click="openRoleDialog()">
+              <el-icon><Plus /></el-icon>
+              <span class="sc-btn-text">{{ t('roles.add') }}</span>
+            </el-button>
+          </div>
+          <div class="sc-panel-body sc-panel-body--flush">
+            <el-table :data="roles" v-loading="rolesLoading" class="sc-table">
+              <el-table-column prop="id" label="ID" width="70" />
+              <el-table-column prop="name" :label="t('roles.name')" min-width="120" />
+              <el-table-column :label="t('roles.description')" min-width="160" show-overflow-tooltip>
+                <template #default="{ row }">{{ row.description || '-' }}</template>
+              </el-table-column>
+              <el-table-column :label="t('roles.pages')" min-width="220" show-overflow-tooltip>
+                <template #default="{ row }">
+                  <span v-if="!row.pages.length" class="sc-muted">{{ t('roles.noPages') }}</span>
+                  <span v-else>{{ row.pages.map(pageLabel).join(' / ') }}</span>
+                </template>
+              </el-table-column>
+              <!-- 还有用户在用的删不掉（后端 400），把人数摆出来免得点了才知道 -->
+              <el-table-column :label="t('roles.userCount')" width="90" align="right">
+                <template #default="{ row }">{{ row.user_count ?? 0 }}</template>
+              </el-table-column>
+              <el-table-column :label="t('common.operate')" width="140" align="center">
+                <template #default="{ row }">
+                  <el-button link type="primary" size="small" @click="openRoleDialog(row)">
+                    {{ t('common.edit') }}
+                  </el-button>
+                  <el-button link type="danger" size="small" @click="removeRole(row)">
+                    {{ t('common.delete') }}
+                  </el-button>
+                </template>
+              </el-table-column>
             </el-table>
           </div>
         </section>
@@ -959,21 +1021,91 @@
       </div>
     </div>
 
-    <el-dialog v-model="userDialogVisible" :title="t('system.addUser')" width="420px" class="sc-dialog" destroy-on-close>
+    <el-dialog
+      v-model="userDialogVisible"
+      :title="userForm.id ? t('system.editUser') : t('system.addUser')"
+      width="420px"
+      class="sc-dialog"
+      destroy-on-close
+    >
       <el-form ref="userFormRef" :model="userForm" :rules="userRules" label-position="top">
         <el-form-item :label="t('system.username')" prop="username">
-          <el-input v-model="userForm.username" />
+          <el-input v-model="userForm.username" :disabled="!!userForm.id" />
         </el-form-item>
         <el-form-item :label="t('system.displayName')">
           <el-input v-model="userForm.display_name" />
         </el-form-item>
-        <el-form-item :label="t('system.password')" prop="password">
-          <el-input v-model="userForm.password" type="password" show-password />
+        <el-form-item :label="userForm.id ? t('roles.resetPassword') : t('system.password')" prop="password">
+          <el-input
+            v-model="userForm.password"
+            type="password"
+            show-password
+            :placeholder="userForm.id ? t('roles.resetPasswordPlaceholder') : ''"
+          />
+        </el-form-item>
+        <el-form-item :label="t('system.role')">
+          <el-select
+            v-model="userForm.role_id"
+            clearable
+            :disabled="userForm.is_admin"
+            :placeholder="t('roles.unassignedHint')"
+            style="width: 100%"
+          >
+            <el-option v-for="r in roles" :key="r.id" :label="r.name" :value="r.id" />
+          </el-select>
+          <div class="sc-form-hint">{{ userForm.is_admin ? t('roles.adminHint') : t('roles.unassignedTip') }}</div>
+        </el-form-item>
+        <el-form-item>
+          <el-checkbox v-model="userForm.is_admin" :disabled="isSelfUser">{{ t('roles.admin') }}</el-checkbox>
+          <el-checkbox v-if="userForm.id" v-model="userForm.is_active" :disabled="isSelfUser">
+            {{ t('common.enabled') }}
+          </el-checkbox>
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="userDialogVisible = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="userSubmitting" @click="submitUser">{{ t('common.create') }}</el-button>
+        <el-button type="primary" :loading="userSubmitting" @click="submitUser">
+          {{ userForm.id ? t('common.save') : t('common.create') }}
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="roleDialogVisible"
+      :title="roleForm.id ? t('roles.edit') : t('roles.add')"
+      width="560px"
+      class="sc-dialog"
+      destroy-on-close
+    >
+      <el-form ref="roleFormRef" :model="roleForm" :rules="roleRules" label-position="top">
+        <el-form-item :label="t('roles.name')" prop="name">
+          <el-input v-model="roleForm.name" maxlength="30" show-word-limit />
+        </el-form-item>
+        <el-form-item :label="t('roles.description')">
+          <el-input v-model="roleForm.description" maxlength="100" show-word-limit />
+        </el-form-item>
+        <el-form-item :label="t('roles.pages')">
+          <!-- 分组与侧边栏一致（同一份 constants/menu.js） -->
+          <div class="sc-role-pages">
+            <div v-for="g in pageGroups" :key="g.key" class="sc-role-group">
+              <el-checkbox
+                :model-value="groupState(g) === 'all'"
+                :indeterminate="groupState(g) === 'some'"
+                class="sc-role-group-title"
+                @change="(v) => toggleGroup(g, v)"
+              >
+                {{ t(g.key) }}
+              </el-checkbox>
+              <el-checkbox-group v-model="roleForm.pages" class="sc-role-group-items">
+                <el-checkbox v-for="p in g.items" :key="p.key" :value="p.key">{{ t(p.titleKey) }}</el-checkbox>
+              </el-checkbox-group>
+            </div>
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="roleDialogVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="roleSubmitting" @click="submitRole">{{ t('common.save') }}</el-button>
       </template>
     </el-dialog>
 
@@ -1013,10 +1145,12 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
-import { Plus, User, UserFilled, Lock, MagicStick, Sell, Coin, Tickets, Printer, Compass, Suitcase, Timer, Link, Picture, Connection, Search } from '@element-plus/icons-vue'
+import { Plus, User, UserFilled, Key, Lock, MagicStick, Sell, Coin, Tickets, Printer, Compass, Suitcase, Timer, Link, Picture, Connection, Search } from '@element-plus/icons-vue'
 import { ElMessage } from '@/utils/notify'
 import { setLocale, SUPPORTED_LOCALES } from '@/i18n'
-import { authApi, configApi, proxyUserApi, shopAccountApi } from '@/api/index.js'
+import { authApi, roleApi, configApi, proxyUserApi, shopAccountApi } from '@/api/index.js'
+import { useAuthStore } from '@/stores/auth.js'
+import { MENU_ITEMS, pageKeyOf } from '@/constants/menu.js'
 import { databaseApi } from '@/api/database'
 import { imageHostingApi } from '@/api/image_hosting'
 import BarcodeConflictDialog from './BarcodeConflictDialog.vue'
@@ -1045,7 +1179,8 @@ const { t, locale } = useI18n()
 // ===== 区块锚点导航（图标名走全局注册的 element-plus 图标，与 Layout 侧边栏一致）=====
 const SECTIONS = [
   { id: 'language', icon: 'Compass', labelKey: 'systemConfig.languageSection' },
-  { id: 'account', icon: 'User', labelKey: 'system.accountManagement' },
+  { id: 'account', icon: 'User', labelKey: 'system.accountManagement', adminOnly: true },
+  { id: 'roles', icon: 'Key', labelKey: 'roles.section', adminOnly: true },
   { id: 'proxy-users', icon: 'UserFilled', labelKey: 'proxyUsers.section' },
   { id: 'password', icon: 'Lock', labelKey: 'system.changeMyPassword' },
   { id: 'ai', icon: 'MagicStick', labelKey: 'systemConfig.deepseekSection' },
@@ -1061,6 +1196,10 @@ const SECTIONS = [
   { id: 'proxy', icon: 'Link', labelKey: 'systemConfig.proxySection' },
 ]
 
+const auth = useAuthStore()
+/** 账号 / 角色两块只给管理员看：对应接口是管理员专用，非管理员进来只会弹 403 */
+const visibleSections = computed(() => SECTIONS.filter((s) => !s.adminOnly || auth.isAdmin))
+
 const pageRef = ref(null)
 const activeSection = ref(SECTIONS[0].id)
 /** 真正的滚动容器是 Layout 的 .main-content，不是 window */
@@ -1075,7 +1214,7 @@ function goSection(id) {
 function syncActiveSection() {
   const rootTop = scrollRoot ? scrollRoot.getBoundingClientRect().top : 0
   let current = SECTIONS[0].id
-  for (const s of SECTIONS) {
+  for (const s of visibleSections.value) {
     const el = document.getElementById(`sc-${s.id}`)
     if (el && el.getBoundingClientRect().top - rootTop <= 96) current = s.id
   }
@@ -1099,14 +1238,112 @@ const usersLoading = ref(false)
 const userDialogVisible = ref(false)
 const userSubmitting = ref(false)
 const userFormRef = ref()
+// id 为空即新建，有值即编辑——两者共用同一个弹窗；编辑时密码留空 = 不重置
 const userForm = reactive({
+  id: null,
   username: '',
   display_name: '',
-  password: ''
+  password: '',
+  role_id: null,
+  is_admin: false,
+  is_active: true
 })
-const userRules = {
+const userRules = computed(() => ({
   username: [{ required: true, message: t('login.usernameRequired'), trigger: 'blur' }],
-  password: [{ required: true, message: t('login.passwordRequired'), trigger: 'blur' }, { min: 6, message: t('system.passwordMin6'), trigger: 'blur' }]
+  password: userForm.id
+    ? [{ min: 6, message: t('system.passwordMin6'), trigger: 'blur' }]
+    : [{ required: true, message: t('login.passwordRequired'), trigger: 'blur' }, { min: 6, message: t('system.passwordMin6'), trigger: 'blur' }]
+}))
+/** 编辑自己时不能取消管理员 / 禁用自己（后端同样拦） */
+const isSelfUser = computed(() => !!userForm.id && userForm.id === auth.user?.id)
+
+// ===== 系统角色（页面访问权限）=====
+const roles = ref([])
+const rolesLoading = ref(false)
+const roleDialogVisible = ref(false)
+const roleSubmitting = ref(false)
+const roleFormRef = ref()
+const roleForm = reactive({ id: null, name: '', description: '', pages: [] })
+const roleRules = {
+  name: [{ required: true, message: t('roles.nameRequired'), trigger: 'blur' }]
+}
+
+/** 角色编辑里的页面分组：一级页面一组，「其他功能」的二级按侧边栏分组 */
+const pageGroups = (() => {
+  const groups = [{ key: 'roles.mainPages', items: [] }]
+  for (const m of MENU_ITEMS) {
+    if (!m.children) {
+      groups[0].items.push({ key: pageKeyOf(m.path), titleKey: m.titleKey })
+      continue
+    }
+    for (const c of m.children) {
+      let g = groups.find((x) => x.key === c.group)
+      if (!g) groups.push((g = { key: c.group, items: [] }))
+      g.items.push({ key: pageKeyOf(c.path), titleKey: c.titleKey })
+    }
+  }
+  return groups
+})()
+const pageTitleKeys = Object.fromEntries(pageGroups.flatMap((g) => g.items.map((p) => [p.key, p.titleKey])))
+const pageLabel = (key) => (pageTitleKeys[key] ? t(pageTitleKeys[key]) : key)
+
+function groupState(g) {
+  const n = g.items.filter((p) => roleForm.pages.includes(p.key)).length
+  return n === 0 ? 'none' : n === g.items.length ? 'all' : 'some'
+}
+
+function toggleGroup(g, checked) {
+  const keys = g.items.map((p) => p.key)
+  const rest = roleForm.pages.filter((k) => !keys.includes(k))
+  roleForm.pages = checked ? [...rest, ...keys] : rest
+}
+
+async function loadRoles() {
+  rolesLoading.value = true
+  try {
+    roles.value = await roleApi.list()
+  } finally {
+    rolesLoading.value = false
+  }
+}
+
+function openRoleDialog(row) {
+  roleForm.id = row?.id ?? null
+  roleForm.name = row?.name || ''
+  roleForm.description = row?.description || ''
+  roleForm.pages = [...(row?.pages || [])]
+  roleDialogVisible.value = true
+}
+
+async function submitRole() {
+  await roleFormRef.value.validate()
+  roleSubmitting.value = true
+  try {
+    const payload = { name: roleForm.name, description: roleForm.description, pages: roleForm.pages }
+    if (roleForm.id) await roleApi.update(roleForm.id, payload)
+    else await roleApi.create(payload)
+    ElMessage.success(t('roles.saved'))
+    roleDialogVisible.value = false
+    await Promise.all([loadRoles(), loadUsers()])
+  } finally {
+    roleSubmitting.value = false
+  }
+}
+
+async function removeRole(row) {
+  try {
+    await ElMessageBox.confirm(
+      t('roles.deleteConfirm', { name: row.name }),
+      t('common.confirm'),
+      { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') }
+    )
+  } catch {
+    return
+  }
+  // 还有用户在用时后端会 400 并说明人数，拦截器已弹提示
+  await roleApi.remove(row.id)
+  ElMessage.success(t('roles.deleted'))
+  await loadRoles()
 }
 
 // ===== 代购用户（「购入商品」归属人下拉的取值来源）=====
@@ -1200,10 +1437,14 @@ async function loadUsers() {
   }
 }
 
-function openUserDialog() {
-  userForm.username = ''
-  userForm.display_name = ''
+function openUserDialog(row) {
+  userForm.id = row?.id ?? null
+  userForm.username = row?.username || ''
+  userForm.display_name = row?.display_name || ''
   userForm.password = ''
+  userForm.role_id = row?.role_id ?? null
+  userForm.is_admin = Boolean(row?.is_admin)
+  userForm.is_active = row ? Boolean(row.is_active) : true
   userDialogVisible.value = true
 }
 
@@ -1211,10 +1452,31 @@ async function submitUser() {
   await userFormRef.value.validate()
   userSubmitting.value = true
   try {
-    await authApi.createUser(userForm)
-    ElMessage.success(t('system.userCreatedSuccess'))
+    if (userForm.id) {
+      // 角色清空要显式传 clear_role：role_id=null 在后端表示「这次不改角色」
+      await authApi.updateUser(userForm.id, {
+        display_name: userForm.display_name,
+        is_admin: userForm.is_admin,
+        is_active: userForm.is_active,
+        role_id: userForm.role_id || null,
+        clear_role: !userForm.role_id,
+        password: userForm.password || null
+      })
+      ElMessage.success(t('roles.userSaved'))
+      // 改的是自己（显示名等）：立即刷新侧栏与权限
+      if (userForm.id === auth.user?.id) await auth.refresh()
+    } else {
+      await authApi.createUser({
+        username: userForm.username,
+        display_name: userForm.display_name,
+        password: userForm.password,
+        is_admin: userForm.is_admin,
+        role_id: userForm.role_id || null
+      })
+      ElMessage.success(t('system.userCreatedSuccess'))
+    }
     userDialogVisible.value = false
-    await loadUsers()
+    await Promise.all([loadUsers(), loadRoles()])
   } finally {
     userSubmitting.value = false
   }
@@ -2163,7 +2425,10 @@ function onForget() {
 }
 
 onMounted(() => {
-  loadUsers()
+  if (auth.isAdmin) {
+    loadUsers()
+    loadRoles()
+  }
   loadProxyUsers()
   load()
   loadListingDefaults()
@@ -2425,6 +2690,36 @@ onUnmounted(() => {
   font-size: 12px;
   line-height: 1.6;
   color: var(--el-text-color-secondary);
+}
+/* 系统角色 / 账号编辑（弹窗挂在 body 下，取不到页面根上的 --sc-* 变量，用 element 变量） */
+.sc-muted {
+  color: var(--el-text-color-secondary);
+}
+.sc-form-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-text-color-secondary);
+}
+.sc-role-pages {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sc-role-group {
+  padding: 8px 12px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+}
+.sc-role-group-title {
+  font-weight: 600;
+}
+.sc-role-group-items {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 4px;
+  padding-left: 22px;
 }
 .sc-wa-mono {
   font-family: ui-monospace, Consolas, monospace;

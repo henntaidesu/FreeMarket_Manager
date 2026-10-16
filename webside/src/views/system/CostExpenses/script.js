@@ -79,7 +79,7 @@ export default defineComponent({
     }
 
     async function loadUsers() {
-      users.value = await authApi.listUsers()
+      users.value = await authApi.listUserOptions()
     }
 
     async function loadCostRecordItemOptions() {

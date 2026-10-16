@@ -15,6 +15,7 @@ from .talk_script import TalkScriptModel
 from .system_log import SystemLogModel
 from .task_queue import TaskQueueModel
 from .user import UserModel
+from .role import RoleModel
 from .config_entry import ConfigEntryModel
 from .image_asset import ImageAssetModel
 
@@ -33,6 +34,7 @@ __all__ = [
     "SystemLogModel",
     "TaskQueueModel",
     "UserModel",
+    "RoleModel",
     "ConfigEntryModel",
     "ImageAssetModel",
 ]

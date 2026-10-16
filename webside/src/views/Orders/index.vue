@@ -211,6 +211,7 @@
                           size="small"
                           type="warning"
                           plain
+                          :disabled="isManualOutboundLocked(row)"
                           @click="openBindOutboundInventoryDialog(row, line)"
                         >
                           {{ t('common.edit') }}
@@ -220,7 +221,7 @@
                           size="small"
                           type="primary"
                           plain
-                          :disabled="!outboundLineHasBoundInventory(line)"
+                          :disabled="!outboundLineHasBoundInventory(line) || isManualOutboundLocked(row)"
                           @click="openConvertOwnerDialog(row, line)"
                         >
                           {{ t('orders.convertOwner') }}
@@ -254,7 +255,12 @@
                   <template #image></template>
                   <template #default>
                     <div style="display:flex; flex-direction:column; align-items:center; gap:8px;">
-                      <el-button size="small" type="primary" @click="openManualOutboundDialog(row)">
+                      <el-button
+                        v-if="canOpenManualOutbound(row)"
+                        size="small"
+                        type="primary"
+                        @click="openManualOutboundDialog(row)"
+                      >
                         {{ t('orders.manualAddOutbound') }}
                       </el-button>
                     </div>
@@ -578,11 +584,16 @@
                   :loading="settlementExcluding"
                   @click="excludeFromSettlement"
                 >{{ t('orders.settlementExclude') }}</el-button>
+                <!-- 手动出库定稿后明细锁定：不再自动重建，两个重建按钮随之禁用 -->
+                <el-tag v-if="isManualOutboundLocked(detailRow)" size="small" type="success" effect="dark">
+                  {{ t('orders.manualOutboundLocked') }}
+                </el-tag>
                 <el-button
                   class="odt-chips__action"
                   size="small"
                   :icon="RefreshRight"
                   :loading="rematching"
+                  :disabled="isManualOutboundLocked(detailRow)"
                   @click="rematchProducts"
                 >{{ t('orders.rematchProducts') }}</el-button>
                 <!-- 访问平台重读说明 + 原图管理暗码再整单重建；「重新匹配」只用库里现有数据 -->
@@ -593,6 +604,7 @@
                   plain
                   :icon="Download"
                   :loading="refetchingDetail"
+                  :disabled="isManualOutboundLocked(detailRow)"
                   @click="refetchDetailInDialog"
                 >{{ t('orders.refetchDetail') }}</el-button>
                 <el-button
@@ -775,7 +787,15 @@
                   v-if="!detailLinesLoading && !detailLines.length"
                   :description="t('orders.noOutboundLines')"
                   :image-size="56"
-                />
+                >
+                  <!-- 说明暗号与图片暗码都没解出明细时的人工兜底；保存一次即锁定 -->
+                  <el-button
+                    v-if="canOpenManualOutbound(detailRow)"
+                    size="small"
+                    type="primary"
+                    @click="openManualOutboundDialog(detailRow)"
+                  >{{ t('orders.manualAddOutbound') }}</el-button>
+                </el-empty>
               </div>
             </el-tab-pane>
 
@@ -968,8 +988,17 @@
       v-model="manualOutboundDialogVisible"
       :title="t('orders.manualAddOutbound')"
       width="760px"
+      append-to-body
       destroy-on-close
     >
+      <!-- 一单只能提交一次：保存即锁定，后端拒绝再次提交 / 改绑 / 自动重建 -->
+      <el-alert
+        :title="t('orders.manualOutboundLockHint')"
+        type="warning"
+        show-icon
+        :closable="false"
+        style="margin-bottom: 12px"
+      />
       <el-form label-width="90px">
         <el-form-item :label="t('orders.orderNumber')">
           <el-input :model-value="manualOutboundForm.order_no" disabled />

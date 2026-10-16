@@ -276,6 +276,18 @@ class OrderOutboundLineModel(BaseModel):
         items.sort(key=_key)
 
     @classmethod
+    def is_manual_locked(cls, order_no: Any) -> bool:
+        """该订单的出库明细是否已由手动出库表单定稿（``orders.manual_outbound_at`` 非空）。"""
+        ono = str(order_no or "").strip()
+        if not ono:
+            return False
+        rows = cls().db.execute_query(
+            "SELECT 1 FROM [orders] WHERE [order_no] = ? AND [manual_outbound_at] IS NOT NULL LIMIT 1",
+            (ono,),
+        )
+        return bool(rows)
+
+    @classmethod
     def list_pending_for_inventory(cls, inventory_id: int) -> List[Dict[str, Any]]:
         """某库存商品关联的待出库明细（非终态订单且未确认出库）。"""
         iid = int(inventory_id or 0)

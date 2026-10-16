@@ -1,4 +1,5 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
+import { useAuthStore } from '@/stores/auth.js'
 
 const routes = [
   {
@@ -45,6 +46,8 @@ const routes = [
       { path: 'system/config', name: 'SystemConfig', component: () => import('@/views/system/SystemConfig/index.vue'), meta: { title: '系统配置', icon: 'Tools' } },
       // 原「二维码设置」页也已并入系统配置；旧书签重定向过去
       { path: 'system/qr-print', redirect: '/system/config' },
+      // 角色里一个页面都没勾选时的落脚处（不在页面清单里，不受角色控制）
+      { path: 'no-access', name: 'NoAccess', component: () => import('@/views/NoAccess/index.vue'), meta: { title: '无访问权限', hidden: true } },
       // 隐藏页：管理番号暗号编码模式切换。仅 URL /#/x9 可达，侧边栏无入口。
       { path: 'x9', name: 'CipherMode', component: () => import('@/views/CipherMode/index.vue'), meta: { title: '暗号模式', hidden: true } },
       // 隐藏页：系统数据流图文档。仅 URL /#/DFD 可达，侧边栏无入口。
@@ -58,21 +61,25 @@ const router = createRouter({
   routes
 })
 
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to) => {
   const isPublic = Boolean(to.meta?.public)
   const token = localStorage.getItem('auth_token')
 
-  if (!isPublic && !token) {
-    next('/login')
-    return
+  if (!isPublic && !token) return '/login'
+  if (isPublic) {
+    if (to.path === '/login' && token) return useAuthStore().firstAllowedPath()
+    return true
   }
 
-  if (to.path === '/login' && token) {
-    next('/dashboard')
-    return
+  // 页面权限（系统角色）。打开网页后的第一跳先向后端核对一次：本地存的 auth_user
+  // 可能是角色改动之前、甚至本功能上线之前的
+  const auth = useAuthStore()
+  if (!auth.verified) await auth.refresh()
+  if (!auth.canAccess(to.path)) {
+    const fallback = auth.firstAllowedPath()
+    return fallback === to.path ? '/no-access' : fallback
   }
-
-  next()
+  return true
 })
 
 export default router

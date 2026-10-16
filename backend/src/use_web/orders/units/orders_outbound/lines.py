@@ -94,11 +94,17 @@ def _restock_holding_lines_impl(ono: str, *, reason: str) -> None:
     if touched:
         refresh_inventory_pending_outbound_qty(list(set(touched)))
 
+def _reject_if_manual_locked(line) -> None:
+    """手动出库表单定稿后明细不可再改（出库确认仍允许，那是执行而不是修改）。"""
+    if OrderOutboundLineModel.is_manual_locked(line.order_no):
+        raise HTTPException(status_code=400, detail="本单已手动出库，出库明细不可再修改")
+
 def bind_outbound_line_inventory(line_id: int, data: OutboundLineBindInventoryBody):
     """未匹配/已匹配的明细行手动指定或重新绑定 inventory_id；已出库或已预扣的会回退旧库存并扣减新库存。"""
     line = OrderOutboundLineModel.find_by_id(id=int(line_id))
     if not line:
         raise HTTPException(status_code=404, detail="出库明细不存在")
+    _reject_if_manual_locked(line)
 
     inv_id = int(data.inventory_id)
     if inv_id <= 0:
@@ -203,6 +209,7 @@ def convert_outbound_line_owner(
     line = OrderOutboundLineModel.find_by_id(id=int(line_id))
     if not line:
         raise HTTPException(status_code=404, detail="出库明细不存在")
+    _reject_if_manual_locked(line)
     if not _outbound_line_has_inventory_id(line):
         raise HTTPException(status_code=400, detail="该明细尚未关联库存，请先编辑绑定库存")
 

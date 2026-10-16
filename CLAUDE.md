@@ -419,6 +419,27 @@ is the single lookup used by the listing dispatcher.
    forcing a logout kills every existing token immediately. Set a positive number to also get
    time-based expiry.
 
+### 系统角色 / 页面权限（`src/page_access.py`）
+
+一个角色（表 `roles`）= 一组可访问的页面；`users.role_id` 指向它。页面 key = 前端路由路径去掉
+开头的 `/`（`orders`、`system/purchases`）。**页面清单有两份，必须同步**：后端
+`page_access.PAGE_KEYS` 与前端 `webside/src/constants/menu.js`（侧边栏与角色编辑共用这一份）。
+
+- **判定**：管理员不受限；**未分配角色的非管理员也不受限**（上线时不把老账号锁在门外）；
+  有角色则只能进勾选的页面；角色行不存在按「什么都不能进」处理。账号管理 / 系统角色只看
+  `is_admin`，不走角色。
+- **后端强制**：`require_page(*pages)` 挂在 `use_web/API.py` 与 `system/API.py` 的各路由组上，
+  拥有**任一**页面即放行。列的是「哪些页面会调用这组接口」——订单页读库存、待办页写订单出库与包材，
+  所以那几组列了多个页面。**给某页面新增对别组接口的调用时，要把该页加进那组的列表**，否则拥有
+  该页但没有那组主页面的角色会 403。`reads_open=True`（店铺账号）= GET 全员可读、写才要页面。
+  任务队列、web-drive、use_mercari、系统配置的读取不按页面拦；系统配置页的业务开关写操作要
+  `system/config`。
+- **即时生效**：`require_auth` 每请求 LEFT JOIN 现读角色（不进 JWT）；前端 Layout 每 30 秒
+  `GET /system/me` 重拉，当前页被收回权限即跳到第一个有权限的页面（一个都没有 → `/no-access`）。
+  禁用 / 重置密码自增 `token_version` 踢下线；改角色不需要。
+- 归属人下拉用 `GET /system/users/options`（任何登录用户），`GET /system/users` 仍是管理员接口。
+- 被用户引用的角色拒绝删除；不能取消自己的管理员 / 禁用自己；至少保留一个启用中的管理员。
+
 CORS defaults to `allow_origins=["*"]` with **credentials disabled** — auth rides on the Bearer
 header, not cookies, so the dangerous wildcard+credentials combination never occurs. Setting
 `CORS_ORIGINS` to a comma-separated list locks origins down *and* enables credentials.
@@ -1384,6 +1405,9 @@ no Vite to collide with). Override with `MERCARI_PORT` / `MERCARI_HOST`.
 3. Do **not** touch `main.py` — it only mounts the `/mercariV2` root router.
 4. Frontend: add `webside/src/api/<page>.js`, re-export it from `api/index.js`, add the route in
    `webside/src/router/index.js`, and add strings to **all three** `i18n/locales/` files.
+5. If it is a new menu page: add it to `webside/src/constants/menu.js` **and**
+   `backend/src/page_access.py::PAGE_KEYS`, and guard its router with `require_page(...)`
+   (see 系统角色 / 页面权限).
 
 ## Adding a New Database Table
 

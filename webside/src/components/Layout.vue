@@ -186,12 +186,15 @@ import { Menu, Close, ArrowRight } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { memosApi, calendarApi } from '@/api/index.js'
 import { useViewModeStore } from '@/stores/viewMode.js'
+import { useAuthStore } from '@/stores/auth.js'
+import { MENU_ITEMS } from '@/constants/menu.js'
 
 const router = useRouter()
 const route = useRoute()
 const { t } = useI18n()
 
 const viewModeStore = useViewModeStore()
+const auth = useAuthStore()
 
 /** 有卡片视图的列表页；其余页面隐藏侧栏那个切换开关 */
 const VIEW_MODE_ROUTES = ['/inventory', '/orders', '/on-sale-items', '/todos', '/notifications', '/system/purchases']
@@ -215,19 +218,34 @@ const calendarPending = ref(0)
 let badgeTimer = null
 
 async function refreshBadges() {
-  // 两个请求互不依赖，失败各自静默：未登录或某个接口挂了，不该让另一个徽标也归零
-  try {
-    const r = await memosApi.unreadCount()
-    memoUnread.value = r?.unread || 0
-  } catch {
-    // 静默：未登录或请求失败时不打扰
+  // 两个请求互不依赖，失败各自静默：未登录或某个接口挂了，不该让另一个徽标也归零。
+  // 没有对应页面权限的不请求——后端会 403，拦截器每 30 秒弹一次错误
+  if (auth.canAccess('/system/memos')) {
+    try {
+      const r = await memosApi.unreadCount()
+      memoUnread.value = r?.unread || 0
+    } catch {
+      // 静默：未登录或请求失败时不打扰
+    }
+  } else {
+    memoUnread.value = 0
   }
-  try {
-    const r = await calendarApi.pendingCount()
-    calendarPending.value = r?.pending || 0
-  } catch {
-    // 同上
+  if (auth.canAccess('/system/calendar')) {
+    try {
+      const r = await calendarApi.pendingCount()
+      calendarPending.value = r?.pending || 0
+    } catch {
+      // 同上
+    }
+  } else {
+    calendarPending.value = 0
   }
+}
+
+/** 定时重拉当前用户：管理员改了角色，对方不用重新登录；当前页被收回权限就跳走 */
+async function refreshPermissions() {
+  await auth.refresh()
+  if (!auth.canAccess(route.path)) router.replace(auth.firstAllowedPath())
 }
 
 /**
@@ -259,7 +277,9 @@ onMounted(() => {
   mqMobile.addEventListener('change', syncMobileFromMedia)
   refreshBadges()
   // 周期刷新未处理数量，及时反映其他用户新发来的备忘录 / 新排的日历事项
-  badgeTimer = setInterval(refreshBadges, 30000)
+  badgeTimer = setInterval(() => {
+    refreshPermissions().finally(refreshBadges)
+  }, 30000)
 })
 onUnmounted(() => {
   mqMobile?.removeEventListener('change', syncMobileFromMedia)
@@ -267,60 +287,20 @@ onUnmounted(() => {
 })
 
 const userName = computed(() => {
-  try {
-    const u = JSON.parse(localStorage.getItem('auth_user') || '{}')
-    return u.display_name || u.username || t('layout.user')
-  } catch {
-    return t('layout.user')
-  }
+  const u = auth.user || {}
+  return u.display_name || u.username || t('layout.user')
 })
 
-const menuItems = [
-  { path: '/dashboard', titleKey: 'layout.menu.dashboard', icon: 'Odometer' },
-  { path: '/inventory', titleKey: 'layout.menu.inventory', icon: 'Goods' },
-  { path: '/orders', titleKey: 'layout.menu.orders', icon: 'Tickets' },
-  { path: '/on-sale-items', titleKey: 'layout.menu.onSaleItems', icon: 'ShoppingBag' },
-  { path: '/todos', titleKey: 'layout.menu.todos', icon: 'Check' },
-  { path: '/notifications', titleKey: 'layout.menu.notifications', icon: 'Bell' },
-  { path: '/shop-accounts', titleKey: 'layout.menu.shopAccounts', icon: 'User' },
-  { path: '/tasks', titleKey: 'layout.menu.tasks', icon: 'Loading' },
-  {
-    path: '/system',
-    titleKey: 'layout.menu.system',
-    icon: 'Setting',
-    // 保持扁平（activePrimary / watch 都按 path 直接查），分组只靠 group 字段，
-    // 由 currentSecondaryGroups 按相邻同组折叠出分组标题
-    children: [
-      // 购入：替人买进来的那条账（商品 → 跟归属人结算）
-      { path: '/system/purchases', titleKey: 'layout.menu.purchases', icon: 'ShoppingCart', group: 'layout.menuGroup.purchase' },
-      { path: '/system/purchase-settlement', titleKey: 'layout.menu.purchaseSettlement', icon: 'Wallet', group: 'layout.menuGroup.purchase' },
-
-      // 出售：卖出去的那条账（结算 → 出入库流水）
-      { path: '/system/settlement', titleKey: 'layout.menu.settlement', icon: 'Coin', group: 'layout.menuGroup.sales' },
-      { path: '/system/transactions', titleKey: 'layout.menu.transactions', icon: 'List', group: 'layout.menuGroup.sales' },
-
-      // 仓储与包材：货放哪儿、用掉了哪些包材
-      { path: '/system/warehouses', titleKey: 'layout.menu.warehouses', icon: 'OfficeBuilding', group: 'layout.menuGroup.storage' },
-      { path: '/system/cost-records', titleKey: 'layout.menu.costRecords', icon: 'Money', group: 'layout.menuGroup.storage' },
-      { path: '/system/cost-expenses', titleKey: 'layout.menu.costExpenses', icon: 'Wallet', group: 'layout.menuGroup.storage' },
-
-      // 基础数据：上架前要先配好的那几张表
-      { path: '/system/categories', titleKey: 'layout.menu.categories', icon: 'Collection', group: 'layout.menuGroup.masterData' },
-      { path: '/system/product-type-category-mappings', titleKey: 'layout.menu.productTypeMappings', icon: 'Connection', group: 'layout.menuGroup.masterData' },
-      { path: '/system/talk-scripts', titleKey: 'layout.menu.talkScripts', icon: 'ChatLineRound', group: 'layout.menuGroup.masterData' },
-
-      // 系统
-      { path: '/system/calendar', titleKey: 'layout.menu.calendar', icon: 'Calendar', group: 'layout.menuGroup.system' },
-      { path: '/system/memos', titleKey: 'layout.menu.memos', icon: 'ChatDotRound', group: 'layout.menuGroup.system' },
-      { path: '/system/config', titleKey: 'layout.menu.systemConfig', icon: 'Tools', group: 'layout.menuGroup.system' },
-      { path: '/system/system-logs', titleKey: 'layout.menu.systemLogs', icon: 'Document', group: 'layout.menuGroup.system' }
-    ]
-  }
-]
+/** 侧边栏菜单：按当前用户的系统角色过滤；二级全被滤掉的一级（如「其他功能」）整个隐藏 */
+const menuItems = computed(() => MENU_ITEMS.flatMap((item) => {
+  if (!item.children) return auth.canAccess(item.path) ? [item] : []
+  const children = item.children.filter((c) => auth.canAccess(c.path))
+  return children.length ? [{ ...item, children }] : []
+}))
 
 /** 当前路由所属的一级菜单 path（用于一级 active 高亮） */
 const activePrimary = computed(() => {
-  for (const item of menuItems) {
+  for (const item of menuItems.value) {
     if (item.children) {
       if (item.children.some(c => c.path === route.path)) return item.path
       if (item.path === route.path) return item.path
@@ -334,7 +314,7 @@ const activePrimary = computed(() => {
 /** 当前展开的二级菜单项列表 */
 const currentSecondaryItems = computed(() => {
   if (!activeWithChildren.value) return []
-  const found = menuItems.find(m => m.path === activeWithChildren.value)
+  const found = menuItems.value.find(m => m.path === activeWithChildren.value)
   return found?.children || []
 })
 
@@ -350,12 +330,12 @@ const currentSecondaryGroups = computed(() => {
 })
 
 const activePrimaryTitle = computed(() => {
-  const found = menuItems.find(m => m.path === activeWithChildren.value)
+  const found = menuItems.value.find(m => m.path === activeWithChildren.value)
   return found ? t(found.titleKey) : ''
 })
 
 function onPrimarySelect(path) {
-  const item = menuItems.find(m => m.path === path)
+  const item = menuItems.value.find(m => m.path === path)
   if (!item) return
 
   if (item.children) {
@@ -386,7 +366,7 @@ function onSecondarySelect(path) {
 watch(
   () => route.path,
   (p) => {
-    const owner = menuItems.find(item => item.children && item.children.some(c => c.path === p))
+    const owner = menuItems.value.find(item => item.children && item.children.some(c => c.path === p))
     if (owner) {
       activeWithChildren.value = owner.path
     }
@@ -403,7 +383,7 @@ const handleLogout = async () => {
     cancelButtonText: t('common.cancel'),
   })
   localStorage.removeItem('auth_token')
-  localStorage.removeItem('auth_user')
+  auth.clear()
   router.replace('/login')
 }
 </script>

@@ -4785,7 +4785,7 @@ export default defineComponent({
       const [cats, whs, users, mappings] = await Promise.all([
         categoryApi.list(),
         warehouseApi.list(),
-        authApi.listUsers(),
+        authApi.listUserOptions(),
         productTypeCategoryMappingApi.list()
       ])
       await refreshListingDefaults()
