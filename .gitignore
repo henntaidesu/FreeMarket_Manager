@@ -13,7 +13,7 @@ pids
 *.pid
 *.pid.lock
 *.seed
-backend\imges-T*
+backend/imges-T*
 # Coverage
 coverage
 *.lcov
@@ -21,7 +21,8 @@ coverage
 lib-cov
 
 # Build / package artifacts
-build/Release
+build/
+*.exe
 dist
 out
 *.tgz
@@ -112,4 +113,9 @@ skills-lock.json
 mercariDB.db
 backend/system.db
 backend/sync.ffs_db
-    backend/sync.ffs_db
+
+# 首次使用时自动下载的模型权重（CLIP / OCR）
+backend/models/
+
+# 一次性脚本输出
+webside/_newly.json
