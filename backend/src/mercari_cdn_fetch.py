@@ -14,11 +14,32 @@
 """
 from __future__ import annotations
 
+import functools
 import ipaddress
 import socket
+import ssl
 import urllib.parse
 import urllib.request
 from typing import Optional, Tuple
+
+
+@functools.lru_cache(maxsize=1)
+def https_context() -> ssl.SSLContext:
+    """系统证书库 + certifi 的并集。
+
+    ``urllib`` 默认只认 Windows 系统证书库，而雅虎（``paypayfleamarket.yahoo.co.jp`` /
+    ``auctions.c.yimg.jp``）的证书链在部分机器上验不过（``unable to get local issuer
+    certificate``）——``requests`` 能通是因为它用 certifi。只换成 certifi 又会丢掉系统库里
+    额外信任的根（例如 MITM 证书），所以两份都加载。
+    """
+    ctx = ssl.create_default_context()
+    try:
+        import certifi
+
+        ctx.load_verify_locations(cafile=certifi.where())
+    except Exception:  # noqa: BLE001 没有 certifi 就退回系统库
+        pass
+    return ctx
 
 #: 图片代理用的白名单：煤炉自有域
 ALLOWED_HOST_SUFFIXES: Tuple[str, ...] = (
@@ -199,7 +220,10 @@ def fetch_image(
     """
     assert_fetchable(url, suffixes=suffixes, exact=exact)
     req = urllib.request.Request(url, headers=dict(_HEADERS))
-    opener = urllib.request.build_opener(RestrictedRedirectHandler(suffixes, exact))
+    opener = urllib.request.build_opener(
+        RestrictedRedirectHandler(suffixes, exact),
+        urllib.request.HTTPSHandler(context=https_context()),
+    )
     with opener.open(req, timeout=timeout) as resp:
         ct = resp.headers.get("Content-Type")
         data = resp.read(max_bytes + 1)

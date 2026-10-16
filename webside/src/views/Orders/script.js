@@ -1936,7 +1936,14 @@ export default defineComponent({
             [orderNo]: { ...cur, rows: nextRows },
           }
         }
-        load()
+        const inDialog = dialogVisible.value && String(form.value.order_no || '').trim() === orderNo
+        if (inDialog) loadDetailOutboundLines(orderNo)
+        load().then(() => {
+          // 详情里的整单「商品出库」按钮按 detailRow 判断，列表刷新后同步一份
+          if (!inDialog) return
+          const fresh = list.value.find((r) => String(r.order_no || '').trim() === orderNo)
+          if (fresh) detailRow.value = fresh
+        })
       } finally {
         lineStockingKey.value = ''
       }

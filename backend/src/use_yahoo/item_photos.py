@@ -53,12 +53,14 @@ def _dedupe(urls: Iterable[Any]) -> List[str]:
 
 def fetch_public_item(item_id: str, *, timeout: float = 15.0) -> Optional[Dict[str, Any]]:
     """公开商品页 → ``{"title", "photos"}``；打不开 / 不是这件商品 / 结构变了返回 None。阻塞 IO。"""
+    from ..mercari_cdn_fetch import https_context
+
     iid = str(item_id or "").strip()
     if not iid:
         return None
     try:
         req = urllib.request.Request(YAHOO_ITEM_PAGE.format(iid), headers=_HEADERS)
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout, context=https_context()) as resp:
             html = resp.read(8 * 1024 * 1024).decode("utf-8", "replace")
         m = _NEXT_DATA_RE.search(html)
         item = (

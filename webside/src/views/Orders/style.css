@@ -393,8 +393,9 @@
   min-width: 0;
 }
 .odt-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-/* 「重新匹配商品」贴在状态行最右侧 */
+/* 操作按钮整组贴在状态行最右侧：只有第一个吃掉剩余空间，其余按 gap 紧挨（同时抵消 el-button 相邻的 12px） */
 .odt-chips__action { margin-left: auto; }
+.odt-chips .odt-chips__action ~ .odt-chips__action { margin-left: 0; }
 .odt-title {
   font-size: 17px;
   font-weight: 600;
@@ -642,6 +643,7 @@
 }
 .odt-line__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .odt-line__head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.odt-line__action { margin-left: auto; }
 .odt-line__mid {
   font-size: 13px;
   font-weight: 600;

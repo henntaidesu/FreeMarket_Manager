@@ -721,6 +721,23 @@
                         {{ Number(ln.is_stocked_out || 0) === 1 ? t('orders.stockedOut') : t('orders.pendingStockOut') }}
                       </el-tag>
                       <span class="odt-line__mid">{{ formatOutboundManagementId(ln) }}</span>
+                      <el-popconfirm
+                        v-if="Number(ln.is_stocked_out || 0) !== 1"
+                        :title="t('orders.confirmStockOut')"
+                        :confirm-button-text="t('common.confirm')"
+                        :cancel-button-text="t('common.cancel')"
+                        @confirm="stockOutLine(detailRow || form, ln)"
+                      >
+                        <template #reference>
+                          <el-button
+                            class="odt-line__action"
+                            size="small"
+                            type="primary"
+                            :loading="lineStockingKey === outboundLineKey(form.order_no, ln.id)"
+                            :disabled="!canStockOutLine(ln)"
+                          >{{ t('orders.stockOut') }}</el-button>
+                        </template>
+                      </el-popconfirm>
                     </div>
                     <div class="odt-line__name">{{ ln.inventory_name || '-' }}</div>
                     <dl class="odt-facts odt-facts--tight odt-facts--cols5">
