@@ -1355,7 +1355,6 @@ lets the user choose SQLite/MySQL, test the MySQL connection, and switch backend
 - Backend API: http://localhost:9601
 - OpenAPI docs: **disabled by default** — `/docs`, `/redoc` and `/openapi.json` return 404 unless
   `MERCARI_ENABLE_DOCS=1` (they would otherwise expose every route to an unauthenticated LAN).
-  Note `start.bat` still prints a `/docs` URL; that message is stale.
 - Health check: http://localhost:9601/mercariV2/health (legacy alias: `/api/health`).
   Both return **503 while starting up** and only `200 ok` once `mark_ready()` fires.
 
