@@ -8,7 +8,6 @@
     @update:model-value="(v) => emit('update:modelValue', v)"
     @open="reload"
   >
-    <div class="bm-tip">{{ t('barcodeHistory.mergeTip') }}</div>
     <div v-loading="loading" class="bm-list">
       <el-empty v-if="!loading && !groups.length" :description="t('barcodeHistory.mergeEmpty')" />
       <BarcodeGroupCard
@@ -88,12 +87,6 @@ function openItem(id) {
 </script>
 
 <style scoped>
-.bm-tip {
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--el-text-color-secondary);
-  margin-bottom: 12px;
-}
 .bm-list { min-height: 120px; }
 .bm-pager { margin-top: 10px; justify-content: flex-end; }
 </style>

@@ -1,20 +1,16 @@
 # -*- coding: utf-8 -*-
-"""同条码商品合并：人工确认后，把若干商品并成**一个新商品**（新管理番号）。
+"""同条码商品合并：人工确认后，把若干商品并进**其中管理番号最新的那件**（不新开管理番号）。
 
-为什么是新番号而不是并进其中一件：被并的每一件都可能已经挂出、卖出、写在订单出库明细里，
-新番号让「合并」这件事本身留下一个清楚的分界——之后新上架的一律用新番号（图片暗码 /
-描述暗号写的都是它），而旧番号全部经 ``merged_into_id`` 指向新商品，继续认得。
-
-新商品不以哪一件为「主」：名称由人填写，图片由人从被并商品的图片里勾选组合；其余资料
-（单价/类型/出品文案/出品设置…）只是拿被并商品里最新那件当初始值，之后在库存页照常修改。
-所有被并商品带过来「货」与「关联」：
-  · 库存：各商品的批次整批搬到新商品下（批次号按新商品续编），总数相加；
-  · 订单出库明细 ``order_outbound_lines.inventory_id`` 改指新商品，待出随后按明细重算；
-  · 在售：``mercari_item_id`` 并入新商品，``on_sale_quantity`` 相加，
-    ``on_sale_items.counted_inventory_ids`` 里的旧 id 改成新 id（以后下架/售出的 -1 才落得对）；
-  · 组合商品 ``combined_items`` 里引用旧商品的改成新 id；
-  · 旧商品软删除并记 ``merged_into_id``——在售描述暗号 / 图片暗码里的旧番号靠它转到新商品
-    （见 resolve.resolve_inventory_id）；以前并入旧商品的行也一并改指新商品。
+最新那件保留原管理番号，名称与图片按人确认的改写（图片由人从被并商品的图片里勾选组合），
+其余资料（单价/类型/出品文案/出品设置…）保持它自己的。其它商品带过来「货」与「关联」：
+  · 库存：各商品的批次整批搬到目标下（批次号按目标续编），总数相加；
+  · 订单出库明细 ``order_outbound_lines.inventory_id`` 改指目标，待出随后按明细重算；
+  · 在售：``mercari_item_id`` 并入目标，``on_sale_quantity`` 相加，
+    ``on_sale_items.counted_inventory_ids`` 里的旧 id 改成目标（以后下架/售出的 -1 才落得对）；
+  · 组合商品 ``combined_items`` 里引用旧商品的改成目标；
+  · 旧商品软删除（``is_delete=1``，数据保留，系统中不再显示）并记 ``merged_into_id``——在售描述
+    暗号 / 图片暗码里的旧番号靠它转到目标（见 resolve.resolve_inventory_id）；以前并入旧商品的行
+    也一并改指目标。
 
 **出品预扣减没结清的组不合并**（``merge_blockers``）：预扣减台账按库存 id 记在任务行上，
 搬走以后核销/释放会落到已删除的行。它们在在售同步绑定后（最迟 TTL 6 小时）自然结清，再合并即可。
@@ -23,8 +19,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
-import uuid
 from typing import Dict, Iterable, List, Optional
 
 from ..db_manage.database import DatabaseManager
@@ -179,32 +173,21 @@ def _merge_one(db: DatabaseManager, target: int, src: int) -> None:
     db.execute_update("DELETE FROM [image_embeddings] WHERE [inventory_id] = ?", (src,))
 
 
-#: 新商品从主商品照抄的资料列（数量/在售/待出等计数一律从 0 起，由 _merge_one 累加、随后重算）
-_COPY_COLS = (
-    "name", "product_barcode", "variant_no", "grade", "base_mgmt_id", "category_id", "product_type_id", "owner_user_id", "warehouse_id", "price",
-    "description", "listing_title", "listing_body", "listing_status", "listing_account_id",
-    "shipping_payer", "shipping_method", "shipping_from_area_id", "shipping_days", "sale_type",
-    "auction_duration", "auto_listing_enabled", "auto_listing_watermark", "images_json",
-)
-
-
-def merge_as_new(
+def merge_into_newest(
     item_ids: Iterable[int], images: Optional[List[str]] = None, name: Optional[str] = None,
 ) -> int:
-    """新开一个管理番号，把 ``item_ids`` 全部并进去（单事务）。返回新商品 id。
-    ``name`` / ``images``（按顺序）由人给定；其余资料以其中最新那件为初始值。
+    """把 ``item_ids`` 并进其中管理番号最新的那件（单事务）。返回目标 id。
+    ``name`` / ``images``（按顺序）由人确认，写到目标上；不给则保持目标原样。
     调用方先校验分组、图片来源并查 ``merge_blockers``。
 
     图片路径直接沿用被并商品的：旧商品合并后即软删除、页面上不可见，不存在「删一条连带删掉
     另一条的图」的问题；复制在图床后端下是下载再上传，没必要。
     """
     ids = sorted({int(i) for i in item_ids})
-    template = ids[-1]
     if len(ids) < 2:
         raise ValueError("至少需要两件商品才能合并")
+    target, sources = ids[-1], ids[:-1]
     db = DatabaseManager()
-    cols = ", ".join(f"[{c}]" for c in _COPY_COLS)
-    barcode = f"MERGE-{int(time.time() * 1000)}-{uuid.uuid4().hex[:6]}"
     with db.transaction():
         ph = ",".join("?" * len(ids))
         alive = db.execute_query(
@@ -213,30 +196,23 @@ def merge_as_new(
         )
         if not alive or int(alive[0][0]) != len(ids):
             raise LookupError("有商品已被删除或已合并，请刷新后重试")
-        new_id = db.execute_insert(
-            f"INSERT INTO [inventory] ({cols}, [barcode], [barcode_scan_status], [quantity], [on_sale_quantity]) "
-            f"SELECT {cols}, ?, 'found', 0, 0 FROM [inventory] WHERE [id] = ?",
-            (barcode, template),
-        )
-        if not new_id:
-            raise RuntimeError("新建合并商品失败")
-        new_id = int(new_id)
         if images is not None:
             db.execute_update(
                 "UPDATE [inventory] SET [images_json] = ? WHERE [id] = ?",
-                (json.dumps(list(images), ensure_ascii=False), new_id),
+                (json.dumps(list(images), ensure_ascii=False), target),
             )
         if (name or "").strip():
-            db.execute_update("UPDATE [inventory] SET [name] = ? WHERE [id] = ?", (name.strip(), new_id))
-        for s in ids:
-            _merge_one(db, new_id, s)
+            db.execute_update("UPDATE [inventory] SET [name] = ? WHERE [id] = ?", (name.strip(), target))
+        for s in sources:
+            _merge_one(db, target, s)
     from ..use_mercari.get_order.description_mgmt_ids import refresh_inventory_pending_outbound_qty
 
-    refresh_inventory_pending_outbound_qty([new_id, *ids])
-    try:
-        from ..use_web.inventory.image_search import enqueue_inventory
-        enqueue_inventory(new_id)
-    except Exception:  # noqa: BLE001 —— 图片索引只是检索用，失败不影响合并
-        log.exception("[inventory_barcode] 新商品 %s 加入图片索引失败", new_id)
-    log.info("[inventory_barcode] 商品 %s 合并为新商品 %s", ids, new_id)
-    return new_id
+    refresh_inventory_pending_outbound_qty(ids)
+    if images is not None:
+        try:
+            from ..use_web.inventory.image_search import enqueue_inventory
+            enqueue_inventory(target)
+        except Exception:  # noqa: BLE001 —— 图片索引只是检索用，失败不影响合并
+            log.exception("[inventory_barcode] 商品 %s 重建图片索引失败", target)
+    log.info("[inventory_barcode] 商品 %s 并入最新的 %s", sources, target)
+    return target

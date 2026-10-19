@@ -221,8 +221,12 @@ Key tables in `backend/src/db_manage/models/`:
   `barcode_scan_status`：NULL 未处理 / found / none（图里无条码，跳过）/ conflict（多个不同条码，候选存 `barcode_candidates`，在系统配置「条码识别 → 处理冲突」人工定夺，
   见 `inventory_barcode/conflicts.py`；定夺只写条码）/
   merged。**识别从不合并**：同条码 + 同归属人的商品进系统配置「条码识别 → 待合并」（`inventory_barcode/review.py`，
-  组不落表、每次现算），人工归类后 `merge.merge_as_new` **新建一个管理番号**（不选主商品：名称人工填写、图片人工勾选组合，其余资料以最新那件为初始值），
-  所有被并商品的批次/在售/出库明细搬过去、旧行软删并 `merged_into_id` 指向新商品；以后上架都用新番号。
+  组不落表、每次现算），人工归类后 `merge.merge_into_newest` 并入**组里管理番号最新的那件**（不新开番号；名称、图片人工确认后写到它上面），
+  其余商品的批次/在售/出库明细搬过去、旧行软删（`is_delete=1`）并 `merged_into_id` 指向它。
+  **疑似借用背面图**（`inventory_barcode/image_dupes.py`）：同条码下两件商品有一张图字节相同、主图却不同、且那张图里识别得出该条码
+  → 两边都标出（分不出谁借谁），人逐件选「条码不属于此商品」（清条码、图片保留，状态 `borrowed`，以后识别跳过）或「条码正确」
+  （`inventory.barcode_confirmed=1`）。整套图片相同只提示。哈希按图片路径缓存在 `inventory_image_hashes`，计数只用缓存，
+  由识别任务 `refresh_all` 与待合并当页补齐。
   归类规则见下方「条码 × 款式 × 品相」。`merged_into_id`：同条码合并后旧商品的去向——**在售描述暗号里仍是旧番号，凡是把解出的
   管理番号映射回库存的地方都必须走 `_resolve_inventory_id`（= `inventory_barcode.resolve_inventory_id`），
   不能只查存在性**，否则会绑到已软删的旧行。历史处理由系统配置「条码识别」开关排一条
@@ -239,7 +243,7 @@ Key tables in `backend/src/db_manage/models/`:
   `条码[-款式][-品相]`；库存搜索两种都认。选品相自动带出出品状态（S→new_unused / A→good / J→bad，出品侧
   `CONDITION_ITEM_JA` 因此加了 `bad`）。识别只写纯条码；待合并（`review.py`）按 条码 + 归属人 成组，人工选
   一对一 / 一对多并给每件定款式·品相（`classify`，必须覆盖整组），款式 × 品相相同的合并为新商品
-  （直接新开管理番号：填名称 + 勾选组合图片）。启动迁移 `migrate_variant_codes` 把旧的 `条码-N` 拆成 条码 + `variant_no`，幂等。
+  （并入最新那件：确认名称 + 勾选组合图片）。启动迁移 `migrate_variant_codes` 把旧的 `条码-N` 拆成 条码 + `variant_no`，幂等。
 - **warehouses**: Storage locations (shelf names duplicable per warehouse)
 - **product_type_category_mappings**: 商品类型主表 (one row = one 商品类型). `inventory.product_type_id` → `mapping_id` (TEXT PK, numeric, auto-incremented on create, never user-visible). See 商品类型映射 below.
 - **shop_accounts**: Marketplace account config (headers in `value` JSON field, `platform`,

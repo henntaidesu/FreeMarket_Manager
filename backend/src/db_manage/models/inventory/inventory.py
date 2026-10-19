@@ -47,7 +47,8 @@ class InventoryModel(BaseModel):
                 'max_length': 128,
             },
             # 条码识别状态：NULL=未处理 / found=已识别 / none=图片里没有条码（保持 uuid，跳过）/
-            # conflict=多张图识别出不同条码（人工处理）/ merged=已并入 merged_into_id
+            # conflict=多张图识别出不同条码（人工处理）/ merged=已并入 merged_into_id /
+            # borrowed=条码出自借用的别家背面图，人工确认后已清空（以后识别跳过）
             'barcode_scan_status': {
                 'type': 'TEXT',
                 'not_null': False,
@@ -81,6 +82,12 @@ class InventoryModel(BaseModel):
                 'not_null': False,
                 'default': None,
                 'max_length': 4,
+            },
+            # 条码已人工确认正确（疑似借用背面图时选了「条码正确」）：1 = 不再提示借用
+            'barcode_confirmed': {
+                'type': 'INTEGER',
+                'not_null': True,
+                'default': 0,
             },
             # 基础番号：同条码第一件商品的 id，显示用管理编号 = 基础番号-款式号-品相。落库，免得第一件被
             # 删 / 被合并后编号跟着变、与已贴标签对不上

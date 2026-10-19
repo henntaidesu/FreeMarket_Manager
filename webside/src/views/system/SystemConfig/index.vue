@@ -386,6 +386,7 @@
               <span>{{ t('barcodeHistory.none', { n: barcodeHistory.none_count }) }}</span>
               <span>{{ t('barcodeHistory.conflict', { n: barcodeHistory.conflict_count }) }}</span>
               <span>{{ t('barcodeHistory.merged', { n: barcodeHistory.merged_count }) }}</span>
+              <span v-if="barcodeHistory.borrowed_count">{{ t('barcodeHistory.borrowed', { n: barcodeHistory.borrowed_count }) }}</span>
               <span>{{ t('barcodeHistory.mergeGroupCount', { n: barcodeHistory.merge_group_count }) }}</span>
             </div>
             <div class="sc-actions">
@@ -1839,7 +1840,7 @@ function retryHomecoming() {
 // ===== 条码识别（历史数据）=====
 // 打开开关即排一条任务（只识别，幂等）：再跑一轮只处理还没识别的。同条码商品走「待合并」人工确认。
 const barcodeHistory = reactive({
-  enabled: false, pending_count: 0, found_count: 0, none_count: 0, conflict_count: 0, merged_count: 0,
+  enabled: false, pending_count: 0, found_count: 0, none_count: 0, conflict_count: 0, merged_count: 0, borrowed_count: 0,
   merge_group_count: 0
 })
 const barcodeHistoryLoading = ref(false)
@@ -1850,7 +1851,7 @@ const barcodeMergeVisible = ref(false)
 
 function applyBarcodeHistory(res) {
   barcodeHistory.enabled = !!res?.enabled
-  for (const k of ['pending_count', 'found_count', 'none_count', 'conflict_count', 'merged_count', 'merge_group_count']) {
+  for (const k of ['pending_count', 'found_count', 'none_count', 'conflict_count', 'merged_count', 'borrowed_count', 'merge_group_count']) {
     barcodeHistory[k] = Number(res?.[k]) || 0
   }
 }

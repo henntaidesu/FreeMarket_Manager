@@ -42,6 +42,9 @@ export const configApi = {
   classifyBarcodeGroup: (body) => http.post('/use_web/system/barcode-history/classify', body),
   // 待合并里点管理番号：商品详情 + 关联在售/已售 → { item, listings, sold }（只读）
   getBarcodeMergeItem: (id) => http.get(`/use_web/system/barcode-history/item/${id}`),
+  // 疑似借用背面图：条码不属于此商品（清空条码，图片保留）/ 条码正确（不再提示）
+  markBarcodeBorrowed: (id) => http.post(`/use_web/system/barcode-history/item/${id}/borrowed`),
+  confirmBarcode: (id) => http.post(`/use_web/system/barcode-history/item/${id}/confirm`),
   // 一键修改发货时效：{ target, target_name, pending, already, total, task_id }
   // GET 只算件数（pending = 时效 ≠ 目标的在售商品）；POST 把整批修改交给 system.shipping_duration 任务
   getShippingDurationPreview: (params) =>

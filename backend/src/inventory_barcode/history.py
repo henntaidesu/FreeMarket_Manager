@@ -61,6 +61,7 @@ def status() -> Dict[str, Any]:
         "none_count": c.get("none", 0),
         "conflict_count": c.get("conflict", 0),
         "merged_count": c.get("merged", 0),
+        "borrowed_count": c.get("borrowed", 0),
         "merge_group_count": count_groups(),
     }
 
@@ -120,4 +121,9 @@ def scan_pending(report: Report = None, should_stop: Callable[[], bool] = lambda
 
 
 def run(report: Report = None, should_stop: Callable[[], bool] = lambda: False) -> Dict[str, Any]:
-    return {"scan": scan_pending(report, should_stop)}
+    from .image_dupes import refresh_all
+
+    scan = scan_pending(report, should_stop)
+    # 同条码商品的图片哈希：待合并据此标出「疑似借用背面图 / 整套图片相同」
+    dupes = refresh_all(report, should_stop)
+    return {"scan": scan, "dupes": dupes}

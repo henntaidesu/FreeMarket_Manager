@@ -29,6 +29,8 @@ class BarcodeHistoryStatusOut(BaseModel):
     merged_count: int
     #: 待人工确认合并的组数（同条码 + 同归属人）
     merge_group_count: int = 0
+    #: 确认条码出自借用背面图、已清空条码的商品数
+    borrowed_count: int = 0
     task_id: Optional[int] = None
 
 
@@ -108,12 +110,12 @@ class BarcodeClassifyItem(BaseModel):
 
 
 class BarcodeClassifyBucket(BaseModel):
-    """一个要合并的「款式 × 品相」：直接新开管理番号，名称与图片由人给定。"""
+    """一个要合并的「款式 × 品相」：并进其中管理番号最新的那件，名称与图片由人确认。"""
     variant_no: Optional[int] = None
     grade: Optional[str] = None
-    #: 新商品名称
+    #: 合并后的名称
     name: str
-    #: 新商品的图片：从被合并商品的图片里勾选组合，按顺序
+    #: 合并后的图片：从被合并商品的图片里勾选组合，按顺序
     images: List[str] = []
 
 
@@ -122,8 +124,11 @@ class BarcodeClassify(BaseModel):
     owner_user_id: Optional[int] = None
     #: single = 条码一对一（不带款式号）/ multi = 条码一对多（每件定款式号）
     mode: str
+    #: 这次参与归类的商品（勾选的）
     items: List[BarcodeClassifyItem]
     buckets: List[BarcodeClassifyBucket] = []
+    #: 手动剔除的商品：原样不动、留在待合并里（与 items 合起来须是整组）
+    exclude_ids: List[int] = []
 
 
 def list_barcode_merge_groups(page: int = 1, page_size: int = 10):
@@ -139,6 +144,7 @@ def classify_barcode_group(body: BarcodeClassify):
         result = classify(
             body.barcode, body.owner_user_id, body.mode,
             [it.model_dump() for it in body.items], [b.model_dump() for b in body.buckets],
+            body.exclude_ids,
         )
     except LookupError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -161,3 +167,25 @@ def get_barcode_merge_item(inv_id: int):
         raise HTTPException(status_code=404, detail="商品不存在或已删除")
     linked = list_inventory_linked_items(int(inv_id))
     return {"item": items[0], "listings": linked["listings"], "sold": linked["sold"]}
+
+
+def mark_barcode_borrowed_endpoint(inv_id: int):
+    """待合并里「条码不属于此商品」：清空条码（图片保留），以后识别跳过。"""
+    from ....inventory_barcode.review import mark_barcode_borrowed
+
+    try:
+        mark_barcode_borrowed(inv_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"status": status()}
+
+
+def confirm_barcode_endpoint(inv_id: int):
+    """待合并里「条码正确」：以后不再提示借用。"""
+    from ....inventory_barcode.review import confirm_barcode
+
+    try:
+        confirm_barcode(inv_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"status": status()}

@@ -93,19 +93,19 @@
       </el-button>
     </template>
   </el-dialog>
+  <BarcodeItemDetailDialog v-model="itemDetailVisible" :inventory-id="itemDetailId" />
 </template>
 
 <script setup>
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import BarcodeItemDetailDialog from './BarcodeItemDetailDialog.vue'
 import { ElMessage } from '@/utils/notify'
 import { configApi } from '@/api/index.js'
 
 defineProps({ modelValue: { type: Boolean, default: false } })
 const emit = defineEmits(['update:modelValue', 'resolved'])
 const { t } = useI18n()
-const router = useRouter()
 
 const items = ref([])
 const loading = ref(false)
@@ -114,6 +114,8 @@ const current = ref(null)
 const choice = ref('')
 const manual = ref('')
 const saving = ref(false)
+const itemDetailVisible = ref(false)
+const itemDetailId = ref(null)
 
 function thumb(path) {
   return `/mercariV2/src/use_web/inventory/image-thumb?path=${encodeURIComponent(path)}&size=400`
@@ -131,11 +133,10 @@ async function load() {
   }
 }
 
-/** 跳到库存管理并打开该商品的编辑表单（库存页读 ?open=） */
+/** 在当页覆盖一层商品库存详情（不跳库存管理，看完回到冲突处理） */
 function openItem(id) {
-  detailVisible.value = false
-  emit('update:modelValue', false)
-  router.push({ path: '/inventory', query: { open: String(id) } })
+  itemDetailId.value = id
+  itemDetailVisible.value = true
 }
 
 function openDetail(row) {

@@ -21,6 +21,7 @@ from .system.system_log import SystemLogModel
 from .system.task_queue import TaskQueueModel
 from .inventory.inventory import InventoryModel
 from .inventory.image_embedding import ImageEmbeddingModel
+from .inventory.image_hash import ImageHashModel
 from .inventory.inventory_batch import InventoryBatchModel
 from .orders.order import OrderModel
 from .orders.order_note import OrderNoteModel
@@ -79,5 +80,6 @@ __all__ = [
     'GotionColumnModel',
     'GotionRowModel',
     'ImageEmbeddingModel',
+    'ImageHashModel',
     'InventoryBatchModel',
 ]

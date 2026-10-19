@@ -33,7 +33,7 @@ async def handle_barcode_history(task: Dict[str, Any]) -> Dict[str, Any]:
     stats["merge_group_count"] = count_groups()
     summary = (
         f"识别 {scan['total']} 件：有条码 {scan['found']}，无条码 {scan['none']}，冲突 {scan['conflict']}；"
-        f"待人工确认合并 {stats['merge_group_count']} 组"
+        f"比对图片 {stats['dupes']['hashed']} 张；待人工确认 {stats['merge_group_count']} 组"
     )
     SystemLogModel.add(category="barcode", level="info", message=f"条码识别（历史数据）：{summary}", detail=stats)
     return stats

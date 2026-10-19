@@ -1,6 +1,6 @@
 <template>
-  <!-- 图片里没识别到条码、已跳过的商品。点管理番号跳到库存管理并打开该商品的编辑表单，
-       在那里重新上传含条码的图片即可（上传时自动识别写入）。 -->
+  <!-- 图片里没识别到条码、已跳过的商品。点管理番号在当页覆盖一层商品库存详情（不跳页面）；
+       要补条码就到库存管理里重新上传含条码的图片（上传时自动识别写入）。 -->
   <el-dialog
     :model-value="modelValue"
     :title="t('barcodeHistory.skippedTitle')"
@@ -56,19 +56,19 @@
       class="bs-pager"
       @current-change="load"
     />
+    <BarcodeItemDetailDialog v-model="itemDetailVisible" :inventory-id="itemDetailId" />
   </el-dialog>
 </template>
 
 <script setup>
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import BarcodeItemDetailDialog from './BarcodeItemDetailDialog.vue'
 import { configApi } from '@/api/index.js'
 
 defineProps({ modelValue: { type: Boolean, default: false } })
 const emit = defineEmits(['update:modelValue'])
 const { t } = useI18n()
-const router = useRouter()
 
 const items = ref([])
 const total = ref(0)
@@ -76,6 +76,8 @@ const page = ref(1)
 const pageSize = 20
 const keyword = ref('')
 const loading = ref(false)
+const itemDetailVisible = ref(false)
+const itemDetailId = ref(null)
 
 function thumb(path) {
   return `/mercariV2/src/use_web/inventory/image-thumb?path=${encodeURIComponent(path)}&size=120`
@@ -100,10 +102,10 @@ function reload() {
   load()
 }
 
-/** 跳到库存管理并打开该商品的编辑表单（库存页读 ?open=） */
+/** 在当页覆盖一层商品库存详情（不跳库存管理） */
 function openItem(id) {
-  emit('update:modelValue', false)
-  router.push({ path: '/inventory', query: { open: String(id) } })
+  itemDetailId.value = id
+  itemDetailVisible.value = true
 }
 </script>
 
