@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 """条码识别 · 历史数据处理（系统配置页开关 → 任务队列 ``system.barcode_history``）。
 
-一轮分两步，两步都**幂等**，中途失败或取消后再开一次开关只会处理剩下的：
+只识别、**不合并**；幂等，中途失败或取消后再开一次开关只会处理剩下的。
 
-1. 识别：``barcode_scan_status IS NULL`` 的商品逐个识别——
+识别：``barcode_scan_status IS NULL`` 的商品逐个识别——
    · ``barcode`` 列里本来就是扫码录入的真实条码 → 直接采用，不看图；
    · 否则读全部商品图识别：识别到 1 个 → ``found``；一个都没有 → ``none``（条码保持 uuid，
      以后跳过）；多张图识别出不同条码 → ``conflict``（不自动处理，在系统配置页
      「处理冲突」里人工选定，见 conflicts.py）。
-2. 合并：同产品条码 + 同归属人 的商品，全部并入其中管理番号最大的那个（见 merge.py）。
-   有出品预扣减未结清的组本轮跳过，下一轮再并。
+
+只写纯条码，不定款式 / 品相：同条码 + 同归属人 的商品进入系统配置页「待合并」，由人归类、确认合并（见 review.py）。
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from typing import Any, Callable, Dict, List, Optional
 from ..db_manage.database import DatabaseManager
 from ..db_manage.models.system.config_entry import ConfigEntryModel
 from .decode import decode_inventory_images_detail, is_generated_barcode
-from .merge import merge_blockers, merge_into
+from .variant import sync_base_mgmt_id
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +53,7 @@ def status() -> Dict[str, Any]:
         """
     ) or []
     c = {str(k): int(v) for k, v in rows}
+    from .review import count_groups
     return {
         "enabled": is_on(),
         "pending_count": c.get("", 0),
@@ -60,6 +61,7 @@ def status() -> Dict[str, Any]:
         "none_count": c.get("none", 0),
         "conflict_count": c.get("conflict", 0),
         "merged_count": c.get("merged", 0),
+        "merge_group_count": count_groups(),
     }
 
 
@@ -111,42 +113,11 @@ def scan_pending(report: Report = None, should_stop: Callable[[], bool] = lambda
             "WHERE [id] = ? AND [barcode_scan_status] IS NULL",
             (code, state, candidates, int(iid)),
         )
+        if code:
+            sync_base_mgmt_id(int(iid))
         stats[state] += 1
     return stats
 
 
-def merge_duplicates(report: Report = None, should_stop: Callable[[], bool] = lambda: False) -> Dict[str, int]:
-    """第 2 步：同产品条码 + 同归属人 → 并入管理番号最大的商品。"""
-    db = DatabaseManager()
-    rows = db.execute_query(
-        """
-        SELECT [product_barcode], COALESCE([owner_user_id], 0), [id] FROM [inventory]
-        WHERE COALESCE([is_delete], 0) = 0 AND COALESCE([is_combined], 0) = 0
-          AND [product_barcode] IS NOT NULL AND TRIM([product_barcode]) <> ''
-        ORDER BY [id]
-        """
-    ) or []
-    groups: Dict[tuple, List[int]] = {}
-    for code, owner, iid in rows:
-        groups.setdefault((str(code).strip(), int(owner)), []).append(int(iid))
-    dup = [ids for ids in groups.values() if len(ids) > 1]
-    stats = {"groups": len(dup), "merged_items": 0, "deferred_groups": 0}
-    for n, ids in enumerate(dup, 1):
-        if should_stop():
-            break
-        target, sources = max(ids), [i for i in ids if i != max(ids)]
-        if report:
-            report("合并同条码商品", f"{n}/{len(dup)}：{sources} → {target}")
-        reason = merge_blockers(sources)
-        if reason:
-            stats["deferred_groups"] += 1
-            log.info("[barcode_history] 暂不合并 %s → %s：%s", sources, target, reason)
-            continue
-        stats["merged_items"] += len(merge_into(target, sources))
-    return stats
-
-
 def run(report: Report = None, should_stop: Callable[[], bool] = lambda: False) -> Dict[str, Any]:
-    scan = scan_pending(report, should_stop)
-    merge = merge_duplicates(report, should_stop)
-    return {"scan": scan, "merge": merge}
+    return {"scan": scan_pending(report, should_stop)}

@@ -386,6 +386,7 @@
               <span>{{ t('barcodeHistory.none', { n: barcodeHistory.none_count }) }}</span>
               <span>{{ t('barcodeHistory.conflict', { n: barcodeHistory.conflict_count }) }}</span>
               <span>{{ t('barcodeHistory.merged', { n: barcodeHistory.merged_count }) }}</span>
+              <span>{{ t('barcodeHistory.mergeGroupCount', { n: barcodeHistory.merge_group_count }) }}</span>
             </div>
             <div class="sc-actions">
               <el-button
@@ -399,6 +400,11 @@
                 :disabled="!barcodeHistory.conflict_count"
                 @click="barcodeConflictVisible = true"
               >{{ t('barcodeHistory.handleConflicts', { n: barcodeHistory.conflict_count }) }}</el-button>
+              <el-button
+                :type="barcodeHistory.merge_group_count ? 'warning' : 'default'"
+                :disabled="!barcodeHistory.merge_group_count"
+                @click="barcodeMergeVisible = true"
+              >{{ t('barcodeHistory.mergeGroups', { n: barcodeHistory.merge_group_count }) }}</el-button>
               <!-- 图片里没识别到条码的商品：列表里点管理番号直接打开库存表单 -->
               <el-button
                 :disabled="!barcodeHistory.none_count"
@@ -408,6 +414,7 @@
             </div>
             <BarcodeConflictDialog v-model="barcodeConflictVisible" @resolved="applyBarcodeHistory" />
             <BarcodeSkippedDialog v-model="barcodeSkippedVisible" />
+            <BarcodeMergeDialog v-model="barcodeMergeVisible" @changed="onBarcodeMergeChanged" />
           </div>
         </section>
 
@@ -1155,6 +1162,7 @@ import { databaseApi } from '@/api/database'
 import { imageHostingApi } from '@/api/image_hosting'
 import BarcodeConflictDialog from './BarcodeConflictDialog.vue'
 import BarcodeSkippedDialog from './BarcodeSkippedDialog.vue'
+import BarcodeMergeDialog from './BarcodeMergeDialog.vue'
 import {
   printTestLabel,
   loadPrinterConfig,
@@ -1829,20 +1837,27 @@ function retryHomecoming() {
 }
 
 // ===== 条码识别（历史数据）=====
-// 打开开关即排一条任务（识别 + 合并），两步都幂等：再跑一轮只处理还没识别的、上轮暂缓合并的。
+// 打开开关即排一条任务（只识别，幂等）：再跑一轮只处理还没识别的。同条码商品走「待合并」人工确认。
 const barcodeHistory = reactive({
-  enabled: false, pending_count: 0, found_count: 0, none_count: 0, conflict_count: 0, merged_count: 0
+  enabled: false, pending_count: 0, found_count: 0, none_count: 0, conflict_count: 0, merged_count: 0,
+  merge_group_count: 0
 })
 const barcodeHistoryLoading = ref(false)
 const barcodeHistorySubmitting = ref(false)
 const barcodeConflictVisible = ref(false)
 const barcodeSkippedVisible = ref(false)
+const barcodeMergeVisible = ref(false)
 
 function applyBarcodeHistory(res) {
   barcodeHistory.enabled = !!res?.enabled
-  for (const k of ['pending_count', 'found_count', 'none_count', 'conflict_count', 'merged_count']) {
+  for (const k of ['pending_count', 'found_count', 'none_count', 'conflict_count', 'merged_count', 'merge_group_count']) {
     barcodeHistory[k] = Number(res?.[k]) || 0
   }
+}
+
+function onBarcodeMergeChanged(res) {
+  if (res) applyBarcodeHistory(res)
+  else loadBarcodeHistory()
 }
 
 async function loadBarcodeHistory() {

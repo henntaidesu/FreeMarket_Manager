@@ -862,7 +862,18 @@ class DBManager:
             return False
         if not self._migrate_inventory_product_barcode_index():
             return False
+        self._migrate_inventory_variant_codes()
         return True
+
+    def _migrate_inventory_variant_codes(self) -> None:
+        """条码补款式号（条码 → 条码-N）+ 补齐 base_mgmt_id。幂等；失败只告警，不挡启动。"""
+        try:
+            from ..inventory_barcode.variant import migrate_variant_codes
+            stats = migrate_variant_codes()
+            if stats["renamed"] or stats["base_filled"]:
+                print(f"[OK] 条码款式号迁移: {stats}")
+        except Exception as e:  # noqa: BLE001
+            print(f"[WARN] 条码款式号迁移失败: {e}")
 
     def check_integrity(self) -> bool:
         """检查所有表结构完整性"""

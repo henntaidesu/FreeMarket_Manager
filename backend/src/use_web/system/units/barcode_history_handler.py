@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """条码识别（历史数据）开关端点。
 
-打开开关 = 提交一条 ``system.barcode_history`` 任务跑一轮（识别 + 合并），进度看 /#/tasks。
-两步都幂等，所以同一个 PUT 兼作「再跑一轮」：已识别 / 已标记无条码的商品不会重复处理。
-关闭开关只是把状态记下来，不撤销已经写下的条码与合并。
+打开开关 = 提交一条 ``system.barcode_history`` 任务跑一轮（只识别），进度看 /#/tasks。
+识别是幂等的，所以同一个 PUT 兼作「再跑一轮」：已识别 / 已标记无条码的商品不会重复处理。
+关闭开关只是把状态记下来，不撤销已经写下的条码。同条码商品的合并只走下方「待合并」的人工确认。
 """
 from typing import Any, Dict, List, Optional
 
@@ -27,6 +27,8 @@ class BarcodeHistoryStatusOut(BaseModel):
     conflict_count: int
     #: 已并入同条码商品的旧商品数
     merged_count: int
+    #: 待人工确认合并的组数（同条码 + 同归属人）
+    merge_group_count: int = 0
     task_id: Optional[int] = None
 
 
@@ -93,3 +95,69 @@ def list_barcode_skipped(page: int = 1, page_size: int = 20, keyword: str = ""):
     from ....inventory_barcode.conflicts import list_skipped
 
     return list_skipped(page, page_size, keyword)
+
+
+# ──────────── 同条码商品的人工合并（待合并列表）──────────── #
+
+class BarcodeClassifyItem(BaseModel):
+    id: int
+    #: 款式号；一对一模式下必须为空
+    variant_no: Optional[int] = None
+    #: 品相 S / A / J，空 = 未定
+    grade: Optional[str] = None
+
+
+class BarcodeClassifyBucket(BaseModel):
+    """一个要合并的「款式 × 品相」：直接新开管理番号，名称与图片由人给定。"""
+    variant_no: Optional[int] = None
+    grade: Optional[str] = None
+    #: 新商品名称
+    name: str
+    #: 新商品的图片：从被合并商品的图片里勾选组合，按顺序
+    images: List[str] = []
+
+
+class BarcodeClassify(BaseModel):
+    barcode: str
+    owner_user_id: Optional[int] = None
+    #: single = 条码一对一（不带款式号）/ multi = 条码一对多（每件定款式号）
+    mode: str
+    items: List[BarcodeClassifyItem]
+    buckets: List[BarcodeClassifyBucket] = []
+
+
+def list_barcode_merge_groups(page: int = 1, page_size: int = 10):
+    from ....inventory_barcode.review import list_groups
+
+    return list_groups(page, page_size)
+
+
+def classify_barcode_group(body: BarcodeClassify):
+    from ....inventory_barcode.review import classify
+
+    try:
+        result = classify(
+            body.barcode, body.owner_user_id, body.mode,
+            [it.model_dump() for it in body.items], [b.model_dump() for b in body.buckets],
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {**result, "status": status()}
+
+
+def get_barcode_merge_item(inv_id: int):
+    """待合并弹窗里点管理番号：商品库存详情 + 关联的在售 / 已售，只读。
+
+    放在这一组而不是让前端直接调 /inventory：那组接口按库存页权限放行（含写），只为看一眼详情
+    就把库存写权限也给系统配置页的角色，范围就放大了。
+    """
+    from ...inventory.units.inventory_helpers import _query_inventory_with_joins
+    from ...inventory.units.inventory_query import list_inventory_linked_items
+
+    items = _query_inventory_with_joins(" AND p.id = ? LIMIT 1", (int(inv_id),))
+    if not items:
+        raise HTTPException(status_code=404, detail="商品不存在或已删除")
+    linked = list_inventory_linked_items(int(inv_id))
+    return {"item": items[0], "listings": linked["listings"], "sold": linked["sold"]}

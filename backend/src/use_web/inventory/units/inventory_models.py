@@ -15,6 +15,9 @@ class InventoryCreate(PydanticModel):
     barcode: str
     # 上传图片时识别出的产品条码（见 upload-image?detect_barcode=1）
     product_barcode: Optional[str] = None
+    # 款式号（一对多条码才有）/ 品相 S 良品 / A 一般 / J 损坏（见 inventory_barcode/variant.py）
+    variant_no: Optional[int] = None
+    grade: Optional[str] = None
     category_id: Optional[int] = None
     product_type_id: Optional[int] = None
     owner_user_id: Optional[int] = None
@@ -114,6 +117,9 @@ class InventoryUpdate(PydanticModel):
     name: Optional[str] = None
     barcode: Optional[str] = None
     product_barcode: Optional[str] = None
+    # 款式号（一对多条码才有）/ 品相 S 良品 / A 一般 / J 损坏（见 inventory_barcode/variant.py）
+    variant_no: Optional[int] = None
+    grade: Optional[str] = None
     category_id: Optional[int] = None
     product_type_id: Optional[int] = None
     owner_user_id: Optional[int] = None

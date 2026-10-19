@@ -37,6 +37,11 @@ export const configApi = {
   // 已跳过（图片里无条码）的商品：params = { page, page_size, keyword }
   listBarcodeSkipped: (params) => http.get('/use_web/system/barcode-history/skipped', { params }),
   resolveBarcodeConflict: (id, body) => http.post(`/use_web/system/barcode-history/conflicts/${id}`, body),
+  // 同条码商品人工归类：一对一 / 一对多 + 每件款式·品相，款式×品相相同的合并为新管理番号
+  listBarcodeMergeGroups: (params) => http.get('/use_web/system/barcode-history/merge-groups', { params }),
+  classifyBarcodeGroup: (body) => http.post('/use_web/system/barcode-history/classify', body),
+  // 待合并里点管理番号：商品详情 + 关联在售/已售 → { item, listings, sold }（只读）
+  getBarcodeMergeItem: (id) => http.get(`/use_web/system/barcode-history/item/${id}`),
   // 一键修改发货时效：{ target, target_name, pending, already, total, task_id }
   // GET 只算件数（pending = 时效 ≠ 目标的在售商品）；POST 把整批修改交给 system.shipping_duration 任务
   getShippingDurationPreview: (params) =>

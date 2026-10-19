@@ -25,7 +25,7 @@ async def post_to_market(
     image_urls: Sequence[str] = (),
     # 类别：逐级点第 N 个条目（来自 product_type_category_mappings.mercari_category_positions）
     category_positions: Optional[Sequence[int]] = None,
-    # 商品状態：new_unused / almost_unused / good / fair / used
+    # 商品状態：new_unused / almost_unused / good / fair / used / bad
     status: str = "",
     # 快递費負担：seller(出品者負担) / buyer(購入者負担)
     shipping_payer: str = "seller",

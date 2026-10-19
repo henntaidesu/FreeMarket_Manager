@@ -68,6 +68,27 @@ class InventoryModel(BaseModel):
                 'not_null': False,
                 'default': None,
             },
+            # 款式号：一对多条码（同一条码印在不同商品上）下的 1、2、3…；一对一条码为 NULL。
+            # 与条码、品相分列存储，显示编号由 API 拼接（见 inventory_barcode/variant.py）
+            'variant_no': {
+                'type': 'INTEGER',
+                'not_null': False,
+                'default': None,
+            },
+            # 品相：S 良品 / A 一般 / J 损坏，NULL = 未定。同条码同款式的不同品相是不同商品（各自的图片组）
+            'grade': {
+                'type': 'TEXT',
+                'not_null': False,
+                'default': None,
+                'max_length': 4,
+            },
+            # 基础番号：同条码第一件商品的 id，显示用管理编号 = 基础番号-款式号-品相。落库，免得第一件被
+            # 删 / 被合并后编号跟着变、与已贴标签对不上
+            'base_mgmt_id': {
+                'type': 'INTEGER',
+                'not_null': False,
+                'default': None,
+            },
             'sku': {
                 'type': 'TEXT',
                 'not_null': False,

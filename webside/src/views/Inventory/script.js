@@ -31,6 +31,7 @@ import {
   normalizeShippingFromSeed
 } from '@/constants/mercariJapanAreas.js'
 import { MERCARI_UNDECIDED_AREA_ID } from '@/composables/useListingPlatform.js'
+import { useBarcodeScanner } from '@/composables/useBarcodeScanner.js'
 import { useInventoryBatches } from './useInventoryBatches.js'
 import RegionRecognizeDialog from './RegionRecognizeDialog.vue'
 import BarcodeDuplicatePrompt from './BarcodeDuplicatePrompt.vue'
@@ -241,7 +242,8 @@ export default defineComponent({
       { label: t('dialogs.singleListing.statusAlmostUnused'), value: 'almost_unused' },
       { label: t('dialogs.singleListing.statusGood'), value: 'good' },
       { label: t('dialogs.singleListing.statusFair'), value: 'fair' },
-      { label: t('dialogs.singleListing.statusUsed'), value: 'used' }
+      { label: t('dialogs.singleListing.statusUsed'), value: 'used' },
+      { label: t('dialogs.singleListing.statusBad'), value: 'bad' }
     ])
     const shippingPayerOptions = computed(() => [
       { label: t('dialogs.singleListing.shippingPayerSeller'), value: 'seller' },
@@ -834,7 +836,11 @@ export default defineComponent({
     const contVideoRef = ref()
     const contCameraRefA = ref()
     const contCameraRefB = ref()
-    const contScanMode = ref('stream') // 'stream' | 'fallback'
+    const contScanMode = ref('stream') // 'stream' | 'fallback' | 'gun'（扫码枪，不开摄像头）
+    /** 一个条码对应多件商品（按归属人各一件 / 一码多品的 条码-N）时的候选，由人选 */
+    const contCandidates = ref([])
+    const contGunInputRef = ref()
+    const contGunInput = ref('')
     /** 下次拍照识别点击的 input（与另一路交替，缓解 iOS 重复选择同一 input 不触发 change） */
     let contCaptureUseA = true
     let contStream = null
@@ -1122,6 +1128,36 @@ export default defineComponent({
     )
 
     /** 编辑商品：管理番号 → 末行暗号（-=~<> 五进制），与出品说明一致 */
+    /** 款式 / 品相后缀（款式号、品相各自一个字段，显示时才拼） */
+    function variantGradeSuffix(variantNo, grade) {
+      return (variantNo != null && variantNo !== '' ? `-${variantNo}` : '') + (grade ? `-${grade}` : '')
+    }
+    /** 显示用管理编号 基础番号[-款式][-品相]（与后端 inventory_barcode/variant.py 的 mgmt_code 同口径） */
+    const editFormMgmtCode = computed(() => {
+      const id = form.value.id
+      if (!id) return ''
+      const suffix = variantGradeSuffix(form.value.variant_no, form.value.grade)
+      return suffix ? `${form.value.base_mgmt_id || id}${suffix}` : String(id)
+    })
+    /** 显示用条码编号 条码[-款式][-品相] */
+    const editFormBarcodeCode = computed(() => {
+      const pb = String(form.value.product_barcode || '').trim()
+      return pb ? pb + variantGradeSuffix(form.value.variant_no, form.value.grade) : ''
+    })
+
+    const gradeOptions = computed(() => [
+      { value: 'S', label: t('inventory.gradeS') },
+      { value: 'A', label: t('inventory.gradeA') },
+      { value: 'J', label: t('inventory.gradeJ') }
+    ])
+    /** 品相 → 出品「商品の状態」自动带出（只写本商品，不改系统出品默认值） */
+    const GRADE_LISTING_STATUS = { S: 'new_unused', A: 'good', J: 'bad' }
+
+    function onGradeChange(val) {
+      const status = GRADE_LISTING_STATUS[val]
+      if (status) form.value.listing_status = status
+    }
+
     const editFormMgmtIdCipher = computed(() => {
       const id = Number(form.value?.id)
       if (!Number.isFinite(id) || id <= 0) return ''
@@ -3106,6 +3142,9 @@ export default defineComponent({
             id: row.id,
             barcode: row.barcode || '',
             product_barcode: row.product_barcode || null,
+            variant_no: row.variant_no ?? null,
+            grade: row.grade || null,
+            base_mgmt_id: row.base_mgmt_id ?? null,
             name: row.name || null,
             sku: row.sku || null,
             category_id: row.category_id || null,
@@ -3142,6 +3181,9 @@ export default defineComponent({
             id: null,
             barcode: '',
             product_barcode: null,
+            variant_no: null,
+            grade: null,
+            base_mgmt_id: null,
             name: null,
             sku: null,
             category_id: null,
@@ -4117,7 +4159,7 @@ export default defineComponent({
     }
 
     // ---- 条码写入：冲突时问「是否一码多品」----
-    const dupPrompt = reactive({ visible: false, family: { code: '', items: [], next_code: '' }, defaultTargetId: null })
+    const dupPrompt = reactive({ visible: false, family: { code: '', items: [], next_variant: 1 }, defaultTargetId: null })
     let dupPromptResolve = null
 
     function askBarcodeDuplicate(family, defaultTargetId) {
@@ -4139,8 +4181,10 @@ export default defineComponent({
     /**
      * 把条码写进当前表单（上传自动识别 / 框选识别 / OCR 候选都走这里）。返回 true = 已跳转到原商品，
      * 调用方不要再往当前表单写东西。
-     * 该条码（含已编号的 条码-N）没被别的商品用过 → 直接写入；用过 → 问是否「一码多品」：
-     * 是 → 写入下一个编号 条码-N（与其它款各自独立，历史处理也不会合并）；否 → 跳转原商品（草稿丢弃）。
+     * 条码、款式号、品相分三个字段存：该条码没被别的商品用过 → 只写条码（一对一）；用过 → 让人选：
+     *   · 新款式 → 款式号记成下一个（条码随之变成一对多，后端把原有商品补成款式 1）；
+     *   · 同款不同品相 → 沿用所选商品的款式号，本商品另选品相（S/A/J，各自一组图片）；
+     *   · 同一商品 → 跳转原商品（草稿丢弃）。
      */
     async function assignBarcode(rawCode) {
       const code = String(rawCode || '').trim()
@@ -4153,22 +4197,35 @@ export default defineComponent({
       }
       const curId = Number(form.value.id || 0)
       const items = (family?.items || []).filter((it) => Number(it.id) !== curId)
+      const base = family?.code || code
       if (!items.length) {
-        form.value.product_barcode = code
-        ElMessage.success(t('inventory.barcodeDetected', { code }))
+        form.value.product_barcode = base
+        form.value.variant_no = null
+        ElMessage.success(t('inventory.barcodeDetected', { code: base }))
         return false
       }
       const owner = Number(form.value.owner_user_id || 0)
       const preferred = items.find((it) => Number(it.owner_user_id || 0) === owner) || items[0]
       const choice = await askBarcodeDuplicate({ ...family, items }, preferred.id)
       if (choice.action === 'multi') {
-        form.value.product_barcode = choice.value
-        ElMessage.success(t('inventory.dupMultiApplied', { code: choice.value }))
+        form.value.product_barcode = base
+        form.value.variant_no = Number(choice.value)
+        ElMessage.success(t('inventory.dupMultiApplied', { code: `${base}-${choice.value}` }))
         return false
       }
       if (choice.action === 'jump') {
         await jumpToExistingInventory(choice.value)
         return true
+      }
+      if (choice.action === 'grade') {
+        const target = items.find((it) => Number(it.id) === Number(choice.value))
+        if (target) {
+          form.value.product_barcode = target.product_barcode
+          form.value.variant_no = target.variant_no ?? null
+          const vcode = target.product_barcode + (target.variant_no != null ? `-${target.variant_no}` : '')
+          ElMessage.warning(t('inventory.dupGradeApplied', { code: vcode }))
+        }
+        return false
       }
       return false
     }
@@ -4372,6 +4429,8 @@ export default defineComponent({
             if (created && created.id != null) {
               form.value.id = created.id
               formCreatedInSession = created.id
+              // 基础番号由后端定（沿用同条码第一件），回填给表单显示管理编号
+              form.value.base_mgmt_id = created.base_mgmt_id ?? null
             }
             if (noBarcodeEntryMode.value) writeNoBarcodeFormSelectionsCache(payload)
           } else {
@@ -4558,15 +4617,21 @@ export default defineComponent({
       clearInterval(contTimer)
       contTimer = null
       contBarcode.value = barcode
+      contInventory.value = null
+      contCandidates.value = []
 
+      // 产品条码不唯一（按归属人各留一件，一码多品还有 条码-N），只取最新一件会静默入错商品，
+      // 所以按条码族查：一件直接用，多件让人选
       try {
-        const res = await inventoryApi.findByBarcode(barcode)
-        if (res?.found) {
-          contInventory.value = res.inventory
-          contQuantity.value = 1
-          contState.value = 'found'
-        } else {
+        const family = await inventoryApi.barcodeFamily(barcode)
+        const items = family?.items || []
+        if (!items.length) {
           contState.value = 'notfound'
+        } else if (items.length === 1) {
+          await pickContCandidate(items[0].id)
+        } else {
+          contCandidates.value = items
+          contState.value = 'pick'
         }
       } catch {
         ElMessage.error(t('inventory.queryItemFailed'))
@@ -4574,9 +4639,81 @@ export default defineComponent({
       }
     }
 
+    async function pickContCandidate(id) {
+      contInventory.value = await inventoryApi.get(id)
+      contQuantity.value = 1
+      contState.value = 'found'
+    }
+
+    /** 扫码枪模式：不开摄像头，等扫码枪（或手动输入条码回车） */
+    async function openGunScan(code = '') {
+      stopContScan()
+      contScanMode.value = 'gun'
+      contScanVisible.value = true
+      resumeContScan()
+      if (code) await handleContBarcode(code)
+    }
+
+    /** 工具栏「条码入库」：手机用摄像头，电脑默认等扫码枪（弹窗里可改用摄像头） */
+    function openBarcodeInbound() {
+      if (isMobile.value) openContScan()
+      else openGunScan()
+    }
+
+    function focusContGunInput() {
+      nextTick(() => contGunInputRef.value?.focus())
+    }
+
+    function submitContGunInput() {
+      const code = String(contGunInput.value || '').trim()
+      contGunInput.value = ''
+      if (code) handleContBarcode(code)
+    }
+
+    /** 全局扫码枪回调（库存页任意位置）。focusedEl = 扫码时焦点所在的弹窗内输入框（数量框） */
+    function onScannerCode(rawCode, focusedEl) {
+      const code = String(rawCode || '').trim()
+      if (!code) return
+      if (!contScanVisible.value) {
+        // 别的弹窗开着（编辑商品等）时不抢：扫码枪的输入不该落到不相干的流程里
+        const overlayOpen = Array.from(document.querySelectorAll('.el-overlay'))
+          .some((el) => el.getClientRects().length > 0)
+        if (!overlayOpen) openGunScan(code)
+        return
+      }
+      if (focusedEl) {
+        // 扫进了数量框：字符已经进了框里，失焦会把它提交成数量，提交后再改回原值
+        const keepQty = contQuantity.value
+        focusedEl.blur()
+        contQuantity.value = keepQty
+      }
+      if (contConfirming.value) return
+      if (contState.value === 'found' || contState.value === 'pick') {
+        if (code === contBarcode.value) {
+          if (contState.value === 'found') {
+            contQuantity.value = Math.min(9999, (Number(contQuantity.value) || 0) + 1)
+            ElMessage.success(t('inventory.scannerQtyPlus', { qty: contQuantity.value }))
+          }
+          return
+        }
+        // 扫了另一件但当前这件还没确认：不替换，免得扫过的数量悄悄丢掉
+        ElMessage.warning(t('inventory.scannerFinishCurrentFirst'))
+        return
+      }
+      handleContBarcode(code)
+    }
+
+    useBarcodeScanner(onScannerCode)
+
     function resumeContScan() {
       contBarcode.value = ''
       contInventory.value = null
+      contCandidates.value = []
+      if (contScanMode.value === 'gun') {
+        contState.value = 'gun-waiting'
+        focusContGunInput()
+        return
+      }
       if (contScanMode.value === 'fallback') {
         contState.value = 'ios-fallback'
         triggerContCapture()
@@ -4599,12 +4736,14 @@ export default defineComponent({
         const res = await inventoryApi.stockIn(contInventory.value.id, {
           warehouse_id: contInventory.value.warehouse_id,
           quantity,
-          remark: '连续扫码入库'
+          remark: contScanMode.value === 'gun' ? '扫码枪入库' : '连续扫码入库'
         })
         ElMessage.success(t('inventory.inboundSuccessQty', { qty: res.new_quantity }))
         load()
         loadInventoryStats()
-        contScanVisible.value = false
+        // 扫码枪是一件接一件地扫，入库后留在弹窗里等下一件
+        if (contScanMode.value === 'gun') resumeContScan()
+        else contScanVisible.value = false
       } catch {
         // 错误由 axios 拦截器统一提示
       } finally {
@@ -4615,9 +4754,10 @@ export default defineComponent({
     function openAddFromScan() {
       const barcode = contBarcode.value
       contScanVisible.value = false
-      openDialog()
-      // nextTick 等对话框挂载后再填写 barcode
-      nextTick(() => { form.value.barcode = barcode })
+      // 扫到的是商品上印的产品条码：与「商品入库」同一条路（内部编号用 uuid），
+      // 条码写进 product_barcode，查重 / 一码多品走 assignBarcode
+      openNoBarcodeEntry()
+      nextTick(() => assignBarcode(barcode))
     }
 
     function stopContScan() {
@@ -5052,6 +5192,9 @@ export default defineComponent({
       contCameraRefA,
       contCameraRefB,
       contScanMode,
+      contCandidates,
+      contGunInputRef,
+      contGunInput,
       contCaptureUseA,
       contStream,
       contTimer,
@@ -5083,6 +5226,10 @@ export default defineComponent({
       showUsedInCombos,
       openUsedInComboEdit,
       editFormMgmtIdCipher,
+      editFormMgmtCode,
+      editFormBarcodeCode,
+      gradeOptions,
+      onGradeChange,
       copyMgmtIdCipher,
       formOwnerUserOptions,
       productEditDialogWidth,
@@ -5253,6 +5400,11 @@ export default defineComponent({
       openContScan,
       startContTimer,
       handleContBarcode,
+      pickContCandidate,
+      openGunScan,
+      openBarcodeInbound,
+      submitContGunInput,
+      focusContGunInput,
       resumeContScan,
       confirmContAction,
       openAddFromScan,

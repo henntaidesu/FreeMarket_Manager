@@ -1,7 +1,8 @@
 <template>
-  <!-- 条码冲突提示：同一条码（含已编号的 条码-N）已用在别的商品上时，问是否「一码多品」——
-       是：本商品记成下一个编号 条码-N（盲盒不同款等，各自独立、不会被合并）；
-       否：说明是同一个商品，跳转到选中的原商品（新建的草稿丢弃）。 -->
+  <!-- 条码冲突提示：同一条码（含各款式 条码-N）已用在别的商品上时，三选一——
+       新款式：本商品记成下一个款式号（盲盒不同款等，各自独立、不会被合并；一对一条码随之转为一对多）；
+       同款不同品相：沿用所选商品的款式号，本商品另选品相（S/A/J，各自一组图片）；
+       同一商品：跳转到选中的原商品（新建的草稿丢弃）。 -->
   <el-dialog
     :model-value="modelValue"
     :title="t('inventory.dupPromptTitle')"
@@ -14,9 +15,9 @@
       <el-radio v-for="it in family.items" :key="it.id" :value="it.id" class="dp-item">
         <img v-if="it.image" :src="thumb(it.image)" class="dp-thumb" alt="" />
         <span class="dp-text">
-          <span class="dp-mono">#{{ it.id }}</span>
+          <span class="dp-mono">#{{ it.mgmt_code || it.id }}</span>
           {{ it.name || '-' }}
-          <span class="dp-muted">· {{ it.product_barcode }}<template v-if="it.owner_user_name"> · {{ it.owner_user_name }}</template></span>
+          <span class="dp-muted">· {{ it.barcode_code || it.product_barcode }}<template v-if="!it.grade"> · {{ t('inventory.gradeUnset') }}</template><template v-if="it.owner_user_name"> · {{ it.owner_user_name }}</template></span>
         </span>
       </el-radio>
     </el-radio-group>
@@ -26,8 +27,11 @@
       <el-button type="warning" plain :disabled="!targetId" @click="emit('jump', targetId)">
         {{ t('inventory.dupPromptNo') }}
       </el-button>
-      <el-button type="primary" @click="emit('multi', family.next_code)">
-        {{ t('inventory.dupPromptYes', { code: family.next_code }) }}
+      <el-button type="success" plain :disabled="!targetId" @click="emit('grade', targetId)">
+        {{ t('inventory.dupPromptGrade') }}
+      </el-button>
+      <el-button type="primary" @click="emit('multi', family.next_variant)">
+        {{ t('inventory.dupPromptYes', { code: `${family.code}-${family.next_variant}` }) }}
       </el-button>
     </template>
   </el-dialog>
@@ -39,12 +43,12 @@ import { useI18n } from 'vue-i18n'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
-  /** /inventory/barcode-family 的返回：{ code, items, next_code } */
-  family: { type: Object, default: () => ({ code: '', items: [], next_code: '' }) },
+  /** /inventory/barcode-family 的返回：{ code, items, multi, next_variant } */
+  family: { type: Object, default: () => ({ code: '', items: [], next_variant: 1 }) },
   /** 默认选中的跳转目标（同归属人的优先） */
   defaultTargetId: { type: [Number, String], default: null }
 })
-const emit = defineEmits(['multi', 'jump', 'cancel'])
+const emit = defineEmits(['multi', 'jump', 'grade', 'cancel'])
 const { t } = useI18n()
 
 const targetId = ref(null)

@@ -64,7 +64,10 @@ from .units.homecoming_handler import (
 from .units.barcode_history_handler import (
     BarcodeHistoryStatusOut,
     get_barcode_history,
+    get_barcode_merge_item,
     list_barcode_conflicts,
+    list_barcode_merge_groups,
+    classify_barcode_group,
     list_barcode_skipped,
     put_barcode_history,
     resolve_barcode_conflict,
@@ -167,6 +170,9 @@ router.add_api_route("/barcode-history", put_barcode_history, methods=["PUT"], r
 router.add_api_route("/barcode-history/conflicts", list_barcode_conflicts, methods=["GET"])
 router.add_api_route("/barcode-history/skipped", list_barcode_skipped, methods=["GET"])
 router.add_api_route("/barcode-history/conflicts/{inv_id}", resolve_barcode_conflict, methods=["POST"], response_model=BarcodeHistoryStatusOut, dependencies=_CONFIG_WRITE)
+router.add_api_route("/barcode-history/merge-groups", list_barcode_merge_groups, methods=["GET"])
+router.add_api_route("/barcode-history/item/{inv_id}", get_barcode_merge_item, methods=["GET"])
+router.add_api_route("/barcode-history/classify", classify_barcode_group, methods=["POST"], dependencies=_CONFIG_WRITE)
 
 # 一键修改发货时效（把范围内在售商品的発送までの日数整批改成同一个值）
 router.add_api_route("/shipping-duration", get_shipping_duration, methods=["GET"], response_model=ShippingDurationPreviewOut)

@@ -34,6 +34,12 @@ def create_inventory(data: InventoryCreate, _claims: dict = Depends(require_auth
         raise HTTPException(status_code=400, detail="所属货架不存在")
     if data.owner_user_id is not None and not _user_exists(data.owner_user_id):
         raise HTTPException(status_code=400, detail="商品归属用户不存在")
+    from ....inventory_barcode.variant import normalize_grade, normalize_variant, sync_barcode_mode, sync_base_mgmt_id
+    try:
+        grade = normalize_grade(data.grade)
+        variant_no = normalize_variant(data.variant_no)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     paths = _resolve_paths_for_create(data)
     images_json_val = images_json_from_paths(paths)
     try:
@@ -84,9 +90,14 @@ def create_inventory(data: InventoryCreate, _claims: dict = Depends(require_auth
     pb = (data.product_barcode or "").strip()
     if pb:
         db.execute_update(
-            "UPDATE [inventory] SET [product_barcode] = ?, [barcode_scan_status] = 'found' WHERE [id] = ?",
-            (pb, int(new_id)),
+            "UPDATE [inventory] SET [product_barcode] = ?, [variant_no] = ?, [barcode_scan_status] = 'found' "
+            "WHERE [id] = ?",
+            (pb, variant_no, int(new_id)),
         )
+        sync_base_mgmt_id(int(new_id))
+        sync_barcode_mode(int(new_id))
+    if grade:
+        db.execute_update("UPDATE [inventory] SET [grade] = ? WHERE [id] = ?", (grade, int(new_id)))
     from ....use_mercari.inventory_batches import insert_initial_batch, normalize_arrived_at
     try:
         normalize_arrived_at(data.batch_arrived_at)
@@ -108,6 +119,7 @@ def update_inventory(pid: int, data: InventoryUpdate, _claims: dict = Depends(re
     if not _inventory_exists(pid):
         raise HTTPException(status_code=404, detail="商品不存在")
     update_data = data.model_dump(exclude_unset=True)
+    from ....inventory_barcode.variant import normalize_grade, normalize_variant, sync_barcode_mode, sync_base_mgmt_id
     if 'barcode' in update_data and not (update_data.get('barcode') or '').strip():
         raise HTTPException(status_code=400, detail="条形码不能为空")
     if 'barcode' in update_data:
@@ -122,6 +134,14 @@ def update_inventory(pid: int, data: InventoryUpdate, _claims: dict = Depends(re
             update_data['product_barcode'] = pb
             # 写入条码 = 已识别；清空则回到未处理，下次历史处理重新识别
             update_data['barcode_scan_status'] = 'found' if pb else None
+    if 'grade' in update_data or 'variant_no' in update_data:
+        try:
+            if 'grade' in update_data:
+                update_data['grade'] = normalize_grade(update_data['grade'])
+            if 'variant_no' in update_data:
+                update_data['variant_no'] = normalize_variant(update_data['variant_no'])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     existing = db.execute_query(
         """
         SELECT images_json, warehouse_id, owner_user_id,
@@ -174,7 +194,7 @@ def update_inventory(pid: int, data: InventoryUpdate, _claims: dict = Depends(re
     if "auto_listing_watermark" in update_data:
         update_data["auto_listing_watermark"] = 1 if int(update_data.get("auto_listing_watermark") or 0) == 1 else 0
     allowed_fields = {
-        "name", "barcode", "product_barcode", "barcode_scan_status", "category_id", "product_type_id", "owner_user_id", "warehouse_id", "price",
+        "name", "barcode", "product_barcode", "variant_no", "grade", "barcode_scan_status", "category_id", "product_type_id", "owner_user_id", "warehouse_id", "price",
         "quantity",
         # on_sale_quantity 刻意不在白名单：见 InventoryUpdate 上的说明，它由 inventory_counters
         # 事件驱动维护，任何表单写入都会覆盖同步结果。老客户端仍会带上该字段，在此丢弃。
@@ -208,6 +228,10 @@ def update_inventory(pid: int, data: InventoryUpdate, _claims: dict = Depends(re
             raise
         except Exception:
             raise HTTPException(status_code=400, detail="更新失败，条形码可能重复")
+        if "product_barcode" in update_data:
+            sync_base_mgmt_id(pid)
+        if "product_barcode" in update_data or "variant_no" in update_data:
+            sync_barcode_mode(pid)
         # 改动库存会改变本商品可上架；组合商品套数变化还会改变来源商品被「拉走」的件数，
         # 一并重算来源可上架（组合不扣减来源库存）。
         if "quantity" in update_data:

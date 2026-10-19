@@ -36,66 +36,68 @@ def resolve_inventory_id(inv_id: Any) -> Optional[int]:
 
 
 def find_by_product_barcode(code: str) -> List[Dict[str, Any]]:
-    """未删除、非组合商品里产品条码等于 ``code`` 的行（新的在前），供新建查重用。
-    兼容历史上扫码录入、真实条码直接写在 ``barcode`` 列的行。"""
-    bc = (code or "").strip()
-    if not bc:
-        return []
-    rows = DatabaseManager().execute_query(
-        """
-        SELECT [id], [name], [owner_user_id]
-        FROM [inventory]
-        WHERE COALESCE([is_delete], 0) = 0 AND COALESCE([is_combined], 0) = 0
-          AND ([product_barcode] = ? OR [barcode] = ?)
-        ORDER BY [id] DESC
-        """,
-        (bc, bc),
-    )
-    return [{"id": int(r[0]), "name": r[1], "owner_user_id": r[2]} for r in rows or []]
+    """未删除、非组合商品里属于条码 ``code`` 的行（各款式 × 各品相，新的在前），
+    供新建查重用。兼容历史上扫码录入、真实条码直接写在 ``barcode`` 列的行。"""
+    return [
+        {"id": it["id"], "name": it["name"], "owner_user_id": it["owner_user_id"],
+         "mgmt_code": it["mgmt_code"], "barcode_code": it["barcode_code"]}
+        for it in barcode_family(code)["items"]
+    ]
 
 
 def barcode_family(code: str) -> Dict[str, Any]:
-    """「一码多品」：同一个条码印在不同商品上（盲盒不同款等），各商品的条码记成 ``code-1``、``code-2``…
-    返回该条码本身及其编号版本已用在哪些未删除商品上，以及下一个可用的编号 ``next_code``。"""
-    import json as _json
+    """一个条码下的全部商品（各款式 × 各品相，见 variant.py）。
 
-    base = (code or "").strip()
-    out: Dict[str, Any] = {"code": base, "items": [], "next_code": None}
-    if not base:
+    ``code`` 可以是纯条码，也可以是条码编号 ``条码[-款式][-品相]``（扫自己贴的标签）。返回：
+      · ``items``：每件带款式号 / 品相 / 显示编号；
+      · ``multi``：是否一对多（有带款式号的商品）；
+      · ``next_variant``：另起一款时用的款式号——一对一条码转一对多时现有商品会补成款式 1，所以是 2。
+    """
+    import json as _json
+    from .variant import barcode_code, mgmt_code, parse_display_code
+
+    raw = (code or "").strip()
+    out: Dict[str, Any] = {"code": raw, "items": [], "multi": False, "next_variant": 1}
+    if not raw:
         return out
-    # LIKE 转义用 '!'：MySQL 字符串字面量里 '\' 本身是转义符，ESCAPE '\' 会把引号吃掉
-    esc = base.replace("!", "!!").replace("%", "!%").replace("_", "!_")
-    rows = DatabaseManager().execute_query(
-        """
-        SELECT p.[id], p.[name], p.[owner_user_id], COALESCE(u.[display_name], u.[username]),
-               p.[product_barcode], p.[barcode], p.[images_json]
-        FROM [inventory] p
-        LEFT JOIN [users] u ON u.[id] = p.[owner_user_id]
-        WHERE COALESCE(p.[is_delete], 0) = 0 AND COALESCE(p.[is_combined], 0) = 0
-          AND (p.[product_barcode] = ? OR p.[barcode] = ? OR p.[product_barcode] LIKE ? ESCAPE '!')
-        ORDER BY p.[id] DESC
-        """,
-        (base, base, esc + "-%"),
-    ) or []
-    max_n = 0
-    for iid, name, owner_id, owner_name, pb, bc, images_json in rows:
-        used = (pb or "").strip() or (bc or "").strip()
-        if used != base:
-            suffix = used[len(base) + 1:] if used.startswith(base + "-") else ""
-            if not suffix.isdigit():
-                continue  # LIKE 命中但后缀不是纯数字：不是本条码的编号版本
-            max_n = max(max_n, int(suffix))
+    disp = parse_display_code(raw)
+    db = DatabaseManager()
+    rows: list = []
+    for cand in [raw] + ([disp[0]] if disp and disp[0] != raw else []):
+        rows = db.execute_query(
+            """
+            SELECT p.[id], p.[name], p.[owner_user_id], COALESCE(u.[display_name], u.[username]),
+                   p.[product_barcode], p.[images_json], p.[variant_no], p.[grade], p.[base_mgmt_id]
+            FROM [inventory] p
+            LEFT JOIN [users] u ON u.[id] = p.[owner_user_id]
+            WHERE COALESCE(p.[is_delete], 0) = 0 AND COALESCE(p.[is_combined], 0) = 0
+              AND (p.[product_barcode] = ? OR p.[barcode] = ?)
+            ORDER BY p.[id] DESC
+            """,
+            (cand, cand),
+        ) or []
+        if rows:
+            out["code"] = cand
+            break
+    variants = [int(r[6]) for r in rows if r[6] is not None]
+    out["multi"] = bool(variants)
+    out["next_variant"] = (max(variants) + 1) if variants else (2 if rows else 1)
+    for iid, name, owner_id, owner_name, pb, images_json, vno, grade, base_id in rows:
         try:
             imgs = _json.loads(images_json) if images_json else []
         except (TypeError, ValueError):
             imgs = []
+        used = (pb or "").strip() or out["code"]
         out["items"].append({
             "id": int(iid),
             "name": name,
             "owner_user_id": owner_id,
             "owner_user_name": owner_name,
             "product_barcode": used,
+            "variant_no": vno,
+            "grade": grade,
+            "barcode_code": barcode_code(used, vno, grade),
+            "mgmt_code": mgmt_code(iid, base_id, vno, grade),
             "image": imgs[0] if isinstance(imgs, list) and imgs else None,
         })
-    out["next_code"] = f"{base}-{max_n + 1}"
     return out

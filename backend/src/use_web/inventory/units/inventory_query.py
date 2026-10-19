@@ -121,6 +121,30 @@ def list_inventory(
         if mgmt_id_exact is not None:
             clauses.append("p.id = ?")
             kw_params.append(mgmt_id_exact)
+            # 已合并的旧番号 → 一并命中合并后的新商品
+            from ....inventory_barcode import resolve_inventory_id
+            merged_to = resolve_inventory_id(mgmt_id_exact)
+            if merged_to is not None and merged_to != mgmt_id_exact:
+                clauses.append("p.id = ?")
+                kw_params.append(merged_to)
+        # 显示编号 X[-款式][-品相]：X 是条码（条码编号）或基础番号（管理编号），三样分列存储
+        from ....inventory_barcode.variant import parse_display_code
+        disp = parse_display_code(kw)
+        if disp:
+            head, vno, grade = disp
+            cond = ["p.product_barcode = ?"]
+            cond_params: list = [head]
+            if vno is not None:
+                cond.append("p.variant_no = ?")
+                cond_params.append(vno)
+            if grade:
+                cond.append("p.grade = ?")
+                cond_params.append(grade)
+            clauses.append("(" + " AND ".join(cond) + ")")
+            kw_params += cond_params
+            if head.isdigit():
+                clauses.append("(" + " AND ".join(["p.base_mgmt_id = ?"] + cond[1:]) + ")")
+                kw_params += [int(head)] + cond_params[1:]
         where_parts.append("AND (" + " OR ".join(clauses) + ")")
         params.extend(kw_params)
     if category_id:

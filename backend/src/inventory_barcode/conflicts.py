@@ -5,7 +5,7 @@
 由人在系统配置页「条码识别 → 处理冲突」里决定：
 
   · 选定 / 手动输入一个条码 → ``found``。同条码同归属人的商品**不在这里合并**——
-    合并是不可撤销的批量动作，统一交给「再跑一轮」（history.merge_duplicates），口径只有一处；
+    它们随即出现在「待合并」列表里，由人确认（review.py），口径只有一处；
   · 标记为无条码 → ``none``（条码保持 uuid，以后跳过）。
 
 两种处理都清空 ``barcode_candidates``。
@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 
 from ..db_manage.database import DatabaseManager
 from .decode import clean_text, decode_inventory_images_detail
+from .resolve import barcode_family
 
 
 def _paths(images_json) -> List[str]:
@@ -53,14 +54,12 @@ def list_conflicts() -> List[Dict[str, Any]]:
     out = []
     for iid, name, owner_id, owner_name, images_json, cand, qty in rows:
         cands = _candidates(cand, images_json)
-        # 每个候选条码在仓库里已经属于哪些商品（同归属人的会在下一轮被合并）
-        db = DatabaseManager()
+        # 每个候选条码在仓库里已经属于哪些商品（同归属人的会进入待合并列表）
         for c in cands:
-            hits = db.execute_query(
-                "SELECT [id], [owner_user_id] FROM [inventory] WHERE COALESCE([is_delete], 0) = 0 "
-                "AND [product_barcode] = ? AND [id] <> ? ORDER BY [id] DESC",
-                (c["code"], int(iid)),
-            ) or []
+            hits = [
+                (it["id"], it["owner_user_id"])
+                for it in barcode_family(c["code"])["items"] if int(it["id"]) != int(iid)
+            ]
             c["existing"] = [{"id": int(h[0]), "same_owner": (h[1] or 0) == (owner_id or 0)} for h in hits]
         out.append({
             "id": int(iid),
@@ -79,6 +78,8 @@ def resolve_conflict(inv_id: int, barcode: Optional[str]) -> None:
     code = clean_text(barcode or "") if barcode is not None else ""
     if barcode is not None and str(barcode).strip() and not code:
         raise ValueError("条码格式不正确")
+    from .variant import sync_base_mgmt_id
+
     db = DatabaseManager()
     hit = db.execute_update(
         "UPDATE [inventory] SET [product_barcode] = ?, [barcode_scan_status] = ?, [barcode_candidates] = NULL "
@@ -87,6 +88,8 @@ def resolve_conflict(inv_id: int, barcode: Optional[str]) -> None:
     )
     if not hit:
         raise LookupError("该商品不存在或已不是待处理的冲突")
+    if code:
+        sync_base_mgmt_id(int(inv_id))
 
 
 def list_skipped(page: int = 1, page_size: int = 20, keyword: str = "") -> Dict[str, Any]:

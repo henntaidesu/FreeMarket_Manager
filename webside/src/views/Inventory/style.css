@@ -1523,6 +1523,21 @@ a.pef-lcard:hover {
 .cont-result { display: flex; flex-direction: column; align-items: center; padding: 8px 0 4px; }
 .cont-actions { display: flex; gap: 14px; margin-top: 20px; }
 .ios-fallback-box { display: flex; flex-direction: column; align-items: center; padding: 32px 0; }
+/* 扫码枪等待态 / 一码多件选择 */
+.gun-waiting-box { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 24px 0 8px; }
+.gun-waiting-box .el-input { max-width: 360px; }
+.gun-waiting-title { color: #c8d8f0; font-size: 15px; margin: 0; }
+.gun-waiting-tip { color: #8e9bb3; font-size: 13px; margin: 0 0 8px; text-align: center; }
+.cont-pick-list { display: flex; flex-direction: column; gap: 8px; width: 100%; max-height: 50vh; overflow-y: auto; }
+.cont-pick-item {
+  display: flex; align-items: center; gap: 12px; padding: 8px 10px; cursor: pointer;
+  border: 1px solid #3b4961; border-radius: 8px;
+}
+.cont-pick-item:hover, .cont-pick-item:focus-visible { border-color: #409EFF; background: #1e2d42; }
+.cont-pick-img { width: 56px; height: 56px; flex: none; object-fit: cover; border-radius: 6px; }
+.cont-pick-img--empty { display: flex; align-items: center; justify-content: center; background: #1e2d42; color: #4a5a72; }
+.cont-pick-meta { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.cont-pick-sub { color: #8e9bb3; font-size: 12px; overflow-wrap: anywhere; }
 .cont-https-hint {
   color: #e6a23c;
   font-size: 13px;

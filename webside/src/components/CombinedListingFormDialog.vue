@@ -448,7 +448,8 @@ const listingStatusOptions = computed(() => [
   { label: t('dialogs.combinedListing.statusAlmostUnused'), value: 'almost_unused' },
   { label: t('dialogs.combinedListing.statusGood'), value: 'good' },
   { label: t('dialogs.combinedListing.statusFair'), value: 'fair' },
-  { label: t('dialogs.combinedListing.statusUsed'), value: 'used' }
+  { label: t('dialogs.combinedListing.statusUsed'), value: 'used' },
+  { label: t('dialogs.combinedListing.statusBad'), value: 'bad' }
 ])
 const shippingPayerOptions = computed(() => [
   { label: t('dialogs.combinedListing.payerSeller'), value: 'seller' },

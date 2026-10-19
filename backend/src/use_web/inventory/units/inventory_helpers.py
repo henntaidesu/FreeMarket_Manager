@@ -14,6 +14,9 @@ INVENTORY_COLUMNS = [
     "name",
     "barcode",
     "product_barcode",
+    "variant_no",
+    "grade",
+    "base_mgmt_id",
     "barcode_scan_status",
     "sku",
     "category_id",
@@ -107,6 +110,11 @@ def _enrich_inventory_api_dict(d: dict) -> dict:
     d["image_back"] = paths[1] if len(paths) > 1 else None
     d["image"] = paths[0] if paths else None
     d.pop("images_json", None)
+    if "id" in d:
+        # 显示用编号：管理编号 基础番号[-款式][-品相] / 条码编号 条码[-款式][-品相]（见 inventory_barcode/variant.py）
+        from ....inventory_barcode.variant import barcode_code, mgmt_code
+        d["mgmt_code"] = mgmt_code(d.get("id"), d.get("base_mgmt_id"), d.get("variant_no"), d.get("grade"))
+        d["barcode_code"] = barcode_code(d.get("product_barcode"), d.get("variant_no"), d.get("grade"))
     return d
 
 
@@ -214,7 +222,26 @@ def _query_inventory_with_joins(
         comb = int(d.get("combined_quantity") or 0)
         d["combined_quantity"] = comb
         d["listable_quantity"] = max(0, q - os_q - pend - listing_pend - comb)
+    _attach_merged_from_ids(items)
     return items
+
+
+def _attach_merged_from_ids(items: list[dict]) -> None:
+    """同条码合并生成的新商品：附上它继承的旧管理番号（``merged_into_id`` 指向它的行）。"""
+    ids = [int(d["id"]) for d in items if d.get("id") is not None]
+    if not ids:
+        return
+    found: dict = {}
+    for i in range(0, len(ids), 500):
+        chunk = ids[i:i + 500]
+        ph = ",".join("?" * len(chunk))
+        for src, tgt in db.execute_query(
+            f"SELECT [id], [merged_into_id] FROM [inventory] WHERE [merged_into_id] IN ({ph}) ORDER BY [id]",
+            tuple(chunk),
+        ) or []:
+            found.setdefault(int(tgt), []).append(int(src))
+    for d in items:
+        d["merged_from_ids"] = found.get(int(d["id"]), []) if d.get("id") is not None else []
 
 
 def _inventory_exists(pid: int) -> bool:

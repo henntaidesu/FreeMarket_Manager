@@ -219,14 +219,27 @@ Key tables in `backend/src/db_manage/models/`:
 - **inventory 的条码三列**（`src/inventory_barcode/`）：`product_barcode` = 从商品图识别出的产品条码，
   **不唯一**（同条码按归属人各留一个商品）；`barcode` 仍是内部唯一编号（多为 uuid，没识别到条码就保持）。
   `barcode_scan_status`：NULL 未处理 / found / none（图里无条码，跳过）/ conflict（多个不同条码，候选存 `barcode_candidates`，在系统配置「条码识别 → 处理冲突」人工定夺，
-  见 `inventory_barcode/conflicts.py`；定夺只写条码，合并仍交给下一轮）/
-  merged。`merged_into_id`：同条码合并后旧商品的去向——**在售描述暗号里仍是旧番号，凡是把解出的
+  见 `inventory_barcode/conflicts.py`；定夺只写条码）/
+  merged。**识别从不合并**：同条码 + 同归属人的商品进系统配置「条码识别 → 待合并」（`inventory_barcode/review.py`，
+  组不落表、每次现算），人工归类后 `merge.merge_as_new` **新建一个管理番号**（不选主商品：名称人工填写、图片人工勾选组合，其余资料以最新那件为初始值），
+  所有被并商品的批次/在售/出库明细搬过去、旧行软删并 `merged_into_id` 指向新商品；以后上架都用新番号。
+  归类规则见下方「条码 × 款式 × 品相」。`merged_into_id`：同条码合并后旧商品的去向——**在售描述暗号里仍是旧番号，凡是把解出的
   管理番号映射回库存的地方都必须走 `_resolve_inventory_id`（= `inventory_barcode.resolve_inventory_id`），
   不能只查存在性**，否则会绑到已软删的旧行。历史处理由系统配置「条码识别」开关排一条
-  `system.barcode_history` 任务（识别 → 合并，都幂等）；出品预扣减未结清的组暂缓合并。新增商品上传图片时
+  `system.barcode_history` 任务（只识别，幂等）；出品预扣减未结清的组在待合并里不能确认。新增商品上传图片时
   `upload-image?detect_barcode=1` 识别条码。**一码多品**：写入条码前（自动识别 / 框选 / OCR 候选都走
-  前端 `assignBarcode`）查 `/inventory/barcode-family`，条码本身或其 `条码-N` 已用在别的商品上就问
-  「是否一码多品」——是则记成下一个编号 `条码-N`（字符串不同，历史处理永远不会把它们合并），否则跳转原商品。
+  前端 `assignBarcode`）查 `/inventory/barcode-family`，条码已用在别的商品上就三选一——新款式（`variant_no`
+  记下一个号）/ 同款不同品相（沿用所选商品的款式号，另选品相）/ 同一商品（跳转原商品）。
+- **条码 × 款式 × 品相**（`inventory_barcode/variant.py`）：三样**分列存储**，不拼进同一字段——`product_barcode`
+  纯条码、`variant_no` 款式号、`grade` 品相（S 良品 / A 一般 / J 损坏，NULL 未定）。条码要么**一对一**（款式号全空，
+  编号只追加品相 `条码-S`），要么**一对多**（每件都有款式号 `条码-1-S`）；模式不另存，按「该条码有没有带款式号的
+  商品」推断，`sync_barcode_mode` 在一对一转一对多时把原有商品补成款式 1。**每个「款式 × 品相」是一件独立商品**
+  （各自的图片组与库存），整数 `inventory.id` 不变——图片暗码 / 描述暗号只认它。显示编号由 API 现拼：
+  `mgmt_code` = `base_mgmt_id[-款式][-品相]`（`base_mgmt_id` = 同条码第一件的 id，**落库**），`barcode_code` =
+  `条码[-款式][-品相]`；库存搜索两种都认。选品相自动带出出品状态（S→new_unused / A→good / J→bad，出品侧
+  `CONDITION_ITEM_JA` 因此加了 `bad`）。识别只写纯条码；待合并（`review.py`）按 条码 + 归属人 成组，人工选
+  一对一 / 一对多并给每件定款式·品相（`classify`，必须覆盖整组），款式 × 品相相同的合并为新商品
+  （直接新开管理番号：填名称 + 勾选组合图片）。启动迁移 `migrate_variant_codes` 把旧的 `条码-N` 拆成 条码 + `variant_no`，幂等。
 - **warehouses**: Storage locations (shelf names duplicable per warehouse)
 - **product_type_category_mappings**: 商品类型主表 (one row = one 商品类型). `inventory.product_type_id` → `mapping_id` (TEXT PK, numeric, auto-incremented on create, never user-visible). See 商品类型映射 below.
 - **shop_accounts**: Marketplace account config (headers in `value` JSON field, `platform`,

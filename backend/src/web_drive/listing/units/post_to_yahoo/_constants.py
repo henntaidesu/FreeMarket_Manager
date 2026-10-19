@@ -49,6 +49,8 @@ CONDITION_ITEM_JA: Dict[str, str] = {
     "good": "目立った傷や汚れなし",
     "fair": "やや傷や汚れあり",
     "used": "傷や汚れあり",
+    # 品相 J（损坏）自动带出这一档，见 inventory_barcode/variant.py
+    "bad": "全体的に状態が悪い",
 }
 
 # 配送方法：煤炉配送方式 → 雅虎「おてがる配送」承运商。

@@ -86,6 +86,7 @@
         </div>
         <div class="search-actions">
           <template v-if="!listingPickMode">
+            <el-button type="success" @click="openBarcodeInbound">{{ t('inventory.barcodeInbound') }}</el-button>
             <el-button type="success" plain @click="openNoBarcodeEntry">{{ t('inventory.noBarcodeInbound') }}</el-button>
             <el-button type="primary" plain @click="openImageSearch">{{ t('inventory.imageSearch') }}</el-button>
             <el-button @click="enterListingPickMode()">{{ t('inventory.multiSelect') }}</el-button>
@@ -225,12 +226,16 @@
               </template>
               <span class="inventory-alert-id">
                 <el-icon class="inventory-alert-icon"><WarningFilled /></el-icon>
-                {{ row.id }}
+                {{ row.mgmt_code || row.id }}
               </span>
             </el-tooltip>
-            <span v-else>{{ row.id }}</span>
+            <span v-else>{{ row.mgmt_code || row.id }}</span>
+            <div v-if="row.mgmt_code && row.mgmt_code !== String(row.id)" class="inventory-split-parent">#{{ row.id }}</div>
             <div v-if="row.split_parent_id" class="inventory-split-parent">
               {{ t('inventory.splitFrom') }} {{ row.split_parent_id }}
+            </div>
+            <div v-if="row.merged_from_ids?.length" class="inventory-split-parent">
+              {{ t('inventory.mergedFrom') }} {{ row.merged_from_ids.join(', ') }}
             </div>
           </template>
         </el-table-column>
@@ -481,7 +486,7 @@
               <!-- 压在图上的四角信息：左上=所属游戏，右上=商品ID，右下=物品归属；
                    左下留给匹配度/勾选（图片搜索与组合选择互斥，不会同时出现）。缺值不占位 -->
               <span v-if="row.category_name" class="inv-card-badge inv-card-badge--game">{{ row.category_name }}</span>
-              <span class="inv-card-badge inv-card-badge--id">#{{ row.id }}</span>
+              <span class="inv-card-badge inv-card-badge--id">#{{ row.mgmt_code || row.id }}</span>
               <span v-if="displayOwnerName(row)" class="inv-card-badge inv-card-badge--owner">{{ displayOwnerName(row) }}</span>
               <el-tag
                 v-if="imageSearchActive"
@@ -555,7 +560,7 @@
                当徽标挂在标题行上，不再各占一个输入框位 -->
           <div class="pef-section__head">
             <span class="pef-section__title">{{ t('inventory.sectionBasic') }}</span>
-            <span v-if="form.id" class="pef-section__badge">{{ t('inventory.mgmtPrefix') }} {{ form.id }}</span>
+            <span v-if="form.id" class="pef-section__badge">{{ t('inventory.mgmtPrefix') }} {{ editFormMgmtCode }}<template v-if="editFormMgmtCode !== String(form.id)"> (#{{ form.id }})</template></span>
             <!-- 暗码要手抄进出品说明，所以整枚徽标可点即复制 -->
             <span
               v-if="form.id && editFormMgmtIdCipher"
@@ -567,7 +572,7 @@
             <span
               v-if="form.product_barcode"
               class="pef-section__badge"
-            >{{ t('inventory.productBarcode') }} {{ form.product_barcode }}</span>
+            >{{ t('inventory.productBarcode') }} {{ editFormBarcodeCode }}</span>
           </div>
           <!-- 条码不再出现在表单里：进入弹窗的三条路径（扫码入库 / 商品入库 / 编辑已有行）
                都已把 form.barcode 填好，没有需要人手输入的场景 -->
@@ -840,6 +845,29 @@
             <span class="pef-section__title">{{ t('inventory.sectionListingFields') }}</span>
           </div>
           <div class="pef-grid">
+            <el-form-item v-if="Number(form.is_combined || 0) !== 1 && form.product_barcode" :label="t('inventory.variant')">
+                <el-input-number
+                  v-model="form.variant_no"
+                  :min="1"
+                  :step="1"
+                  step-strictly
+                  controls-position="right"
+                  :value-on-clear="null"
+                  :placeholder="t('inventory.variantNone')"
+                  style="width: 100%"
+                />
+              </el-form-item>
+            <el-form-item v-if="Number(form.is_combined || 0) !== 1" :label="t('inventory.grade')">
+                <el-select
+                  v-model="form.grade"
+                  :placeholder="t('inventory.gradeUnset')"
+                  clearable
+                  style="width: 100%"
+                  @change="onGradeChange"
+                >
+                  <el-option v-for="g in gradeOptions" :key="g.value" :label="g.label" :value="g.value" />
+                </el-select>
+              </el-form-item>
             <el-form-item :label="t('dialogs.singleListing.productStatus')">
                 <el-select
                   v-model="form.listing_status"
@@ -1898,8 +1926,54 @@
       :title="t('inventory.barcodeInbound')"
       :width="isMobile ? '94vw' : '580px'"
       class="scan-dialog"
+      @opened="contState === 'gun-waiting' && focusContGunInput()"
       @closed="stopContScan"
     >
+      <!-- 扫码枪：等扫码（键盘输入，见 useBarcodeScanner）；输入框也可手动输入条码回车 -->
+      <div v-if="contState === 'gun-waiting'" class="gun-waiting-box">
+        <el-icon size="50" color="#409EFF"><Tickets /></el-icon>
+        <p class="gun-waiting-title">{{ t('inventory.scannerWaitingHint') }}</p>
+        <el-input
+          ref="contGunInputRef"
+          v-model="contGunInput"
+          data-scanner-ignore
+          clearable
+          :placeholder="t('inventory.scannerManualPlaceholder')"
+          @keydown.enter.prevent="submitContGunInput"
+        />
+        <p class="gun-waiting-tip">{{ t('inventory.scannerImeHint') }}</p>
+        <el-button link type="primary" @click="openContScan">{{ t('inventory.scannerUseCamera') }}</el-button>
+      </div>
+
+      <!-- 一个条码对应多件商品：选要入库的那一件 -->
+      <div v-if="contState === 'pick'" class="cont-result">
+        <div class="barcode-tag">
+          <el-icon><Tickets /></el-icon>
+          <span>{{ contBarcode }}</span>
+        </div>
+        <p class="gun-waiting-tip">{{ t('inventory.scannerPickItem') }}</p>
+        <div class="cont-pick-list">
+          <div
+            v-for="c in contCandidates"
+            :key="c.id"
+            class="cont-pick-item"
+            role="button"
+            tabindex="0"
+            @click="pickContCandidate(c.id)"
+          >
+            <img v-if="c.image" :src="c.image" class="cont-pick-img" />
+            <div v-else class="cont-pick-img cont-pick-img--empty"><el-icon><Picture /></el-icon></div>
+            <div class="cont-pick-meta">
+              <span class="product-meta-name">{{ c.name || t('inventory.unnamed') }}</span>
+              <span class="cont-pick-sub">{{ c.mgmt_code || c.id }} · {{ c.barcode_code || c.product_barcode }} · {{ c.owner_user_name || '-' }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="cont-actions">
+          <el-button @click="resumeContScan">{{ t('inventory.continueScan') }}</el-button>
+        </div>
+      </div>
+
       <!-- 扫码中：显示摄像头（多摄像头时可选设备，选择会记住到本机） -->
       <div v-show="contState === 'scanning'" class="scan-box">
         <div v-if="inventoryCameraDevices.length > 0" class="camera-device-row">
@@ -1939,7 +2013,7 @@
       </div>
 
       <!-- 找到商品（须同时有 contInventory，避免二次入库时 contState 仍为 found 但 product 已清空导致渲染报错、弹窗空白） -->
-      <div v-if="contState === 'found' && contInventory" class="cont-result">
+      <div v-if="contState === 'found' && contInventory" class="cont-result" data-scanner-capture>
         <div class="barcode-tag">
           <el-icon><Tickets /></el-icon>
           <span>{{ contBarcode }}</span>
@@ -2032,6 +2106,7 @@
       :default-target-id="dupPrompt.defaultTargetId"
       @multi="(code) => onDupPromptChoose('multi', code)"
       @jump="(id) => onDupPromptChoose('jump', id)"
+      @grade="(id) => onDupPromptChoose('grade', id)"
       @cancel="onDupPromptChoose('cancel')"
     />
     <!-- ===== OCR 框选弹窗 ===== -->

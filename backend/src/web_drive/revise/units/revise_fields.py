@@ -40,7 +40,7 @@ PHOTO_DELETE_SELECTOR = 'button[name="delete"]'
 PHOTO_UPLOAD_SELECTOR = 'input[data-testid="photo-upload"]'
 MAX_PHOTOS = 20
 
-#: 煤炉 6 档商品状态；出品侧 ``CONDITION_ITEM_JA`` 只收了前 5 档，修改需要全部
+#: 煤炉 6 档商品状态（出品侧 ``CONDITION_ITEM_JA`` 现在也收了 bad，这里保留以防两边再分叉）
 EDIT_CONDITION_ITEM_JA = {**CONDITION_ITEM_JA, "bad": "全体的に状態が悪い"}
 
 WIZARD_BACK_TEXT = "出品画面に戻る"
