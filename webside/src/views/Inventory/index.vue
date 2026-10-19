@@ -1930,19 +1930,32 @@
       @closed="stopContScan"
     >
       <!-- 扫码枪：等扫码（键盘输入，见 useBarcodeScanner）；输入框也可手动输入条码回车 -->
-      <div v-if="contState === 'gun-waiting'" class="gun-waiting-box">
+      <div v-if="contState === 'gun-waiting'" class="gun-waiting-box" data-scanner-capture>
         <el-icon size="50" color="#409EFF"><Tickets /></el-icon>
         <p class="gun-waiting-title">{{ t('inventory.scannerWaitingHint') }}</p>
         <el-input
           ref="contGunInputRef"
           v-model="contGunInput"
-          data-scanner-ignore
           clearable
           :placeholder="t('inventory.scannerManualPlaceholder')"
           @keydown.enter.prevent="submitContGunInput"
         />
         <p class="gun-waiting-tip">{{ t('inventory.scannerImeHint') }}</p>
-        <el-button link type="primary" @click="openContScan">{{ t('inventory.scannerUseCamera') }}</el-button>
+        <div class="gun-waiting-links">
+          <el-button link type="primary" @click="openContScan">{{ t('inventory.scannerUseCamera') }}</el-button>
+          <el-button link @click="scannerDiagVisible = !scannerDiagVisible">{{ t('inventory.scannerDiag') }}</el-button>
+        </div>
+        <!-- 按键诊断：浏览器实际收到的按键（键名 / 与上一键的间隔 ms / 焦点元素），排查扫码枪没反应用 -->
+        <div v-if="scannerDiagVisible" class="scanner-diag">
+          <p class="gun-waiting-tip">{{ t('inventory.scannerDiagHint') }}</p>
+          <div v-if="!scannerRecentKeys.length" class="scanner-diag-empty">{{ t('inventory.scannerDiagEmpty') }}</div>
+          <div v-else class="scanner-diag-keys">
+            <span v-for="(k, i) in scannerRecentKeys" :key="i" class="scanner-diag-key">
+              <b>{{ k.key === ' ' ? 'Space' : k.key }}</b><small v-if="k.gap != null">+{{ k.gap }}</small>
+            </span>
+          </div>
+          <el-button link size="small" @click="scannerRecentKeys = []">{{ t('inventory.scannerDiagClear') }}</el-button>
+        </div>
       </div>
 
       <!-- 一个条码对应多件商品：选要入库的那一件 -->

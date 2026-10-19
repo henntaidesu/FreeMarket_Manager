@@ -4682,10 +4682,12 @@ export default defineComponent({
         return
       }
       if (focusedEl) {
-        // 扫进了数量框：字符已经进了框里，失焦会把它提交成数量，提交后再改回原值
+        // 扫进了弹窗里的输入框：字符已经进了框里。数量框失焦会把它提交成数量，提交后再改回原值；
+        // 手动输入框直接清空（条码由这里处理，不再走它自己的回车）
         const keepQty = contQuantity.value
         focusedEl.blur()
         contQuantity.value = keepQty
+        contGunInput.value = ''
       }
       if (contConfirming.value) return
       if (contState.value === 'found' || contState.value === 'pick') {
@@ -4703,7 +4705,8 @@ export default defineComponent({
       handleContBarcode(code)
     }
 
-    useBarcodeScanner(onScannerCode)
+    const { recentKeys: scannerRecentKeys } = useBarcodeScanner(onScannerCode)
+    const scannerDiagVisible = ref(false)
 
     function resumeContScan() {
       contBarcode.value = ''
@@ -5195,6 +5198,8 @@ export default defineComponent({
       contCandidates,
       contGunInputRef,
       contGunInput,
+      scannerRecentKeys,
+      scannerDiagVisible,
       contCaptureUseA,
       contStream,
       contTimer,
