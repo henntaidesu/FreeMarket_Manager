@@ -74,6 +74,13 @@ from .units.barcode_history_handler import (
     put_barcode_history,
     resolve_barcode_conflict,
 )
+from .units.profile_hide_handler import (
+    ProfileHideStatusOut,
+    get_profile_hide,
+    post_profile_hide_history,
+    post_profile_hide_retry_failed,
+    put_profile_hide,
+)
 from .units.shipping_duration_handler import (
     ShippingDurationPreviewOut,
     get_shipping_duration,
@@ -125,6 +132,15 @@ from .units.db_admin_handler import (
     migrate_database,
     hot_switch_mysql_database,
     backup_database,
+)
+from .units.db_sync_handler import (
+    BackupSettingsOut,
+    SyncNowOut,
+    SyncStatusOut,
+    get_backup_settings,
+    post_sync_now,
+    put_sync_settings,
+    test_backup_target,
 )
 
 # 二级子模块 router
@@ -182,6 +198,12 @@ router.add_api_route("/barcode-history/item/{inv_id}/confirm", confirm_barcode_e
 router.add_api_route("/shipping-duration", get_shipping_duration, methods=["GET"], response_model=ShippingDurationPreviewOut)
 router.add_api_route("/shipping-duration", post_shipping_duration, methods=["POST"], response_model=ShippingDurationPreviewOut, dependencies=_CONFIG_WRITE)
 
+# 确认后隐藏商品（煤炉订单完成满 24 小时后设为プロフィールから非表示）
+router.add_api_route("/profile-hide", get_profile_hide, methods=["GET"], response_model=ProfileHideStatusOut)
+router.add_api_route("/profile-hide", put_profile_hide, methods=["PUT"], response_model=ProfileHideStatusOut, dependencies=_CONFIG_WRITE)
+router.add_api_route("/profile-hide/history", post_profile_hide_history, methods=["POST"], response_model=ProfileHideStatusOut, dependencies=_CONFIG_WRITE)
+router.add_api_route("/profile-hide/retry-failed", post_profile_hide_retry_failed, methods=["POST"], response_model=ProfileHideStatusOut, dependencies=_CONFIG_WRITE)
+
 # Cookie 注入域名（代理经 nginx 以独立域名发布时的对外基址）
 # PUT 限管理员：这个值决定用户点「Cookie 注入」会被送到哪个地址，等同于一次跳转目标的授权。
 router.add_api_route("/proxy-public-base", get_proxy_public_base, methods=["GET"], response_model=ProxyPublicBaseOut)
@@ -210,6 +232,11 @@ router.add_api_route("/database/migrate", migrate_database, methods=["POST"], re
 router.add_api_route("/database/hot-switch", hot_switch_mysql_database, methods=["POST"], response_model=HotSwitchOut, dependencies=_ADMIN)
 # 数据库备份（当前库整库覆盖到目标 MySQL，可能较久，放宽超时）
 router.add_api_route("/database/backup", backup_database, methods=["POST"], response_model=SwitchOut, dependencies=_ADMIN)
+# 备份目标（手动备份后记住）+ 同步库（每隔 N 分钟整库覆盖一次）
+router.add_api_route("/database/backup-settings", get_backup_settings, methods=["GET"], response_model=BackupSettingsOut, dependencies=_ADMIN)
+router.add_api_route("/database/backup-target/test", test_backup_target, methods=["POST"], response_model=TestResult, dependencies=_ADMIN)
+router.add_api_route("/database/sync-settings", put_sync_settings, methods=["PUT"], response_model=SyncStatusOut, dependencies=_ADMIN)
+router.add_api_route("/database/sync-now", post_sync_now, methods=["POST"], response_model=SyncNowOut, dependencies=_ADMIN)
 
 # ===== 图床存储（商品图存本地盘还是存图床） =====
 # 写操作全部限管理员：这几个端点能改「图片往哪存」，并能把几千张历史图片整体搬走。

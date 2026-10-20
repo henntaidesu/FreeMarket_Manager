@@ -211,6 +211,23 @@ class OrderModel(_AggregateMixin, _QueryMixin, BaseModel):
                 'not_null': False,
                 'default': None,
             },
+            # 「确认后隐藏商品」：煤炉商品页点了「プロフィールから非表示」并回读确认的本地时刻；
+            # 非空 = 已隐藏，不再处理。失败计数到上限即退出候选集，见 src/profile_hide.py
+            'profile_hidden_at': {
+                'type': 'INTEGER',
+                'not_null': False,
+                'default': None,
+            },
+            'profile_hide_failures': {
+                'type': 'INTEGER',
+                'not_null': True,
+                'default': 0,
+            },
+            'profile_hide_error': {
+                'type': 'TEXT',
+                'not_null': False,
+                'default': None,
+            },
         }
 
 

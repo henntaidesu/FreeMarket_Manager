@@ -303,42 +303,38 @@ class BackupIn(BaseModel):
 
 
 async def backup_database(body: BackupIn) -> SwitchOut:
-    """把当前数据库的全部数据备份到目标 MySQL（先清空目标同名表再整库覆盖），当前使用的数据库不变。"""
+    """把当前数据库的全部数据备份到目标 MySQL（先清空目标同名表再整库覆盖），当前使用的数据库不变。
+
+    目标参数先写回 system.db（见 db_auto_sync），下次打开页面直接带出来。
+    """
+    from .... import db_auto_sync
+
     p = body.mysql
     target_db = (p.database or "").strip() if p else ""
     if not p or not target_db:
         raise HTTPException(status_code=400, detail="请填写备份目标库名")
 
-    # 校验目标连接（密码留空则沿用已保存的 MySQL 密码）
+    # 密码留空：沿用上次备份目标的密码，再退回主 MySQL 密码
+    p = p.model_copy(update={
+        "database": target_db,
+        "password": db_auto_sync.resolve_password("backup", p.password),
+    })
     test_mysql_connection(p)
-
-    # 目标不能是「当前正在使用的库」自身（同 host/port/库名），否则边读边覆盖会损坏数据
-    if db_settings.get_active_backend() == "mysql":
-        cur = db_settings.get_mysql_config()
-        if (str(p.host).strip() == str(cur["host"]).strip()
-                and int(p.port) == int(cur["port"])
-                and target_db == str(cur["database"]).strip()):
-            raise HTTPException(status_code=400, detail="备份目标不能是当前正在使用的库")
-
-    # 备份期间获取同步锁，避免源库数据在拷贝过程中变动
-    token = sync_lock.try_begin("db_backup", "正在备份数据库")
-    if token is None:
-        st = sync_lock.status()
-        label = st.get("label_zh") or "有同步任务"
-        raise HTTPException(status_code=409, detail=f"{label}正在进行，请稍后再备份")
     try:
-        from ....db_manage.dialects.mysql import MysqlDialect
-        target_dialect = MysqlDialect({
-            "host": p.host, "port": int(p.port), "user": p.user,
-            "password": _resolve_password(p), "database": target_db,
-        })
-        mgr = get_db_manager()
-        try:
-            result = migrator.migrate(mgr.db, target_dialect, mgr.models)
-        except Exception as e:  # noqa: BLE001
-            raise HTTPException(status_code=500, detail=f"备份失败：{e}")
-    finally:
-        sync_lock.end(token)
+        target = db_auto_sync.save_target("backup", p.model_dump())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    try:
+        result = await asyncio.to_thread(
+            db_auto_sync.copy_to_target, target, "db_backup", "正在备份数据库",
+        )
+    except db_auto_sync.TargetIsActiveDb as e:
+        raise HTTPException(status_code=400, detail=f"备份{e}")
+    except db_auto_sync.SyncBusy as e:
+        raise HTTPException(status_code=409, detail=f"{e}，请稍后再备份")
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"备份失败：{e}")
 
     if not result["ok"]:
         bad = ", ".join(s["table"] for s in result["mismatch"])

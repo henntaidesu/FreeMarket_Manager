@@ -1095,7 +1095,8 @@ suspend / resume; purchases sync + single-row detail refresh (`purchases.sync` /
 `purchases.refresh_one`); todos sync / bulk-review /
 bulk-confirm-ship / shipping-QR /
 confirm-cancellation / send-message / send-reaction; the account
-card's 同步数据 (`account.sync_data`); and 回国模式 (`system.homecoming`, see below).
+card's 同步数据 (`account.sync_data`); 回国模式 (`system.homecoming`, see below); and
+确认后隐藏商品 (`system.profile_hide`, see below).
 **Batch revise is not a separate type** — the frontend
 submits N `on_sale.revise` tasks, so closing the page no longer aborts halfway.
 
@@ -1201,6 +1202,22 @@ System 配置页的一个开关：开启后把**全部在售商品**逐件暂停
 - 件数由 `preview()` 纯 SQL 算（`pending` 含从未同步过详情、时效为空的行），前端改筛选即刷新；
   `pending=0` 时 POST 不入队直接返回。
 
+### 确认后隐藏商品 (`src/profile_hide.py`)
+
+系统配置页的开关：煤炉订单 `done` 满 24 小时后，打开 `jp.mercari.com/item/{id}` 点
+「プロフィールから非表示」，重新加载后读到「プロフィールに表示」才算成功
+（`web_drive/profile_hide/`；一进页面已是「プロフィールに表示」= 已隐藏，**绝不再点**，那会改回显示）。
+
+- **两个范围，一个候选集口径**：开关开启时记下 `profile_hide_since`，自动只处理「完成时间 ≥ since − 24h」
+  的订单，开关一开不会把上千条历史订单全排进浏览器；「处理历史数据」置 `profile_hide_history=1` 去掉 since
+  限制，候选集清空后自动撤掉。完成时间 = `COALESCE(completed_at, order_updated_at, order_date)`——
+  大量历史订单没有 `completed_at`。卖家须有启用中的煤炉账号，否则不进候选集（免得每轮空跑一条任务）。
+- **分批续排，不做长任务**：`system.profile_hide` 每条只处理 `PROFILE_HIDE_MAX_PER_RUN`（30）件，
+  由自动获取循环每 tick 调 `maybe_enqueue()`（10 分钟节流、去重键防重复）续排——全局单 worker，
+  整批历史做成一条会把同步堵上数小时。同账号每件随机等 `PROFILE_HIDE_ITEM_DELAY_MIN_SEC`~`MAX`（10/30）。
+- 记账在 `orders.profile_hidden_at` / `profile_hide_failures` / `profile_hide_error`；失败 3 次退出候选集，
+  页面「重试失败」清零。只做煤炉。
+
 ### Auxiliary Subsystems
 
 Three self-contained features that are easy to miss because nothing else depends on them:
@@ -1301,6 +1318,13 @@ The **挂载子路径** setting (System 配置 → Cookie 注入域名, or `MERC
 
 **Database management UI**: System 管理 → 系统设置 (`/system/config`, view `views/system/SystemConfig`)
 lets the user choose SQLite/MySQL, test the MySQL connection, and switch backends. Switching migrates all data from the current backend to the target (`src/db_manage/migrate.py`), persists the choice + connection params to the always-SQLite bootstrap store `backend/system.db` (`src/db_manage/db_settings.py`), then auto-restarts the backend. In MySQL mode, `system.db` (SQLite) retains only this bootstrap config; all business data lives in MySQL.
+The same page's 备份 pane remembers the manual backup target and configures a **同步库**
+(`src/db_auto_sync.py`): every 30/60/120/360/720/1440 min the current DB is fully overwritten onto
+that MySQL via the same `migrate.migrate` as a manual backup (drop → rebuild → copy → row-count
+check). Both targets (passwords included) live in `system.db`, not the business DB. A run holds
+`sync_lock`; if it is busy the run is skipped until the next 30s tick, not counted as a failure.
+"Target ≠ active DB" is re-checked on **every run**, since a hot-switch can land on it after saving.
+Each run writes a `system_logs` row (category `database`).
 - `JWT_SECRET`: Signing key (change in production)
 - `JWT_EXPIRE_HOURS`: Token validity in hours. **Default `0` = never expires** — see Authentication Flow.
 - `SSL_MITM_AUTO_START`: Set to `0` to disable mitmproxy (default: 1)

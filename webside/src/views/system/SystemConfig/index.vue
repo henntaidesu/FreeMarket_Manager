@@ -363,6 +363,53 @@
           </div>
         </section>
 
+        <!-- 确认后隐藏商品：煤炉订单完成满 24 小时后设为「プロフィールから非表示」；
+             开关只管开启之后到期的订单，历史订单用按钮补上 -->
+        <section id="sc-profile-hide" class="sc-panel">
+          <div class="sc-panel-head">
+            <span class="sc-ic sc-ic--indigo"><el-icon :size="17"><Hide /></el-icon></span>
+            <div class="sc-head-text">
+              <div class="sc-panel-title">{{ t('profileHide.section') }}</div>
+              <div class="sc-panel-desc">{{ t('profileHide.desc') }}</div>
+            </div>
+            <el-switch
+              v-model="profileHide.enabled"
+              :loading="profileHideSubmitting"
+              :disabled="profileHideLoading || profileHideSubmitting"
+              @change="onProfileHideChange"
+            />
+          </div>
+          <div class="sc-panel-body" v-loading="profileHideLoading">
+            <el-alert
+              v-if="profileHide.history_pending"
+              :title="t('profileHide.historyRunning')"
+              type="info"
+              :closable="false"
+              show-icon
+            />
+            <div class="sc-hc-stats">
+              <span>{{ t('profileHide.autoPending', { n: profileHide.auto_pending_count }) }}</span>
+              <span>{{ t('profileHide.historyCount', { n: profileHide.history_count }) }}</span>
+              <span>{{ t('profileHide.hidden', { n: profileHide.hidden_count }) }}</span>
+              <span>{{ t('profileHide.failed', { n: profileHide.failed_count }) }}</span>
+            </div>
+            <div class="sc-actions">
+              <el-button
+                :loading="profileHideSubmitting"
+                :disabled="profileHide.history_pending || !profileHide.history_count"
+                @click="onProfileHideHistory"
+              >{{ t('profileHide.processHistory') }}</el-button>
+              <el-button
+                :type="profileHide.failed_count ? 'warning' : 'default'"
+                :loading="profileHideSubmitting"
+                :disabled="!profileHide.failed_count"
+                @click="submitProfileHide(() => configApi.retryProfileHideFailed())"
+              >{{ t('profileHide.retryFailed') }}</el-button>
+              <span class="sc-note">{{ t('profileHide.tip') }}</span>
+            </div>
+          </div>
+        </section>
+
         <!-- 条码识别（历史数据）：打开即排一条任务——识别历史商品图片里的条码，
              再把同条码 + 同归属人的商品并入管理番号最大的那个 -->
         <section id="sc-barcode-history" class="sc-panel">
@@ -599,7 +646,7 @@
               </div>
               <div class="sc-field">
                 <div class="sc-label">密码</div>
-                <el-input v-model="backup.password" type="password" show-password />
+                <el-input v-model="backup.password" type="password" show-password :placeholder="backupPasswordSet ? '••••••••（留空沿用）' : ''" />
               </div>
               <div class="sc-field">
                 <div class="sc-label">目标库</div>
@@ -617,6 +664,64 @@
                   · 目标库{{ backupTestResult.database_exists ? '已存在' : '不存在（将自动创建）' }}
                 </template>
               </span>
+            </div>
+            <div class="sc-note sc-note--gap">备份目标在每次开始备份时自动保存，下次打开直接带出。</div>
+
+            <!-- 同步库：每隔 N 分钟把当前库整库覆盖到这个库一次 -->
+            <div class="sc-sub-title sc-sub-title--gap">同步库（自动备份）</div>
+            <div class="sc-grid sc-grid--tight">
+              <div class="sc-field">
+                <div class="sc-label">自动同步</div>
+                <el-switch v-model="syncForm.enabled" />
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">同步间隔</div>
+                <el-select v-model="syncForm.interval_min">
+                  <el-option v-for="m in syncIntervals" :key="m" :label="formatInterval(m)" :value="m" />
+                </el-select>
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">主机</div>
+                <el-input v-model="syncForm.target.host" />
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">端口</div>
+                <el-input-number v-model="syncForm.target.port" :min="1" :max="65535" :controls="false" class="sc-num" />
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">用户</div>
+                <el-input v-model="syncForm.target.user" />
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">密码</div>
+                <el-input v-model="syncForm.target.password" type="password" show-password :placeholder="syncStatus.target?.password_set ? '••••••••（留空沿用）' : ''" />
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">同步库</div>
+                <el-input v-model="syncForm.target.database" />
+              </div>
+            </div>
+            <div class="sc-actions">
+              <el-button :loading="testingSync" @click="onTestSync">测试连接</el-button>
+              <el-button type="primary" :loading="savingSync" @click="onSaveSync">保存设置</el-button>
+              <el-button :loading="syncStatus.running || syncingNow" :disabled="!syncStatus.target?.database" @click="onSyncNow">立即同步</el-button>
+              <span v-if="syncTestResult" class="sc-result" :class="{ 'is-ok': syncTestResult.ok }">
+                <span class="sc-dot" :class="syncTestResult.ok ? 'is-ok' : 'is-bad'" />
+                {{ syncTestResult.message }}
+                <template v-if="syncTestResult.ok">
+                  · 版本 {{ syncTestResult.version }}
+                  · 同步库{{ syncTestResult.database_exists ? '已存在' : '不存在（将自动创建）' }}
+                </template>
+              </span>
+            </div>
+            <div class="sc-note sc-note--gap">
+              每次同步会先清空同步库里的同名表再整库覆盖；同步期间其他同步任务需等待。
+              <template v-if="syncStatus.running"> · 正在同步…</template>
+              <template v-if="syncStatus.last_at">
+                · 上次同步 {{ formatTs(syncStatus.last_at) }}
+                {{ syncStatus.last_ok ? '成功' : '失败' }}：{{ syncStatus.last_message }}
+              </template>
+              <template v-if="syncStatus.enabled && syncStatus.next_at"> · 下次约 {{ formatTs(syncStatus.next_at) }}</template>
             </div>
           </div>
 
@@ -1110,7 +1215,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
-import { Plus, User, UserFilled, Key, Lock, MagicStick, Sell, Coin, Tickets, Printer, Compass, Suitcase, Timer, Link, Picture, Connection, Search } from '@element-plus/icons-vue'
+import { Plus, User, UserFilled, Key, Lock, MagicStick, Sell, Coin, Tickets, Printer, Compass, Suitcase, Timer, Link, Picture, Connection, Search, Hide } from '@element-plus/icons-vue'
 import { ElMessage } from '@/utils/notify'
 import { setLocale, SUPPORTED_LOCALES } from '@/i18n'
 import { authApi, roleApi, configApi, proxyUserApi, shopAccountApi } from '@/api/index.js'
@@ -1151,6 +1256,7 @@ const SECTIONS = [
   { id: 'ai', icon: 'MagicStick', labelKey: 'systemConfig.deepseekSection' },
   { id: 'listing', icon: 'Sell', labelKey: 'system.listingDefaults' },
   { id: 'homecoming', icon: 'Suitcase', labelKey: 'homecoming.section' },
+  { id: 'profile-hide', icon: 'Hide', labelKey: 'profileHide.section' },
   { id: 'barcode-history', icon: 'Search', labelKey: 'barcodeHistory.section' },
   { id: 'shipping-duration', icon: 'Timer', labelKey: 'shippingDurationBatch.section' },
   { id: 'database', icon: 'Coin', labelKey: 'systemConfig.databaseSection' },
@@ -1793,6 +1899,65 @@ function retryHomecoming() {
   return submitHomecoming(homecoming.enabled)
 }
 
+// ===== 确认后隐藏商品 =====
+// 后端只写开关 / 标记并立刻试排一条 system.profile_hide 任务；实际点击在任务里分批跑，
+// 剩下的由自动获取循环约 10 分钟续排一批。
+const profileHide = reactive({
+  enabled: false, history_pending: false, auto_pending_count: 0, history_count: 0, hidden_count: 0, failed_count: 0
+})
+const profileHideLoading = ref(false)
+const profileHideSubmitting = ref(false)
+
+function applyProfileHide(res) {
+  profileHide.enabled = !!res?.enabled
+  profileHide.history_pending = !!res?.history_pending
+  for (const k of ['auto_pending_count', 'history_count', 'hidden_count', 'failed_count']) {
+    profileHide[k] = Number(res?.[k]) || 0
+  }
+}
+
+async function loadProfileHide() {
+  profileHideLoading.value = true
+  try {
+    applyProfileHide(await configApi.getProfileHide())
+  } catch {
+    /* 拦截器已提示 */
+  } finally {
+    profileHideLoading.value = false
+  }
+}
+
+/** 统一提交：返回里带 task_id 说明排上了任务，否则只是保存 */
+async function submitProfileHide(call, { silent = false } = {}) {
+  profileHideSubmitting.value = true
+  try {
+    const res = await call()
+    applyProfileHide(res)
+    if (!silent) ElMessage.success(res?.task_id ? t('profileHide.submitted') : t('profileHide.nothingToDo'))
+  } catch {
+    await loadProfileHide()
+  } finally {
+    profileHideSubmitting.value = false
+  }
+}
+
+function onProfileHideChange(val) {
+  return submitProfileHide(() => configApi.putProfileHide(!!val), { silent: !val })
+}
+
+async function onProfileHideHistory() {
+  try {
+    await ElMessageBox.confirm(
+      t('profileHide.confirmHistoryMsg', { n: profileHide.history_count }),
+      t('profileHide.confirmHistoryTitle'),
+      { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') }
+    )
+  } catch {
+    return
+  }
+  await submitProfileHide(() => configApi.processProfileHideHistory())
+}
+
 // ===== 条码识别（历史数据）=====
 // 打开开关即排一条任务（只识别，幂等）：再跑一轮只处理还没识别的。同条码商品走「待合并」人工确认。
 const barcodeHistory = reactive({
@@ -1980,8 +2145,22 @@ const dbForm = reactive({
   mysql: { host: '127.0.0.1', port: 3306, user: 'root', password: '', database: 'mercari' }
 })
 
-// 备份目标：默认沿用当前 MySQL 服务器，库名留空由用户填写
+// 备份目标：保存过就带出上次的目标，否则默认沿用当前 MySQL 服务器、库名留空
 const backup = reactive({ host: '127.0.0.1', port: 3306, user: 'root', password: '', database: '' })
+const backupPasswordSet = ref(false)
+
+// 同步库：每隔 interval_min 分钟把当前库整库覆盖过去一次
+const syncIntervals = ref([30, 60, 120, 360, 720, 1440])
+const syncForm = reactive({
+  enabled: false,
+  interval_min: 60,
+  target: { host: '', port: 3306, user: '', password: '', database: '' }
+})
+const syncStatus = ref({})
+const testingSync = ref(false)
+const savingSync = ref(false)
+const syncingNow = ref(false)
+const syncTestResult = ref(null)
 
 // ===== 图床存储 =====
 // ih   = 服务端当前状态（生效的存储位置 + 图片数量概览）
@@ -2186,13 +2365,99 @@ async function loadDbConfig() {
   })
   // 备份目标默认预填当前 MySQL 服务器（库名留空，避免误备份到当前库）
   Object.assign(backup, { host: cfg.mysql.host, port: cfg.mysql.port, user: cfg.mysql.user })
+  // 备份 / 同步库接口仅管理员可用
+  if (auth.isAdmin) await loadBackupSettings(cfg.mysql)
+}
+
+async function loadBackupSettings(mysqlDefaults) {
+  const res = await databaseApi.getBackupSettings()
+  const b = res.backup
+  if (b.host && b.database) {
+    Object.assign(backup, { host: b.host, port: b.port, user: b.user, database: b.database, password: '' })
+  }
+  backupPasswordSet.value = !!b.password_set
+  applySyncStatus(res.sync, mysqlDefaults)
+}
+
+/** 用服务端状态刷新同步库表单；从未保存过同步库时预填当前 MySQL 服务器 */
+function applySyncStatus(st, mysqlDefaults) {
+  syncStatus.value = st
+  syncIntervals.value = st.intervals
+  syncForm.enabled = st.enabled
+  syncForm.interval_min = st.interval_min
+  const tg = st.target
+  if (tg.host) {
+    Object.assign(syncForm.target, { host: tg.host, port: tg.port, user: tg.user, database: tg.database, password: '' })
+  } else if (mysqlDefaults) {
+    Object.assign(syncForm.target, { host: mysqlDefaults.host, port: mysqlDefaults.port, user: mysqlDefaults.user })
+  }
+}
+
+function formatInterval(min) {
+  return min < 60 ? `${min} 分钟` : `${min / 60} 小时`
+}
+
+function formatTs(sec) {
+  return new Date(sec * 1000).toLocaleString()
+}
+
+async function onTestSync() {
+  testingSync.value = true
+  syncTestResult.value = null
+  try {
+    syncTestResult.value = await databaseApi.testTarget('sync', { ...syncForm.target })
+  } catch (e) {
+    // 错误消息已由 http 拦截器统一提示
+  } finally {
+    testingSync.value = false
+  }
+}
+
+async function onSaveSync() {
+  if (syncForm.enabled) {
+    const target = `${syncForm.target.host}:${syncForm.target.port}/${(syncForm.target.database || '').trim()}`
+    try {
+      await ElMessageBox.confirm(
+        `开启后每隔 ${formatInterval(syncForm.interval_min)} 会把当前数据库整库覆盖到「${target}」（先清空同名表）。是否继续？`,
+        '确认开启同步库',
+        { type: 'warning', confirmButtonText: '开启', cancelButtonText: '取消' }
+      )
+    } catch (_) {
+      return
+    }
+  }
+  savingSync.value = true
+  try {
+    const st = await databaseApi.saveSyncSettings({ ...syncForm, target: { ...syncForm.target } })
+    applySyncStatus(st)
+    ElMessage.success('同步库设置已保存')
+  } catch (e) {
+    // 错误消息已由 http 拦截器统一提示
+  } finally {
+    savingSync.value = false
+  }
+}
+
+async function onSyncNow() {
+  syncingNow.value = true
+  try {
+    const res = await databaseApi.syncNow()
+    syncStatus.value = res.status
+    if (res.ok) ElMessage.success(res.message)
+    else if (res.skipped) ElMessage.warning(res.message)
+    else ElMessage.error(res.message)
+  } catch (e) {
+    // 错误消息已由 http 拦截器统一提示
+  } finally {
+    syncingNow.value = false
+  }
 }
 
 async function onTestBackup() {
   testingBackup.value = true
   backupTestResult.value = null
   try {
-    backupTestResult.value = await databaseApi.testConnection({ ...backup })
+    backupTestResult.value = await databaseApi.testTarget('backup', { ...backup })
   } catch (e) {
     // 错误消息已由 http 拦截器统一提示
   } finally {
@@ -2216,6 +2481,7 @@ async function onBackup() {
   try {
     const res = await databaseApi.backup({ ...backup })
     migrateSummary.value = res.tables || []
+    backupPasswordSet.value = true
     ElMessage.success(res.message)
   } catch (e) {
     // 错误消息已由 http 拦截器统一提示（如 409：有后台同步任务正在进行）
@@ -2395,6 +2661,7 @@ onMounted(() => {
   load()
   loadListingDefaults()
   loadHomecoming()
+  loadProfileHide()
   loadBarcodeHistory()
   loadSdAccounts()
   loadSdPreview()
@@ -2721,6 +2988,12 @@ onUnmounted(() => {
 .sc-note {
   font-size: 12px;
   color: var(--sc-text-mute);
+}
+.sc-note--gap {
+  margin-top: 10px;
+}
+.sc-sub-title--gap {
+  margin-top: 24px;
 }
 /* 回国模式的两个计数 */
 .sc-hc-stats {

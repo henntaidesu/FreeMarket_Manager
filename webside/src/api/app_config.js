@@ -29,6 +29,12 @@ export const configApi = {
   // PUT 立即写开关（上架随即被禁），暂停/恢复整批商品由 system.homecoming 任务执行
   getHomecoming: () => http.get('/use_web/system/homecoming'),
   putHomecoming: (enable) => http.put('/use_web/system/homecoming', { enable }),
+  // 确认后隐藏商品：{ enabled, history_pending, auto_pending_count, history_count, hidden_count, failed_count, task_id }
+  // 页面操作由 system.profile_hide 任务分批执行；这几个接口只写开关/标记并立刻试排一条
+  getProfileHide: () => http.get('/use_web/system/profile-hide'),
+  putProfileHide: (enable) => http.put('/use_web/system/profile-hide', { enable }),
+  processProfileHideHistory: () => http.post('/use_web/system/profile-hide/history'),
+  retryProfileHideFailed: () => http.post('/use_web/system/profile-hide/retry-failed'),
   // 条码识别（历史数据）：PUT enable=true 即排一条 system.barcode_history 任务
   getBarcodeHistory: () => http.get('/use_web/system/barcode-history'),
   putBarcodeHistory: (enable) => http.put('/use_web/system/barcode-history', { enable }),

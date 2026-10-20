@@ -15,5 +15,14 @@ export const databaseApi = {
   // MySQL 数据库热切换：同服务器切库（改库名），无需重启；要求当前无后台同步任务在进行
   hotSwitch: (database) => http.post('/use_web/system/database/hot-switch', { database }, { timeout: 120000 }),
   // 备份数据库：把当前库整库覆盖到目标 MySQL（服务器/库任意），当前使用的库不变
-  backup: (mysql) => http.post('/use_web/system/database/backup', { mysql }, { timeout: 300000 })
+  backup: (mysql) => http.post('/use_web/system/database/backup', { mysql }, { timeout: 300000 }),
+
+  // 已保存的备份目标 + 同步库设置与最近一次同步结果（密码不回传）
+  getBackupSettings: () => http.get('/use_web/system/database/backup-settings'),
+  // 测试备份目标 / 同步库连接：kind = 'backup' | 'sync'，密码留空沿用该目标已保存的密码
+  testTarget: (kind, mysql) => http.post('/use_web/system/database/backup-target/test', { kind, mysql }),
+  // 保存同步库设置：{ enabled, interval_min, target }
+  saveSyncSettings: (payload) => http.put('/use_web/system/database/sync-settings', payload),
+  // 立即同步一次（等同步完成才返回）
+  syncNow: () => http.post('/use_web/system/database/sync-now', null, { timeout: 0 })
 }

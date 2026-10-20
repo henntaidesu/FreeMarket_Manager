@@ -300,6 +300,14 @@ async def run_mercari_auto_fetch_tick() -> None:
     if _defer_for_pending_listings():
         return
 
+    # 确认后隐藏商品：有到期的已完成订单就排一条 system.profile_hide（内部 10 分钟节流）
+    try:
+        from .profile_hide import maybe_enqueue as profile_hide_maybe_enqueue
+
+        profile_hide_maybe_enqueue()
+    except Exception:
+        log.exception("[mercari_auto_fetch] 确认后隐藏商品续排失败")
+
     now = datetime.now(timezone.utc)
     now_local = datetime.now()
     rows = ShopAccountModel.find_all(

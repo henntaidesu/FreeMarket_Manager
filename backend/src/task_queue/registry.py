@@ -36,6 +36,7 @@ ACCOUNT_SYNC_DATA = "account.sync_data"
 SYSTEM_HOMECOMING = "system.homecoming"
 SYSTEM_SHIPPING_DURATION = "system.shipping_duration"
 SYSTEM_BARCODE_HISTORY = "system.barcode_history"
+SYSTEM_PROFILE_HIDE = "system.profile_hide"
 
 
 @dataclass(frozen=True)
@@ -243,6 +244,13 @@ _SPECS: Dict[str, TaskSpec] = {
         dedup_key=lambda p: SYSTEM_BARCODE_HISTORY,
         title=lambda p: "条码识别：识别历史商品图片中的条码并合并同条码商品",
     ),
+    SYSTEM_PROFILE_HIDE: TaskSpec(
+        task_type=SYSTEM_PROFILE_HIDE,
+        label_zh="确认后隐藏商品",
+        # 候选集是同一批订单，同时只允许排一条；自动循环靠这条去重位避免重复续排
+        dedup_key=lambda p: SYSTEM_PROFILE_HIDE,
+        title=lambda p: "确认后隐藏商品：已完成满 24 小时的商品设为プロフィールから非表示",
+    ),
 }
 
 
@@ -330,4 +338,7 @@ def resolve_handler(task_type: str) -> Callable:
     if tt == SYSTEM_BARCODE_HISTORY:
         from .handlers.barcode_history import handle_barcode_history
         return handle_barcode_history
+    if tt == SYSTEM_PROFILE_HIDE:
+        from .handlers.profile_hide import handle_profile_hide
+        return handle_profile_hide
     raise KeyError(f"未注册的任务类型：{task_type}")
