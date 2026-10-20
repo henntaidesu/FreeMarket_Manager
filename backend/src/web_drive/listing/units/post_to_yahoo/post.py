@@ -268,6 +268,7 @@ async def post_to_yahoo(
     shipping_days: str = "2_3_days",
     shipping_from_area_id: str = "",
     watermark: bool = False,
+    dedicated_for: str = "",
     page_load_timeout_ms: int = DEFAULT_PAGE_LOAD_TIMEOUT_MS,
     element_timeout_ms: int = DEFAULT_ELEMENT_TIMEOUT_MS,
     progress_job_id: Optional[str] = None,
@@ -303,6 +304,13 @@ async def post_to_yahoo(
     if account_id is None:
         raise ValueError(f"无效的 account_key: {account_key}")
     main_key = mercari_account_key(account_id)
+
+    # 专用出品首图：须在水印 / 管理暗码之前插入（同煤炉）
+    if (dedicated_for or "").strip():
+        from ..post_to_macket._dedicated_cover import prepend_dedicated_cover
+
+        report("dedicated_cover", "正在生成专用出品首图…")
+        local_images = prepend_dedicated_cover(local_images, dedicated_for, "yahoo")
 
     if watermark and local_images:
         from ..post_to_macket._watermark import (

@@ -315,17 +315,17 @@
   flex: 0 0 auto;
 }
 
-/* ---- 拆分商品弹窗 ----
+/* ---- 专用出品弹窗 ----
    这个弹窗 append-to-body，被 teleport 到 <body> 之外，Inventory 组件的 :deep() 规则
    （祖先带 data-v）够不着，样式一律写在这里 */
 /* 弹窗 body 是 display:flex，整块内容必须收在一个子元素里，否则信息带与表单会左右并列 */
-.split-dialog-body {
+.dedicated-dialog-body {
   flex: 1 1 auto;
   width: 100%;
   min-width: 0;
 }
-/* 只读的拆分源信息带：管理番号 + 商品名一行，当前库存一枚 tag */
-.split-source {
+/* 只读的商品信息带：管理番号 + 出品标题 */
+.dedicated-source {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -335,15 +335,15 @@
   border-radius: 8px;
   background: #0b1220;
 }
-.split-source__main {
+.dedicated-source__main {
   flex: 1 1 auto;
   min-width: 0;
 }
-.split-source__id {
+.dedicated-source__id {
   font-size: 12px;
   color: #94a3b8;
 }
-.split-source__name {
+.dedicated-source__name {
   margin-top: 2px;
   font-size: 14px;
   font-weight: 600;
@@ -352,37 +352,25 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* 目标归属与拆分数量并排；480px 的弹窗放得下，窄屏再各自换行 */
-.split-form-row {
+/* 买家名与价格并排；窄屏各自换行 */
+.dedicated-form-row {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
   column-gap: 12px;
 }
-.split-form-row > .el-form-item {
+.dedicated-form-row > .el-form-item {
+  flex: 1 1 160px;
+  min-width: 0;
   margin-bottom: 0;
 }
-.split-field--owner {
-  flex: 1 1 180px;
-  min-width: 0;
-}
-/* 数量栏按「输入框 + 上限提示」的自身宽度走，不跟着归属栏一起拉长 */
-.split-field--qty {
-  flex: 0 0 auto;
-}
-/* 覆盖 App.vue 的 `.el-select{width:180px!important}`，让下拉吃满归属栏 */
-.split-product-form .split-owner-select {
+/* 覆盖 App.vue 的全局 180px !important，让输入框吃满各自一栏 */
+.dedicated-product-form .el-input-number,
+.dedicated-product-form .el-input {
   width: 100% !important;
 }
-/* 拆分上限最多也就几件，去掉箭头后宽度按三位数留。
-   内层 .el-input 也要一起写死：它挂着全局那条 180px !important，光收窄外层
-   .el-input-number 只会让里面的输入框顶出去 */
-.split-product-form .split-quantity-input,
-.split-product-form .split-quantity-input .el-input {
-  width: 72px !important;
-}
-.split-product-form .split-quantity-hint {
-  margin-left: 10px;
+.dedicated-product-form .dedicated-hint {
+  margin-top: 10px;
   color: #94a3b8;
   font-size: 12px;
 }
@@ -395,7 +383,7 @@
    落在 ElDialogContent 的根节点上，而那个根节点本身就是 .el-dialog。 */
 /* 宽 70vw，高**跟着内容走**、80vh 封顶：写死 height 会让内容排完后底下空一大片。
    头/底固定，body 不滚动，滚动只作为兜底发生在左侧表单栏内部，右侧图片栏始终留在视线里。
-   `.product-dialog` 还挂在组合商品/拆分两个小弹窗上，那两个不该被限成 80vh，
+   `.product-dialog` 还挂在组合商品/专用出品两个小弹窗上，那两个不该被限成 80vh，
    所以这条按尺寸生效的规则只认编辑商品弹窗。 */
 .product-dialog.el-dialog:not(.combined-product-dialog) {
   margin: calc(10 * var(--app-vh)) auto !important;

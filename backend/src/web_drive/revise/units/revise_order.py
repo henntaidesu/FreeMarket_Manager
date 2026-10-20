@@ -33,6 +33,7 @@ from ...delete.units.delete_order import (
 )
 from ....use_mercari.sync.sync_progress import make_sync_reporter
 from . import revise_fields as rf
+from .revise_relink import embed_mgmt_images, relink_after_revise, relink_local_from_item_get
 
 log = logging.getLogger(__name__)
 
@@ -234,6 +235,7 @@ async def revise_mercari_item(
     category_positions: Optional[Sequence[int]] = None,
     condition: Optional[str] = None,
     shipping_method: Optional[str] = None,
+    mgmt_inventory_id: Optional[int] = None,
     proxy_server: Optional[str] = None,  # noqa: ARG001 — MITM 由 mitm_automation_browser 统一配置
     page_load_timeout_ms: int = DEFAULT_PAGE_LOAD_TIMEOUT_MS,
     element_timeout_ms: int = REVISE_ELEMENT_TIMEOUT_MS,
@@ -255,6 +257,9 @@ async def revise_mercari_item(
       - ``category_positions``：类别按钮位置数组（商品类型映射 ``mercari_category_positions``）
       - ``condition``：``new_unused`` / ``almost_unused`` / ``good`` / ``fair`` / ``used`` / ``bad``
       - ``shipping_method``：``undecided`` / ``rakuraku`` / ``yuuyu`` / ``tanome`` / ``regular_mail``
+
+    ``mgmt_inventory_id``（修改关联库存）：上传前给每张图重嵌该库存 id 的管理暗码，提交成功后
+    按新说明 / 新图重新绑定库存（``revise_relink.relink_local_from_item_get``）。
     """
     from ...core.manager import EdgeWebDriveManager
     from ...core.mitm_session import mitm_automation_browser
@@ -315,6 +320,12 @@ async def revise_mercari_item(
                 rf.cleanup_temp_images(local_images)
                 raise ValueError(f"图片无法读取：{u}")
             local_images.append(lp)
+        if mgmt_inventory_id is not None:
+            raw_images = local_images
+            try:
+                local_images = embed_mgmt_images(raw_images, int(mgmt_inventory_id))
+            finally:
+                rf.cleanup_temp_images(raw_images)
 
     auto_key = mercari_automation_key(account_id)
     edit_url = build_sell_edit_url(item_id)
@@ -442,7 +453,12 @@ async def revise_mercari_item(
                 pass
             await page.wait_for_timeout(1000)
 
-            if {"images", "category", "condition", "shipping_method"} & set(result["filled"]):
+            if mgmt_inventory_id is not None:
+                report("relink", "正在读取煤炉最新商品详情并重新关联库存…")
+                result["relink"] = await relink_after_revise(
+                    relink_local_from_item_get(mgr, browser_key, seg), int(mgmt_inventory_id), seg
+                )
+            elif {"images", "category", "condition", "shipping_method"} & set(result["filled"]):
                 report("refresh_local", "正在读取煤炉最新商品详情…")
                 try:
                     await _refresh_local_from_item_get(mgr, browser_key, seg)

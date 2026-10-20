@@ -25,6 +25,8 @@ class PostToMarketBody(PydanticModel):
     image_urls: List[str] = []
     # 是否为图片添加水印（出品账号名 + 日期）后再上传
     watermark: bool = False
+    # 专用出品：买家名，非空时首图换成自动生成的「{名} 様 専用」
+    dedicated_for: str = Field(default="", max_length=40)
     # 商品类型：mapping_id 用于从 DB 查出各级 position
     category_mapping_id: Optional[str] = None
     # 商品状態
@@ -163,6 +165,7 @@ async def post_to_market(
                 description=body.description,
                 image_urls=body.image_urls,
                 watermark=body.watermark,
+                dedicated_for=body.dedicated_for,
                 category_positions=cat_pos,
                 status=body.status,
                 shipping_method=body.shipping_method,
@@ -180,6 +183,7 @@ async def post_to_market(
                 description=body.description,
                 image_urls=body.image_urls,
                 watermark=body.watermark,
+                dedicated_for=body.dedicated_for,
                 category_positions=cat_pos,
                 status=body.status,
                 shipping_payer=body.shipping_payer,

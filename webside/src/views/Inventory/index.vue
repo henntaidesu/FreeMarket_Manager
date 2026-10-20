@@ -1022,15 +1022,7 @@
                操作按钮统一收在出品参数下方 -->
           <div class="pef-actions">
             <!-- size=default：这几个是弹窗的主操作，不跟着 el-form 的 size=small 缩水 -->
-            <el-button
-              v-if="form.id && Number(form.is_combined || 0) !== 1"
-              type="primary"
-              plain
-              size="default"
-              @click="openSplitDialog(form)"
-            >{{ t('inventory.split') }}</el-button>
-            <!-- 新增批次：新到的货记成本商品的一个批次（原「复制」会再开一个管理番号）。
-                 拆分是把已有的货挪到另一个归属人名下，两件事 -->
+            <!-- 新增批次：新到的货记成本商品的一个批次（原「复制」会再开一个管理番号） -->
             <el-button
               v-if="batchesEnabled"
               type="primary"
@@ -1067,6 +1059,15 @@
                     >{{ listingPlatform === 'yahoo' ? t('inventory.listSubmitYahoo') : listingPlatform === 'mercari' ? t('inventory.listSubmitMercari') : t('inventory.listSubmit') }}</el-button>
                   </template>
                 </el-popconfirm>
+                <!-- 专用出品：给某位买家单独挂一条（○○様専用），只填买家名与价格，首图自动生成 -->
+                <el-button
+                  type="success"
+                  plain
+                  size="default"
+                  :loading="listingSubmitting"
+                  :disabled="archive || inventorySaveBlockedByImageUpload || listableQuantity(form) <= 0 || currentEditRowIsAlert || !listingPlatformReady"
+                  @click="openDedicatedListing"
+                >{{ t('inventory.dedicatedListing') }}</el-button>
               </span>
             </el-tooltip>
           </div>
@@ -1915,70 +1916,47 @@
       </template>
     </el-dialog>
 
-    <!-- 拆分与复制共用这一个弹窗：要填的东西完全一样，只有数量的来路不同（见 script.js） -->
+    <!-- 专用出品：只填买家名与价格，其余跟随主商品（见 script.js openDedicatedListing） -->
     <el-dialog
-      v-model="splitDialogVisible"
-      :title="splitDialogHeading"
+      v-model="dedicatedDialogVisible"
+      :title="t('inventory.dedicatedListing')"
       :width="isMobile ? '94vw' : '480px'"
       append-to-body
       destroy-on-close
       class="product-dialog"
     >
-      <!-- 单独包一层：`.product-dialog .el-dialog__body` 是 display:flex，
-           信息带和表单直接并列会被排成左右两栏 -->
-      <div class="split-dialog-body">
-        <!-- 拆分源（管理番号 / 商品名 / 当前库存）是纯只读信息，过去是三个 disabled 输入框，
-             各占一整行，看着像能填、点下去又填不了。压成一条信息带，真正要填的只剩下面两栏 -->
-        <div class="split-source">
-          <div class="split-source__main">
-            <div class="split-source__id">{{ t('inventory.mgmtPrefix') }} {{ splitSourceId ?? '-' }}</div>
-            <div class="split-source__name">{{ splitSourceName || '-' }}</div>
+      <!-- 单独包一层：`.product-dialog .el-dialog__body` 是 display:flex -->
+      <div class="dedicated-dialog-body">
+        <div class="dedicated-source">
+          <div class="dedicated-source__main">
+            <div class="dedicated-source__id">{{ t('inventory.mgmtPrefix') }} {{ form.id ?? '-' }}</div>
+            <div class="dedicated-source__name">{{ form.listing_title || form.name || '-' }}</div>
           </div>
-          <el-tag type="info" size="small">
-            {{ t('inventory.currentStockPieces', { qty: splitSourceQuantity }) }}
-          </el-tag>
         </div>
-        <el-form :model="splitForm" label-position="top" class="split-product-form">
-          <div class="split-form-row">
-            <el-form-item class="split-field--owner" :label="t('inventory.splitTargetOwner')" required>
-              <el-select
-                v-model="splitForm.owner_user_id"
-                :placeholder="t('inventory.pleaseSelectOwner')"
+        <el-form :model="dedicatedForm" label-position="top" class="dedicated-product-form" @submit.prevent>
+          <div class="dedicated-form-row">
+            <el-form-item :label="t('inventory.dedicatedBuyerName')" required>
+              <el-input
+                v-model="dedicatedForm.buyer_name"
+                maxlength="20"
                 clearable
-                class="split-owner-select"
-              >
-                <el-option
-                  v-for="u in ownerUsers"
-                  :key="u.id"
-                  :label="u.display_name || u.username"
-                  :value="u.id"
-                />
-              </el-select>
-            </el-form-item>
-            <el-form-item class="split-field--qty" :label="splitQuantityLabel" required>
-              <!-- 上下箭头占掉的那截宽度对一个上限只有几件的数字没有意义，:controls=false
-                   去掉按钮的同时也把 wrapper 的右内边距收回来 -->
-              <el-input-number
-                v-model="splitForm.split_quantity"
-                :min="0"
-                :max="splitMaxQuantity"
-                :step="1"
-                :controls="false"
-                class="split-quantity-input"
+                :placeholder="t('inventory.dedicatedBuyerNamePlaceholder')"
               />
-              <span class="split-quantity-hint">{{ splitQuantityHintText }}</span>
+            </el-form-item>
+            <el-form-item :label="t('inventory.dedicatedPrice')" required>
+              <el-input-number v-model="dedicatedForm.price" :min="1" :step="100" :controls="false" />
             </el-form-item>
           </div>
+          <div class="dedicated-hint">{{ t('inventory.dedicatedHint', { name: String(dedicatedForm.buyer_name || '').trim() || '○○' }) }}</div>
         </el-form>
       </div>
       <template #footer>
-        <el-button @click="splitDialogVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button @click="dedicatedDialogVisible = false">{{ t('common.cancel') }}</el-button>
         <el-button
-          type="primary"
-          :loading="splitSubmitting"
-          :disabled="!splitCanSubmit"
-          @click="submitSplitOrCopy"
-        >{{ splitConfirmText }}</el-button>
+          type="success"
+          :disabled="!dedicatedCanSubmit"
+          @click="submitDedicatedListing"
+        >{{ t('inventory.dedicatedConfirm') }}</el-button>
       </template>
     </el-dialog>
 

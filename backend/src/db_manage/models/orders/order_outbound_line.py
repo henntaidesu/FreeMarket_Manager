@@ -56,6 +56,17 @@ LINE_HAS_INVENTORY_SQL = "(p.[id] IS NOT NULL OR po.[id] IS NOT NULL)"
 LINE_BOUND_SQL = "(p.[id] IS NOT NULL OR l.[inventory_archived] = 1)"
 
 
+def line_side_sql(alias: str = "l") -> str:
+    """按「库存 id 查它的出库明细」时必须带的条件：只认当前视图那一侧的明细。
+
+    新旧库存的 id 会撞号（新 inventory 并非都从 1500 起），只按 inventory_id 匹配会把指向
+    归档商品的历史明细挂到同号的新商品上。普通请求只看 inventory_archived=0；历史库存页
+    （archive_view 生效，[inventory] 已改读 inventory_old）只看 =1。
+    """
+    from ...archive_view import is_active
+    return f"COALESCE({alias}.[inventory_archived], 0) = {1 if is_active() else 0}"
+
+
 def inv_col(col: str) -> str:
     return f"COALESCE(p.[{col}], po.[{col}])"
 
@@ -388,6 +399,7 @@ class OrderOutboundLineModel(BaseModel):
             FROM [{cls.get_table_name()}] l
             INNER JOIN [orders] o ON o.[order_no] = l.[order_no]
             WHERE l.[inventory_id] = ?
+              AND {line_side_sql("l")}
               AND COALESCE(l.[is_stocked_out], 0) = 0
               AND o.[status] NOT IN ({term_ph})
             ORDER BY o.[order_no] ASC, l.[sort_index] ASC, l.[id] ASC

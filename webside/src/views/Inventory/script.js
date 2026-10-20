@@ -476,126 +476,41 @@ export default defineComponent({
       price: 0,
       description: ''
     })
-    /** 拆分 / 复制商品弹窗。
-     *  两者都是「照着这条商品派生出一个新管理番号」，要填的东西（归属 + 数量）和版式一模一样，
-     *  只有数量的来路不同：拆分把来源的货挪过去、来源等额减少，复制是这次新到的货、来源不动。
-     *  所以共用一个弹窗，由 splitDialogMode 决定文案、数量上限和提交到哪个接口。 */
-    const splitDialogVisible = ref(false)
-    /** 'split' | 'copy' */
-    const splitDialogMode = ref('split')
-    const splitSubmitting = ref(false)
-    const splitSourceId = ref(null)
-    const splitSourceName = ref('')
-    const splitSourceQuantity = ref(0)
-    /** 拆分数量上限：被组合引用时为「可上数量」，否则为全部库存。复制不扣来源，只留一个兜底上限 */
-    const splitMaxQuantity = ref(0)
-    const COPY_MAX_QUANTITY = 9999
-    const splitForm = ref({
-      owner_user_id: null,
-      split_quantity: 0
-    })
-    const splitIsCopy = computed(() => splitDialogMode.value === 'copy')
-    const splitDialogHeading = computed(() =>
-      splitIsCopy.value ? t('inventory.copyDialogTitle') : t('inventory.splitDialogTitle')
-    )
-    const splitQuantityLabel = computed(() =>
-      splitIsCopy.value ? t('inventory.copyQuantity') : t('inventory.splitQuantity')
-    )
-    const splitQuantityHintText = computed(() =>
-      splitIsCopy.value
-        ? t('inventory.copyQuantityHint')
-        : t('inventory.splitQuantityHint', { max: splitMaxQuantity.value })
-    )
-    const splitConfirmText = computed(() =>
-      splitIsCopy.value ? t('inventory.confirmCopy') : t('inventory.confirmSplit')
-    )
-    const splitCanSubmit = computed(() => {
-      const qty = Number(splitForm.value.split_quantity ?? 0)
-      if (!Number.isFinite(qty) || qty < 0) return false
-      if (qty > Number(splitMaxQuantity.value || 0)) return false
-      return splitForm.value.owner_user_id != null
+    /** 「专用出品」弹窗：给某位买家单独挂一条链接（○○様専用）。
+     *  只填买家名与价格，其余出品参数跟随主商品；不新开管理番号、不回写商品的单价，
+     *  首图「{买家名} 様 専用」由后端出品时自动生成（web_drive/.../_dedicated_cover.py）。 */
+    const dedicatedDialogVisible = ref(false)
+    const dedicatedForm = ref({ buyer_name: '', price: 0 })
+    const dedicatedCanSubmit = computed(() => {
+      const price = Math.round(Number(dedicatedForm.value.price ?? 0))
+      return !!String(dedicatedForm.value.buyer_name || '').trim() && Number.isFinite(price) && price > 0
     })
 
-    function openSplitDialog(row) {
-      if (!row || !row.id) return
-      if (Number(row.is_combined || 0) === 1) {
-        ElMessage.warning(t('inventory.splitCombinedForbidden'))
-        return
+    function openDedicatedListing() {
+      applyPriceEditToForm()
+      dedicatedForm.value = {
+        buyer_name: '',
+        price: Math.round(Number(form.value?.price ?? 0)) || 0
       }
-      splitDialogMode.value = 'split'
-      splitSourceId.value = row.id
-      splitSourceName.value = row.name || ''
-      splitSourceQuantity.value = Number(row.quantity ?? 0)
-      // 被组合商品引用时仅可拆「可上数量」（库存 - 在售 - 待出 - 组合预留），否则可拆至全部库存
-      splitMaxQuantity.value = Number(row.combined_quantity ?? 0) > 0
-        ? listableQuantity(row)
-        : Number(row.quantity ?? 0)
-      splitForm.value = {
-        owner_user_id: null,
-        split_quantity: 0
-      }
-      splitDialogVisible.value = true
+      dedicatedDialogVisible.value = true
+    }
+
+    async function submitDedicatedListing() {
+      if (!dedicatedCanSubmit.value) return
+      dedicatedDialogVisible.value = false
+      await submitListingToPlatform(
+        listingPlatform.value,
+        Number(form.value.auto_listing_watermark) === 1,
+        {
+          dedicatedFor: String(dedicatedForm.value.buyer_name).trim(),
+          price: Math.round(Number(dedicatedForm.value.price))
+        }
+      )
     }
 
     /** 「新增批次」：新到的货不再复制出一个新管理番号，而是记成本商品的一个批次 */
     function openAddBatch() {
       editActiveTab.value = 'batches'
-    }
-
-    function openCopyDialog(row) {
-      if (!row || !row.id) return
-      // 组合商品的构成明细不在复制范围内，照抄出来会是个引用着别人库存却没有预留的空壳
-      if (Number(row.is_combined || 0) === 1) {
-        ElMessage.warning(t('inventory.copyCombinedForbidden'))
-        return
-      }
-      splitDialogMode.value = 'copy'
-      splitSourceId.value = row.id
-      splitSourceName.value = row.name || ''
-      splitSourceQuantity.value = Number(row.quantity ?? 0)
-      splitMaxQuantity.value = COPY_MAX_QUANTITY
-      splitForm.value = {
-        owner_user_id: null,
-        // 复制是「新到了货」，默认按 1 件起，省掉最常见的一次输入
-        split_quantity: 1
-      }
-      splitDialogVisible.value = true
-    }
-
-    async function submitSplitOrCopy() {
-      if (!splitSourceId.value) return
-      const qty = Math.max(0, Math.round(Number(splitForm.value.split_quantity ?? 0)))
-      if (qty > Number(splitMaxQuantity.value || 0)) {
-        ElMessage.warning(t('inventory.splitQuantityExceeds', { max: splitMaxQuantity.value }))
-        return
-      }
-      if (splitForm.value.owner_user_id == null) {
-        ElMessage.warning(t('inventory.pleaseSelectOwner'))
-        return
-      }
-      splitSubmitting.value = true
-      try {
-        const isCopy = splitIsCopy.value
-        const res = isCopy
-          ? await invApi.copy(splitSourceId.value, {
-            owner_user_id: splitForm.value.owner_user_id,
-            quantity: qty
-          })
-          : await invApi.split(splitSourceId.value, {
-            owner_user_id: splitForm.value.owner_user_id,
-            split_quantity: qty
-          })
-        const newId = res?.id ?? ''
-        ElMessage.success(
-          t(isCopy ? 'inventory.copySuccess' : 'inventory.splitSuccess', { id: newId })
-        )
-        splitDialogVisible.value = false
-        dialogVisible.value = false
-        await load({ resetPage: false })
-        loadInventoryStats()
-      } finally {
-        splitSubmitting.value = false
-      }
     }
 
     /** 「多选商品」模式：勾选后可批量改库存位置，或创建组合商品 */
@@ -3684,9 +3599,16 @@ export default defineComponent({
       if (data.auction_duration != null) settingPatch.auction_duration = String(data.auction_duration)
 
       // ── 1. 写回库存 出品标题、listing_body、price 与出品设置 ───────────────── //
+      // 专用出品的价格只属于这一条挂牌，不写回商品（标题/说明本就取自商品，也不用写）
+      const dedicatedFor = String(data.dedicated_for || '').trim()
       try {
         for (const id of ids) {
-          await invApi.update(id, { listing_title, listing_body, price: safePrice, ...settingPatch })
+          await invApi.update(
+            id,
+            dedicatedFor
+              ? settingPatch
+              : { listing_title, listing_body, price: safePrice, ...settingPatch }
+          )
         }
       } catch {
         // 错误提示由拦截器处理
@@ -3773,6 +3695,7 @@ export default defineComponent({
           description: listing_body,
           image_urls: imageUrls,
           watermark: data.watermark === true,
+          dedicated_for: dedicatedFor,
           category_mapping_id: data.category_mapping_id != null ? String(data.category_mapping_id) : null,
           status: data.status || '',
           shipping_payer: data.shipping_payer || 'seller',
@@ -3836,7 +3759,7 @@ export default defineComponent({
      * 已选账号就是该平台的直接用；不是且该平台只有一个可用账号则自动切过去；
      * 有多个则要求用户明确选一个（不替他猜挂到哪个号上）。
      */
-    async function submitListingToPlatform(platform, watermark = false) {
+    async function submitListingToPlatform(platform, watermark = false, overrides = {}) {
       const accounts = listingAccountsOfPlatform(platform)
       const platformName = platform === 'yahoo'
         ? t('inventory.platformNameYahoo')
@@ -3855,10 +3778,11 @@ export default defineComponent({
         form.value.mercari_account_id = accounts[0].id
         persistListingField('mercari_account_id')
       }
-      await submitListingFromEditForm(watermark)
+      await submitListingFromEditForm(watermark, overrides)
     }
 
-    async function submitListingFromEditForm(watermark = false) {
+    /** overrides：专用出品传 { dedicatedFor, price }，只用于这一次出品，不写回商品 */
+    async function submitListingFromEditForm(watermark = false, overrides = {}) {
       const id = Number(form.value?.id)
       if (!Number.isFinite(id) || id <= 0) return
       applyPriceEditToForm()
@@ -3880,7 +3804,7 @@ export default defineComponent({
         .map((u) => String(u || '').trim())
         .filter(Boolean)
       const listingTitle = String(form.value.listing_title || form.value.name || '').trim()
-      const price = Math.round(Number(form.value.price ?? 0))
+      const price = Math.round(Number(overrides.price ?? form.value.price ?? 0))
       const checks = [
         [images.length > 0, t('dialogs.singleListing.ruleImageRequired')],
         [!!listingTitle, t('dialogs.singleListing.ruleTitleRequired')],
@@ -3927,7 +3851,8 @@ export default defineComponent({
         auction_duration: form.value.auction_duration,
         listing_image_urls: images,
         image: images[0] || '',
-        image_back: images[1] || ''
+        image_back: images[1] || '',
+        dedicated_for: overrides.dedicatedFor || ''
       }
 
       listingSubmitting.value = true
@@ -5602,20 +5527,11 @@ export default defineComponent({
       combinedProductSubmitting,
       combinedProductRows,
       combinedProductForm,
-      splitDialogVisible,
-      splitSubmitting,
-      splitSourceId,
-      splitSourceName,
-      splitSourceQuantity,
-      splitMaxQuantity,
-      splitForm,
-      splitCanSubmit,
-      splitDialogHeading,
-      splitQuantityLabel,
-      splitQuantityHintText,
-      splitConfirmText,
-      openSplitDialog,
-      openCopyDialog,
+      dedicatedDialogVisible,
+      dedicatedForm,
+      dedicatedCanSubmit,
+      openDedicatedListing,
+      submitDedicatedListing,
       openAddBatch,
       barcodeRegionVisible,
       regionMode,
@@ -5625,7 +5541,6 @@ export default defineComponent({
       dupPrompt,
       onDupPromptChoose,
       ...inventoryBatches,
-      submitSplitOrCopy,
       listingPickMode,
       listingPickIds,
       listingCategoryMappings,

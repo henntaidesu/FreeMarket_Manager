@@ -110,16 +110,28 @@ async def _read_edit_form(page: Any, item_id: str) -> Dict[str, Any]:
     )
 
 
+async def _edit_page_photos(page: Any, item_id: str) -> List[str]:
+    try:
+        return edit_page_photo_urls(await page.evaluate(EDIT_PAGE_IMAGES_JS))
+    except Exception as exc:  # noqa: BLE001 取不到图就只用说明文本
+        log.info("[yahoo_detail] %s 编辑页图片读取失败：%s", item_id, exc)
+        return []
+
+
 async def _sync_one_on_page(
     page: Any,
     item_id: str,
     *,
     seller_id: Optional[str],
     status: str,
+    prefer_edit_photos: bool = False,
 ) -> Dict[str, Any]:
     """在已打开的会话里同步一件的详情，返回与煤炉 ``fetch_detail_and_sync_inventory``
     **同形状**的 ``{api, sync}``——单件入口要按 ``sync.updated`` 判成败，形状不一致
-    前端就只能一律显示「未写入库存」。"""
+    前端就只能一律显示「未写入库存」。
+
+    ``prefer_edit_photos``：刚换过图（修改关联库存）时先读编辑页的图——公开商品页可能还是
+    换图前的缓存，读到旧图就会按旧暗码绑回去。"""
     from ...use_mercari.on_sale.on_sale_item_detail_sync.detail_sync import (
         detail_sync_inventory_from_item_get_response,
     )
@@ -129,13 +141,14 @@ async def _sync_one_on_page(
         raise RuntimeError("编辑页打不开（商品可能已售出/已删除）")
     if form.get("description") is None:
         raise RuntimeError("编辑页未读到商品说明（页面结构可能已变更）")
-    public = await asyncio.to_thread(fetch_public_item, item_id)
-    photos = (public or {}).get("photos") or []
+    photos: List[str] = []
+    if prefer_edit_photos:
+        photos = await _edit_page_photos(page, item_id)
     if not photos:
-        try:
-            photos = edit_page_photo_urls(await page.evaluate(EDIT_PAGE_IMAGES_JS))
-        except Exception as exc:  # noqa: BLE001 取不到图就只用说明文本
-            log.info("[yahoo_detail] %s 编辑页图片读取失败：%s", item_id, exc)
+        public = await asyncio.to_thread(fetch_public_item, item_id)
+        photos = (public or {}).get("photos") or []
+    if not photos and not prefer_edit_photos:
+        photos = await _edit_page_photos(page, item_id)
     resp = _build_pseudo_item_get(
         item_id, form, seller_id=seller_id, status=status, photos=photos
     )

@@ -13,7 +13,7 @@ from .units.inventory_query import list_inventory, inventory_summary, find_by_ba
 from .units.inventory_crud import create_inventory, update_inventory, delete_inventory
 from .units.inventory_stock import stock_in_inventory, stock_out_inventory, undo_stock_in_inventory
 from .units.inventory_combined import create_combined_inventory, remove_combined_component
-from .units.inventory_split import copy_inventory, split_inventory
+from .units.inventory_split import copy_inventory
 from .units.inventory_import_archive import import_archive_inventory
 from .units.inventory_batches_handler import (
     list_inventory_batches, create_inventory_batch, update_inventory_batch, delete_inventory_batch,
@@ -47,7 +47,6 @@ router.add_api_route("/upload-image", upload_inventory_image, methods=["POST"])
 router.add_api_route("/combine", create_combined_inventory, methods=["POST"])
 # 导入历史库存：勾选 inventory_old 的行复制成新库存（新管理番号）
 router.add_api_route("/import-archive", import_archive_inventory, methods=["POST"])
-router.add_api_route("/{pid}/split", split_inventory, methods=["POST"])
 router.add_api_route("/{pid}/copy", copy_inventory, methods=["POST"])
 router.add_api_route("/{pid}/combined-components/{component_id}", remove_combined_component, methods=["DELETE"])
 router.add_api_route("/{pid}/stock-in", stock_in_inventory, methods=["POST"])

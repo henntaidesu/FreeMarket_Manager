@@ -11,6 +11,7 @@ import { useMercariAccountStore } from '@/stores/mercariAccount.js'
 import { useSyncLockStore } from '@/stores/syncLock.js'
 import { useViewModeStore } from '@/stores/viewMode.js'
 import { useReviseExtras } from './useReviseExtras.js'
+import { useReviseRelink } from './useReviseRelink.js'
 
 export default defineComponent({
   setup() {
@@ -917,6 +918,12 @@ export default defineComponent({
     const reviseDescCipher = ref('')
     /** 打开修改弹窗时的原始值快照；提交时只下发与快照不同的字段 */
     const reviseOriginal = ref(null)
+    /** 修改关联库存（改绑到迁移后的新库存：换末行暗码 + 换图） */
+    const reviseRelinkApi = useReviseRelink(t, {
+      base: detailViewBase,
+      descCipher: reviseDescCipher,
+      extras: reviseExtrasApi.reviseExtras,
+    })
 
     /** 批量改价：开启后点击商品行选中（无前置勾选框），选中后弹出表单输入价格逐个改价 */
     const batchMode = ref(false)
@@ -1193,6 +1200,7 @@ export default defineComponent({
         shipping_payer: reviseForm.shipping_payer,
       }
       reviseExtrasApi.resetReviseExtras(base)
+      reviseRelinkApi.resetRelink()
       reviseDialogVisible.value = true
     }
 
@@ -1238,6 +1246,7 @@ export default defineComponent({
       const area = String(reviseForm.shipping_from_area_id || '').trim()
       if (area !== String(orig.shipping_from_area_id || '').trim()) changed.shipping_from_area_id = area || undefined
       if (!reviseIsYahoo.value) Object.assign(changed, reviseExtrasApi.reviseExtrasChangedFields())
+      Object.assign(changed, reviseRelinkApi.relinkPayload(reviseIsYahoo.value))
       if (Object.keys(changed).length === 0) {
         ElMessage.warning(t('onSaleItems.reviseNoChange'))
         return
@@ -1750,6 +1759,7 @@ export default defineComponent({
       reviseDescCipher,
       openReviseDialog,
       ...reviseExtrasApi,
+      ...reviseRelinkApi,
       reviseIsYahoo,
       submitReviseDetail,
       shippingDurationEditOptions,

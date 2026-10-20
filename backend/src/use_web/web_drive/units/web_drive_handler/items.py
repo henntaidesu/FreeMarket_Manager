@@ -124,9 +124,32 @@ class ReviseMercariItemBody(PydanticModel):
     product_type_id: Optional[str] = Field(default=None, max_length=32)
     condition: Optional[str] = Field(default=None, max_length=16)
     shipping_method: Optional[str] = Field(default=None, max_length=16)
+    # 修改关联库存：改绑到的新库存 id。须同时带 image_urls（该库存的图）与说明（末行暗码已换成它），
+    # 图片上传前在左下角重嵌这个 id 的管理暗码，提交成功后按新说明 / 新图重新绑定库存。两个平台都支持。
+    relink_inventory_id: Optional[int] = Field(default=None, ge=1)
     proxy_server: Optional[str] = None
     use_mitm_proxy: bool = True
     progress_job_id: Optional[str] = None
+
+
+def _validate_relink(body: ReviseMercariItemBody) -> Optional[int]:
+    """校验「修改关联库存」三件套是否自洽；非法抛 ValueError（→ 400）。"""
+    if body.relink_inventory_id is None:
+        return None
+    from .....inventory_barcode.resolve import resolve_inventory_id
+    from .....use_mercari.mgmt_id_cipher import parse_trailing_cipher_mgmt_tokens
+
+    iid = int(body.relink_inventory_id)
+    if resolve_inventory_id(iid) != iid:
+        raise ValueError(f"要关联的库存 {iid} 不存在或已合并")
+    if not body.image_urls:
+        raise ValueError("修改关联库存须同时替换为该库存的图片")
+    if any(not str(u or "").startswith("/imges/") for u in body.image_urls):
+        raise ValueError("修改关联库存只能使用库存图片")
+    tokens = parse_trailing_cipher_mgmt_tokens(body.description)
+    if [t[0] for t in tokens] != [iid]:
+        raise ValueError("商品说明末行暗码与要关联的库存不一致")
+    return iid
 
 
 def _validate_revise_rich_fields(body: ReviseMercariItemBody) -> Optional[List[int]]:
@@ -190,12 +213,15 @@ async def revise_on_sale_item(body: ReviseMercariItemBody):
         mgr = get_web_drive_manager()
         is_yahoo = _account_platform(account_id) == "yahoo"
         if is_yahoo and (
-            body.image_urls is not None
-            or body.product_type_id
+            body.product_type_id
             or body.condition is not None
             or body.shipping_method is not None
         ):
-            raise ValueError("雅虎在售商品暂不支持修改图片 / 类别 / 商品状态 / 配送方法")
+            raise ValueError("雅虎在售商品暂不支持修改类别 / 商品状态 / 配送方法")
+        if is_yahoo and body.image_urls is not None and body.relink_inventory_id is None:
+            # 雅虎只在「修改关联库存」时整组换成库存图（编辑页没有可回传的原图 URL）
+            raise ValueError("雅虎在售商品暂只支持在「修改关联库存」时替换图片")
+        relink_id = _validate_relink(body)
         category_positions = None if is_yahoo else _validate_revise_rich_fields(body)
 
         if is_yahoo:
@@ -213,6 +239,8 @@ async def revise_on_sale_item(body: ReviseMercariItemBody):
                         str(body.shipping_duration or "").strip()
                     ),
                     shipping_from_area_id=body.shipping_from_area_id,
+                    image_urls=body.image_urls,
+                    mgmt_inventory_id=relink_id,
                 )
         else:
             async def _run() -> Dict[str, Any]:
@@ -230,6 +258,7 @@ async def revise_on_sale_item(body: ReviseMercariItemBody):
                     category_positions=category_positions,
                     condition=body.condition,
                     shipping_method=body.shipping_method,
+                    mgmt_inventory_id=relink_id,
                     proxy_server=proxy,
                     progress_job_id=jid,
                 )

@@ -76,6 +76,7 @@ async def handle_revise(task: Dict[str, Any]) -> Dict[str, Any]:
             product_type_id=payload.get("product_type_id"),
             condition=payload.get("condition"),
             shipping_method=payload.get("shipping_method"),
+            relink_inventory_id=payload.get("relink_inventory_id"),
             use_mitm_proxy=bool(payload.get("use_mitm_proxy", True)),
             progress_job_id=jid,
         )

@@ -539,6 +539,14 @@ header, not cookies, so the dangerous wildcard+credentials combination never occ
      「■ 商品内容」 list — those can only be bound by photo. Mercari titles count only
      「まとめ商品」: 「まとめ買い歓迎 / 割引」 is ordinary single-item sales copy there. Orders read
      the title from `orders.remark` and the platform from `orders.platform`.
+   - **修改关联库存** (在售修改弹窗的按钮) rebinds a listing whose codes still carry a pre-盘库
+     `inventory_old` id. `on_sale_items/units/on_sale_items_relink.py` maps old → new (same internal
+     `barcode` → same 条码+款式+品相 → same name; read-only), the dialog swaps the cipher and the
+     images, and `on_sale.revise` carries `relink_inventory_id`: images get the new id re-embedded
+     before upload (`revise/units/revise_relink.py`), and after a confirmed submit a full detail sync
+     rebinds inventory + moves the 在售 count. Bundles are refused. Yahoo has no image editing
+     otherwise — `yahoo_item/units/photos.py` (upload new, then delete old) is **unverified live**:
+     the delete-button DOM was guessed, and it raises with the tile HTML if a delete doesn't take.
 6. Browser automation (`web_drive/`): Playwright for listing operations
 7. SSL MITM proxy: Captures HTTP traffic to harvest tokens the public API does not expose
 

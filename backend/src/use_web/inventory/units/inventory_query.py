@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import HTTPException
 
 from ....db_manage.database import DatabaseManager
-from ....db_manage.models.orders.order_outbound_line import OrderOutboundLineModel
+from ....db_manage.models.orders.order_outbound_line import OrderOutboundLineModel, line_side_sql
 from ....use_mercari.mgmt_id_cipher import decode_mgmt_id_cipher
 
 from .inventory_helpers import (
@@ -324,7 +324,7 @@ def list_inventory_linked_items(pid: int):
                                  "created": None, "updated": None, "is_delete": 0})
 
     sold_rows = db.execute_query(
-        """
+        f"""
         SELECT o.[order_no], IFNULL(o.[platform], ''), IFNULL(o.[status], ''),
                o.[order_date], IFNULL(o.[customer_name], ''), COALESCE(o.[amount], 0),
                o.[thumbnails], IFNULL(o.[remark], ''),
@@ -333,6 +333,7 @@ def list_inventory_linked_items(pid: int):
         FROM [order_outbound_lines] l
         INNER JOIN [orders] o ON o.[order_no] = l.[order_no]
         WHERE l.[inventory_id] = ?
+          AND {line_side_sql("l")}
           AND IFNULL(o.[status], '') != 'cancelled'
         GROUP BY o.[order_no], o.[platform], o.[status], o.[order_date],
                  o.[customer_name], o.[amount], o.[thumbnails], o.[remark]

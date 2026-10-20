@@ -47,7 +47,6 @@ export const inventoryApi = {
   create: (data) => http.post('/use_web/inventory', data),
   combine: (data) => http.post('/use_web/inventory/combine', data),
   removeCombinedComponent: (id, componentId) => http.delete(`/use_web/inventory/${id}/combined-components/${componentId}`),
-  split: (id, data) => http.post(`/use_web/inventory/${id}/split`, data),
   copy: (id, data) => http.post(`/use_web/inventory/${id}/copy`, data),
   // 导入历史库存：勾选的 inventory_old 行复制成新库存（新管理番号）。不带归档头——这是一次写入
   importArchive: (ids) => http.post('/use_web/inventory/import-archive', { ids }, { timeout: 0 }),

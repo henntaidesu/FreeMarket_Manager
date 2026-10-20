@@ -40,6 +40,8 @@ async def post_to_market(
     shipping_from_area_id: str = "",  # "1"~"47","99"
     # 是否为图片右下角叠加「出品账号名 + 日期」水印后再上传
     watermark: bool = False,
+    # 专用出品：非空时首图换成自动生成的「{名} 様 専用」
+    dedicated_for: str = "",
     # 代理 / 超时（proxy_server 保留为 API 兼容；实际由 listing_automation_browser 统一配置）
     proxy_server: Optional[str] = None,  # noqa: ARG001
     page_load_timeout_ms: int = DEFAULT_PAGE_LOAD_TIMEOUT_MS,
@@ -95,6 +97,13 @@ async def post_to_market(
     if account_id is None:
         raise ValueError(f"无效的 account_key: {account_key}")
     main_key = mercari_account_key(account_id)
+
+    # ── 专用出品首图：须在水印 / 管理暗码之前插入，暗码才会嵌进这张首图 ── #
+    if (dedicated_for or "").strip():
+        from ._dedicated_cover import prepend_dedicated_cover
+
+        report("dedicated_cover", "正在生成专用出品首图…")
+        local_images = prepend_dedicated_cover(local_images, dedicated_for, "mercari")
 
     # ── 可选：为图片右下角 45° 叠加「头像 + 账号名 + 日期」水印（每次出品按需生成） ── #
     if watermark and local_images:

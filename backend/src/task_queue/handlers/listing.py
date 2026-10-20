@@ -176,6 +176,7 @@ async def handle_listing(task: Dict[str, Any]) -> Dict[str, Any]:
             description=str(payload.get("description") or ""),
             image_urls=list(payload.get("image_urls") or []),
             watermark=bool(payload.get("watermark", False)),
+            dedicated_for=str(payload.get("dedicated_for") or "")[:40],
             category_mapping_id=payload.get("category_mapping_id"),
             status=str(payload.get("status") or ""),
             shipping_payer=str(payload.get("shipping_payer") or "seller"),

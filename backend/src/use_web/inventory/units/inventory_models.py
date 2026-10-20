@@ -105,11 +105,6 @@ class CombinedInventoryCreate(PydanticModel):
             return 0
 
 
-class InventorySplitRequest(PydanticModel):
-    owner_user_id: Optional[int] = None
-    split_quantity: int = 0
-
-
 class InventoryImportArchiveRequest(PydanticModel):
     ids: List[int] = []
 

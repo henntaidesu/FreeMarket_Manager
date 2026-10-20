@@ -670,6 +670,39 @@
   border: 1px dashed #33425f;
 }
 .osr-cipher__k { font-size: 12px; color: #8a93a6; }
+.osr-cipher__relink { margin-left: auto; }
+/* 修改关联库存：候选列表 / 已选定的提示 */
+.osr-relink {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: -8px 0 16px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #101a2e;
+  border: 1px solid #33425f;
+}
+.osr-relink--done { border-color: #e6a23c; }
+.osr-relink__cand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.osr-relink__cand:hover { background: #1a2740; }
+.osr-relink__cand img,
+.osr-relink__imgs img {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex: none;
+}
+.osr-relink__main { min-width: 0; }
+.osr-relink__name { font-size: 13px; word-break: break-all; }
+.osr-relink__imgs { display: flex; flex-wrap: wrap; gap: 6px; }
 .osr-cipher__v {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 13px;

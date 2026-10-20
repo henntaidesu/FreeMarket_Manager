@@ -817,11 +817,42 @@
             />
           </el-form-item>
 
-          <!-- 末行暗码：只读展示，不再占一个输入框的位置 -->
-          <div v-if="reviseDescCipher" class="osr-cipher">
-            <span class="osr-cipher__k">{{ t('onSaleItems.secretCodeLabel') }}</span>
-            <code class="osr-cipher__v">{{ reviseDescCipher }}</code>
-            <span class="revise-cipher-hint">{{ t('onSaleItems.secretCodeHint') }}</span>
+          <!-- 末行暗码：只读展示，不再占一个输入框的位置；旁边是「修改关联库存」 -->
+          <div class="osr-cipher">
+            <template v-if="reviseDescCipher">
+              <span class="osr-cipher__k">{{ t('onSaleItems.secretCodeLabel') }}</span>
+              <code class="osr-cipher__v">{{ reviseDescCipher }}</code>
+              <span class="revise-cipher-hint">{{ t('onSaleItems.secretCodeHint') }}</span>
+            </template>
+            <el-button class="osr-cipher__relink" size="small" :loading="relinkLoading" @click="startRelink">
+              {{ t('onSaleItems.relinkButton') }}
+            </el-button>
+          </div>
+          <!-- 迁移后的新库存有多件可选：由人挑一件 -->
+          <div v-if="relinkCandidates.length" class="osr-relink">
+            <div class="osr-hint">{{ t('onSaleItems.relinkPick', { code: relinkSource?.mgmt_code || '-' }) }}</div>
+            <div v-for="c in relinkCandidates" :key="c.id" class="osr-relink__cand" @click="applyRelink(c)">
+              <img v-if="c.images[0]" :src="c.images[0]" alt="" />
+              <span v-else class="thumb-fallback">-</span>
+              <div class="osr-relink__main">
+                <div class="osr-relink__name">{{ c.mgmt_code }}　{{ c.name || '-' }}</div>
+                <div class="osr-hint">
+                  {{ t('onSaleItems.relinkMatch_' + c.match) }} · {{ c.owner_user_name || '-' }} ·
+                  {{ t('onSaleItems.relinkQty', { n: c.quantity, m: c.listable_quantity }) }}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-if="relinkTarget" class="osr-relink osr-relink--done">
+            <div class="osr-relink__name">
+              {{ t('onSaleItems.relinkApplied', { from: relinkSource?.mgmt_code || '-', to: relinkTarget.mgmt_code }) }}
+              <span class="osr-hint">{{ relinkTarget.name }}</span>
+            </div>
+            <div class="osr-hint">{{ t('onSaleItems.relinkAppliedHint', { n: relinkTarget.images.length }) }}</div>
+            <div v-if="reviseIsYahoo" class="osr-relink__imgs">
+              <img v-for="u in relinkTarget.images" :key="u" :src="u" alt="" />
+            </div>
+            <el-button link size="small" type="warning" @click="cancelRelink">{{ t('onSaleItems.relinkCancel') }}</el-button>
           </div>
 
           <div class="osr-grid">

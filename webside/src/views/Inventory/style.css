@@ -1769,7 +1769,7 @@ a.pef-lcard:hover {
   display: inline-flex;
   gap: 8px;
 }
-/* 弹窗没有 footer 了：拆分 / 出品按钮贴在出品参数模块的底边，拆分居左、出品靠右 */
+/* 弹窗没有 footer 了：新增批次 / 出品按钮贴在出品参数模块的底边，新增批次居左、出品靠右 */
 .pef-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1778,7 +1778,7 @@ a.pef-lcard:hover {
   margin-top: auto;
   padding: 10px 0 4px;
 }
-/* 拆分按钮不存在时（组合商品 / 新建），出品组仍然靠右 */
+/* 新增批次按钮不存在时（组合商品 / 新建），出品组仍然靠右 */
 .pef-actions .listing-submit-buttons {
   margin-left: auto;
 }

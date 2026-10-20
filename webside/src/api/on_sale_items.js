@@ -18,6 +18,8 @@ export const onSaleItemApi = {
   /** items/get 详情并同步库存 mercari_item_id / on_sale_quantity；须配置 dpop_item_get_info */
   fetchDetail: (data, axiosConfig = {}) =>
     http.post('/use_web/on-sale-items/fetch-detail', data, { timeout: 120000, ...axiosConfig }),
+  /** 修改关联库存：按当前暗码找出迁移后的新库存（候选带图片与新暗码） */
+  relinkCandidates: (params) => http.get('/use_web/on-sale-items/relink-candidates', { params }),
   /** 同一账号队列内串行批量 items/get（单 HTTP，服务端 run_mercari_serial 一次） */
   fetchDetailsBatch: (data, axiosConfig = {}) =>
     http.post('/use_web/on-sale-items/fetch-details-batch', data, { timeout: 0, ...axiosConfig })

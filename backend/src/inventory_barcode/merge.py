@@ -105,7 +105,7 @@ def _merge_one(db: DatabaseManager, target: int, src: int) -> None:
             )
             db.execute_update(
                 "UPDATE [order_outbound_lines] SET [owner_user_id] = ? "
-                "WHERE [inventory_id] = ? AND [owner_user_id] IS NULL",
+                "WHERE [inventory_id] = ? AND COALESCE([inventory_archived], 0) = 0 AND [owner_user_id] IS NULL",
                 (owners.get(iid), iid),
             )
     for (bid,) in db.execute_query(
@@ -130,7 +130,9 @@ def _merge_one(db: DatabaseManager, target: int, src: int) -> None:
 
     # 3. 订单出库明细
     db.execute_update(
-        "UPDATE [order_outbound_lines] SET [inventory_id] = ? WHERE [inventory_id] = ?", (target, src)
+        # 只搬指向新库存的明细：同号的归档商品的历史明细（inventory_archived=1）不属于它
+        "UPDATE [order_outbound_lines] SET [inventory_id] = ? "
+        "WHERE [inventory_id] = ? AND COALESCE([inventory_archived], 0) = 0", (target, src)
     )
 
     # 4. 在售计数台账里的旧 id

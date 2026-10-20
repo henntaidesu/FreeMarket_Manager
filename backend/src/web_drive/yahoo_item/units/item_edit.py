@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from ...core.yahoo_session import yahoo_automation_browser
 from ...listing.units.post_to_yahoo._constants import (
@@ -33,6 +33,9 @@ from ...listing.units.post_to_yahoo._fields import (
     set_shipping_days,
     set_shipping_from,
 )
+from ...revise.units.revise_fields import cleanup_temp_images, resolve_revise_image
+from ...revise.units.revise_relink import embed_mgmt_images, relink_after_revise
+from .photos import replace_photos
 from ._page import (
     DELETE_BUTTON_TEXT,
     RESUME_BUTTON_TEXT,
@@ -116,24 +119,104 @@ async def revise_yahoo_item(
     description: Optional[str] = None,
     shipping_days: Optional[str] = None,
     shipping_from_area_id: Optional[str] = None,
+    image_urls: Optional[Sequence[str]] = None,
+    mgmt_inventory_id: Optional[int] = None,
     page_load_timeout_ms: int = DEFAULT_PAGE_LOAD_TIMEOUT_MS,
     element_timeout_ms: int = DEFAULT_ELEMENT_TIMEOUT_MS,
     dry_run: bool = False,
 ) -> Dict[str, Any]:
-    """在编辑页改「商品名 / 售价 / 说明 / 发货天数 / 发货地区」并点「変更する」。"""
+    """在编辑页改「商品名 / 售价 / 说明 / 发货天数 / 发货地区 / 图片」并点「変更する」。
+
+    ``image_urls``（``/imges/…``）整组替换图片；``mgmt_inventory_id``（修改关联库存）时先给每张图
+    重嵌该 id 的管理暗码，提交成功后在同一会话里重读编辑页、重新绑定库存。"""
     result: Dict[str, Any] = {
         "platform": "yahoo", "item_id": str(item_id).strip(),
         "changed": [], "submitted": False, "local_updated": 0,
     }
     changed: List[str] = result["changed"]
     local_fields: Dict[str, Any] = {}
+    local_images = _prepare_images(image_urls, mgmt_inventory_id)
+    try:
+        await _revise_in_session(
+            account_id, item_id, result, local_fields, local_images,
+            name=name, price=price, description=description, shipping_days=shipping_days,
+            shipping_from_area_id=shipping_from_area_id, mgmt_inventory_id=mgmt_inventory_id,
+            page_load_timeout_ms=page_load_timeout_ms, element_timeout_ms=element_timeout_ms,
+            dry_run=dry_run,
+        )
+    finally:
+        cleanup_temp_images(local_images or [])
 
+    if result.get("submitted") and local_fields:
+        result["local_updated"] = _update_local_on_sale_fields(item_id, local_fields)
+    return result
+
+
+def _prepare_images(
+    image_urls: Optional[Sequence[str]], mgmt_inventory_id: Optional[int]
+) -> Optional[List[str]]:
+    """打开浏览器前把图片全部落成本地文件（并重嵌暗码）：凑不齐就整件放弃，不能删了旧图才发现。"""
+    if image_urls is None:
+        return None
+    local: List[str] = []
+    for u in image_urls:
+        lp = resolve_revise_image(str(u or "").strip())
+        if not lp:
+            cleanup_temp_images(local)
+            raise ValueError(f"图片无法读取：{u}")
+        local.append(lp)
+    if mgmt_inventory_id is None:
+        return local
+    try:
+        return embed_mgmt_images(local, int(mgmt_inventory_id))
+    finally:
+        cleanup_temp_images(local)
+
+
+def _local_listing_state(item_id: str) -> Tuple[Optional[str], str]:
+    """本地在售行的 (seller_id, status)，给提交后的重绑用。"""
+    from ....db_manage.database import DatabaseManager
+
+    rows = DatabaseManager().execute_query(
+        "SELECT [seller_id], [status] FROM [on_sale_items] WHERE TRIM([item_id]) = TRIM(?) "
+        "ORDER BY COALESCE([is_delete], 0) ASC, [id] DESC LIMIT 1",
+        (str(item_id),),
+    )
+    if not rows:
+        return None, "on_sale"
+    return (str(rows[0][0]).strip() or None) if rows[0][0] else None, str(rows[0][1] or "on_sale")
+
+
+async def _revise_in_session(
+    account_id: int,
+    item_id: str,
+    result: Dict[str, Any],
+    local_fields: Dict[str, Any],
+    local_images: Optional[List[str]],
+    *,
+    name: Optional[str],
+    price: Optional[int],
+    description: Optional[str],
+    shipping_days: Optional[str],
+    shipping_from_area_id: Optional[str],
+    mgmt_inventory_id: Optional[int],
+    page_load_timeout_ms: int,
+    element_timeout_ms: int,
+    dry_run: bool,
+) -> None:
+    changed: List[str] = result["changed"]
     async with yahoo_automation_browser(
         int(account_id), start_url=yahoo_item_edit_url(item_id)
     ) as (mgr, key):
         page = await mgr.active_tab_page(key)
         await wait_ready(page, page_load_timeout_ms)
         await assert_edit_page(page)
+
+        if local_images is not None:
+            result["images"] = await replace_photos(
+                page, local_images, element_timeout_ms=element_timeout_ms
+            )
+            changed.append("images")
 
         if name is not None and str(name).strip():
             await fill_name(page, str(name), element_timeout_ms=element_timeout_ms)
@@ -165,7 +248,7 @@ async def revise_yahoo_item(
 
         if dry_run:
             result["dry_run"] = True
-            return result
+            return
 
         await click_action_button(page, SUBMIT_BUTTON_TEXT, element_timeout_ms=element_timeout_ms)
         await confirm_if_dialog(page, (SUBMIT_BUTTON_TEXT, "はい", "OK", "実行する"))
@@ -181,9 +264,19 @@ async def revise_yahoo_item(
             log.warning("[yahoo_item] 改价已点击但未确认跳转（按不确定处理）：%s", exc)
         result["url_after_submit"] = page.url
 
-    if result.get("submitted") and local_fields:
-        result["local_updated"] = _update_local_on_sale_fields(item_id, local_fields)
-    return result
+        if result.get("submitted") and mgmt_inventory_id is not None:
+            from ....use_yahoo.on_sale.detail_sync import _sync_one_on_page
+
+            seller_id, status = _local_listing_state(item_id)
+
+            async def _sync() -> Dict[str, Any]:
+                out = await _sync_one_on_page(
+                    page, str(item_id).strip(), seller_id=seller_id, status=status,
+                    prefer_edit_photos=True,
+                )
+                return out.get("sync") or {}
+
+            result["relink"] = await relink_after_revise(_sync(), int(mgmt_inventory_id), item_id)
 
 
 # ── 停止 / 再開 / 删除 ───────────────────────────────────────────────── #
@@ -260,7 +353,7 @@ async def _run_edit_page_action(
 
         if dry_run:
             result["dry_run"] = True
-            return result
+            return
 
         await click_action_button(page, button_text, element_timeout_ms=element_timeout_ms)
         result["confirm_clicked"] = await confirm_if_dialog(page, spec["confirm"])
