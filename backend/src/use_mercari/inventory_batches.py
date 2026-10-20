@@ -64,7 +64,7 @@ def normalize_arrived_at(value: Any) -> str:
             return datetime.strptime(s[:19], fmt).strftime("%Y-%m-%d %H:%M:%S")
         except ValueError:
             continue
-    raise ValueError(f"到货时间格式不正确: {value}")
+    raise ValueError(f"批次时间格式不正确: {value}")
 
 
 def _dt_str(v: Any) -> Optional[str]:
@@ -356,33 +356,69 @@ def get_batch(batch_id: int) -> Optional[Dict[str, Any]]:
 
 
 def update_batch(batch_id: int, fields: Dict[str, Any]) -> None:
-    """改批次的到货时间 / 仓位 / 备注。批次号由系统编号，数量建批后不可手改
-    （只随售出/出库按先进先出自动扣减）。"""
+    """批次建好后只能改备注：批次时间 / 仓位 / 数量都不可手改（数量只随售出/出库按先进先出
+    自动扣减，仓位只随整件换仓位 / 快递入库改投变动）。"""
     db = DatabaseManager()
     cur = get_batch(batch_id)
     if not cur:
         raise LookupError("批次不存在")
     if cur["stage"] == STAGE_TRANSIT:
         raise ValueError("在途批次由快递单管理，不能在这里修改")
-    if "quantity" in fields and fields["quantity"] is not None and int(fields["quantity"]) != cur["quantity"]:
-        raise ValueError("已添加的批次数量不可修改")
-    inv_id = cur["inventory_id"]
-    sets: Dict[str, Any] = {}
-    if "remark" in fields:
-        sets["remark"] = (str(fields["remark"] or "")).strip() or None
-    if "arrived_at" in fields:
-        sets["arrived_at"] = normalize_arrived_at(fields["arrived_at"])
-    if "warehouse_id" in fields:
-        sets["warehouse_id"] = fields["warehouse_id"]
-    if not sets:
+    if set(fields) - {"remark"}:
+        raise ValueError("已添加的批次只能修改备注")
+    if "remark" not in fields:
         return
+    db.execute_update(
+        "UPDATE [inventory_batches] SET [remark] = ? WHERE [id] = ?",
+        ((str(fields["remark"] or "")).strip() or None, int(batch_id)),
+    )
+
+
+def merge_batches(inv_id: int, batch_ids: Iterable[int]) -> int:
+    """把同一商品的几个在岸批次合并成一个：并入其中最早的那个（保留它的批次号与批次时间），
+    数量相加、备注拼接，其余删除。总数不变，不记出入库流水（货没有进出）。
+
+    只允许合并**同一货架、同一所有人**的批次：仓位与所有人建批后都不可改，合并不能顺手
+    改掉某件货在哪 / 算谁的。返回保留下来的批次 id。"""
+    ids = sorted({int(b) for b in batch_ids})
+    if len(ids) < 2:
+        raise ValueError("至少选择两个批次才能合并")
+    db = DatabaseManager()
     with db.transaction():
-        set_sql = ", ".join(f"[{k}] = ?" for k in sets)
+        rows = db.execute_query(
+            f"SELECT [id], [inventory_id], [warehouse_id], [owner_user_id], [stage], [quantity], [remark] "
+            f"FROM [inventory_batches] WHERE [id] IN ({','.join('?' * len(ids))}) {_FIFO_ORDER}",
+            tuple(ids),
+        ) or []
+        if len(rows) != len(ids) or any(int(r[1]) != int(inv_id) for r in rows):
+            raise LookupError("批次不存在")
+        if any(r[4] == STAGE_TRANSIT for r in rows):
+            raise ValueError("在途批次由快递单管理，不能合并")
+        if len({r[2] for r in rows}) > 1:
+            raise ValueError("只能合并同一货架上的批次")
+        if len({r[3] for r in rows}) > 1:
+            raise ValueError("只能合并同一所有人的批次")
+        keep_id = int(rows[0][0])
+        others = [int(r[0]) for r in rows[1:]]
+        total = sum(int(r[5] or 0) for r in rows)
+        remarks: List[str] = []
+        for r in rows:
+            s = str(r[6] or "").strip()
+            if s and s not in remarks:
+                remarks.append(s)
         db.execute_update(
-            f"UPDATE [inventory_batches] SET {set_sql} WHERE [id] = ?",
-            tuple(sets.values()) + (int(batch_id),),
+            "UPDATE [inventory_batches] SET [quantity] = ?, [remark] = ? WHERE [id] = ?",
+            (total, "；".join(remarks) or None, keep_id),
         )
+        ph = ",".join("?" * len(others))
+        # 快递入库记录按批次 id 定位「改投」要搬的那几件，跟着指向保留下来的批次
+        db.execute_update(
+            f"UPDATE [inbound_receipts] SET [batch_id] = ? WHERE [batch_id] IN ({ph})",
+            (keep_id, *others),
+        )
+        db.execute_update(f"DELETE FROM [inventory_batches] WHERE [id] IN ({ph})", tuple(others))
         _sync_head_warehouse(db, inv_id)
+    return keep_id
 
 
 def delete_batch(batch_id: int) -> int:

@@ -7,7 +7,7 @@ from ....db_manage.database import DatabaseManager
 from ....use_mercari import inventory_batches as ib
 from ....use_mercari.inventory_counters import recompute_listable_quantity
 from .inventory_helpers import _inventory_exists, _query_inventory_with_joins, _warehouse_exists
-from .inventory_models import InventoryBatchCreate, InventoryBatchUpdate
+from .inventory_models import InventoryBatchCreate, InventoryBatchMerge, InventoryBatchUpdate
 
 db = DatabaseManager()
 
@@ -63,11 +63,17 @@ def create_inventory_batch(pid: int, data: InventoryBatchCreate):
 def update_inventory_batch(pid: int, bid: int, data: InventoryBatchUpdate):
     _check_item(pid)
     _check_batch(pid, bid)
-    fields = data.model_dump(exclude_unset=True)
-    if "warehouse_id" in fields:
-        _check_warehouse(fields["warehouse_id"])
     try:
-        ib.update_batch(bid, fields)
+        ib.update_batch(bid, data.model_dump(exclude_unset=True))
+    except (ValueError, LookupError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return _result(pid)
+
+
+def merge_inventory_batches(pid: int, data: InventoryBatchMerge):
+    _check_item(pid)
+    try:
+        ib.merge_batches(pid, data.batch_ids)
     except (ValueError, LookupError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     recompute_listable_quantity([pid])

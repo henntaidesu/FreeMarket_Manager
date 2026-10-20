@@ -25,7 +25,7 @@ export function useInventoryBatches({ form, warehouseTreeMeta, t, onItemUpdated,
     return { arrived_at: nowStr(), warehouse_id: null, quantity: '', remark: '' }
   }
 
-  /** 已建档、非组合商品才有批次。批次只可改 到货时间 / 仓位 / 备注 */
+  /** 已建档、非组合商品才有批次。批次建好后只可改备注 */
   const batchesEnabled = computed(() => {
     const id = Number(form.value?.id)
     return Number.isFinite(id) && id > 0 && Number(form.value?.is_combined || 0) !== 1
@@ -50,6 +50,7 @@ export function useInventoryBatches({ form, warehouseTreeMeta, t, onItemUpdated,
 
   function applyResult(res) {
     batchRows.value = Array.isArray(res?.batches) ? res.batches : []
+    batchSelection.value = []
     if (res?.item && typeof onItemUpdated === 'function') onItemUpdated(res.item)
   }
 
@@ -114,6 +115,40 @@ export function useInventoryBatches({ form, warehouseTreeMeta, t, onItemUpdated,
     }
   }
 
+  /** 表格勾选的批次；只有在岸批次可勾（在途批次由快递单管理） */
+  const batchSelection = ref([])
+  const batchMerging = ref(false)
+  function batchSelectable(row) {
+    return row?.stage !== 'transit'
+  }
+  function onBatchSelectionChange(rows) {
+    batchSelection.value = rows || []
+  }
+
+  /** 合并勾选的批次：并入最早的那个。同一货架、同一所有人才可合并（后端同样校验） */
+  async function mergeSelectedBatches() {
+    const rows = batchSelection.value
+    if (!batchesEnabled.value || rows.length < 2) return
+    if (new Set(rows.map((r) => r.warehouse_id ?? null)).size > 1) {
+      ElMessage.warning(t('inventory.batchMergeShelfMismatch'))
+      return
+    }
+    if (new Set(rows.map((r) => r.owner_user_id ?? null)).size > 1) {
+      ElMessage.warning(t('inventory.batchMergeOwnerMismatch'))
+      return
+    }
+    batchMerging.value = true
+    try {
+      applyResult(await api.mergeBatches(Number(form.value.id), rows.map((r) => r.id)))
+      batchSelection.value = []
+      ElMessage.success(t('inventory.batchMerged'))
+    } catch {
+      loadBatches(true)
+    } finally {
+      batchMerging.value = false
+    }
+  }
+
   async function removeBatch(row) {
     if (!batchesEnabled.value || !row?.id) return
     try {
@@ -137,6 +172,11 @@ export function useInventoryBatches({ form, warehouseTreeMeta, t, onItemUpdated,
     loadBatches,
     addBatch,
     saveBatchField,
-    removeBatch
+    removeBatch,
+    batchSelection,
+    batchMerging,
+    batchSelectable,
+    onBatchSelectionChange,
+    mergeSelectedBatches
   }
 }

@@ -54,6 +54,7 @@ export const inventoryApi = {
   createBatch: (id, data) => http.post(`/use_web/inventory/${id}/batches`, data),
   updateBatch: (id, batchId, data) => http.put(`/use_web/inventory/${id}/batches/${batchId}`, data),
   deleteBatch: (id, batchId) => http.delete(`/use_web/inventory/${id}/batches/${batchId}`),
+  mergeBatches: (id, batchIds) => http.post(`/use_web/inventory/${id}/batches/merge`, { batch_ids: batchIds }),
   update: (id, data) => http.put(`/use_web/inventory/${id}`, data),
   remove: (id) => http.delete(`/use_web/inventory/${id}`),
   stockIn: (id, data) => http.post(`/use_web/inventory/${id}/stock-in`, data),

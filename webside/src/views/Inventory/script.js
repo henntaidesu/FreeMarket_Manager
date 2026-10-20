@@ -4721,6 +4721,19 @@ export default defineComponent({
     const contGunLast = ref(null)
     let contScanQueue = Promise.resolve()
 
+    /** 入库成功后全屏大图展示 1 秒再缩小消失，扫码时不用低头找弹窗也能确认扫中的是哪件。
+     *  不抢焦点、不拦点击，期间扫码枪照常排队入库；下一件入库会换图并重新计时 */
+    const inboundFlash = ref(null)
+    let inboundFlashTimer = null
+    function flashInboundImage(inv) {
+      const image = inventoryRowImages(inv)[0] || ''
+      if (!image) return
+      clearTimeout(inboundFlashTimer)
+      inboundFlash.value = { image, key: Date.now() }
+      inboundFlashTimer = setTimeout(() => { inboundFlash.value = null }, 1000)
+    }
+    onBeforeUnmount(() => clearTimeout(inboundFlashTimer))
+
     function shelfById(wid) {
       return (warehouses.value || []).find((w) => Number(w.id) === Number(wid)) || null
     }
@@ -4748,6 +4761,7 @@ export default defineComponent({
           place: shelfPlaceLabel(shelfById(wid)),
           classified: !!moveExisting,
         }
+        flashInboundImage(inv)
         load()
         loadInventoryStats()
         resumeContScan()
@@ -4901,6 +4915,7 @@ export default defineComponent({
           remark: contScanMode.value === 'gun' ? '扫码枪入库' : '连续扫码入库'
         })
         ElMessage.success(t('inventory.inboundSuccessQty', { qty: res.new_quantity }))
+        flashInboundImage(contInventory.value)
         load()
         loadInventoryStats()
         // 扫码枪是一件接一件地扫，入库后留在弹窗里等下一件
@@ -5364,6 +5379,7 @@ export default defineComponent({
       contGunInputRef,
       contGunInput,
       contGunLast,
+      inboundFlash,
       scannerRecentKeys,
       scannerDiagVisible,
       contCaptureUseA,

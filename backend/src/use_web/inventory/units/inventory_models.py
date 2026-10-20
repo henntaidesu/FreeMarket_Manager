@@ -65,10 +65,12 @@ class InventoryBatchCreate(PydanticModel):
 
 
 class InventoryBatchUpdate(PydanticModel):
-    # 批次号自动编号、数量建批后不可改，均不在此列
-    arrived_at: Optional[str] = None
-    warehouse_id: Optional[int] = None
+    # 批次建好后只能改备注（批次时间 / 仓位 / 数量都不可改）
     remark: Optional[str] = None
+
+
+class InventoryBatchMerge(PydanticModel):
+    batch_ids: List[int]
 
 
 class CombinedInventoryComponent(PydanticModel):

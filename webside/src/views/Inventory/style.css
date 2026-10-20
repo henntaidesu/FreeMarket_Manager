@@ -322,16 +322,40 @@ a.pef-lcard:hover {
   font-size: 12px;
   color: #7c869a;
 }
+.pef-batch-merge {
+  margin-left: auto;
+}
 .pef-batch-table {
   width: 100%;
+  border: 1px solid #2a3548;
+  border-radius: 8px;
+  overflow: hidden;
 }
-.pef-batch-table .pef-batch-date.el-date-editor,
-.pef-batch-table .pef-batch-shelf {
-  width: 100%;
+.pef-batch-table :deep(th.el-table__cell) {
+  background: #18233a;
+  color: #9aa7bd;
+  font-weight: 500;
 }
-.pef-batch-no,
-.pef-batch-qty-text {
+.pef-batch-table :deep(td.el-table__cell) {
+  padding: 6px 0;
+}
+.pef-batch-no {
+  color: #7c869a;
   font-variant-numeric: tabular-nums;
+}
+.pef-batch-time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pef-batch-qty-text {
+  font-weight: 600;
+  font-size: 14px;
+  color: #67c23a;
+  font-variant-numeric: tabular-nums;
+}
+.pef-batch-qty-text.is-empty {
+  color: #5a6478;
+  font-weight: 400;
 }
 .pef-batch-add {
   display: flex;
@@ -1567,6 +1591,24 @@ a.pef-lcard:hover {
   border: 1px solid #3b4961; border-radius: 8px;
 }
 .gun-last-ok { color: #67c23a; font-weight: 600; font-size: 14px; }
+/* 入库成功的全屏大图：盖在弹窗之上，但不接收点击 */
+.inbound-flash {
+  position: fixed; inset: 0; z-index: 5000; pointer-events: none;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.85);
+}
+.inbound-flash-img {
+  max-width: 96vw; max-height: 96vh; object-fit: contain; border-radius: 8px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
+}
+.inbound-flash-enter-active { transition: opacity 0.2s ease; }
+.inbound-flash-enter-active .inbound-flash-img { transition: transform 0.2s ease; }
+.inbound-flash-enter-from { opacity: 0; }
+.inbound-flash-enter-from .inbound-flash-img { transform: scale(0.9); }
+.inbound-flash-leave-active { transition: opacity 0.4s ease-in; }
+.inbound-flash-leave-active .inbound-flash-img { transition: transform 0.4s ease-in; }
+.inbound-flash-leave-to { opacity: 0; }
+.inbound-flash-leave-to .inbound-flash-img { transform: scale(0.15); }
 .gun-need-shelf { color: #e6a23c; font-size: 15px; font-weight: 600; margin: 16px 0 4px; text-align: center; }
 .scanner-diag { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .scanner-diag-empty { color: #4a5a72; font-size: 13px; }

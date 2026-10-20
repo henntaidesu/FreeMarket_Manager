@@ -34,7 +34,7 @@ you have to follow, not something the code will stop you from breaking.
 
 - **Target file length: 500 lines.** Keep `.py` files under `backend/` at or below **500 lines**. When a module grows past this, prefer splitting it by feature — convert it into a package (a folder named after the module with an `__init__.py` that re-exports the public API so existing imports keep working) and group related functions into separate files. Keep shared helpers in a `_common`/`_helpers` module and group cohesive features into their own files (and subfolders when a feature spans several files).
 
-- **Exceeding 500 lines is allowed when splitting would hurt.** Some files are more readable whole — a single cohesive state machine, a long linear automation script, or a registry of related definitions. Don't split a file *just* to satisfy the number, and don't refactor an existing over-length file unless you're already changing it for another reason. Current over-length files (all deliberate): `db_manage/db_manager.py` (832), `use_mercari/get_to_du_list/transaction_detail/wait_shipping/ship_finalize.py` (592), `use_mercari/inventory_counters.py` (573), `use_web/todos/units/todos_query.py` (532), `web_drive/listing/units/post_to_macket/post.py` (526), `web_drive/core/mitm_session.py` (506), `use_mercari/get_order/get_in_progress_order/get_order_info.py` (503). For **new** files, still aim under 500 — go over only deliberately.
+- **Exceeding 500 lines is allowed when splitting would hurt.** Some files are more readable whole — a single cohesive state machine, a long linear automation script, or a registry of related definitions. Don't split a file *just* to satisfy the number, and don't refactor an existing over-length file unless you're already changing it for another reason. Current over-length files (all deliberate): `db_manage/db_manager.py` (832), `use_mercari/get_to_du_list/transaction_detail/wait_shipping/ship_finalize.py` (592), `use_mercari/inventory_counters.py` (573), `use_mercari/inventory_batches.py` (512), `use_web/todos/units/todos_query.py` (532), `web_drive/listing/units/post_to_macket/post.py` (526), `web_drive/core/mitm_session.py` (506), `use_mercari/get_order/get_in_progress_order/get_order_info.py` (503). For **new** files, still aim under 500 — go over only deliberately.
 
   Re-check the list with:
   `find backend/src -name "*.py" -exec wc -l {} + | sort -rn | awk '$1>500'`
@@ -208,9 +208,10 @@ Key tables in `backend/src/db_manage/models/`:
 
 - **users**: User accounts with bcrypt passwords
 - **inventory**: Products with barcode, SKU, price, quantity, images (filesystem paths in `images_json`; images saved under `backend/imges/`)
-- **inventory_batches**: 到货批次（批次号 / 到货时间 / 仓位 / 数量 / 备注），一个管理番号下多批。
-  批次号按商品自动编号 1、2、3…（不手填、删掉的号不复用）；**批次建好后数量不可手改**，只能新增/删除批次，
-  或随售出/出库自动扣减。**已分批商品 `inventory.quantity == Σ批次数量`**，总数在表单上只读。其余直接改
+- **inventory_batches**: 批次（批次号 / 批次时间 `arrived_at` / 仓位 / 数量 / 备注），一个管理番号下多批。
+  批次号按商品自动编号 1、2、3…（不手填、删掉的号不复用）；**批次建好后只有备注可手改**（批次时间、仓位、数量都不行），
+  只能新增/删除批次、合并同一货架 + 同一所有人的批次（`merge_batches`，并入最早那批，总数不变），
+  或随售出/出库自动扣减；仓位只随整件换仓位 / 快递入库改投变动。**已分批商品 `inventory.quantity == Σ批次数量`**，总数在表单上只读。其余直接改
   `quantity` 的路径（售出/出库/回吐/组合级联/拆分）不用管批次：`recompute_listable_quantity`
   先调 `use_mercari/inventory_batches.reconcile_batches`，把差额按到货时间**先进先出**落到批次上，
   所以新增改 `quantity` 的路径事后必须调 `recompute_listable_quantity`。没有批次行的历史商品不迁移，

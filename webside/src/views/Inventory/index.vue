@@ -1103,59 +1103,66 @@
               <div class="pef-batch-summary">
                 <span>{{ t('inventory.batchSummary', { total: Number(form.quantity || 0), count: batchRows.length }) }}</span>
                 <span class="pef-batch-summary__fifo">{{ t('inventory.batchFifoTip') }}</span>
+                <!-- 合并：勾选同一货架、同一所有人的批次，并入其中最早的那个 -->
+                <el-popconfirm
+                  v-if="!archive && batchRows.length > 1"
+                  :title="t('inventory.batchMergeConfirm', { count: batchSelection.length })"
+                  :disabled="batchSelection.length < 2"
+                  @confirm="mergeSelectedBatches"
+                >
+                  <template #reference>
+                    <el-button
+                      size="small"
+                      class="pef-batch-merge"
+                      :disabled="batchSelection.length < 2"
+                      :loading="batchMerging"
+                    >{{ t('inventory.batchMerge', { count: batchSelection.length }) }}</el-button>
+                  </template>
+                </el-popconfirm>
               </div>
               <el-table
                 v-loading="batchLoading"
                 :data="batchRows"
                 size="small"
-                border
                 class="pef-batch-table"
+                row-key="id"
                 :empty-text="t('inventory.noBatches')"
+                @selection-change="onBatchSelectionChange"
               >
+                <el-table-column
+                  v-if="!archive && batchRows.length > 1"
+                  type="selection"
+                  width="40"
+                  align="center"
+                  :selectable="batchSelectable"
+                />
                 <!-- 批次号由系统按商品自动编号 1、2、3… -->
-                <el-table-column :label="t('inventory.batchNo')" width="72" align="center">
+                <el-table-column :label="t('inventory.batchNo')" width="64" align="center">
                   <template #default="{ row }">
-                    <span class="pef-batch-no">{{ row.batch_no || '-' }}</span>
+                    <span class="pef-batch-no">#{{ row.batch_no || '-' }}</span>
                   </template>
                 </el-table-column>
-                <el-table-column :label="t('inventory.arrivedAt')" min-width="190">
+                <!-- 批次时间 / 货架 / 数量建批后都不可改，只有备注可改 -->
+                <el-table-column :label="t('inventory.arrivedAt')" min-width="150">
                   <template #default="{ row }">
-                    <span v-if="row.stage === 'transit'" class="cell-muted">{{ row.arrived_at || '-' }}</span>
-                    <el-date-picker
-                      v-else
-                      v-model="row.arrived_at"
-                      type="datetime"
-                      size="small"
-                      value-format="YYYY-MM-DD HH:mm:ss"
-                      :clearable="false"
-                      class="pef-batch-date"
-                      @change="(v) => saveBatchField(row, 'arrived_at', v)"
-                    />
+                    <span class="pef-batch-time">{{ row.arrived_at || '-' }}</span>
                   </template>
                 </el-table-column>
-                <el-table-column :label="t('inventory.belongingShelf')" min-width="200">
+                <el-table-column :label="t('inventory.belongingShelf')" min-width="150">
                   <template #default="{ row }">
-                    <!-- 在途批次由快递单管理：不在任何货架上，也不能在这里改 -->
+                    <!-- 在途批次由快递单管理：不在任何货架上 -->
                     <el-tag v-if="row.stage === 'transit'" type="warning" size="small" effect="light">
                       {{ t('inventory.batchInTransit', { no: row.shipment_tracking_no || ('#' + row.shipment_id) }) }}
                     </el-tag>
-                    <el-cascader
-                      v-else
-                      :model-value="warehousePathOf(row.warehouse_id)"
-                      :options="warehouseCascaderOptionsWithDefault"
-                      :props="warehouseCascaderProps"
-                      separator="-"
-                      size="small"
-                      class="pef-batch-shelf"
-                      popper-class="product-type-cascader-popper"
-                      @change="(p) => saveBatchField(row, 'warehouse_id', warehouseIdOfPath(p))"
-                    />
+                    <span v-else class="pef-batch-shelf-text" :class="{ 'cell-muted': !row.warehouse_name }">
+                      {{ row.warehouse_name || t('inventory.defaultWarehouse') }}
+                    </span>
                   </template>
                 </el-table-column>
                 <!-- 已添加批次的数量不可手改，只随售出/出库按先进先出自动扣减 -->
-                <el-table-column :label="t('inventory.batchQuantity')" width="80" align="center">
+                <el-table-column :label="t('inventory.batchQuantity')" width="72" align="center">
                   <template #default="{ row }">
-                    <span class="pef-batch-qty-text">{{ Number(row.quantity || 0) }}</span>
+                    <span class="pef-batch-qty-text" :class="{ 'is-empty': !Number(row.quantity) }">{{ Number(row.quantity || 0) }}</span>
                   </template>
                 </el-table-column>
                 <!-- 并回过别人的货的商品才有：每批货各属于谁（空 = 随商品归属） -->
@@ -1965,6 +1972,15 @@
       style="display:none"
       @change="handleCameraCapture"
     />
+
+    <!-- 入库成功：全屏大图 1 秒后缩小消失（pointer-events: none，不挡扫码与点击） -->
+    <Teleport to="body">
+      <Transition name="inbound-flash">
+        <div v-if="inboundFlash" :key="inboundFlash.key" class="inbound-flash">
+          <img :src="inboundFlash.image" class="inbound-flash-img" />
+        </div>
+      </Transition>
+    </Teleport>
 
     <!-- ===== 连续扫码对话框 ===== -->
     <el-dialog
