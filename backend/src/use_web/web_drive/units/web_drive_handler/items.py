@@ -267,6 +267,13 @@ async def revise_on_sale_item(body: ReviseMercariItemBody):
             queue_key_for_mercari_account(account_id),
             _run,
         )
+        if relink_id is not None:
+            # 改绑成功：用在售资料补齐新库存里为空的项目（迁移后新建的库存常缺名称 / 出品资料）
+            from ....on_sale_items.units.relink_backfill import backfill_inventory_from_listing
+
+            filled = backfill_inventory_from_listing(relink_id, item_id, body, account_id)
+            if isinstance(data, dict):
+                data["relink_backfilled"] = sorted(filled)
         return {"success": True, "data": data}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

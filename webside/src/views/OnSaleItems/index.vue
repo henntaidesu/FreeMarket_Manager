@@ -830,9 +830,18 @@
           </div>
           <!-- 迁移后的新库存有多件可选：由人挑一件 -->
           <div v-if="relinkCandidates.length" class="osr-relink">
-            <div class="osr-hint">{{ t('onSaleItems.relinkPick', { code: relinkSource?.mgmt_code || '-' }) }}</div>
+            <div class="osr-hint">{{ t(relinkManual ? 'onSaleItems.relinkPickManual' : 'onSaleItems.relinkPick', { code: relinkSource?.mgmt_code || '-' }) }}</div>
             <div v-for="c in relinkCandidates" :key="c.id" class="osr-relink__cand" @click="applyRelink(c)">
-              <img v-if="c.images[0]" :src="c.images[0]" alt="" />
+              <el-image
+                v-if="c.images[0]"
+                :src="c.images[0]"
+                :preview-src-list="c.images"
+                fit="cover"
+                preview-teleported
+                hide-on-click-modal
+                class="osr-relink__img"
+                @click.stop
+              />
               <span v-else class="thumb-fallback">-</span>
               <div class="osr-relink__main">
                 <div class="osr-relink__name">{{ c.mgmt_code }}　{{ c.name || '-' }}</div>
@@ -850,7 +859,17 @@
             </div>
             <div class="osr-hint">{{ t('onSaleItems.relinkAppliedHint', { n: relinkTarget.images.length }) }}</div>
             <div v-if="reviseIsYahoo" class="osr-relink__imgs">
-              <img v-for="u in relinkTarget.images" :key="u" :src="u" alt="" />
+              <el-image
+                v-for="(u, i) in relinkTarget.images"
+                :key="u"
+                :src="u"
+                :preview-src-list="relinkTarget.images"
+                :initial-index="i"
+                fit="cover"
+                preview-teleported
+                hide-on-click-modal
+                class="osr-relink__img"
+              />
             </div>
             <el-button link size="small" type="warning" @click="cancelRelink">{{ t('onSaleItems.relinkCancel') }}</el-button>
           </div>

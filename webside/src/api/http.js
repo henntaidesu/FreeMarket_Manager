@@ -1,6 +1,9 @@
 import axios from 'axios'
 import { ElLoading } from 'element-plus'
 import { ElMessage } from '@/utils/notify'
+import i18n from '@/i18n'
+
+const t = (key, params) => i18n.global.t(key, params)
 
 /**
  * V2 API axios 实例
@@ -50,6 +53,30 @@ function errorText(detail, fallback) {
   return fallback
 }
 
+// 网关 / 反向代理层的错误码：502/503/504 与 Cloudflare 的 520–530
+const GATEWAY_STATUSES = new Set([502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 527, 530])
+
+/**
+ * 不是后端自己给出的错误：Cloudflare（JSON 版错误页带 cloudflare_error / ray_id，其 detail
+ * 是英文固定文案）或 nginx 的 HTML 错误页（没有 detail）。这类错误的原文对用户没有意义，
+ * 换成本地化的提示。后端自己抛的 503（带字符串 detail）不在此列。
+ */
+function isGatewayError(err) {
+  const status = err.response?.status
+  const data = err.response?.data
+  if (data && typeof data === 'object' && (data.cloudflare_error || data.ray_id)) return true
+  if (!GATEWAY_STATUSES.has(status)) return false
+  return !(data && typeof data === 'object' && typeof data.detail === 'string')
+}
+
+function requestErrorText(err) {
+  const status = err.response?.status
+  if (isGatewayError(err)) return t('http.gateway', { status: status || '-' })
+  if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT') return t('http.timeout')
+  const fallback = status ? t('http.requestFailed', { status }) : t('http.requestFailedNoStatus')
+  return errorText(err.response?.data?.detail, fallback)
+}
+
 function startHealthPolling() {
   if (healthTimer) return
   healthTimer = setInterval(async () => {
@@ -67,7 +94,7 @@ function showOfflineOverlay() {
   offlineLoading = ElLoading.service({
     fullscreen: true,
     lock: true,
-    text: '系统无法连接，请检查网络与服务器',
+    text: t('http.offline'),
     background: 'rgba(0, 0, 0, 0.7)'
   })
   startHealthPolling()
@@ -116,7 +143,7 @@ http.interceptors.response.use(
       // 并发请求会同时收到 401，这里只提示一次并跳转登录页
       if (!authExpiredHandled) {
         authExpiredHandled = true
-        const msg = errorText(err.response?.data?.detail, '登录已过期，请重新登录')
+        const msg = errorText(err.response?.data?.detail, t('http.authExpired'))
         ElMessage.error(msg)
         if (window.location.hash !== '#/login') {
           window.location.hash = '#/login'
@@ -124,7 +151,7 @@ http.interceptors.response.use(
       }
       return Promise.reject(err)
     }
-    const msg = errorText(err.response?.data?.detail, err.message || '请求失败')
+    const msg = requestErrorText(err)
     ElMessage.error(msg)
     return Promise.reject(err)
   }

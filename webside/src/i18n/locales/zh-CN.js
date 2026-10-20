@@ -85,6 +85,14 @@ export default {
     operator: "操作人",
     time: "时间",
   },
+  http: {
+    offline: "系统无法连接，请检查网络与服务器",
+    authExpired: "登录已过期，请重新登录",
+    requestFailed: "请求失败（{status}）",
+    requestFailedNoStatus: "请求失败",
+    timeout: "请求超时，请稍后重试",
+    gateway: "服务器暂时无法响应（{status}），可能正在重启或负载过高，请稍后重试",
+  },
   layout: {
     logoText: "FreeMarket 管理",
     menu: {

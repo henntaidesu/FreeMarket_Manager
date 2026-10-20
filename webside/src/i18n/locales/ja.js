@@ -85,6 +85,14 @@ export default {
     operator: "操作者",
     time: "時刻",
   },
+  http: {
+    offline: "システムに接続できません。ネットワークとサーバーを確認してください",
+    authExpired: "ログインの有効期限が切れました。再度ログインしてください",
+    requestFailed: "リクエストに失敗しました（{status}）",
+    requestFailedNoStatus: "リクエストに失敗しました",
+    timeout: "リクエストがタイムアウトしました。しばらくしてから再試行してください",
+    gateway: "サーバーが一時的に応答できません（{status}）。再起動中または高負荷の可能性があります。しばらくしてから再試行してください",
+  },
   layout: {
     logoText: "FreeMarket マネージャー",
     menu: {

@@ -692,13 +692,13 @@
   cursor: pointer;
 }
 .osr-relink__cand:hover { background: #1a2740; }
-.osr-relink__cand img,
-.osr-relink__imgs img {
+.osr-relink__img {
   width: 48px;
   height: 48px;
   object-fit: cover;
   border-radius: 4px;
   flex: none;
+  cursor: zoom-in;
 }
 .osr-relink__main { min-width: 0; }
 .osr-relink__name { font-size: 13px; word-break: break-all; }

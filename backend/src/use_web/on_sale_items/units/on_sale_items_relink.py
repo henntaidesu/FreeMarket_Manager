@@ -10,6 +10,9 @@
   2. 产品条码 + 款式号 + 品相都相同——扫码重新入库的那批；
   3. 商品名称完全相同——兜底，可能多条，由人选。
 
+也可以由人直接输入要关联的新库存管理番号（``code``）：自动匹配找不到、或者想关联到别的
+商品时用，此时不要求这件在售商品本身带暗码。
+
 只读：不写任何表，改绑本身在修改提交成功后由详情同步完成。
 """
 from __future__ import annotations
@@ -21,7 +24,7 @@ from fastapi import HTTPException, Query
 
 from ....db_manage.database import DatabaseManager
 from ....inventory_barcode.resolve import resolve_inventory_id
-from ....inventory_barcode.variant import mgmt_code
+from ....inventory_barcode.variant import mgmt_code, parse_display_code
 from ....use_mercari.image_mgmt_ids import is_photo_bundle
 from ....use_mercari.mgmt_id_cipher import encode_mgmt_id, parse_trailing_cipher_mgmt_tokens
 from ...inventory.units.inventory_helpers import _inventory_paths_from_parsed_row
@@ -130,19 +133,52 @@ def _old_inventory(old_id: int) -> Optional[Dict[str, Any]]:
     return dict(zip(keys, rows[0]))
 
 
-def relink_candidates(item_id: str = Query(..., min_length=1, max_length=64)):
+def _manual_candidates(code: str) -> List[Dict[str, Any]]:
+    """人工输入的管理番号 → 新库存候选。``2150`` 精确到 id（已合并的旧番号转到合并目标）；
+    ``2150-1-S`` 这类显示编号按 基础番号 + 款式 + 品相 找，省略的部分不作限制。"""
+    disp = parse_display_code(code)
+    if disp and disp[0].isdigit():
+        head, vno, grade = disp
+        cond, params = ["p.[base_mgmt_id] = ?"], [int(head)]
+        if vno is not None:
+            cond.append("p.[variant_no] = ?")
+            params.append(vno)
+        if grade:
+            cond.append("p.[grade] = ?")
+            params.append(grade)
+        return [_candidate(r, "manual") for r in _query_new(" AND ".join(cond), tuple(params))]
+    if code.isdigit():
+        target = resolve_inventory_id(int(code))
+        if target is not None:
+            return [_candidate(r, "manual") for r in _query_new("p.[id] = ?", (int(target),))]
+    return []
+
+
+def relink_candidates(
+    item_id: str = Query(..., min_length=1, max_length=64),
+    code: Optional[str] = Query(None, max_length=64),
+):
     """返回 ``{source, candidates}``：``source`` 是当前绑定的那件（新库 / 归档），
     ``candidates`` 是可改绑的新库存（各带图片与新暗码）。``source.in_new=True`` 表示当前已绑在
-    新库存上，候选即它本身——仍可用来按库存重新换图、重嵌暗码。"""
+    新库存上，候选即它本身——仍可用来按库存重新换图、重嵌暗码。
+
+    传了 ``code`` 就按人工输入的管理番号找新库存，不走暗码匹配。"""
     iid = item_id.strip()
     row = _listing_row(iid)
-    ids = _bound_ids(row)
-    if not ids:
-        raise HTTPException(status_code=400, detail="这件商品的图片暗码与说明末行暗码里都没有管理番号")
     if len(parse_trailing_cipher_mgmt_tokens(row["description"])) > 1 or is_photo_bundle(
         row["name"], row["description"], row["platform"]
     ):
         raise HTTPException(status_code=400, detail="组合 / まとめ商品含多件库存，暂不支持修改关联库存")
+    ids = _bound_ids(row)
+    manual = (code or "").strip()
+    if manual:
+        return {
+            "source": {"id": ids[0] if ids else None, "mgmt_code": manual, "name": None, "in_new": False},
+            "candidates": _manual_candidates(manual),
+        }
+    # 自动匹配不到（没暗码 / 暗码在新旧库里都不存在）不报错，返回空候选，由前端转为手动输入
+    if not ids:
+        return {"source": None, "candidates": []}
 
     src_id = ids[0]
     cur = resolve_inventory_id(src_id)
@@ -157,7 +193,8 @@ def relink_candidates(item_id: str = Query(..., min_length=1, max_length=64)):
 
     old = _old_inventory(src_id)
     if not old:
-        raise HTTPException(status_code=404, detail=f"管理番号 {src_id} 在新库存与历史库存里都不存在")
+        return {"source": {"id": src_id, "mgmt_code": str(src_id), "name": None, "in_new": False},
+                "candidates": []}
     return {
         "source": {
             "id": src_id,

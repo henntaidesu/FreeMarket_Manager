@@ -85,6 +85,14 @@ export default {
     operator: "Operator",
     time: "Time",
   },
+  http: {
+    offline: "Cannot connect to the system. Please check the network and server",
+    authExpired: "Your session has expired. Please log in again",
+    requestFailed: "Request failed ({status})",
+    requestFailedNoStatus: "Request failed",
+    timeout: "Request timed out. Please try again later",
+    gateway: "The server is temporarily unavailable ({status}). It may be restarting or overloaded. Please try again later",
+  },
   layout: {
     logoText: "FreeMarket Manager",
     menu: {
