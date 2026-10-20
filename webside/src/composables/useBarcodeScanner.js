@@ -4,8 +4,13 @@ import { onMounted, onUnmounted, ref } from 'vue'
  * USB / 2.4G 扫码枪（得力 14952W 等）的输入监听，完全在浏览器里完成：
  * 扫码枪接在哪台电脑上，那台电脑的浏览器就收到按键，与后端部署在哪里无关。
  *
- * 这类扫码枪不需要驱动，在系统里就是一个 HID 键盘：扫到条码 = 极快地敲出一串字符，
- * 多数再按一次回车（也可能设成 Tab 结尾，或者不带结尾键）。所以没有任何设备 API 可接，
+ * 依据得力官方说明书（nbdeli.com 14952W 产品页，A1.0 ~ D1.0 各版内容一致）：接口只有 USB，
+ * 2.4G 接收器插上后「系统会自动安装驱动程序」= 标准 HID 键盘，没有串口模式、没有 SDK。
+ * 结束符四选一（扫设置码）：回车 / 回车换行 / Tab / 禁止添加结束符，下面四种都要能认。
+ * 「盘点模式（即存储模式）」下扫的码只存在枪里、不上传，要扫「普通模式」设置码才会实时输入；
+ * 「输入法错误 → 将输入法转换成标准的英文输入法」也是说明书故障排除里的原话。
+ *
+ * 扫到条码 = 极快地敲出一串字符再加结束符。所以没有任何设备 API 可接，
  * 只能从键盘事件里把它认出来——判据是「连续字符的间隔都 ≤ MAX_GAP_MS、长度 ≥ MIN_LENGTH」，
  * 人手打字达不到这个速度。以回车/Tab 收尾立即提交；没有结尾键的，停顿 IDLE_SUBMIT_MS 后提交。
  *
@@ -19,7 +24,10 @@ import { onMounted, onUnmounted, ref } from 'vue'
 const MAX_GAP_MS = 80
 const MIN_LENGTH = 4
 const IDLE_SUBMIT_MS = 150
-/** 停顿提交后，紧跟着到的回车/Tab 视为这次扫码的结尾键吞掉，免得它去点焦点所在的按钮 */
+/**
+ * 提交后紧跟着到的回车/Tab 视为这次扫码的结尾键吞掉，免得它去点焦点所在的按钮。两种来源：
+ * 停顿提交之后才到的结尾键；以及说明书「添加回车换行结束符」——CR 之后还有一个 LF 键。
+ */
 const TRAILING_SUFFIX_MS = 600
 const RECENT_KEYS_MAX = 40
 
@@ -41,7 +49,7 @@ export function useBarcodeScanner(onScan) {
   let lastAt = 0
   let lastKeyAt = 0
   let idleTimer = null
-  let idleSubmittedAt = 0
+  let lastSubmitAt = 0
   let bufferTarget = null
 
   function reset() {
@@ -65,6 +73,7 @@ export function useBarcodeScanner(onScan) {
   }
 
   function submit(code, target) {
+    lastSubmitAt = performance.now()
     onScan(code, isEditable(target) ? target : null)
   }
 
@@ -89,11 +98,11 @@ export function useBarcodeScanner(onScan) {
         e.preventDefault()
         e.stopPropagation()
         submit(code, tgt)
-      } else if (idleSubmittedAt && now - idleSubmittedAt <= TRAILING_SUFFIX_MS) {
+      } else if (lastSubmitAt && now - lastSubmitAt <= TRAILING_SUFFIX_MS) {
         e.preventDefault()
         e.stopPropagation()
+        lastSubmitAt = 0
       }
-      idleSubmittedAt = 0
       return
     }
     if (e.key.length !== 1) return // Shift 等修饰键本身不算字符，也不打断
@@ -109,7 +118,6 @@ export function useBarcodeScanner(onScan) {
         const code = buffer
         const tgt = bufferTarget
         reset()
-        idleSubmittedAt = performance.now()
         submit(code, tgt)
       }, IDLE_SUBMIT_MS)
     }

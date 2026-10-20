@@ -4,7 +4,7 @@
 蓝牙设备绑定（serviceUuid / charUuid / deviceId / deviceName）**不在这里**——那记录的是
 「这台机器上的这个浏览器授权过哪个设备」，换台设备就没有意义，仍留在前端 localStorage。
 
-九个字段是一组、永远整体读写，所以存成一条 JSON 而不是九个键。
+这几个字段是一组、永远整体读写，所以存成一条 JSON 而不是一个字段一个键。
 """
 
 import json
@@ -25,17 +25,12 @@ class PrinterParams(BaseModel):
 
     labelWmm: float = Field(default=30, ge=10, le=100)
     labelHmm: float = Field(default=30, ge=10, le=100)
-    headMm: float = Field(default=48, ge=20, le=110)
-    dpi: int = Field(default=203, ge=100, le=600)
-    chunk: int = Field(default=180, ge=20, le=512)
     threshold: int = Field(default=128, ge=10, le=245)
-    density: int = Field(default=10, ge=1, le=31)
-    feedMm: float = Field(default=15, ge=0, le=60)
-    retractMm: float = Field(default=0, ge=0, le=60)
-    # 定位方式：ff / gsff 交给打印机的间隔纸传感器自动走位（此时 feedMm、retractMm 都不生效）；
-    # escK / escE / tspl 是打印前手动回缩。各家固件实现不同，需实测选
-    # （德佟 P2 实测：escK 执行成了向前走纸）
-    retractCmd: Literal["ff", "gsff", "escK", "escE", "tspl"] = "escK"
+    # 纸张类型（德佟 SDK LPA_GapType）：0 连续纸 / 2 间隙纸 / 3 黑标纸。标签对位由打印机按它定位，
+    # 不再有手动走纸 / 回卷参数——旧版存的 feedMm / retractMm / retractCmd 等字段读取时直接忽略
+    gapType: Literal[0, 2, 3] = 2
+    # 打印浓度（LPA_PrintDarkness）：1~15，255 = 随打印机设置
+    darkness: int = Field(default=255, ge=1, le=255)
 
 
 def _read() -> PrinterParams:

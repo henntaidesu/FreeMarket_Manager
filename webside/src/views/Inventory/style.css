@@ -1529,6 +1529,12 @@ a.pef-lcard:hover {
 .gun-waiting-title { color: #c8d8f0; font-size: 15px; margin: 0; }
 .gun-waiting-tip { color: #8e9bb3; font-size: 13px; margin: 0 0 8px; text-align: center; }
 .gun-waiting-links { display: flex; gap: 16px; }
+.gun-last {
+  display: flex; align-items: center; gap: 12px; width: 100%; max-width: 420px; padding: 8px 10px;
+  border: 1px solid #3b4961; border-radius: 8px;
+}
+.gun-last-ok { color: #67c23a; font-weight: 600; font-size: 14px; }
+.gun-need-shelf { color: #e6a23c; font-size: 15px; font-weight: 600; margin: 16px 0 4px; text-align: center; }
 .scanner-diag { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .scanner-diag-empty { color: #4a5a72; font-size: 13px; }
 .scanner-diag-keys {

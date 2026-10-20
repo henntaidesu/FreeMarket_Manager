@@ -1,11 +1,11 @@
 /**
  * 蓝牙标签打印机配置。
  *
- * 默认值按实测的德佟 P2：203 DPI、打印头 48mm、标签 30×30mm。
+ * 默认值按德佟 P2：标签 30×30mm 间隙纸。DPI、打印头宽度由 SDK 从打印机读取，不用配。
  *
- * 打印参数（标签尺寸/打印质量）存**数据库**，换台设备也是同一套参数；localStorage 只作
+ * 打印参数（标签尺寸/纸张类型/打印质量）存**数据库**，换台设备也是同一套参数；localStorage 只作
  * 离线镜像，让 loadPrinterConfig() 保持同步、且断网时仍能按上次的参数打印。
- * 蓝牙设备绑定（serviceUuid/charUuid/deviceId/deviceName）**只**存 localStorage —— 它记录的是
+ * 蓝牙设备绑定（deviceId/deviceName）**只**存 localStorage —— 它记录的是
  * 「这个浏览器授权过哪个设备」，同步到别的设备上没有意义。
  */
 
@@ -16,25 +16,17 @@ const STORAGE_KEY = 'btPrinter.config'
 const DEFAULTS = {
   labelWmm: 30,   // 标签宽 mm
   labelHmm: 30,   // 标签高 mm
-  headMm: 48,     // 打印头可打印宽 mm（纸居中走纸，位图需按此宽度居中补白）
-  dpi: 203,
-  chunk: 180,     // BLE 分片字节数
+  // 纸张类型（德佟 SDK LPA_GapType）：0 连续纸 / 2 间隙纸 / 3 黑标纸。标签对位由打印机按它定位，
+  // 选错（例如间隙纸选成连续纸）就又会逐张偏移
+  gapType: 2,
+  darkness: 255,  // 打印浓度（LPA_PrintDarkness）：1~15，255 = 随打印机设置
   threshold: 128, // 二值化阈值（灰度 < 阈值视为黑）
-  density: 10,    // 打印浓度 1~31（DC2 # 指令，固件不支持时无效果）
-  feedMm: 15,     // 打印完成后的走纸距离 mm（把标签送出到撕纸位）
-  retractMm: 0,   // 回卷距离 mm = 打印下一张前向后收缩的长度（0 为不收缩）
-  retractCmd: 'escK', // 回卷指令：escK / escE / tspl —— 各家固件实现不同，需实测选
-  serviceUuid: '',
-  charUuid: '',
-  deviceId: '',   // requestDevice 返回的持久 id，配合 getDevices() 免弹框重连
+  deviceId: '',   // SDK 返回的设备 id，配合 getDevices() 免弹框重连
   deviceName: '',
 }
 
 // 落库的字段，其余留在本地。与后端 printer_config_handler.PrinterParams 一一对应
-const DB_KEYS = [
-  'labelWmm', 'labelHmm', 'headMm', 'dpi', 'chunk', 'threshold', 'density', 'feedMm', 'retractMm',
-  'retractCmd',
-]
+const DB_KEYS = ['labelWmm', 'labelHmm', 'gapType', 'darkness', 'threshold']
 
 function pickDbFields(cfg) {
   const out = {}

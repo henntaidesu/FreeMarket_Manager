@@ -1931,7 +1931,18 @@
     >
       <!-- 扫码枪：等扫码（键盘输入，见 useBarcodeScanner）；输入框也可手动输入条码回车 -->
       <div v-if="contState === 'gun-waiting'" class="gun-waiting-box" data-scanner-capture>
-        <el-icon size="50" color="#409EFF"><Tickets /></el-icon>
+        <!-- 上一件扫码枪入库的结果 -->
+        <div v-if="contGunLast" class="gun-last">
+          <img v-if="contGunLast.image" :src="contGunLast.image" class="cont-pick-img" />
+          <div class="cont-pick-meta">
+            <span class="gun-last-ok">
+              {{ t(contGunLast.classified ? 'inventory.scannerClassifiedOk' : 'inventory.scannerInboundOk', { qty: contGunLast.newQuantity }) }}
+            </span>
+            <span class="product-meta-name">{{ contGunLast.name }}</span>
+            <span class="cont-pick-sub">{{ contGunLast.place }}</span>
+          </div>
+        </div>
+        <el-icon v-else size="50" color="#409EFF"><Tickets /></el-icon>
         <p class="gun-waiting-title">{{ t('inventory.scannerWaitingHint') }}</p>
         <el-input
           ref="contGunInputRef"
@@ -2073,10 +2084,31 @@
         <div class="notfound-box">
           <el-icon size="44" color="#e6a23c"><Warning /></el-icon>
           <p>{{ t('inventory.barcodeNotRegistered') }}</p>
+          <p v-if="contScanMode === 'gun'" class="gun-waiting-tip">{{ t('inventory.scannerNotFoundScanShelf') }}</p>
         </div>
         <div class="cont-actions">
           <el-button @click="resumeContScan">{{ t('inventory.continueScan') }}</el-button>
-          <el-button type="primary" @click="openAddFromScan">{{ t('inventory.addNewItem') }}</el-button>
+          <el-button type="primary" @click="openAddFromScan()">{{ t('inventory.addNewItem') }}</el-button>
+        </div>
+      </div>
+
+      <!-- 扫码枪：商品在默认仓库，等扫货架码归类 -->
+      <div v-if="contState === 'need-warehouse' && contInventory" class="cont-result">
+        <div class="barcode-tag">
+          <el-icon><Tickets /></el-icon>
+          <span>{{ contBarcode }}</span>
+        </div>
+        <div class="gun-last">
+          <img v-if="inventoryRowImages(contInventory)[0]" :src="inventoryRowImages(contInventory)[0]" class="cont-pick-img" />
+          <div class="cont-pick-meta">
+            <span class="product-meta-name">{{ contInventory.name || t('inventory.unnamed') }}</span>
+            <span class="cont-pick-sub">{{ t('inventory.currentStockPieces', { qty: contInventory.quantity ?? 0 }) }}</span>
+          </div>
+        </div>
+        <p class="gun-need-shelf">{{ t('inventory.scannerNeedShelfHint') }}</p>
+        <p class="gun-waiting-tip">{{ t('inventory.scannerNeedShelfMoveNote') }}</p>
+        <div class="cont-actions">
+          <el-button :disabled="contConfirming" @click="resumeContScan">{{ t('inventory.continueScan') }}</el-button>
         </div>
       </div>
 

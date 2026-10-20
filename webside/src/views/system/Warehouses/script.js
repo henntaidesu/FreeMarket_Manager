@@ -4,10 +4,22 @@ import { Plus } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { warehouseApi } from '@/api/index.js'
 import { warehouseShelfLabel, warehouseShelfLeafLabel } from '@/utils/warehouseLabel.js'
+import WarehouseQrDialog from './WarehouseQrDialog.vue'
 
 export default defineComponent({
+  components: { WarehouseQrDialog },
   setup() {
     const { t } = useI18n()
+
+    // 货架号二维码打印：单个货架号 / 整个货架分组
+    const qrDialogVisible = ref(false)
+    const qrRows = ref([])
+    function openQrDialog(rows) {
+      const list = (rows || []).filter(Boolean)
+      if (!list.length) return
+      qrRows.value = list
+      qrDialogVisible.value = true
+    }
 
     const DEFAULT_WAREHOUSE = '默认仓库'
 
@@ -738,6 +750,9 @@ export default defineComponent({
       openDialogForShelfGroup,
       apiErrorMessage,
       submit,
+      qrDialogVisible,
+      qrRows,
+      openQrDialog,
     }
   },
 })

@@ -32,6 +32,7 @@ import {
 } from '@/constants/mercariJapanAreas.js'
 import { MERCARI_UNDECIDED_AREA_ID } from '@/composables/useListingPlatform.js'
 import { useBarcodeScanner } from '@/composables/useBarcodeScanner.js'
+import { parseWarehouseQr } from '@/utils/warehouseQr.js'
 import { useInventoryBatches } from './useInventoryBatches.js'
 import RegionRecognizeDialog from './RegionRecognizeDialog.vue'
 import BarcodeDuplicatePrompt from './BarcodeDuplicatePrompt.vue'
@@ -4642,16 +4643,103 @@ export default defineComponent({
     async function pickContCandidate(id) {
       contInventory.value = await inventoryApi.get(id)
       contQuantity.value = 1
-      contState.value = 'found'
+      if (contScanMode.value !== 'gun') {
+        contState.value = 'found'
+        return
+      }
+      // 扫码枪：已有货架号 → 直接入库 1 件；在默认仓库（warehouse_id 为空）→ 等扫货架码归类
+      const wid = contInventory.value?.warehouse_id
+      if (wid) await gunStockIn(wid, false)
+      else contState.value = 'need-warehouse'
+    }
+
+    // ---- 扫码枪：货架码归类 + 直接入库 ----
+    /** 上一件扫码枪入库的结果，显示在等待态顶部（扫完一件不用看弹窗也知道成没成） */
+    const contGunLast = ref(null)
+    let contScanQueue = Promise.resolve()
+
+    function shelfById(wid) {
+      return (warehouses.value || []).find((w) => Number(w.id) === Number(wid)) || null
+    }
+
+    function shelfPlaceLabel(w) {
+      if (!w) return ''
+      return [w.warehouse, w.shelf_name, w.name].map((s) => String(s || '').trim()).filter(Boolean).join(' / ')
+    }
+
+    /** 当前商品入库 1 件到货架号 wid。moveExisting = 默认仓库里的商品归类：先把现有库存整体移过去 */
+    async function gunStockIn(wid, moveExisting) {
+      const inv = contInventory.value
+      if (!inv) return
+      contConfirming.value = true
+      try {
+        if (moveExisting) {
+          // 改 warehouse_id：未分批商品直接换货架号，已分批商品后端把全部批次移过去（move_all_batches）
+          await inventoryApi.update(inv.id, { warehouse_id: wid })
+        }
+        const res = await inventoryApi.stockIn(inv.id, { warehouse_id: wid, quantity: 1, remark: '扫码枪入库' })
+        contGunLast.value = {
+          name: inv.name || t('inventory.unnamed'),
+          image: inventoryRowImages(inv)[0] || '',
+          newQuantity: res.new_quantity,
+          place: shelfPlaceLabel(shelfById(wid)),
+          classified: !!moveExisting,
+        }
+        load()
+        loadInventoryStats()
+        resumeContScan()
+      } catch {
+        // 错误由 axios 拦截器统一提示；停在当前状态，可以重扫货架码或点「继续扫码」放弃
+      } finally {
+        contConfirming.value = false
+      }
+    }
+
+    /** 扫码枪扫到货架码：只在「等货架码」的两个状态下有意义 */
+    async function handleGunShelfCode(wid) {
+      // 货架列表只在进页面时拉过一次：刚在仓库页新建的货架这里还没有，找不到就重拉一次再判
+      if (!shelfById(wid)) {
+        try { warehouses.value = await warehouseApi.list() } catch { /* 拦截器已提示 */ }
+      }
+      const shelf = shelfById(wid)
+      if (!shelf) {
+        ElMessage.warning(t('inventory.scannerShelfUnknown', { id: wid }))
+        return
+      }
+      if (contState.value === 'need-warehouse') {
+        await gunStockIn(wid, true)
+      } else if (contState.value === 'notfound') {
+        openAddFromScan(wid)
+      } else {
+        ElMessage.warning(t('inventory.scannerScanProductFirst'))
+      }
+    }
+
+    /** 扫码枪 / 手动输入的一个码。串行执行：上一个还在查询或入库时，后一个排队，不丢也不交错 */
+    function processGunCode(code) {
+      contScanQueue = contScanQueue.then(async () => {
+        const wid = parseWarehouseQr(code)
+        if (wid != null) return handleGunShelfCode(wid)
+        if (contState.value === 'need-warehouse' || contState.value === 'pick') {
+          // 当前商品还没入库：不替换，免得扫过的这件悄悄丢掉
+          ElMessage.warning(t(contState.value === 'need-warehouse'
+            ? 'inventory.scannerNeedShelfFirst'
+            : 'inventory.scannerFinishCurrentFirst'))
+          return
+        }
+        return handleContBarcode(code)
+      }).catch(() => {})
+      return contScanQueue
     }
 
     /** 扫码枪模式：不开摄像头，等扫码枪（或手动输入条码回车） */
     async function openGunScan(code = '') {
       stopContScan()
       contScanMode.value = 'gun'
+      contGunLast.value = null
       contScanVisible.value = true
       resumeContScan()
-      if (code) await handleContBarcode(code)
+      if (code) await processGunCode(code)
     }
 
     /** 工具栏「条码入库」：手机用摄像头，电脑默认等扫码枪（弹窗里可改用摄像头） */
@@ -4667,7 +4755,7 @@ export default defineComponent({
     function submitContGunInput() {
       const code = String(contGunInput.value || '').trim()
       contGunInput.value = ''
-      if (code) handleContBarcode(code)
+      if (code) processGunCode(code)
     }
 
     /** 全局扫码枪回调（库存页任意位置）。focusedEl = 扫码时焦点所在的弹窗内输入框（数量框） */
@@ -4678,7 +4766,10 @@ export default defineComponent({
         // 别的弹窗开着（编辑商品等）时不抢：扫码枪的输入不该落到不相干的流程里
         const overlayOpen = Array.from(document.querySelectorAll('.el-overlay'))
           .some((el) => el.getClientRects().length > 0)
-        if (!overlayOpen) openGunScan(code)
+        if (overlayOpen) return
+        // 弹窗没开时扫到货架码：没有商品可归类
+        if (parseWarehouseQr(code) != null) ElMessage.warning(t('inventory.scannerScanProductFirst'))
+        else openGunScan(code)
         return
       }
       if (focusedEl) {
@@ -4688,6 +4779,10 @@ export default defineComponent({
         focusedEl.blur()
         contQuantity.value = keepQty
         contGunInput.value = ''
+      }
+      if (contScanMode.value === 'gun') {
+        processGunCode(code)
+        return
       }
       if (contConfirming.value) return
       if (contState.value === 'found' || contState.value === 'pick') {
@@ -4754,12 +4849,17 @@ export default defineComponent({
       }
     }
 
-    function openAddFromScan() {
+    /** shelfId：扫码枪在「未登记」状态下扫了货架码 → 新商品直接放到该货架号 */
+    function openAddFromScan(shelfId = null) {
       const barcode = contBarcode.value
       contScanVisible.value = false
       // 扫到的是商品上印的产品条码：与「商品入库」同一条路（内部编号用 uuid），
       // 条码写进 product_barcode，查重 / 一码多品走 assignBarcode
       openNoBarcodeEntry()
+      if (shelfId) {
+        form.value.warehouse_id = shelfId
+        syncWarehouseCascaderPathByWarehouseId(shelfId)
+      }
       nextTick(() => assignBarcode(barcode))
     }
 
@@ -5198,6 +5298,7 @@ export default defineComponent({
       contCandidates,
       contGunInputRef,
       contGunInput,
+      contGunLast,
       scannerRecentKeys,
       scannerDiagVisible,
       contCaptureUseA,

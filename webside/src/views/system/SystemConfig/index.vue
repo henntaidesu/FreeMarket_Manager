@@ -801,51 +801,21 @@
                   <span class="sc-unit">mm</span>
                 </div>
               </div>
+              <!-- 纸张类型决定标签怎么对位：间隙纸由打印机的间隙传感器定位下一张（德佟 SDK LPA_GapType） -->
               <div class="sc-field">
-                <div class="sc-label">{{ t('qrPrint.headWidth') }}</div>
-                <div class="sc-inline">
-                  <el-input-number v-model="printerCfg.headMm" :min="20" :max="110" :controls="false" class="sc-num" @change="savePrinterCfg" />
-                  <span class="sc-unit">mm</span>
-                </div>
-              </div>
-              <div class="sc-field">
-                <div class="sc-label">DPI</div>
-                <el-input-number v-model="printerCfg.dpi" :min="100" :max="600" :controls="false" class="sc-num" @change="savePrinterCfg" />
-              </div>
-              <div class="sc-field">
-                <div class="sc-label">{{ t('qrPrint.chunk') }}</div>
-                <div class="sc-inline">
-                  <el-input-number v-model="printerCfg.chunk" :min="20" :max="512" :controls="false" class="sc-num" @change="savePrinterCfg" />
-                  <span class="sc-unit">{{ t('qrPrint.chunkUnit') }}</span>
-                </div>
-              </div>
-              <div class="sc-field">
-                <div class="sc-label">{{ t('qrPrint.feed') }}</div>
-                <div class="sc-inline">
-                  <el-input-number v-model="printerCfg.feedMm" :min="0" :max="60" :controls="false" class="sc-num" @change="savePrinterCfg" />
-                  <span class="sc-unit">mm</span>
-                </div>
-              </div>
-              <div class="sc-field">
-                <div class="sc-label">{{ t('qrPrint.retract') }}</div>
-                <div class="sc-inline">
-                  <el-input-number v-model="printerCfg.retractMm" :min="0" :max="60" :precision="1" :step="0.5" :controls="false" class="sc-num" @change="savePrinterCfg" />
-                  <span class="sc-unit">mm</span>
-                </div>
-              </div>
-              <div class="sc-field">
-                <div class="sc-label">{{ t('qrPrint.retractCmd') }}</div>
-                <el-select v-model="printerCfg.retractCmd" @change="savePrinterCfg">
-                  <el-option label="FF" value="ff" />
-                  <el-option label="GS FF" value="gsff" />
-                  <el-option label="ESC K" value="escK" />
-                  <el-option label="ESC e" value="escE" />
-                  <el-option label="TSPL BACKFEED" value="tspl" />
+                <div class="sc-label">{{ t('qrPrint.gapType') }}</div>
+                <el-select v-model="printerCfg.gapType" @change="savePrinterCfg">
+                  <el-option :label="t('qrPrint.gapGap')" :value="2" />
+                  <el-option :label="t('qrPrint.gapNone')" :value="0" />
+                  <el-option :label="t('qrPrint.gapBlack')" :value="3" />
                 </el-select>
               </div>
               <div class="sc-field">
-                <div class="sc-label">{{ t('qrPrint.density') }}</div>
-                <el-input-number v-model="printerCfg.density" :min="1" :max="31" :controls="false" class="sc-num" @change="savePrinterCfg" />
+                <div class="sc-label">{{ t('qrPrint.darkness') }}</div>
+                <el-select v-model="printerCfg.darkness" @change="savePrinterCfg">
+                  <el-option :label="t('qrPrint.darknessUnset')" :value="255" />
+                  <el-option v-for="n in 15" :key="n" :label="String(n)" :value="n" />
+                </el-select>
               </div>
               <div class="sc-field">
                 <div class="sc-label">{{ t('qrPrint.threshold') }}</div>
@@ -877,19 +847,6 @@
                   {{ t('qrPrint.autoReconnect') }} · {{ autoReconnectOk ? t('qrPrint.autoReconnectOk') : t('qrPrint.autoReconnectNo') }}
                 </div>
               </div>
-            </div>
-
-            <!-- 整表发现出多个可写特征时才显示，默认自动选第一个并持久化 -->
-            <div v-if="printerState.writableChars.length > 1" class="sc-field sc-field--stack">
-              <div class="sc-label">{{ t('qrPrint.writeChar') }}</div>
-              <el-select :model-value="printerState.charUuid" @change="onPickChar">
-                <el-option
-                  v-for="c in printerState.writableChars"
-                  :key="c.uuid"
-                  :label="c.uuid + '  [' + c.flags + ']'"
-                  :value="c.uuid"
-                />
-              </el-select>
             </div>
 
             <div class="sc-actions">
@@ -1173,7 +1130,6 @@ import {
   supportsAutoReconnect,
   getPrinterState,
   connectPrinter,
-  pickWriteChar,
   forgetPrinter,
 } from '@/utils/btPrinter/index.js'
 import {
@@ -2377,13 +2333,8 @@ function savePrinterCfg() {
   savePrinterConfig({
     labelWmm: Number(printerCfg.labelWmm) || 30,
     labelHmm: Number(printerCfg.labelHmm) || 30,
-    headMm: Number(printerCfg.headMm) || 48,
-    dpi: Number(printerCfg.dpi) || 203,
-    chunk: Number(printerCfg.chunk) || 180,
-    feedMm: Math.max(0, Number(printerCfg.feedMm) || 0),
-    retractMm: Math.max(0, Number(printerCfg.retractMm) || 0),
-    retractCmd: printerCfg.retractCmd || 'escK',
-    density: Number(printerCfg.density) || 10,
+    gapType: Number(printerCfg.gapType ?? 2),
+    darkness: Number(printerCfg.darkness) || 255,
     threshold: Number(printerCfg.threshold) || 128,
   })
   ElMessage.success(t('qrPrint.saved'))
@@ -2429,13 +2380,8 @@ async function onQrTest() {
   }
 }
 
-function onPickChar(uuid) {
-  pickWriteChar(uuid)
-  printerState.value = getPrinterState()
-}
-
-function onForget() {
-  forgetPrinter()
+async function onForget() {
+  await forgetPrinter()
   printerState.value = getPrinterState()
   ElMessage.success(t('qrPrint.forgotten'))
 }

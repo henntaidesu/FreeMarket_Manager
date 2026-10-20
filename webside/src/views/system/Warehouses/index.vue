@@ -127,6 +127,14 @@
                     <el-button type="primary" size="small" plain @click.stop="openRenameShelfNameDialog(grp, sub)">
                       {{ t('system.renameAction') }}
                     </el-button>
+                    <el-button
+                      size="small"
+                      plain
+                      :disabled="!sub.shelves.length"
+                      @click.stop="openQrDialog(sub.shelves)"
+                    >
+                      {{ t('system.printGroupQr') }}
+                    </el-button>
                   </div>
                 </div>
               </template>
@@ -199,6 +207,9 @@
                         :loading="hidingId === row.id"
                         @click="toggleShelfHidden(row)"
                       >{{ t('system.unhideShelf') }}</el-button>
+                      <el-button size="small" link @click="openQrDialog([row])">
+                        {{ t('system.shelfQr') }}
+                      </el-button>
                       <el-button size="small" type="primary" link @click="openDialog(row)">
                         {{ t('common.edit') }}
                       </el-button>
@@ -403,6 +414,8 @@
         <el-button type="primary" :loading="addWarehouseSubmitting" @click="confirmAddWarehouseName">{{ t('system.createWarehouse') }}</el-button>
       </template>
     </el-dialog>
+
+    <WarehouseQrDialog v-model="qrDialogVisible" :rows="qrRows" />
   </div>
 </template>
 

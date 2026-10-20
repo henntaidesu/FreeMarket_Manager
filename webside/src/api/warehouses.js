@@ -14,5 +14,7 @@ export const warehouseApi = {
   migrateInventory: (fromId, data) => http.post(`/use_web/system/warehouses/${fromId}/migrate-inventory`, data),
   /** 隐藏 / 取消隐藏货架号（仅库存归零的货架号可隐藏，后端会再校验一次） */
   setHidden: (id, isHidden) =>
-    http.put(`/use_web/system/warehouses/${id}/hidden`, { is_hidden: !!isHidden })
+    http.put(`/use_web/system/warehouses/${id}/hidden`, { is_hidden: !!isHidden }),
+  /** 货架号二维码：{ id, code: 'WH<id>', data_url }（扫码入库时扫它归类仓位） */
+  qr: (id) => http.get(`/use_web/system/warehouses/${id}/qr`)
 }
