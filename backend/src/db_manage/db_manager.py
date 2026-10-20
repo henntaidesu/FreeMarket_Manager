@@ -51,6 +51,9 @@ from .models import (
     ImageHashModel,
     ImageAssetModel,
     InventoryBatchModel,
+    InboundShipmentModel,
+    InboundShipmentLineModel,
+    InboundReceiptModel,
 )
 
 
@@ -710,6 +713,9 @@ class DBManager:
             WarehouseModel,   # 无外键依赖
             InventoryModel,   # 依赖 categories
             InventoryBatchModel,  # 库存批次（依赖 inventory / warehouses，仅顺序习惯）
+            InboundShipmentModel,  # 快递单（入库快递；发出后装箱件数成为在途批次）
+            InboundShipmentLineModel,  # 快递单明细
+            InboundReceiptModel,  # 快递入库记录（改投货架 / 建议货架）
             TransactionModel, # 依赖 inventory, warehouses
             CostRecordModel,  # 依赖 warehouses（可为空）
             CostExpenseModel,  # 成本支出

@@ -56,6 +56,20 @@ class InventoryBatchModel(BaseModel):
                 'not_null': True,
                 'default': 0,
             },
+            # 所处阶段：NULL / 'onshore' = 在岸（在货架上）；'transit' = 在途（快递单已发出、未入库）。
+            # 在途批次计入总数（可上架），但售出出库先扣在岸批次，见 inventory_batches._FIFO_ORDER
+            'stage': {
+                'type': 'TEXT',
+                'not_null': False,
+                'default': None,
+                'max_length': 16,
+            },
+            # 在途批次所属快递单（inbound_shipments.id）；在岸批次为 NULL
+            'shipment_id': {
+                'type': 'INTEGER',
+                'not_null': False,
+                'default': None,
+            },
             'remark': {
                 'type': 'TEXT',
                 'not_null': False,

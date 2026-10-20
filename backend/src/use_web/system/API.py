@@ -147,6 +147,7 @@ from .units.db_sync_handler import (
 from .cost_records.API import router as cost_records_router
 from .cost_expenses.API import router as cost_expenses_router
 from .warehouses.API import router as warehouses_router
+from .inbound_shipments.API import router as inbound_shipments_router
 from .categories.API import router as categories_router
 from .transactions.API import router as transactions_router
 from .product_type_category_mappings.API import router as ptcm_router
@@ -280,7 +281,15 @@ router.include_router(
 )
 router.include_router(
     warehouses_router, prefix="/warehouses", tags=["warehouses"],
-    dependencies=_page("system/warehouses", "inventory", "orders", "system/cost-records", "system/transactions"),
+    dependencies=_page(
+        "system/warehouses", "inventory", "orders", "system/cost-records", "system/transactions",
+        "system/inbound-shipments",
+    ),
+)
+# 快递入库：在途 → 到岸扫码上架（业务口径见 src/inbound_shipments）
+router.include_router(
+    inbound_shipments_router, prefix="/inbound-shipments", tags=["inbound-shipments"],
+    dependencies=_page("system/inbound-shipments"),
 )
 router.include_router(
     categories_router, prefix="/categories", tags=["categories"],

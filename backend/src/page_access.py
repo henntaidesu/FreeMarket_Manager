@@ -40,6 +40,7 @@ PAGE_KEYS = frozenset({
     "system/settlement",
     "system/transactions",
     "system/warehouses",
+    "system/inbound-shipments",
     "system/cost-records",
     "system/cost-expenses",
     "system/categories",

@@ -64,6 +64,8 @@ def _row_to_inventory_detail(row: tuple) -> dict:
         "combined_quantity",
         "batch_count",
         "batch_warehouse_count",
+        # 在途件数（快递单已发出、未扫码入库）；已计入 quantity，在岸 = quantity - transit_quantity
+        "transit_quantity",
     ]
     return dict(zip(keys, row))
 
@@ -189,7 +191,8 @@ def _query_inventory_with_joins(
                COALESCE(u.display_name, u.username) AS owner_user_name,
                COALESCE(cr.reserved, 0) AS combined_quantity,
                COALESCE(bt.batch_count, 0) AS batch_count,
-               COALESCE(bt.batch_wh_count, 0) AS batch_warehouse_count
+               COALESCE(bt.batch_wh_count, 0) AS batch_warehouse_count,
+               COALESCE(bt.transit_qty, 0) AS transit_quantity
         FROM [inventory] p
         LEFT JOIN [categories] c ON c.id = p.category_id
         LEFT JOIN [warehouses] w ON w.id = p.warehouse_id
@@ -199,7 +202,9 @@ def _query_inventory_with_joins(
         LEFT JOIN {combined_reserved_agg} cr ON cr.src_id = p.id
         LEFT JOIN (
             SELECT inventory_id, COUNT(*) AS batch_count,
-                   COUNT(DISTINCT CASE WHEN quantity > 0 THEN COALESCE(warehouse_id, 0) END) AS batch_wh_count
+                   COUNT(DISTINCT CASE WHEN quantity > 0 AND COALESCE(stage, '') <> 'transit'
+                                       THEN COALESCE(warehouse_id, 0) END) AS batch_wh_count,
+                   SUM(CASE WHEN COALESCE(stage, '') = 'transit' THEN quantity ELSE 0 END) AS transit_qty
             FROM [inventory_batches] GROUP BY inventory_id
         ) bt ON bt.inventory_id = p.id
         WHERE COALESCE(p.is_delete, 0) = 0 {where_sql}

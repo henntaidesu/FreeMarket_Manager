@@ -107,6 +107,7 @@ export default {
       settlement: "出售结算",
       purchaseSettlement: "购入结算",
       warehouses: "仓库管理",
+      inboundShipments: "快递入库",
       categories: "游戏分类",
       productTypeMappings: "商品类型映射",
       systemConfig: "系统配置",

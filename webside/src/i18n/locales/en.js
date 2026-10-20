@@ -107,6 +107,7 @@ export default {
       settlement: "Sales settlement",
       purchaseSettlement: "Purchase settlement",
       warehouses: "Warehouses",
+      inboundShipments: "Inbound parcels",
       categories: "Game Categories",
       productTypeMappings: "Product Type Mappings",
       systemConfig: "System Settings",

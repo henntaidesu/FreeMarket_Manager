@@ -30,6 +30,7 @@ const routes = [
       // 重定向，收益只是路径好看一点，不值得。
       // /system 自身已无页面：原「系统总览」（实为账号管理）已并入系统配置，旧书签重定向过去
       { path: 'system', redirect: '/system/config' },
+      { path: 'system/inbound-shipments', name: 'InboundShipments', component: () => import('@/views/system/InboundShipments/index.vue'), meta: { title: '快递入库', icon: 'Van' } },
       { path: 'system/transactions', name: 'Transactions', component: () => import('@/views/system/Transactions/index.vue'), meta: { title: '库存记录', icon: 'List' } },
       { path: 'system/cost-records', name: 'CostRecords', component: () => import('@/views/system/CostRecords/index.vue'), meta: { title: '库存包材', icon: 'Money' } },
       { path: 'system/cost-expenses', name: 'CostExpenses', component: () => import('@/views/system/CostExpenses/index.vue'), meta: { title: '包材使用记录', icon: 'Wallet' } },

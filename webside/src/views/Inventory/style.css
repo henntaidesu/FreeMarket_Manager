@@ -1700,3 +1700,11 @@ a.pef-lcard:hover {
 .pef-actions :deep(.el-button + .el-button) {
   margin-left: 0;
 }
+
+/* 库存列：含在途件数（快递单已发出、未扫码入库） */
+.inv-transit-qty {
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--el-color-warning);
+}

@@ -106,7 +106,7 @@ router.include_router(
 router.include_router(orders_router, prefix="/orders", tags=["orders"], dependencies=_page("orders", "todos"))
 router.include_router(
     inventory_router, prefix="/inventory", tags=["inventory"],
-    dependencies=_page("inventory", "on-sale-items", "orders"),
+    dependencies=_page("inventory", "on-sale-items", "orders", "system/inbound-shipments"),
 )
 # 店铺账号：账号下拉全站都要读，只有店铺账号页能改（含 Cookie / 请求头）
 router.include_router(

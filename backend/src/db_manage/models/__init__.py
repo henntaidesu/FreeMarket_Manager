@@ -23,6 +23,9 @@ from .inventory.inventory import InventoryModel
 from .inventory.image_embedding import ImageEmbeddingModel
 from .inventory.image_hash import ImageHashModel
 from .inventory.inventory_batch import InventoryBatchModel
+from .inventory.inbound_shipment import InboundShipmentModel
+from .inventory.inbound_shipment_line import InboundShipmentLineModel
+from .inventory.inbound_receipt import InboundReceiptModel
 from .orders.order import OrderModel
 from .orders.order_note import OrderNoteModel
 from .orders.order_outbound_line import OrderOutboundLineModel
@@ -82,4 +85,7 @@ __all__ = [
     'ImageEmbeddingModel',
     'ImageHashModel',
     'InventoryBatchModel',
+    'InboundShipmentModel',
+    'InboundShipmentLineModel',
+    'InboundReceiptModel',
 ]

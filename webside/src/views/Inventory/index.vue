@@ -402,6 +402,10 @@
             <el-tag :type="quantityTagType(row.quantity)" size="small">
               {{ row.quantity || 0 }}
             </el-tag>
+            <!-- 库存含在途（快递单已发出未入库）：可上架但不能发货 -->
+            <div v-if="Number(row.transit_quantity || 0) > 0" class="inv-transit-qty">
+              {{ t('inventory.inTransitQty', { n: Number(row.transit_quantity) }) }}
+            </div>
           </template>
         </el-table-column>
         <el-table-column :label="t('inventory.onSaleColumn')" prop="on_sale_quantity" width="80" align="center" header-align="center" sortable="custom">
@@ -510,6 +514,9 @@
               <div class="inv-card-price">¥{{ Math.round(Number(row.price || 0)) }}</div>
               <div class="inv-card-tags">
                 <el-tag :type="quantityTagType(row.quantity)" size="small">{{ t('inventory.stockColumn') }} {{ row.quantity || 0 }}</el-tag>
+                <el-tag v-if="Number(row.transit_quantity || 0) > 0" type="warning" size="small" effect="plain">
+                  {{ t('inventory.inTransitQty', { n: Number(row.transit_quantity) }) }}
+                </el-tag>
                 <el-tag size="small" effect="plain">{{ t('inventory.onSaleColumn') }} {{ Number(row.on_sale_quantity ?? 0) }}</el-tag>
                 <el-tag
                   size="small"
@@ -1097,7 +1104,9 @@
                 </el-table-column>
                 <el-table-column :label="t('inventory.arrivedAt')" min-width="190">
                   <template #default="{ row }">
+                    <span v-if="row.stage === 'transit'" class="cell-muted">{{ row.arrived_at || '-' }}</span>
                     <el-date-picker
+                      v-else
                       v-model="row.arrived_at"
                       type="datetime"
                       size="small"
@@ -1110,7 +1119,12 @@
                 </el-table-column>
                 <el-table-column :label="t('inventory.belongingShelf')" min-width="200">
                   <template #default="{ row }">
+                    <!-- 在途批次由快递单管理：不在任何货架上，也不能在这里改 -->
+                    <el-tag v-if="row.stage === 'transit'" type="warning" size="small" effect="light">
+                      {{ t('inventory.batchInTransit', { no: row.shipment_tracking_no || ('#' + row.shipment_id) }) }}
+                    </el-tag>
                     <el-cascader
+                      v-else
                       :model-value="warehousePathOf(row.warehouse_id)"
                       :options="warehouseCascaderOptionsWithDefault"
                       :props="warehouseCascaderProps"
@@ -1130,7 +1144,9 @@
                 </el-table-column>
                 <el-table-column :label="t('inventory.batchRemark')" min-width="140">
                   <template #default="{ row }">
+                    <span v-if="row.stage === 'transit'" class="cell-muted">{{ row.remark || '-' }}</span>
                     <el-input
+                      v-else
                       v-model="row.remark"
                       size="small"
                       @change="(v) => saveBatchField(row, 'remark', v)"
@@ -1140,6 +1156,7 @@
                 <el-table-column width="64" align="center">
                   <template #default="{ row }">
                     <el-popconfirm
+                      v-if="row.stage !== 'transit'"
                       :title="t('inventory.batchDeleteConfirm', { qty: Number(row.quantity || 0) })"
                       @confirm="removeBatch(row)"
                     >

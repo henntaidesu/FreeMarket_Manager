@@ -166,7 +166,8 @@ def list_inventory(
     if warehouse_unassigned:
         where_parts.append(
             "AND (p.warehouse_id IS NULL OR EXISTS (SELECT 1 FROM [inventory_batches] ib "
-            "WHERE ib.inventory_id = p.id AND ib.warehouse_id IS NULL AND ib.quantity > 0))"
+            "WHERE ib.inventory_id = p.id AND ib.warehouse_id IS NULL AND ib.quantity > 0 "
+            "AND COALESCE(ib.stage, '') <> 'transit'))"
         )
     if warehouse_id or warehouse_unassigned:
         # 组合商品没有货架号（仓库位置恒为「-」），按货架筛选时不应出现在结果里

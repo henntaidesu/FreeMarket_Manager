@@ -19,6 +19,12 @@
 
 ``inventory.warehouse_id`` 对已分批商品保持为「先进先出队首批次」的仓位：下一件要发的
 货就在那里，所以待办/在售/出入库流水里沿用这一列的地方语义仍然正确。
+
+**在途批次**（``stage='transit'``，快递单已发出、还没扫码入库，见 ``src/inbound_shipments``）：
+计入总数（可以上架），但货不在任何货架上——
+  · 扣减时排在所有在岸批次之后（``_FIFO_ORDER``），货到之前卖出的也优先扣在岸的；
+  · 不参与队首仓位、仓位统计（``stock_locations_sql``）、整件换仓位与当日归并；
+  · 只能由快递单流程改动，批次页不能手改 / 删除。
 """
 from __future__ import annotations
 
@@ -31,7 +37,14 @@ from ..db_manage.database import DatabaseManager
 
 log = logging.getLogger(__name__)
 
-_FIFO_ORDER = "ORDER BY COALESCE([arrived_at], [created_at]) ASC, [id] ASC"
+_FIFO_ORDER = (
+    "ORDER BY CASE WHEN [stage] = 'transit' THEN 1 ELSE 0 END ASC, "
+    "COALESCE([arrived_at], [created_at]) ASC, [id] ASC"
+)
+#: 在岸批次的条件（stage 为 NULL 的历史批次都在岸）
+ONSHORE_COND = "COALESCE([stage], '') <> 'transit'"
+STAGE_TRANSIT = "transit"
+STAGE_ONSHORE = "onshore"
 _LEGACY_REMARK = "启用批次前的库存"
 
 
@@ -135,9 +148,11 @@ def list_batches(inv_id: int) -> List[Dict[str, Any]]:
         SELECT b.[id], b.[inventory_id], b.[batch_no], b.[arrived_at], b.[warehouse_id], b.[quantity],
                b.[remark], b.[created_at],
                CASE WHEN w.[id] IS NULL THEN NULL ELSE {wh_label} END,
-               COALESCE(NULLIF(TRIM(w.[warehouse]), ''), '默认仓库')
+               COALESCE(NULLIF(TRIM(w.[warehouse]), ''), '默认仓库'),
+               b.[stage], b.[shipment_id], s.[tracking_no]
         FROM [inventory_batches] b
         LEFT JOIN [warehouses] w ON w.[id] = b.[warehouse_id]
+        LEFT JOIN [inbound_shipments] s ON s.[id] = b.[shipment_id]
         WHERE b.[inventory_id] = ?
         ORDER BY COALESCE(b.[arrived_at], b.[created_at]) ASC, b.[id] ASC
         """,
@@ -156,20 +171,24 @@ def list_batches(inv_id: int) -> List[Dict[str, Any]]:
             "created_at": _dt_str(r[7]),
             "warehouse_name": r[8],
             "warehouse_store": r[9],
+            "stage": STAGE_TRANSIT if r[10] == STAGE_TRANSIT else STAGE_ONSHORE,
+            "shipment_id": r[11],
+            "shipment_tracking_no": r[12],
         })
     return out
 
 
 def _sync_head_warehouse(db: DatabaseManager, inv_id: int) -> None:
-    """inventory.warehouse_id ← 先进先出队首（最早的有货批次）的仓位；全空则取最新批次。"""
+    """inventory.warehouse_id ← 先进先出队首（最早的有货在岸批次）的仓位；全空则取最新在岸批次。
+    只有在途批次时不动（在途的货不在任何货架上）。"""
     head = db.execute_query(
         f"SELECT [warehouse_id] FROM [inventory_batches] WHERE [inventory_id] = ? AND [quantity] > 0 "
-        f"{_FIFO_ORDER} LIMIT 1",
+        f"AND {ONSHORE_COND} {_FIFO_ORDER} LIMIT 1",
         (int(inv_id),),
     )
     if not head:
         head = db.execute_query(
-            "SELECT [warehouse_id] FROM [inventory_batches] WHERE [inventory_id] = ? "
+            f"SELECT [warehouse_id] FROM [inventory_batches] WHERE [inventory_id] = ? AND {ONSHORE_COND} "
             "ORDER BY COALESCE([arrived_at], [created_at]) DESC, [id] DESC LIMIT 1",
             (int(inv_id),),
         )
@@ -181,7 +200,7 @@ def _sync_head_warehouse(db: DatabaseManager, inv_id: int) -> None:
 
 
 def _apply_diff(db: DatabaseManager, inv_id: int, diff: int) -> None:
-    """把 (总数 - Σ批次) 的差额落到批次上：负数先进先出扣减，正数加回队首批次。"""
+    """把 (总数 - Σ批次) 的差额落到批次上：负数先进先出扣减（在途排最后），正数加回队首在岸批次。"""
     if diff < 0:
         need = -diff
         rows = db.execute_query(
@@ -205,12 +224,13 @@ def _apply_diff(db: DatabaseManager, inv_id: int, diff: int) -> None:
         if need > 0:
             log.warning("[inventory_batches] 商品 %s 批次不足以扣减，剩余 %s 件未落到批次", inv_id, need)
     elif diff > 0:
+        # 回吐的货是退回手上的，只加到在岸批次：加进在途批次会让快递单的在途数对不上
         target = db.execute_query(
             f"SELECT [id] FROM [inventory_batches] WHERE [inventory_id] = ? AND [quantity] > 0 "
-            f"{_FIFO_ORDER} LIMIT 1",
+            f"AND {ONSHORE_COND} {_FIFO_ORDER} LIMIT 1",
             (int(inv_id),),
         ) or db.execute_query(
-            "SELECT [id] FROM [inventory_batches] WHERE [inventory_id] = ? "
+            f"SELECT [id] FROM [inventory_batches] WHERE [inventory_id] = ? AND {ONSHORE_COND} "
             "ORDER BY COALESCE([arrived_at], [created_at]) DESC, [id] DESC LIMIT 1",
             (int(inv_id),),
         )
@@ -218,6 +238,14 @@ def _apply_diff(db: DatabaseManager, inv_id: int, diff: int) -> None:
             db.execute_update(
                 "UPDATE [inventory_batches] SET [quantity] = [quantity] + ? WHERE [id] = ?",
                 (diff, int(target[0][0])),
+            )
+        else:
+            # 只有在途批次：另起一个在岸批次（默认仓库）承接
+            db.execute_insert(
+                "INSERT INTO [inventory_batches] "
+                "([inventory_id], [batch_no], [arrived_at], [warehouse_id], [quantity], [remark], [created_at]) "
+                "VALUES (?, ?, ?, NULL, ?, ?, ?)",
+                (int(inv_id), _next_batch_no(db, inv_id), now_str(), int(diff), "退回库存", now_str()),
             )
 
 
@@ -297,14 +325,15 @@ def create_batch(inv_id: int, *, arrived_at: Any,
 
 def get_batch(batch_id: int) -> Optional[Dict[str, Any]]:
     rows = DatabaseManager().execute_query(
-        "SELECT [id], [inventory_id], [quantity], [warehouse_id] FROM [inventory_batches] "
+        "SELECT [id], [inventory_id], [quantity], [warehouse_id], [stage] FROM [inventory_batches] "
         "WHERE [id] = ? LIMIT 1",
         (int(batch_id),),
     )
     if not rows:
         return None
     r = rows[0]
-    return {"id": int(r[0]), "inventory_id": int(r[1]), "quantity": int(r[2] or 0), "warehouse_id": r[3]}
+    return {"id": int(r[0]), "inventory_id": int(r[1]), "quantity": int(r[2] or 0), "warehouse_id": r[3],
+            "stage": STAGE_TRANSIT if r[4] == STAGE_TRANSIT else STAGE_ONSHORE}
 
 
 def update_batch(batch_id: int, fields: Dict[str, Any]) -> None:
@@ -314,6 +343,8 @@ def update_batch(batch_id: int, fields: Dict[str, Any]) -> None:
     cur = get_batch(batch_id)
     if not cur:
         raise LookupError("批次不存在")
+    if cur["stage"] == STAGE_TRANSIT:
+        raise ValueError("在途批次由快递单管理，不能在这里修改")
     if "quantity" in fields and fields["quantity"] is not None and int(fields["quantity"]) != cur["quantity"]:
         raise ValueError("已添加的批次数量不可修改")
     inv_id = cur["inventory_id"]
@@ -341,6 +372,8 @@ def delete_batch(batch_id: int) -> int:
     cur = get_batch(batch_id)
     if not cur:
         raise LookupError("批次不存在")
+    if cur["stage"] == STAGE_TRANSIT:
+        raise ValueError("在途批次由快递单管理，不能在这里删除")
     inv_id = cur["inventory_id"]
     with db.transaction():
         if cur["quantity"]:
@@ -366,51 +399,57 @@ def receive_stock(inv_id: int, qty: int, warehouse_id: Optional[int], remark: Op
         return
     with db.transaction():
         materialize_legacy(inv_id, quantity_override=int(meta[0]) - int(qty))
-        today = datetime.now().strftime("%Y-%m-%d")
-        wh_cond = "[warehouse_id] IS NULL" if warehouse_id is None else "[warehouse_id] = ?"
-        params: tuple = (int(inv_id), f"{today} 00:00:00", f"{today} 23:59:59")
-        if warehouse_id is not None:
-            params += (int(warehouse_id),)
-        rows = db.execute_query(
-            f"SELECT [id] FROM [inventory_batches] WHERE [inventory_id] = ? "
-            f"AND [arrived_at] >= ? AND [arrived_at] <= ? AND {wh_cond} "
-            f"ORDER BY [id] DESC LIMIT 1",
-            params,
-        )
-        if rows:
-            db.execute_update(
-                "UPDATE [inventory_batches] SET [quantity] = [quantity] + ? WHERE [id] = ?",
-                (int(qty), int(rows[0][0])),
-            )
-        else:
-            db.execute_insert(
-                "INSERT INTO [inventory_batches] "
-                "([inventory_id], [batch_no], [arrived_at], [warehouse_id], [quantity], [remark], [created_at]) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (int(inv_id), _next_batch_no(db, inv_id), now_str(), warehouse_id, int(qty),
-                 (remark or "").strip() or "扫码入库",
-                 now_str()),
-            )
+        add_to_onshore_batch(db, inv_id, qty, warehouse_id, (remark or "").strip() or "扫码入库")
         _sync_head_warehouse(db, inv_id)
 
 
+def add_to_onshore_batch(db: DatabaseManager, inv_id: int, qty: int,
+                         warehouse_id: Optional[int], remark: str) -> int:
+    """把 qty 件加进「今天、该仓位」的在岸批次，没有就新建一个；只动批次，不动总数。
+    连续扫码每扫一下 +1，按天+仓位归并，不会一扫一个批次。返回批次 id。须在事务内调用。"""
+    today = datetime.now().strftime("%Y-%m-%d")
+    wh_cond = "[warehouse_id] IS NULL" if warehouse_id is None else "[warehouse_id] = ?"
+    params: tuple = (int(inv_id), f"{today} 00:00:00", f"{today} 23:59:59")
+    if warehouse_id is not None:
+        params += (int(warehouse_id),)
+    rows = db.execute_query(
+        f"SELECT [id] FROM [inventory_batches] WHERE [inventory_id] = ? "
+        f"AND [arrived_at] >= ? AND [arrived_at] <= ? AND {wh_cond} AND {ONSHORE_COND} "
+        f"ORDER BY [id] DESC LIMIT 1",
+        params,
+    )
+    if rows:
+        db.execute_update(
+            "UPDATE [inventory_batches] SET [quantity] = [quantity] + ? WHERE [id] = ?",
+            (int(qty), int(rows[0][0])),
+        )
+        return int(rows[0][0])
+    return int(db.execute_insert(
+        "INSERT INTO [inventory_batches] "
+        "([inventory_id], [batch_no], [arrived_at], [warehouse_id], [quantity], [remark], [created_at]) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (int(inv_id), _next_batch_no(db, inv_id), now_str(), warehouse_id, int(qty), remark, now_str()),
+    ))
+
+
 def move_all_batches(inv_id: int, warehouse_id: Optional[int]) -> None:
-    """整件商品换仓位（库存列表的行内改仓位 / 批量修改仓位）= 它的全部批次一起搬过去。"""
+    """整件商品换仓位（库存列表的行内改仓位 / 批量修改仓位）= 它的全部在岸批次一起搬过去。"""
     db = DatabaseManager()
     db.execute_update(
-        "UPDATE [inventory_batches] SET [warehouse_id] = ? WHERE [inventory_id] = ?",
+        f"UPDATE [inventory_batches] SET [warehouse_id] = ? WHERE [inventory_id] = ? AND {ONSHORE_COND}",
         (warehouse_id, int(inv_id)),
     )
 
 
 def stock_locations_sql() -> str:
     """「货在哪、有几件」的统一来源，供仓位统计/按仓位筛选使用。输出列
-    ``inventory_id, warehouse_id, quantity``：已分批商品取各批次，未分批商品取 inventory 行本身。"""
+    ``inventory_id, warehouse_id, quantity``：已分批商品取各在岸批次（在途的货不在任何仓位上），
+    未分批商品取 inventory 行本身。"""
     return (
         "(SELECT b.[inventory_id] AS inventory_id, b.[warehouse_id] AS warehouse_id, "
         "b.[quantity] AS quantity "
         "FROM [inventory_batches] b JOIN [inventory] bi ON bi.[id] = b.[inventory_id] "
-        "WHERE COALESCE(bi.[is_delete], 0) = 0 "
+        "WHERE COALESCE(bi.[is_delete], 0) = 0 AND COALESCE(b.[stage], '') <> 'transit' "
         "UNION ALL "
         "SELECT li.[id], li.[warehouse_id], COALESCE(li.[quantity], 0) FROM [inventory] li "
         "WHERE COALESCE(li.[is_delete], 0) = 0 "
