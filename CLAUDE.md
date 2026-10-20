@@ -262,8 +262,13 @@ Key tables in `backend/src/db_manage/models/`:
   没有再取 `inventory.warehouse_id`。全部入库完自动关单；手动「清点关单」把在途剩余记为丢失并从总数扣掉。
   货到前在途批次若已被售出扣减，入库会拒绝（「在途库存不足」），只能清点关单。
 - **inventory_old / inventory_batches_old**: 重新盘库（2026-10-20）前的整表归档，id 原样保留；新 `inventory`
-  从 1500 起编号，所以新旧 id 不会撞。库存计数 / 在售绑定 / 出库扣减都不碰它们；在售描述暗号、图片水印、
-  出库明细、流水里指向旧 id 的记录因此在新表里查不到，按「未绑定」处理。两张表注册为模型
+  从 1500 起编号，所以新旧 id 不会撞。库存计数 / 在售绑定 / 出库扣减都不碰它们。
+  **历史订单的出库明细直接指向归档表**：`order_outbound_lines.inventory_archived=1` 表示 `inventory_id` 是
+  `inventory_old` 的 id（`OrderOutboundLineModel.save()` 按 id 自动判定，启动时 `backfill_archived_lines()` 幂等补标），
+  并且归档行的所有人已快照进 `l.owner_user_id`——所以只看归属的查询（标红 / 按归属筛选 / 分账 / 结算）仍只
+  `LEFT JOIN [inventory] p`，条件用 `LINE_BOUND_SQL` 代替原来的 INNER JOIN；要商品详情（名称 / 图片 / 单价）的用
+  `LINE_INVENTORY_JOINS` + `inv_col()`（按标记二选一的两次主键查找）。**不要 UNION 两张表当派生表**，那会整表物化。
+  改绑 / 归属转化把明细改指新库存时要同时置 `inventory_archived = 0`。扣减库存仍只写 `[inventory]`。两张表注册为模型
   （`models/inventory/inventory_old.py`）只是为了不被启动时的 drop-unknown-tables 删掉。
   **「其他功能 → 历史库存」（`/#/system/inventory-history`）就是库存页本身**（`views/Inventory`，
   `props: { archive: true }`）：请求带 `X-Inventory-Archive: 1` 头，`db_manage/archive_view.py` 的中间件

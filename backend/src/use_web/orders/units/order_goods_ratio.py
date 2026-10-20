@@ -10,7 +10,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from ....db_manage.database import DatabaseManager
-from ....db_manage.models.orders.order_outbound_line import OrderOutboundLineModel
+from ....db_manage.models.orders.order_outbound_line import LINE_BOUND_SQL, OrderOutboundLineModel
 
 _db = DatabaseManager()
 
@@ -375,8 +375,8 @@ def owner_amt_by_order(order_nos: List[str], owner_user_id: int) -> Dict[str, in
             f"""
             SELECT l.[order_no], COALESCE(SUM(l.[ratio_price]), 0)
             FROM [order_outbound_lines] l
-            JOIN [inventory] p ON p.[id] = l.[inventory_id]
-            WHERE l.[order_no] IN ({ph})
+            LEFT JOIN [inventory] p ON p.[id] = l.[inventory_id]
+            WHERE l.[order_no] IN ({ph}) AND {LINE_BOUND_SQL}
               AND l.[ratio_price] IS NOT NULL
               AND IFNULL(COALESCE(l.[owner_user_id], p.[owner_user_id]), 0) = ?
             GROUP BY l.[order_no]
@@ -401,13 +401,13 @@ def owner_weights_from_order_goods_ratio(order_no: str) -> List[Dict[str, Any]]:
     _ensure_order_ratio_stored(ono)
 
     rows = _db.execute_query(
-        """
+        f"""
         SELECT COALESCE(u.[display_name], u.[username]) AS owner,
                COALESCE(SUM(l.[ratio_price]), 0) AS w
         FROM [order_outbound_lines] l
-        JOIN [inventory] p ON p.[id] = l.[inventory_id]
+        LEFT JOIN [inventory] p ON p.[id] = l.[inventory_id]
         LEFT JOIN [users] u ON u.[id] = COALESCE(l.[owner_user_id], p.[owner_user_id])
-        WHERE l.[order_no] = ? AND l.[ratio_price] IS NOT NULL
+        WHERE l.[order_no] = ? AND l.[ratio_price] IS NOT NULL AND {LINE_BOUND_SQL}
         GROUP BY COALESCE(u.[display_name], u.[username])
         """,
         (ono,),
@@ -450,11 +450,11 @@ def split_order_money_for_owner_user(
     if amount > 0:
         _ensure_order_ratio_stored(ono)
         rows = _db.execute_query(
-            """
+            f"""
             SELECT COALESCE(SUM(l.[ratio_price]), 0)
             FROM [order_outbound_lines] l
-            JOIN [inventory] p ON p.[id] = l.[inventory_id]
-            WHERE l.[order_no] = ? AND l.[ratio_price] IS NOT NULL
+            LEFT JOIN [inventory] p ON p.[id] = l.[inventory_id]
+            WHERE l.[order_no] = ? AND l.[ratio_price] IS NOT NULL AND {LINE_BOUND_SQL}
               AND IFNULL(COALESCE(l.[owner_user_id], p.[owner_user_id]), 0) = ?
             """,
             (ono, oid),

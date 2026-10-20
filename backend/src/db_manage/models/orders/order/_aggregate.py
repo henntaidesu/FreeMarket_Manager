@@ -3,6 +3,8 @@
 
 from typing import Any, Dict, List, Optional, Tuple
 
+from ..order_outbound_line import LINE_BOUND_SQL
+
 
 class _AggregateMixin:
 
@@ -75,11 +77,11 @@ class _AggregateMixin:
             base_sql += f" AND {time_col} <= ?"
             params.append(int(end_ts))
         if owner_user_id is not None and int(owner_user_id) > 0:
-            base_sql += """
+            base_sql += f"""
                 AND EXISTS (
                     SELECT 1 FROM [order_outbound_lines] l
-                    INNER JOIN [inventory] p ON p.id = l.inventory_id
-                    WHERE l.[order_no] = o.[order_no]
+                    LEFT JOIN [inventory] p ON p.id = l.inventory_id
+                    WHERE l.[order_no] = o.[order_no] AND {LINE_BOUND_SQL}
                       AND COALESCE(l.[owner_user_id], p.[owner_user_id]) = ?
                 )
             """

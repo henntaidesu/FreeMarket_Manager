@@ -42,6 +42,23 @@ PACKAGING_CHECK_STATUSES: Tuple[str, ...] = POST_SHIP_CHECK_STATUSES
 # （要求明细别名 l、库存别名 p）——同一管理番号下可能有多个所有人的货（见 inventory_batches.owner_user_id）。
 OWNER_SQL = "COALESCE(l.[owner_user_id], p.[owner_user_id])"
 
+# 出库明细要读商品详情（名称 / 图片 / 单价…）时的两路 JOIN：按 l.inventory_archived 二选一，
+# 新库存别名 p、归档库存（inventory_old，重新盘库前的货）别名 po，各是一次主键查找。
+# 列取 inv_col()；不要 UNION 两张表当派生表——那会整表物化，订单列表每行都要付这个价。
+# 只看归属的查询不用它：归档行的所有人已快照在 l.owner_user_id 上，OWNER_SQL 只靠 p 就够。
+LINE_INVENTORY_JOINS = (
+    "LEFT JOIN [inventory] p ON p.[id] = l.[inventory_id] AND COALESCE(l.[inventory_archived], 0) = 0 "
+    "LEFT JOIN [inventory_old] po ON po.[id] = l.[inventory_id] AND l.[inventory_archived] = 1"
+)
+# 「这一行绑着一件存在的商品」（新库存或归档库存）
+LINE_HAS_INVENTORY_SQL = "(p.[id] IS NOT NULL OR po.[id] IS NOT NULL)"
+# 只 JOIN 了新库存 p 时的同一判断：归档行恒算绑定（归档表只读、行不会消失）
+LINE_BOUND_SQL = "(p.[id] IS NOT NULL OR l.[inventory_archived] = 1)"
+
+
+def inv_col(col: str) -> str:
+    return f"COALESCE(p.[{col}], po.[{col}])"
+
 
 class OrderOutboundLineModel(BaseModel):
     """order_outbound_lines：一行对应说明里解析出的一个管理 ID 或一条条码（映射 inventory）。"""
@@ -120,6 +137,13 @@ class OrderOutboundLineModel(BaseModel):
                 "not_null": False,
                 "default": None,
             },
+            # 1 = inventory_id 指向归档表 inventory_old（重新盘库前的商品），0 = 指向 inventory。
+            # 由 save() 按 inventory_id 自动判定；归档行同时把所有人快照进 owner_user_id。
+            "inventory_archived": {
+                "type": "INTEGER",
+                "not_null": True,
+                "default": 0,
+            },
             # 以下为持久化的「货物比例」分摊结果（见 order_goods_ratio.recompute_and_store_order_ratio）：
             # 由订单创建/重建出库行、订单金额变化、单单刷新、同步时重算写回，读取链路直接取库内值，
             # 不再每次请求实时扫描 on_sale_items。
@@ -146,6 +170,49 @@ class OrderOutboundLineModel(BaseModel):
             {"name": "idx_obl_order_no", "columns": ["order_no"], "unique": False},
             {"name": "idx_obl_inventory_id", "columns": ["inventory_id"], "unique": False},
         ]
+
+    def save(self) -> bool:
+        """写入前按 inventory_id 判定它指向新库存还是归档库存（见 inventory_archived）。
+
+        只在新建或改了 inventory_id 时查一次（两个主键查找）。归档商品不会再变，所以顺手把
+        它的所有人快照进 owner_user_id，归属类查询就不必再 JOIN 归档表。
+        """
+        inv = self._data.get("inventory_id")
+        if self._is_new_record() or inv != self._original_data.get("inventory_id"):
+            archived = 0
+            if inv is not None:
+                rows = self.db.execute_query(
+                    "SELECT o.[owner_user_id] FROM [inventory_old] o WHERE o.[id] = ? "
+                    "AND NOT EXISTS (SELECT 1 FROM [inventory] i WHERE i.[id] = ?) LIMIT 1",
+                    (int(inv), int(inv)),
+                )
+                if rows:
+                    archived = 1
+                    if self._data.get("owner_user_id") is None and rows[0][0] is not None:
+                        self._data["owner_user_id"] = int(rows[0][0])
+            self._data["inventory_archived"] = archived
+        return super().save()
+
+    @classmethod
+    def backfill_archived_lines(cls) -> int:
+        """把指向归档库存的明细标成 inventory_archived=1 并补所有人快照。幂等（只动还没标的行）。
+
+        重新盘库把 inventory 整表移进 inventory_old 之后，历史订单的明细都指向旧 id，这一步把它们
+        「指过去」；平时没有新的归档行，WHERE 命中 0 行。
+        """
+        return cls().db.execute_update(
+            """
+            UPDATE [order_outbound_lines]
+            SET [inventory_archived] = 1,
+                [owner_user_id] = COALESCE([owner_user_id], (
+                    SELECT o.[owner_user_id] FROM [inventory_old] o
+                    WHERE o.[id] = [order_outbound_lines].[inventory_id]
+                ))
+            WHERE COALESCE([inventory_archived], 0) = 0
+              AND [inventory_id] IN (SELECT [id] FROM [inventory_old])
+              AND [inventory_id] NOT IN (SELECT [id] FROM [inventory])
+            """
+        ) or 0
 
     @classmethod
     def list_enriched_for_order(
@@ -184,21 +251,21 @@ class OrderOutboundLineModel(BaseModel):
                 l.goods_ratio,
                 l.ratio_price,
                 l.ratio_unit_price,
-                p.name AS inventory_name,
-                p.barcode AS inventory_barcode,
-                p.sku AS inventory_sku,
-                p.price AS original_price,
-                p.quantity AS stock_quantity,
+                {inv_col("name")} AS inventory_name,
+                {inv_col("barcode")} AS inventory_barcode,
+                {inv_col("sku")} AS inventory_sku,
+                {inv_col("price")} AS original_price,
+                {inv_col("quantity")} AS stock_quantity,
                 COALESCE(u.display_name, u.username) AS inventory_owner_name,
                 {OWNER_SQL} AS inventory_owner_user_id,
-                p.warehouse_id AS inventory_warehouse_id,
-                p.images_json AS inventory_images_json,
+                {inv_col("warehouse_id")} AS inventory_warehouse_id,
+                {inv_col("images_json")} AS inventory_images_json,
                 NULLIF(TRIM(w.[warehouse]), '') AS warehouse_name,
                 NULLIF(TRIM(w.[shelf_name]), '') AS shelf_name,
                 NULLIF(TRIM(w.[name]), '') AS shelf_code
             FROM [{cls.get_table_name()}] l
-            LEFT JOIN [inventory] p ON p.id = l.inventory_id
-            LEFT JOIN [warehouses] w ON w.id = p.warehouse_id
+            {LINE_INVENTORY_JOINS}
+            LEFT JOIN [warehouses] w ON w.id = {inv_col("warehouse_id")}
             LEFT JOIN [users] u ON u.id = {OWNER_SQL}
             WHERE l.order_no = ?{owner_filter_sql}
             ORDER BY l.sort_index ASC, l.id ASC

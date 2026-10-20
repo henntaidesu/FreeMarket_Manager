@@ -875,7 +875,17 @@ class DBManager:
         if not self._migrate_inventory_product_barcode_index():
             return False
         self._migrate_inventory_variant_codes()
+        self._backfill_archived_outbound_lines()
         return True
+
+    def _backfill_archived_outbound_lines(self) -> None:
+        """出库明细指向归档库存（inventory_old）的行打标 + 补所有人快照。幂等；失败只告警。"""
+        try:
+            n = OrderOutboundLineModel.backfill_archived_lines()
+            if n:
+                print(f"[OK] 出库明细指向归档库存: {n} 行")
+        except Exception as e:  # noqa: BLE001
+            print(f"[WARN] 出库明细归档标记失败: {e}")
 
     def _migrate_inventory_variant_codes(self) -> None:
         """条码补款式号（条码 → 条码-N）+ 补齐 base_mgmt_id。幂等；失败只告警，不挡启动。"""

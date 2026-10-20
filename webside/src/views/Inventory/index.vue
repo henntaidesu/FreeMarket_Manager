@@ -1000,7 +1000,7 @@
                       v-model="form.auto_listing_enabled"
                       :active-value="1"
                       :inactive-value="0"
-                      :disabled="!canEnableAutoListing"
+                      :disabled="archive || !canEnableAutoListing"
                     />
                   </span>
                 </el-tooltip>
@@ -1047,7 +1047,7 @@
                       type="success"
                       size="default"
                       :loading="listingSubmitting"
-                      :disabled="inventorySaveBlockedByImageUpload || listableQuantity(form) <= 0 || currentEditRowIsAlert || !hasListingAccountFor('mercari') || !currentTypeMercariReady"
+                      :disabled="archive || inventorySaveBlockedByImageUpload || listableQuantity(form) <= 0 || currentEditRowIsAlert || !hasListingAccountFor('mercari') || !currentTypeMercariReady"
                     >{{ t('inventory.listSubmitMercari') }}</el-button>
                   </template>
                 </el-popconfirm>
@@ -1064,7 +1064,7 @@
                       type="success"
                       size="default"
                       :loading="listingSubmitting"
-                      :disabled="inventorySaveBlockedByImageUpload || listableQuantity(form) <= 0 || currentEditRowIsAlert || !hasListingAccountFor('yahoo') || !currentTypeYahooReady || shippingFromIsUndecided"
+                      :disabled="archive || inventorySaveBlockedByImageUpload || listableQuantity(form) <= 0 || currentEditRowIsAlert || !hasListingAccountFor('yahoo') || !currentTypeYahooReady || shippingFromIsUndecided"
                     >{{ t('inventory.listSubmitYahoo') }}</el-button>
                   </template>
                 </el-popconfirm>
@@ -1539,7 +1539,7 @@
                       size="small"
                       type="danger"
                       link
-                      :disabled="combinedComponentRemoving || combinedEditDetailRows.length <= 1"
+                      :disabled="archive || combinedComponentRemoving || combinedEditDetailRows.length <= 1"
                       @click="removeCombinedComponentRow(row)"
                     >{{ t('inventory.removeCombinedComponent') }}</el-button>
                   </div>

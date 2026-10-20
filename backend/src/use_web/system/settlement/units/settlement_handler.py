@@ -18,6 +18,7 @@ from fastapi import Query
 
 from .....db_manage.database import DatabaseManager
 from .....db_manage.models.orders.order import OrderModel
+from .....db_manage.models.orders.order_outbound_line import LINE_BOUND_SQL
 
 _db = DatabaseManager()
 
@@ -51,9 +52,9 @@ def _list_owners_in_range(
                COALESCE(u.[display_name], u.[username]) AS owner_name
         FROM [orders] o
         JOIN [order_outbound_lines] l ON l.[order_no] = o.[order_no]
-        JOIN [inventory] p ON p.[id] = l.[inventory_id]
+        LEFT JOIN [inventory] p ON p.[id] = l.[inventory_id]
         LEFT JOIN [users] u ON u.[id] = COALESCE(l.[owner_user_id], p.[owner_user_id])
-        WHERE o.[status] = ?
+        WHERE o.[status] = ? AND {LINE_BOUND_SQL}
           AND COALESCE(l.[owner_user_id], p.[owner_user_id]) IS NOT NULL
           AND COALESCE(o.[settlement_excluded], 0) = 0
     """

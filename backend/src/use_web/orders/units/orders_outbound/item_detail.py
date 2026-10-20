@@ -19,6 +19,7 @@ from fastapi import HTTPException
 
 from .....db_manage.database import DatabaseManager
 from .....db_manage.models.orders.order import OrderModel
+from .....db_manage.models.orders.order_outbound_line import LINE_INVENTORY_JOINS, inv_col
 from .....use_mercari.get_order.description_mgmt_ids import sync_outbound_lines_for_order
 from .....use_mercari.sync.sync_data import resolve_account_id_by_seller_id
 from .....web_drive.core.account_serial_queue import queue_key_for_mercari_account, run_mercari_serial_async
@@ -50,9 +51,8 @@ async def _read_yahoo_description(account_id: int, item_id: str) -> Optional[str
 
 def _linked_inventory_count(order_no: str) -> int:
     rows = DatabaseManager().execute_query(
-        "SELECT COUNT(DISTINCT l.inventory_id) FROM [order_outbound_lines] l "
-        "INNER JOIN [inventory] p ON p.id = l.inventory_id "
-        "WHERE l.order_no = ? AND COALESCE(p.is_delete, 0) = 0",
+        f"SELECT COUNT(DISTINCT l.inventory_id) FROM [order_outbound_lines] l {LINE_INVENTORY_JOINS} "
+        f"WHERE l.order_no = ? AND COALESCE({inv_col('is_delete')}, 1) = 0",
         (order_no,),
     ) or []
     return int(rows[0][0] or 0) if rows else 0

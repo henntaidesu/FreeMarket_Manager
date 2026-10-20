@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from .....db_manage.models.system.cost_expense import CostExpenseModel
 from .....db_manage.models.system.cost_record import CostRecordModel
 from .....db_manage.models.orders.order import OrderModel
+from .....db_manage.models.orders.order_outbound_line import LINE_INVENTORY_JOINS, inv_col
 from ....orders.units.order_goods_ratio import owner_weights_from_order_goods_ratio
 
 ALLOWED_TYPES = {"快递费", "包装材料"}
@@ -317,17 +318,17 @@ def _resolve_order_owner_value_weights(order_no: str):
     if ratio_weights:
         return ratio_weights
     rows = CostExpenseModel().db.execute_query(
-        """
+        f"""
         SELECT
             COALESCE(
                 NULLIF(TRIM(u.[display_name]), ''),
                 NULLIF(TRIM(u.[username]), ''),
                 ''
             ) AS owner_key,
-            COALESCE(p.[price], 0) AS product_price,
+            COALESCE({inv_col("price")}, 0) AS product_price,
             COALESCE(l.[quantity], 1) AS line_qty
         FROM [order_outbound_lines] l
-        LEFT JOIN [inventory] p ON p.[id] = l.[inventory_id]
+        {LINE_INVENTORY_JOINS}
         LEFT JOIN [users] u ON u.[id] = COALESCE(l.[owner_user_id], p.[owner_user_id])
         WHERE l.[order_no] = ?
           AND l.[inventory_id] IS NOT NULL

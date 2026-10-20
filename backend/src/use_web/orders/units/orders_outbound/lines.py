@@ -178,7 +178,7 @@ def bind_outbound_line_inventory(line_id: int, data: OutboundLineBindInventoryBo
                 )
 
             cur.execute(
-                "UPDATE [order_outbound_lines] SET [inventory_id] = ?, [quantity] = ?, [owner_user_id] = ? "
+                "UPDATE [order_outbound_lines] SET [inventory_id] = ?, [quantity] = ?, [owner_user_id] = ?, [inventory_archived] = 0 "
                 "WHERE [id] = ?",
                 (inv_id, new_qty, new_owner, int(line.id)),
             )
@@ -337,7 +337,7 @@ def convert_outbound_line_owner(
                     )
 
             cur.execute(
-                "UPDATE [order_outbound_lines] SET [inventory_id] = ?, [owner_user_id] = ? WHERE [id] = ?",
+                "UPDATE [order_outbound_lines] SET [inventory_id] = ?, [owner_user_id] = ?, [inventory_archived] = 0 WHERE [id] = ?",
                 (new_inv_id, target_owner, int(line.id)),
             )
             db.dialect.commit(conn)

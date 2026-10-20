@@ -8,6 +8,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from ....db_manage.database import DatabaseManager
+from ....db_manage.models.orders.order_outbound_line import LINE_INVENTORY_JOINS, inv_col
 
 
 # 「待发货」类判定：标题「発送をしてください」或 kind 属于待发货系列。
@@ -386,8 +387,8 @@ def list_todos(
         + ", n.[note] AS order_note"
         # 与 match_inventory_for_item 同口径：出库明细绑上了未删除的库存才算已关联
         + ", CASE WHEN EXISTS (SELECT 1 FROM [order_outbound_lines] l"
-        " INNER JOIN [inventory] p ON p.id = l.inventory_id"
-        " WHERE l.order_no = t.[item_id] AND COALESCE(p.is_delete, 0) = 0)"
+        f" {LINE_INVENTORY_JOINS}"
+        f" WHERE l.order_no = t.[item_id] AND COALESCE({inv_col('is_delete')}, 1) = 0)"
         " THEN 1 ELSE 0 END AS inventory_linked"
     )
     # 按「发货期限剩余时间」升序（越紧急越前）排序。截止时刻要由 shipping_duration
@@ -500,24 +501,24 @@ def match_inventory_for_item(item_id: str) -> Dict[str, Any]:
     db = DatabaseManager()
     # item_id 即订单号：取该订单出库明细关联的库存（去重，按明细排序）
     inv_rows = db.execute_query(
-        """
-        SELECT p.id, p.name, p.images_json,
+        f"""
+        SELECT l.inventory_id, {inv_col("name")}, {inv_col("images_json")},
                NULLIF(TRIM(w.warehouse), '') AS warehouse_name,
                NULLIF(TRIM(w.shelf_name), '') AS shelf_name,
                NULLIF(TRIM(w.name), '') AS shelf_code,
                ptcm.product_type AS product_type_name,
-               COALESCE(p.is_combined, 0) AS is_combined,
-               p.combined_items AS combined_items,
+               COALESCE({inv_col("is_combined")}, 0) AS is_combined,
+               {inv_col("combined_items")} AS combined_items,
                MIN(l.sort_index) AS sort_index, MIN(l.id) AS line_id
         FROM [order_outbound_lines] l
-        INNER JOIN [inventory] p ON p.id = l.inventory_id
-        LEFT JOIN [warehouses] w ON w.id = p.warehouse_id
+        {LINE_INVENTORY_JOINS}
+        LEFT JOIN [warehouses] w ON w.id = {inv_col("warehouse_id")}
         LEFT JOIN [product_type_category_mappings] ptcm
-               ON ptcm.mapping_id = CAST(p.product_type_id AS TEXT)
+               ON ptcm.mapping_id = CAST({inv_col("product_type_id")} AS TEXT)
         WHERE l.order_no = ?
           AND l.inventory_id IS NOT NULL
-          AND COALESCE(p.is_delete, 0) = 0
-        GROUP BY p.id
+          AND COALESCE({inv_col("is_delete")}, 1) = 0
+        GROUP BY l.inventory_id
         ORDER BY sort_index ASC, line_id ASC
         """,
         (iid,),
