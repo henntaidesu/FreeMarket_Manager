@@ -89,10 +89,9 @@
         <div class="search-actions">
           <template v-if="!listingPickMode">
             <el-button type="success" :disabled="archive" @click="openBarcodeInbound">{{ t('inventory.barcodeInbound') }}</el-button>
-            <el-button type="success" plain :disabled="archive" @click="openNoBarcodeEntry">{{ t('inventory.noBarcodeInbound') }}</el-button>
             <el-button type="success" plain :disabled="archive" @click="openNoCodeInbound">{{ t('inventory.noCodeInbound') }}</el-button>
+            <el-button type="primary" plain @click="openBarcodeSearch">{{ t('inventory.barcodeSearch') }}</el-button>
             <el-button type="primary" plain :disabled="archive" @click="openImageSearch">{{ t('inventory.imageSearch') }}</el-button>
-            <el-button v-if="!archive" @click="archiveImportVisible = true">{{ t('inventory.importArchive') }}</el-button>
             <el-button :disabled="archive" @click="enterListingPickMode()">{{ t('inventory.multiSelect') }}</el-button>
           </template>
           <template v-else>
@@ -2228,6 +2227,44 @@
       </template>
     </el-dialog>
 
+    <!-- ===== 条码搜索：扫码枪 / 拍照 / 手动输入，拿到条码后填进关键词搜索 ===== -->
+    <el-dialog
+      v-model="barcodeSearchVisible"
+      :title="t('inventory.barcodeSearch')"
+      :width="isMobile ? '94vw' : '440px'"
+      @opened="focusBarcodeSearchInput"
+    >
+      <!-- data-scanner-capture：扫码枪扫进这个输入框时交给 onScannerCode，不会和手输的字符混在一起 -->
+      <div data-scanner-capture>
+        <p class="gun-waiting-tip">{{ t('inventory.barcodeSearchHint') }}</p>
+        <el-input
+          ref="barcodeSearchInputRef"
+          v-model="barcodeSearchInput"
+          clearable
+          :placeholder="t('inventory.barcodeSearchPlaceholder')"
+          @keydown.enter.prevent="applyBarcodeSearch(barcodeSearchInput)"
+        >
+          <template #append>
+            <el-button :loading="barcodeSearchDecoding" @click="triggerBarcodeSearchCapture">
+              <el-icon><Camera /></el-icon>
+            </el-button>
+          </template>
+        </el-input>
+      </div>
+      <template #footer>
+        <el-button @click="barcodeSearchVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" @click="applyBarcodeSearch(barcodeSearchInput)">{{ t('common.search') }}</el-button>
+      </template>
+    </el-dialog>
+    <input
+      ref="barcodeSearchCaptureRef"
+      type="file"
+      accept="image/*"
+      :capture="canPickImageWithCamera ? 'environment' : undefined"
+      style="display:none"
+      @change="handleBarcodeSearchCapture"
+    />
+
     <!-- 双 input 轮换：iOS 上同一 file 连续拍照/选图时 change 可能不触发，换节点可稳定再次唤起 -->
     <input
       ref="contCameraRefA"
@@ -2255,11 +2292,6 @@
       :current-name="form.name || ''"
       @apply="applyRegionBarcode"
       @apply-name="applyRegionName"
-    />
-    <ArchiveImportDialog
-      v-if="!archive"
-      v-model="archiveImportVisible"
-      @imported="load({ resetPage: false }); loadInventoryStats()"
     />
     <BarcodeDuplicatePrompt
       v-model="dupPrompt.visible"

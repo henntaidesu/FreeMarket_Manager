@@ -48,8 +48,6 @@ export const inventoryApi = {
   combine: (data) => http.post('/use_web/inventory/combine', data),
   removeCombinedComponent: (id, componentId) => http.delete(`/use_web/inventory/${id}/combined-components/${componentId}`),
   copy: (id, data) => http.post(`/use_web/inventory/${id}/copy`, data),
-  // 导入历史库存：勾选的 inventory_old 行复制成新库存（新管理番号）。不带归档头——这是一次写入
-  importArchive: (ids) => http.post('/use_web/inventory/import-archive', { ids }, { timeout: 0 }),
   // 批次（一个管理番号下按到货批次分仓位记数量）
   listBatches: (id) => http.get(`/use_web/inventory/${id}/batches`),
   createBatch: (id, data) => http.post(`/use_web/inventory/${id}/batches`, data),

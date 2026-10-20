@@ -105,10 +105,6 @@ class CombinedInventoryCreate(PydanticModel):
             return 0
 
 
-class InventoryImportArchiveRequest(PydanticModel):
-    ids: List[int] = []
-
-
 class InventoryCopyRequest(PydanticModel):
     owner_user_id: Optional[int] = None
     quantity: int = 0

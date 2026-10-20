@@ -39,7 +39,6 @@ import { buildShelfNoLabel, parseWarehouseQr } from '@/utils/warehouseQr.js'
 import { useInventoryBatches } from './useInventoryBatches.js'
 import RegionRecognizeDialog from './RegionRecognizeDialog.vue'
 import BarcodeDuplicatePrompt from './BarcodeDuplicatePrompt.vue'
-import ArchiveImportDialog from './ArchiveImportDialog.vue'
 
 /**
  * 无码入库上次选择（游戏分类 / 商品类型 / 所属货架 + 商品归属）。
@@ -53,7 +52,6 @@ export default defineComponent({
     WarningFilled,
     RegionRecognizeDialog,
     BarcodeDuplicatePrompt,
-    ArchiveImportDialog,
   },
   props: {
     // 历史库存（其他功能 → 历史数据）：同一个页面读 inventory_old 归档表，所有改动入口禁用
@@ -1075,8 +1073,6 @@ export default defineComponent({
      * 款式 / 品相是商品自身的身份，自动出品开关会立刻触发补挂，这三样不带。
      */
     const archiveSyncing = ref(false)
-    /** 导入历史库存弹窗（ArchiveImportDialog） */
-    const archiveImportVisible = ref(false)
     async function syncListingFromArchive() {
       if (archive) return
       let code
@@ -4841,8 +4837,65 @@ export default defineComponent({
       if (code) processGunCode(code)
     }
 
+    // ============ 条码搜索 ============
+    // 扫码枪 / 拍照 / 手动输入三种来源最后都落到 applyBarcodeSearch：填进关键词搜索框再查，
+    // 关键词搜索本来就按 产品条码 / 内部条码 / 条码编号 精确匹配。只读，历史库存页也能用。
+    const barcodeSearchVisible = ref(false)
+    const barcodeSearchInput = ref('')
+    const barcodeSearchInputRef = ref()
+    const barcodeSearchCaptureRef = ref()
+    const barcodeSearchDecoding = ref(false)
+
+    function openBarcodeSearch() {
+      barcodeSearchInput.value = ''
+      barcodeSearchVisible.value = true
+    }
+
+    function focusBarcodeSearchInput() {
+      nextTick(() => barcodeSearchInputRef.value?.focus())
+    }
+
+    async function applyBarcodeSearch(rawCode) {
+      const code = String(rawCode || '').trim()
+      if (!code) return
+      barcodeSearchVisible.value = false
+      keyword.value = code
+      await load()
+      if (!total.value) ElMessage.warning(t('inventory.barcodeSearchNotFound', { code }))
+    }
+
+    function triggerBarcodeSearchCapture() {
+      const el = barcodeSearchCaptureRef.value
+      if (!el) return
+      el.value = ''
+      el.click()
+    }
+
+    async function handleBarcodeSearchCapture(e) {
+      const file = e.target.files?.[0]
+      if (!file) return
+      e.target.value = ''
+      barcodeSearchDecoding.value = true
+      try {
+        const res = await scanApi.scanBarcode(file)
+        if (res?.found && res.barcode) await applyBarcodeSearch(res.barcode)
+        else ElMessage.warning(t('inventory.scanBarcodeNotRecognized'))
+      } catch {
+        ElMessage.warning(t('inventory.scanRequestFailed'))
+      } finally {
+        barcodeSearchDecoding.value = false
+      }
+    }
+
     /** 全局扫码枪回调（库存页任意位置）。focusedEl = 扫码时焦点所在的弹窗内输入框（数量框） */
     function onScannerCode(rawCode, focusedEl) {
+      if (barcodeSearchVisible.value) {
+        // 条码搜索弹窗开着：扫到的就是要搜的条码（扫进输入框的字符一并清掉）
+        focusedEl?.blur()
+        barcodeSearchInput.value = ''
+        applyBarcodeSearch(rawCode)
+        return
+      }
       if (archive) return // 历史库存页不接扫码枪（扫码会走入库流程）
       const code = String(rawCode || '').trim()
       if (!code) return
@@ -5359,7 +5412,16 @@ export default defineComponent({
       aiGenerating,
       aiGenerateListing,
       archiveSyncing,
-      archiveImportVisible,
+      barcodeSearchVisible,
+      barcodeSearchInput,
+      barcodeSearchInputRef,
+      barcodeSearchCaptureRef,
+      barcodeSearchDecoding,
+      openBarcodeSearch,
+      focusBarcodeSearchInput,
+      applyBarcodeSearch,
+      triggerBarcodeSearchCapture,
+      handleBarcodeSearchCapture,
       syncListingFromArchive,
       submitListingFromEditForm,
       combinedProductDialogVisible,
@@ -5641,7 +5703,6 @@ export default defineComponent({
       openCombinedLinkImageDialog,
       pickComponentImageForCombinedForm,
       openDialog,
-      openNoBarcodeEntry,
       noCodeInboundVisible,
       noCodeInboundPath,
       noCodeInboundQty,
