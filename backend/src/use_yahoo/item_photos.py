@@ -82,6 +82,8 @@ def fetch_public_item(item_id: str, *, timeout: float = 15.0) -> Optional[Dict[s
 #: 编辑页上传区的图片（公開停止中时的退路）
 EDIT_PAGE_IMAGES_JS = """
 () => Array.from(document.querySelectorAll('img'))
+  // 编辑页底部的「おすすめ商品」卡片是指向别人商品的链接，缩略图 URL 同样含原图路径，排除掉
+  .filter((i) => !i.closest('a[href], [data-cl-params*="recomitm"]'))
   .map((i) => i.currentSrc || i.src || '')
   .filter((s) => s.includes('images.auctions.yahoo.co.jp/image/'))
 """

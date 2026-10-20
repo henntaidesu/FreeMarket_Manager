@@ -8,8 +8,10 @@
 旧图按打开页面时记下的 src 集合认，新图哪怕上传后也换成了雅虎图床 URL 也不会被误删。
 总数会超 20 张时先删掉多出来的旧图再传。
 
-⚠ 删除键的 DOM **未经实机验证**：按「图片所在的那一格里、不包住图片本身的按钮」去找，优先
-文案 / aria-label 带「削除」「×」的；没有按钮就点图片本身，再在弹出的层里点「削除」。
+删除键（实测）：每张图一格 ``<div><img alt="商品画像" style="pointer-events:none">
+<img alt="画像を削除する" src="…icon_close.svg"></div>``——删除键是那张关闭图标，不是 ``<button>``。
+按「图片所在的那一格里、不包住图片本身的可点元素」去找，优先 alt / aria-label / 文案带「削除」「×」的；
+都没有才点图片本身，再在弹出的层里点「削除」。
 每删一张都读回图片数，删不掉就**抛异常**并带上那一格的 HTML——宁可整件修改失败，
 也不能提交一组新旧混杂的图片（旧图上还是旧暗码）。
 """
@@ -24,8 +26,13 @@ from ._page import confirm_if_dialog
 
 log = logging.getLogger(__name__)
 
+# 编辑页底部还有一栏「おすすめ商品」：每张卡片是指向别人商品的 <a>（data-cl-params 带 recomitm），
+# 缩略图走 auc-pctr 缩图代理，URL 里同样含 images.auctions.yahoo.co.jp/image/。只按 URL 认的话
+# 那十几张都会被当成本商品的旧图——张数超 20 就去「删」推荐卡片，点下去只是新开标签页。
+# 所以链接里的图一律不算：表单里的商品图不是链接。
 _IS_PHOTO_JS = (
     "const isPhoto = (i) => { const s = i.currentSrc || i.src || '';"
+    " if (i.closest('a[href], [data-cl-params*=\"recomitm\"]')) return false;"
     " return s.includes('images.auctions.yahoo.co.jp/image/') || s.startsWith('blob:')"
     " || (s.startsWith('data:image/') && !s.startsWith('data:image/svg')); };"
     "const srcOf = (i) => i.currentSrc || i.src || '';"
@@ -43,7 +50,8 @@ _CLICK_DELETE_JS = (
     + """
     const img = [...document.querySelectorAll('img')].find((i) => srcOf(i) === src);
     if (!img) return { clicked: false, how: 'gone', html: '' };
-    const label = (b) => ((b.getAttribute('aria-label') || '') + ' ' + (b.innerText || '')).trim();
+    const label = (b) => ((b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('alt') || '')
+      + ' ' + (b.innerText || '')).trim();
     const looksDelete = (b) => /削除|×|✕|delete|remove/i.test(label(b));
     let tile = img;
     for (let d = 0; d < 5 && tile.parentElement; d++) {
@@ -52,8 +60,10 @@ _CLICK_DELETE_JS = (
       if ([...up.querySelectorAll('img')].filter(isPhoto).length > 1) break;
       tile = up;
       // 底部操作栏的「商品を削除する」等动作按钮绝不能点到
-      const btns = [...tile.querySelectorAll('button, [role="button"]')]
-        .filter((b) => !b.contains(img) && !/商品を削除|変更する|出品を/.test(label(b)));
+      // 实测：删除键是图片格里的一张关闭图标 <img alt="画像を削除する">，不是 <button>
+      const btns = [...tile.querySelectorAll('button, [role="button"], img[alt], [aria-label]')]
+        .filter((b) => !b.contains(img) && !(b.tagName === 'IMG' && isPhoto(b))
+          && !/商品を削除|変更する|出品を/.test(label(b)));
       const btn = btns.find(looksDelete) || (btns.length === 1 ? btns[0] : null);
       if (btn) {
         try { btn.scrollIntoView({ block: 'center' }); } catch (e) {}
