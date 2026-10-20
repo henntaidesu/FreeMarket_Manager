@@ -92,6 +92,7 @@
             <el-button type="success" plain :disabled="archive" @click="openNoBarcodeEntry">{{ t('inventory.noBarcodeInbound') }}</el-button>
             <el-button type="success" plain :disabled="archive" @click="openNoCodeInbound">{{ t('inventory.noCodeInbound') }}</el-button>
             <el-button type="primary" plain :disabled="archive" @click="openImageSearch">{{ t('inventory.imageSearch') }}</el-button>
+            <el-button v-if="!archive" @click="archiveImportVisible = true">{{ t('inventory.importArchive') }}</el-button>
             <el-button :disabled="archive" @click="enterListingPickMode()">{{ t('inventory.multiSelect') }}</el-button>
           </template>
           <template v-else>
@@ -2276,6 +2277,11 @@
       :current-name="form.name || ''"
       @apply="applyRegionBarcode"
       @apply-name="applyRegionName"
+    />
+    <ArchiveImportDialog
+      v-if="!archive"
+      v-model="archiveImportVisible"
+      @imported="load({ resetPage: false }); loadInventoryStats()"
     />
     <BarcodeDuplicatePrompt
       v-model="dupPrompt.visible"

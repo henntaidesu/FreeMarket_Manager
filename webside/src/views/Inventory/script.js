@@ -38,6 +38,7 @@ import { buildShelfNoLabel, parseWarehouseQr } from '@/utils/warehouseQr.js'
 import { useInventoryBatches } from './useInventoryBatches.js'
 import RegionRecognizeDialog from './RegionRecognizeDialog.vue'
 import BarcodeDuplicatePrompt from './BarcodeDuplicatePrompt.vue'
+import ArchiveImportDialog from './ArchiveImportDialog.vue'
 
 /**
  * 无码入库上次选择（游戏分类 / 商品类型 / 所属货架 + 商品归属）。
@@ -51,6 +52,7 @@ export default defineComponent({
     WarningFilled,
     RegionRecognizeDialog,
     BarcodeDuplicatePrompt,
+    ArchiveImportDialog,
   },
   props: {
     // 历史库存（其他功能 → 历史数据）：同一个页面读 inventory_old 归档表，所有改动入口禁用
@@ -1155,6 +1157,8 @@ export default defineComponent({
      * 款式 / 品相是商品自身的身份，自动出品开关会立刻触发补挂，这三样不带。
      */
     const archiveSyncing = ref(false)
+    /** 导入历史库存弹窗（ArchiveImportDialog） */
+    const archiveImportVisible = ref(false)
     async function syncListingFromArchive() {
       if (archive) return
       let code
@@ -5591,6 +5595,7 @@ export default defineComponent({
       aiGenerating,
       aiGenerateListing,
       archiveSyncing,
+      archiveImportVisible,
       syncListingFromArchive,
       submitListingFromEditForm,
       combinedProductDialogVisible,
