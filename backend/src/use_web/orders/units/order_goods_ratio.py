@@ -378,7 +378,7 @@ def owner_amt_by_order(order_nos: List[str], owner_user_id: int) -> Dict[str, in
             JOIN [inventory] p ON p.[id] = l.[inventory_id]
             WHERE l.[order_no] IN ({ph})
               AND l.[ratio_price] IS NOT NULL
-              AND IFNULL(p.[owner_user_id], 0) = ?
+              AND IFNULL(COALESCE(l.[owner_user_id], p.[owner_user_id]), 0) = ?
             GROUP BY l.[order_no]
             """,
             tuple(chunk) + (oid,),
@@ -406,7 +406,7 @@ def owner_weights_from_order_goods_ratio(order_no: str) -> List[Dict[str, Any]]:
                COALESCE(SUM(l.[ratio_price]), 0) AS w
         FROM [order_outbound_lines] l
         JOIN [inventory] p ON p.[id] = l.[inventory_id]
-        LEFT JOIN [users] u ON u.[id] = p.[owner_user_id]
+        LEFT JOIN [users] u ON u.[id] = COALESCE(l.[owner_user_id], p.[owner_user_id])
         WHERE l.[order_no] = ? AND l.[ratio_price] IS NOT NULL
         GROUP BY COALESCE(u.[display_name], u.[username])
         """,
@@ -455,7 +455,7 @@ def split_order_money_for_owner_user(
             FROM [order_outbound_lines] l
             JOIN [inventory] p ON p.[id] = l.[inventory_id]
             WHERE l.[order_no] = ? AND l.[ratio_price] IS NOT NULL
-              AND IFNULL(p.[owner_user_id], 0) = ?
+              AND IFNULL(COALESCE(l.[owner_user_id], p.[owner_user_id]), 0) = ?
             """,
             (ono, oid),
         )

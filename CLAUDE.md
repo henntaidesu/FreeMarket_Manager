@@ -216,6 +216,13 @@ Key tables in `backend/src/db_manage/models/`:
   所以新增改 `quantity` 的路径事后必须调 `recompute_listable_quantity`。没有批次行的历史商品不迁移，
   首次打开批次页 / 扫码入库时才把当时数量原样转成一个批次。`inventory.warehouse_id` 对已分批商品
   = 先进先出队首批次的仓位；仓位统计与按仓位筛选走 `stock_locations_sql()`。组合商品不分批。
+  **一个管理番号下可以有多个所有人的货**：`inventory_batches.owner_user_id`（NULL = 随商品）。出库 / 手动预扣
+  **扣减前**取先进先出队首批次的所有人（`inventory_batches.head_owner`）写进 `order_outbound_lines.owner_user_id`
+  快照；凡是「这一行出库明细算谁的」（订单按归属筛选 / 金额拆分 / 出售结算 / 包材分摊）都用
+  `order_outbound_line.OWNER_SQL` = `COALESCE(l.owner_user_id, p.owner_user_id)`，不能直接读 `p.owner_user_id`。
+  明细同步重建时快照按库存 id 带回（`description_mgmt_ids/line_owners.py`）。`merge._merge_one` 在两件所有人
+  不同时把双方批次与历史明细的所有人落成显式值，所以跨所有人合并不改历史结算。拆分家族并回见
+  `tools/merge_split_families.py`。
 - **inventory 的条码三列**（`src/inventory_barcode/`）：`product_barcode` = 从商品图识别出的产品条码，
   **不唯一**（同条码按归属人各留一个商品）；`barcode` 仍是内部唯一编号（多为 uuid，没识别到条码就保持）。
   `barcode_scan_status`：NULL 未处理 / found / none（图里无条码，跳过）/ conflict（多个不同条码，候选存 `barcode_candidates`，在系统配置「条码识别 → 处理冲突」人工定夺，
@@ -244,6 +251,16 @@ Key tables in `backend/src/db_manage/models/`:
   `CONDITION_ITEM_JA` 因此加了 `bad`）。识别只写纯条码；待合并（`review.py`）按 条码 + 归属人 成组，人工选
   一对一 / 一对多并给每件定款式·品相（`classify`，必须覆盖整组），款式 × 品相相同的合并为新商品
   （并入最新那件：确认名称 + 勾选组合图片）。启动迁移 `migrate_variant_codes` 把旧的 `条码-N` 拆成 条码 + `variant_no`，幂等。
+- **inbound_shipments / inbound_shipment_lines / inbound_receipts**: 快递入库（`src/inbound_shipments/`，
+  页面 `/#/system/inbound-shipments`）。**系统不管国内库存**，只从快递单开始：草稿不动库存；「发出」时每行生成一个
+  **在途批次**（`inventory_batches.stage='transit'` + `shipment_id`），总数 += 装箱数——所以在途的货**可上架、
+  可上架公式不变**，但不在任何货架上。到岸后扫码入库 = 在途批次 −N、「今天 × 该货架」的在岸批次 +N，**总数不变**
+  （所以快递入库**不能**走 `stock_in`，那会 +N 重复计数）。在途批次：先进先出扣减时排在所有在岸批次之后
+  （`_FIFO_ORDER`）、回吐只加到在岸批次、不参与队首仓位 / `stock_locations_sql` / `move_all_batches` / 当日归并，
+  批次页不能改删。扫商品码 → 有建议货架就立即入库并大字显示货架号；货架满了**再扫一个货架码 = 把上一条入库记录改投过去**
+  （`relocate`，只搬那几件，旧货架原有的货不动）。建议货架**按商品记** = 该商品最近一条 `inbound_receipts` 的货架，
+  没有再取 `inventory.warehouse_id`。全部入库完自动关单；手动「清点关单」把在途剩余记为丢失并从总数扣掉。
+  货到前在途批次若已被售出扣减，入库会拒绝（「在途库存不足」），只能清点关单。
 - **warehouses**: Storage locations (shelf names duplicable per warehouse)
 - **product_type_category_mappings**: 商品类型主表 (one row = one 商品类型). `inventory.product_type_id` → `mapping_id` (TEXT PK, numeric, auto-incremented on create, never user-visible). See 商品类型映射 below.
 - **shop_accounts**: Marketplace account config (headers in `value` JSON field, `platform`,

@@ -80,7 +80,7 @@ class _AggregateMixin:
                     SELECT 1 FROM [order_outbound_lines] l
                     INNER JOIN [inventory] p ON p.id = l.inventory_id
                     WHERE l.[order_no] = o.[order_no]
-                      AND p.[owner_user_id] = ?
+                      AND COALESCE(l.[owner_user_id], p.[owner_user_id]) = ?
                 )
             """
             params.append(int(owner_user_id))

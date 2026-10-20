@@ -70,6 +70,13 @@ class InventoryBatchModel(BaseModel):
                 'not_null': False,
                 'default': None,
             },
+            # 这批货的所有人（users.id）；NULL = 随商品（inventory.owner_user_id）。不同所有人的拆分商品
+            # 并回同一管理番号后靠它区分；售出时先进先出扣到哪批，出库明细就记哪批的所有人
+            'owner_user_id': {
+                'type': 'INTEGER',
+                'not_null': False,
+                'default': None,
+            },
             'remark': {
                 'type': 'TEXT',
                 'not_null': False,

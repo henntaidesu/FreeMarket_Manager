@@ -434,6 +434,39 @@ a.pef-lcard:hover {
   line-height: 18px;
   font-variant-numeric: tabular-nums;
 }
+/* 一码多品切换条：同条码的各款式 × 品相 */
+.pef-siblings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.pef-siblings__label {
+  font-size: 11.5px;
+  color: #8a94a8;
+}
+.pef-siblings__chip {
+  padding: 0 8px;
+  border: 1px solid #334366;
+  border-radius: 8px;
+  background: #1c2640;
+  color: #cbd5e1;
+  font-size: 11.5px;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.pef-siblings__chip:hover {
+  background: #31405f;
+  color: #e5eaf3;
+}
+.pef-siblings__chip.is-active {
+  border-color: #409eff;
+  background: #409eff;
+  color: #fff;
+  cursor: default;
+}
 /* 字体与管理番号徽标一致，只多一个整段选中方便复制 */
 .pef-section__badge--cipher {
   user-select: all;

@@ -38,6 +38,10 @@ POST_SHIP_CHECK_STATUSES: Tuple[str, ...] = (
 # 列表需登记包材（或确认不使用）的状态——与未出库检查同一组
 PACKAGING_CHECK_STATUSES: Tuple[str, ...] = POST_SHIP_CHECK_STATUSES
 
+# 出库明细的商品归属：明细上的所有人快照优先，没有再随库存。凡是「这一行算谁的」都用它
+# （要求明细别名 l、库存别名 p）——同一管理番号下可能有多个所有人的货（见 inventory_batches.owner_user_id）。
+OWNER_SQL = "COALESCE(l.[owner_user_id], p.[owner_user_id])"
+
 
 class OrderOutboundLineModel(BaseModel):
     """order_outbound_lines：一行对应说明里解析出的一个管理 ID 或一条条码（映射 inventory）。"""
@@ -109,6 +113,13 @@ class OrderOutboundLineModel(BaseModel):
                 "not_null": True,
                 "default": 0,
             },
+            # 这件货的所有人快照（users.id）：出库/预扣时取先进先出队首批次的所有人，合并商品前取原商品的。
+            # NULL = 随库存（inventory.owner_user_id）。归属口径一律 OWNER_SQL（本文件顶部）
+            "owner_user_id": {
+                "type": "INTEGER",
+                "not_null": False,
+                "default": None,
+            },
             # 以下为持久化的「货物比例」分摊结果（见 order_goods_ratio.recompute_and_store_order_ratio）：
             # 由订单创建/重建出库行、订单金额变化、单单刷新、同步时重算写回，读取链路直接取库内值，
             # 不再每次请求实时扫描 on_sale_items。
@@ -154,7 +165,7 @@ class OrderOutboundLineModel(BaseModel):
         bind: Tuple[Any, ...] = (ono,)
         if owner_user_id is not None and int(owner_user_id) > 0:
             owner_filter_sql = (
-                " AND l.inventory_id IS NOT NULL AND IFNULL(p.owner_user_id, 0) = ?"
+                f" AND l.inventory_id IS NOT NULL AND IFNULL({OWNER_SQL}, 0) = ?"
             )
             bind = (ono, int(owner_user_id))
         sql = f"""
@@ -179,7 +190,7 @@ class OrderOutboundLineModel(BaseModel):
                 p.price AS original_price,
                 p.quantity AS stock_quantity,
                 COALESCE(u.display_name, u.username) AS inventory_owner_name,
-                p.owner_user_id AS inventory_owner_user_id,
+                {OWNER_SQL} AS inventory_owner_user_id,
                 p.warehouse_id AS inventory_warehouse_id,
                 p.images_json AS inventory_images_json,
                 NULLIF(TRIM(w.[warehouse]), '') AS warehouse_name,
@@ -188,7 +199,7 @@ class OrderOutboundLineModel(BaseModel):
             FROM [{cls.get_table_name()}] l
             LEFT JOIN [inventory] p ON p.id = l.inventory_id
             LEFT JOIN [warehouses] w ON w.id = p.warehouse_id
-            LEFT JOIN [users] u ON u.id = p.owner_user_id
+            LEFT JOIN [users] u ON u.id = {OWNER_SQL}
             WHERE l.order_no = ?{owner_filter_sql}
             ORDER BY l.sort_index ASC, l.id ASC
         """

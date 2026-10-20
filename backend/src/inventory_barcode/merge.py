@@ -89,6 +89,25 @@ def _merge_one(db: DatabaseManager, target: int, src: int) -> None:
     # 1. 批次：两边未分批的先把现有数量转成批次，再把旧商品的批次搬过来、按目标续编号
     materialize_legacy(target)
     materialize_legacy(src)
+
+    # 所有人不同：合并后同一番号下有两个人的货，「随商品」的批次和出库明细都会改认目标的所有人，
+    #    所以先把两边的落成显式值——批次标出货是谁的，历史出库明细的结算归属不变。
+    #    所有人相同时不写，免得以后改商品所有人时批次不跟着变
+    owners = dict(db.execute_query(
+        "SELECT [id], [owner_user_id] FROM [inventory] WHERE [id] IN (?, ?)", (target, src)
+    ) or [])
+    if owners.get(target) != owners.get(src):
+        for iid in (target, src):
+            db.execute_update(
+                "UPDATE [inventory_batches] SET [owner_user_id] = ? "
+                "WHERE [inventory_id] = ? AND [owner_user_id] IS NULL",
+                (owners.get(iid), iid),
+            )
+            db.execute_update(
+                "UPDATE [order_outbound_lines] SET [owner_user_id] = ? "
+                "WHERE [inventory_id] = ? AND [owner_user_id] IS NULL",
+                (owners.get(iid), iid),
+            )
     for (bid,) in db.execute_query(
         f"SELECT [id] FROM [inventory_batches] WHERE [inventory_id] = ? {_FIFO_ORDER}", (src,)
     ) or []:

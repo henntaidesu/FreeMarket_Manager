@@ -109,7 +109,7 @@ class _QueryMixin:
                 WHERE l.[order_no] = o.[order_no]
                   AND (
                     l.[inventory_id] IS NULL
-                    OR IFNULL(p.[owner_user_id], 0) = 0
+                    OR IFNULL(COALESCE(l.[owner_user_id], p.[owner_user_id]), 0) = 0
                   )
             ) THEN 1 ELSE 0 END
         """

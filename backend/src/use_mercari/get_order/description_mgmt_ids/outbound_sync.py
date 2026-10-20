@@ -7,6 +7,7 @@ from ....db_manage.database import DatabaseManager
 from ....db_manage.models.orders.order_outbound_line import TERMINAL_ORDER_STATUSES, OrderOutboundLineModel
 from ._common import _normalize_int_id, _normalize_match_text
 from .inventory_resolve import _extract_bundle_product_titles, _inventory_id_by_barcode, _is_bundle_order_description, _resolve_inventory_id, _resolve_inventory_ids_by_bundle_title
+from .line_owners import keep_line_owners
 from .parsing import parse_order_description_outbound_tokens_with_quantity
 from ...image_mgmt_ids import is_photo_bundle, stored_order_image_ids, uncovered_bundle_titles
 
@@ -214,9 +215,10 @@ def sync_outbound_lines_for_order(
     # 整个「删旧行 + 逐行重建」放进一个事务：中途失败（某行 save 报错/崩溃）时整体回滚，
     # 不会把已删除的持有出库状态的行永久丢掉（丢掉后取消回吐找不到行，扣减变成孤儿）。
     with DatabaseManager().transaction():
-        _sync_outbound_lines_for_order_impl(
-            order_no, description, skip_if_has_lines=skip_if_has_lines
-        )
+        with keep_line_owners((order_no or "").strip()):
+            _sync_outbound_lines_for_order_impl(
+                order_no, description, skip_if_has_lines=skip_if_has_lines
+            )
     # 延迟导入避免 use_mercari -> use_web 潜在环引用
     from ....use_web.orders.units.order_goods_ratio import recompute_and_store_order_ratio
 

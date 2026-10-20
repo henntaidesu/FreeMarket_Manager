@@ -328,7 +328,7 @@ def _resolve_order_owner_value_weights(order_no: str):
             COALESCE(l.[quantity], 1) AS line_qty
         FROM [order_outbound_lines] l
         LEFT JOIN [inventory] p ON p.[id] = l.[inventory_id]
-        LEFT JOIN [users] u ON u.[id] = p.[owner_user_id]
+        LEFT JOIN [users] u ON u.[id] = COALESCE(l.[owner_user_id], p.[owner_user_id])
         WHERE l.[order_no] = ?
           AND l.[inventory_id] IS NOT NULL
         """,

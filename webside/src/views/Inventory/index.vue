@@ -581,6 +581,19 @@
               class="pef-section__badge"
             >{{ t('inventory.productBarcode') }} {{ editFormBarcodeCode }}</span>
           </div>
+          <!-- 一码多品：同条码下的其他款式 / 品相，点一下在本弹窗里切过去 -->
+          <div v-if="form.id && barcodeSiblings.length > 1" class="pef-siblings">
+            <span class="pef-siblings__label">{{ t('inventory.barcodeSiblings') }}</span>
+            <button
+              v-for="s in barcodeSiblings"
+              :key="s.id"
+              type="button"
+              class="pef-siblings__chip"
+              :class="{ 'is-active': Number(s.id) === Number(form.id) }"
+              :title="[s.name, s.owner_user_name].filter(Boolean).join(' · ')"
+              @click="switchBarcodeSibling(s.id)"
+            >{{ Number(s.id) === Number(form.id) ? editFormMgmtCode : (s.mgmt_code || s.id) }}</button>
+          </div>
           <!-- 条码不再出现在表单里：进入弹窗的三条路径（扫码入库 / 商品入库 / 编辑已有行）
                都已把 form.barcode 填好，没有需要人手输入的场景 -->
           <div class="pef-inline-row">
@@ -1140,6 +1153,19 @@
                 <el-table-column :label="t('inventory.batchQuantity')" width="80" align="center">
                   <template #default="{ row }">
                     <span class="pef-batch-qty-text">{{ Number(row.quantity || 0) }}</span>
+                  </template>
+                </el-table-column>
+                <!-- 并回过别人的货的商品才有：每批货各属于谁（空 = 随商品归属） -->
+                <el-table-column
+                  v-if="batchRows.some((b) => b.owner_user_id)"
+                  :label="t('inventory.batchOwner')"
+                  width="100"
+                  align="center"
+                >
+                  <template #default="{ row }">
+                    <span :class="{ 'cell-muted': !row.owner_user_id }">
+                      {{ row.owner_name || (row.owner_user_id ? '#' + row.owner_user_id : t('inventory.batchOwnerFollow')) }}
+                    </span>
                   </template>
                 </el-table-column>
                 <el-table-column :label="t('inventory.batchRemark')" min-width="140">

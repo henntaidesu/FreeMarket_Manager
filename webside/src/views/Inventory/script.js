@@ -3230,6 +3230,7 @@ export default defineComponent({
       fetchMercariAccounts()
       // 标签页角标要显示件数，所以开窗即取，不等切到「关联商品」再拉
       loadLinkedItems()
+      loadBarcodeSiblings()
       dialogVisible.value = true
       // 初始填充表单引发的 watch 不应触发实时保存，下一 tick 再放开
       nextTick(() => {
@@ -4449,18 +4450,60 @@ export default defineComponent({
       await autosaveInFlight
     }
 
-    /** 关闭编辑弹窗前：冲刷尚未落库的防抖实时保存，确保最后一次编辑即时生效 */
-    async function handleProductDialogClose(done) {
+    /** 冲刷尚未落库的防抖实时保存（关闭弹窗 / 切换同条码子商品前），失败静默 */
+    async function flushFormAutosave() {
       const hadPending = !!autosaveTimer
       cancelFormAutosave()
       try {
         if (autosaveInFlight) await autosaveInFlight
         if (hadPending) await runFormAutosave()
       } catch (e) {
-        // 静默：实时保存失败不阻塞关闭
-      } finally {
-        done()
+        // 静默：实时保存失败不阻塞后续操作
       }
+    }
+
+    /** 关闭编辑弹窗前：冲刷尚未落库的防抖实时保存，确保最后一次编辑即时生效 */
+    async function handleProductDialogClose(done) {
+      await flushFormAutosave()
+      done()
+    }
+
+    // ---- 一码多品：编辑弹窗内切换同条码的其他商品（各款式 × 品相）----
+    /** 当前商品所在条码下的全部商品（含自己）；只有一件时不显示切换条 */
+    const barcodeSiblings = ref([])
+    let barcodeSiblingsReq = 0
+
+    async function loadBarcodeSiblings() {
+      const req = ++barcodeSiblingsReq
+      barcodeSiblings.value = []
+      const code = String(form.value.product_barcode || '').trim()
+      if (!form.value.id || !code || Number(form.value.is_combined || 0) === 1) return
+      try {
+        const family = await inventoryApi.barcodeFamily(code)
+        if (req !== barcodeSiblingsReq) return
+        const items = family?.items || []
+        barcodeSiblings.value = items.length > 1
+          ? [...items].sort((a, b) => (a.variant_no ?? 0) - (b.variant_no ?? 0)
+            || String(a.grade || '').localeCompare(String(b.grade || '')) || a.id - b.id)
+          : []
+      } catch { /* 切换条只是便捷入口，取不到就不显示 */ }
+    }
+
+    /** 切到同条码的另一件：先把本件未落库的编辑写掉，再在同一弹窗里打开那一件，停在原来的标签页 */
+    async function switchBarcodeSibling(id) {
+      if (!id || Number(id) === Number(form.value.id)) return
+      await flushFormAutosave()
+      let row
+      try {
+        row = await inventoryApi.get(id)
+      } catch {
+        return
+      }
+      const tab = editActiveTab.value
+      const saved = formAutosaved
+      openDialog(row)
+      formAutosaved = saved
+      editActiveTab.value = tab
     }
 
     async function openScanDialog() {
@@ -5500,6 +5543,8 @@ export default defineComponent({
       applyProductImgConfirm,
       handleInventoryImageFileChange,
       handleProductDialogClose,
+      barcodeSiblings,
+      switchBarcodeSibling,
       openScanDialog,
       stopScan,
       handleCameraCapture,

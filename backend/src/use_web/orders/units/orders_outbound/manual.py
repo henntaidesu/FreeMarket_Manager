@@ -8,6 +8,7 @@ from .....db_manage.models.orders.order import OrderModel
 from .....db_manage.models.orders.order_outbound_line import OrderOutboundLineModel
 from .....use_mercari.get_order.description_mgmt_ids import refresh_inventory_pending_outbound_qty
 from .....use_mercari.inventory_counters import cascade_combined_child_deduction
+from .....use_mercari.inventory_batches import head_owner
 from ..orders_helpers import db
 from ..orders_models import ManualOutboundLineCreateBody, ManualOutboundLineItem, ManualOutboundLinesBatchCreateBody, OrderPackagingWaiveBody
 
@@ -99,6 +100,8 @@ def create_manual_outbound_lines(data: ManualOutboundLinesBatchCreateBody):
                 is_stocked_out=0,
                 stocked_out_at=None,
                 stock_deducted=1,
+                # 扣减前记下这件货是谁的（先进先出队首批次）
+                owner_user_id=head_owner(db, inv_id),
             )
             if not line.save():
                 raise HTTPException(status_code=500, detail="保存手动出库明细失败")

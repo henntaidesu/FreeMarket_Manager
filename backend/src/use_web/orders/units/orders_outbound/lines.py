@@ -8,6 +8,7 @@ from fastapi import Depends, HTTPException
 from .....auth import require_auth
 from .....db_manage.models.orders.order_outbound_line import OrderOutboundLineModel
 from .....use_mercari.get_order.description_mgmt_ids import refresh_inventory_pending_outbound_qty
+from .....use_mercari.inventory_batches import head_owner
 from .....use_mercari.inventory_counters import (
     cascade_combined_child_deduction,
     cascade_combined_child_restock,
@@ -57,7 +58,7 @@ def _restock_holding_lines_impl(ono: str, *, reason: str) -> None:
         # 防止同一行被回吐两次；也替代 line.save()（对已删行会重插旧行）。
         claimed = db.execute_update(
             "UPDATE [order_outbound_lines] "
-            "SET [is_stocked_out] = 0, [stocked_out_at] = NULL, [stock_deducted] = 0 "
+            "SET [is_stocked_out] = 0, [stocked_out_at] = NULL, [stock_deducted] = 0, [owner_user_id] = NULL "
             "WHERE [id] = ? AND (COALESCE([is_stocked_out], 0) = 1 OR COALESCE([stock_deducted], 0) = 1)",
             (int(line.id),),
         )
@@ -147,6 +148,8 @@ def bind_outbound_line_inventory(line_id: int, data: OutboundLineBindInventoryBo
                     (old_qty, inv_id),
                 )
 
+            # 换了货就换了所有人：扣减前取新库存队首批次的所有人
+            new_owner = head_owner(db, inv_id)
             # 原子条件扣减：仅当库存足量才扣，防跨连接 TOCTOU 导致的负库存/丢更新
             cur.execute(
                 "UPDATE [inventory] SET [quantity] = COALESCE([quantity], 0) - ? "
@@ -175,13 +178,16 @@ def bind_outbound_line_inventory(line_id: int, data: OutboundLineBindInventoryBo
                 )
 
             cur.execute(
-                "UPDATE [order_outbound_lines] SET [inventory_id] = ?, [quantity] = ? WHERE [id] = ?",
-                (inv_id, new_qty, int(line.id)),
+                "UPDATE [order_outbound_lines] SET [inventory_id] = ?, [quantity] = ?, [owner_user_id] = ? "
+                "WHERE [id] = ?",
+                (inv_id, new_qty, new_owner, int(line.id)),
             )
             db.dialect.commit(conn)
     else:
         line.inventory_id = inv_id
         line.quantity = new_qty
+        # 还没出库：所有人等出库时再按新库存的队首批次定，旧快照作废
+        line.owner_user_id = None
         if not line.save():
             raise HTTPException(status_code=500, detail="保存失败")
         if old_inv_id is not None and old_inv_id != inv_id:
@@ -331,8 +337,8 @@ def convert_outbound_line_owner(
                     )
 
             cur.execute(
-                "UPDATE [order_outbound_lines] SET [inventory_id] = ? WHERE [id] = ?",
-                (new_inv_id, int(line.id)),
+                "UPDATE [order_outbound_lines] SET [inventory_id] = ?, [owner_user_id] = ? WHERE [id] = ?",
+                (new_inv_id, target_owner, int(line.id)),
             )
             db.dialect.commit(conn)
     except HTTPException:
@@ -387,6 +393,11 @@ def stock_out_order_outbound_line(line_id: int, data: OutboundStockOutBody):
         if int(line.stock_deducted or 0) == 0:
             if current_qty < qty:
                 raise HTTPException(status_code=400, detail=f"库存不足，当前库存：{current_qty}")
+            # 扣减前记下这件货是谁的（先进先出队首批次）：同一管理番号下可能有多个所有人的货
+            db.execute_update(
+                "UPDATE [order_outbound_lines] SET [owner_user_id] = ? WHERE [id] = ? AND [owner_user_id] IS NULL",
+                (head_owner(db, inv_id), int(line.id)),
+            )
             # 原子扣减：条件 UPDATE 保证并发下不超卖（库存不足时本语句不命中行）
             updated = db.execute_update(
                 """

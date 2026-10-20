@@ -149,10 +149,12 @@ def list_batches(inv_id: int) -> List[Dict[str, Any]]:
                b.[remark], b.[created_at],
                CASE WHEN w.[id] IS NULL THEN NULL ELSE {wh_label} END,
                COALESCE(NULLIF(TRIM(w.[warehouse]), ''), '默认仓库'),
-               b.[stage], b.[shipment_id], s.[tracking_no]
+               b.[stage], b.[shipment_id], s.[tracking_no],
+               b.[owner_user_id], COALESCE(u.[display_name], u.[username])
         FROM [inventory_batches] b
         LEFT JOIN [warehouses] w ON w.[id] = b.[warehouse_id]
         LEFT JOIN [inbound_shipments] s ON s.[id] = b.[shipment_id]
+        LEFT JOIN [users] u ON u.[id] = b.[owner_user_id]
         WHERE b.[inventory_id] = ?
         ORDER BY COALESCE(b.[arrived_at], b.[created_at]) ASC, b.[id] ASC
         """,
@@ -174,8 +176,25 @@ def list_batches(inv_id: int) -> List[Dict[str, Any]]:
             "stage": STAGE_TRANSIT if r[10] == STAGE_TRANSIT else STAGE_ONSHORE,
             "shipment_id": r[11],
             "shipment_tracking_no": r[12],
+            # NULL = 随商品的所有人；只有并回过别人的货的批次才有值
+            "owner_user_id": r[13],
+            "owner_name": r[14],
         })
     return out
+
+
+def head_owner(db: DatabaseManager, inv_id: int) -> Optional[int]:
+    """下一件要发的货（先进先出队首的有货批次）是谁的：批次所有人，没有则随商品。
+    出库/预扣扣减**之前**调用，结果写进出库明细的 owner_user_id 快照。"""
+    rows = db.execute_query(
+        f"SELECT COALESCE(b.[owner_user_id], i.[owner_user_id]) FROM [inventory_batches] b "
+        f"JOIN [inventory] i ON i.[id] = b.[inventory_id] "
+        f"WHERE b.[inventory_id] = ? AND b.[quantity] > 0 {_FIFO_ORDER.replace('[', 'b.[')} LIMIT 1",
+        (int(inv_id),),
+    ) or db.execute_query(
+        "SELECT [owner_user_id] FROM [inventory] WHERE [id] = ? LIMIT 1", (int(inv_id),)
+    )
+    return int(rows[0][0]) if rows and rows[0][0] is not None else None
 
 
 def _sync_head_warehouse(db: DatabaseManager, inv_id: int) -> None:

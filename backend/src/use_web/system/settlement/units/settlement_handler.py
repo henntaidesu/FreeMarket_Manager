@@ -47,14 +47,14 @@ def _list_owners_in_range(
     """列出该时间段内、有「已完成」订单商品的归属人（去重）。"""
     tcol = _time_col(by_purchase_time)
     sql = f"""
-        SELECT DISTINCT p.[owner_user_id],
+        SELECT DISTINCT COALESCE(l.[owner_user_id], p.[owner_user_id]),
                COALESCE(u.[display_name], u.[username]) AS owner_name
         FROM [orders] o
         JOIN [order_outbound_lines] l ON l.[order_no] = o.[order_no]
         JOIN [inventory] p ON p.[id] = l.[inventory_id]
-        LEFT JOIN [users] u ON u.[id] = p.[owner_user_id]
+        LEFT JOIN [users] u ON u.[id] = COALESCE(l.[owner_user_id], p.[owner_user_id])
         WHERE o.[status] = ?
-          AND p.[owner_user_id] IS NOT NULL
+          AND COALESCE(l.[owner_user_id], p.[owner_user_id]) IS NOT NULL
           AND COALESCE(o.[settlement_excluded], 0) = 0
     """
     params: List[Any] = [COMPLETED_STATUS]

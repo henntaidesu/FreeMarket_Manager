@@ -1,0 +1,68 @@
+/* 筛选栏的结构与样式在 src/styles/page-modules.css（全站共用），这里不再重写 */
+.table-card { border-radius: 8px; }
+.table-card :deep(.el-table__row) { cursor: pointer; }
+.pagination { margin-top: 16px; display: flex; justify-content: flex-end; }
+.inbound-tip { margin: 10px 0 0; font-size: 12px; color: var(--el-text-color-secondary); }
+.cell-muted { font-size: 12px; color: var(--el-text-color-secondary); }
+.text-red { color: #f56c6c; font-weight: 600; }
+.text-orange { color: #e6a23c; font-weight: 600; }
+
+/* ── 详情 ── */
+.inbound-head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 14px; }
+.inbound-form { display: flex; flex-wrap: wrap; column-gap: 12px; }
+.inbound-form :deep(.el-form-item) { margin-bottom: 12px; }
+.inbound-add { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
+.inbound-add__pick { width: 320px; }
+.inbound-thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 4px; display: block; }
+
+/* ── 扫码入库：拆箱时人离屏幕远，结果要大字 ── */
+.scan-box { min-height: 220px; display: flex; flex-direction: column; gap: 14px; }
+.scan-error {
+  padding: 12px 16px;
+  border-radius: 6px;
+  background: var(--el-color-danger-light-9);
+  color: var(--el-color-danger);
+  font-size: 20px;
+  font-weight: 700;
+}
+.scan-need-shelf,
+.scan-last { display: flex; align-items: flex-start; gap: 16px; }
+.scan-img { width: 120px; height: 120px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
+.scan-last__meta { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.scan-name { font-size: 15px; font-weight: 600; }
+.scan-big { font-size: 40px; line-height: 1.15; font-weight: 800; color: var(--el-color-primary); word-break: break-all; }
+.scan-big--warn { font-size: 28px; color: var(--el-color-warning); }
+.scan-hint { font-size: 12px; color: var(--el-text-color-secondary); }
+.scan-relocate { width: 240px; }
+.scan-idle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  color: var(--el-text-color-secondary);
+}
+.scan-pick__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  margin-bottom: 6px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.scan-pick__row:hover { border-color: var(--el-color-primary); background: var(--el-color-primary-light-9); }
+.scan-input-row { display: flex; align-items: center; gap: 10px; }
+.scan-input-row .el-input { flex: 1; }
+.scan-collapse { margin-top: 16px; }
+
+/* ── 手机端（iOS / Android）── */
+@media (max-width: 768px) {
+  .pagination { justify-content: center; margin-top: 12px; }
+  .pagination :deep(.el-pagination) { flex-wrap: wrap; row-gap: 6px; justify-content: center; }
+  .inbound-add__pick { width: 100%; }
+  .scan-img { width: 80px; height: 80px; }
+  .scan-big { font-size: 30px; }
+  .scan-input-row { flex-wrap: wrap; }
+}

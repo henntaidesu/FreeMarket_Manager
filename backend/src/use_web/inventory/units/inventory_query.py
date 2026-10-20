@@ -153,9 +153,13 @@ def list_inventory(
     if product_type_id:
         where_parts.append("AND p.product_type_id = ?")
         params.append(product_type_id)
+    # 并回过别人的货的商品：任一有货批次属于该所有人也命中
     if owner_user_id:
-        where_parts.append("AND p.owner_user_id = ?")
-        params.append(owner_user_id)
+        where_parts.append(
+            "AND (p.owner_user_id = ? OR EXISTS (SELECT 1 FROM [inventory_batches] ob "
+            "WHERE ob.inventory_id = p.id AND ob.owner_user_id = ? AND ob.quantity > 0))"
+        )
+        params.extend([owner_user_id, owner_user_id])
     # 已分批商品的货可能分散在多个仓位：任一有货批次在该仓位即命中
     if warehouse_id:
         where_parts.append(
