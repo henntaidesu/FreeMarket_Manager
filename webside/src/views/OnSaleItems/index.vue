@@ -827,10 +827,13 @@
             <el-button class="osr-cipher__relink" size="small" :loading="relinkLoading" @click="startRelink">
               {{ t('onSaleItems.relinkButton') }}
             </el-button>
+            <el-button size="small" :disabled="relinkLoading" @click="startManualRelink">
+              {{ t('onSaleItems.relinkManualButton') }}
+            </el-button>
           </div>
           <!-- 迁移后的新库存有多件可选：由人挑一件 -->
           <div v-if="relinkCandidates.length" class="osr-relink">
-            <div class="osr-hint">{{ t(relinkManual ? 'onSaleItems.relinkPickManual' : 'onSaleItems.relinkPick', { code: relinkSource?.mgmt_code || '-' }) }}</div>
+            <div class="osr-hint">{{ t(relinkManual ? 'onSaleItems.relinkPickManual' : 'onSaleItems.relinkPick', { code: (relinkManual ? relinkManualCode : relinkSource?.mgmt_code) || '-' }) }}</div>
             <div v-for="c in relinkCandidates" :key="c.id" class="osr-relink__cand" @click="applyRelink(c)">
               <el-image
                 v-if="c.images[0]"

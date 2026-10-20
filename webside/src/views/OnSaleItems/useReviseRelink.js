@@ -17,6 +17,8 @@ export function useReviseRelink(t, { base, descCipher, extras }) {
   const relinkSource = ref(null)
   /** 本次是否按人工输入的管理番号查找（影响提示文案） */
   const relinkManual = ref(false)
+  /** 人工输入的管理番号（候选提示里用） */
+  const relinkManualCode = ref('')
   /** 多个候选时等人选；选定后清空 */
   const relinkCandidates = ref([])
   /** 选定的新库存；非空即本次提交要改绑 */
@@ -28,6 +30,7 @@ export function useReviseRelink(t, { base, descCipher, extras }) {
     relinkCandidates.value = []
     relinkTarget.value = null
     relinkManual.value = false
+    relinkManualCode.value = ''
     prev = null
   }
 
@@ -63,6 +66,7 @@ export function useReviseRelink(t, { base, descCipher, extras }) {
       try {
         const { source, list } = await fetchCandidates(iid, code)
         if (list.length) {
+          relinkManualCode.value = code
           showCandidates(source, list, true)
           return
         }
@@ -98,6 +102,13 @@ export function useReviseRelink(t, { base, descCipher, extras }) {
     await promptManual(iid, reason + ' ' + t('onSaleItems.relinkInputPrompt'))
   }
 
+  /** 自动匹配的不合适时：直接输入要关联的新库存管理番号 */
+  async function startManualRelink() {
+    const iid = String(base.value?.item_id || '').trim()
+    if (!iid || relinkLoading.value) return
+    await promptManual(iid, t('onSaleItems.relinkInputPrompt'))
+  }
+
   function applyRelink(c) {
     if (!c?.images?.length) {
       ElMessage.warning(t('onSaleItems.relinkNoImages', { code: c?.mgmt_code || '-' }))
@@ -129,10 +140,12 @@ export function useReviseRelink(t, { base, descCipher, extras }) {
     relinkLoading,
     relinkSource,
     relinkManual,
+    relinkManualCode,
     relinkCandidates,
     relinkTarget,
     resetRelink,
     startRelink,
+    startManualRelink,
     applyRelink,
     cancelRelink,
     relinkPayload

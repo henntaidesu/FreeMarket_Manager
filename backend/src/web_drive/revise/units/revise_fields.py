@@ -102,11 +102,39 @@ def resolve_revise_image(url: str) -> Optional[str]:
     return tf.name
 
 
+#: 缩略图张数连续这么久不变才算落定（毫秒）
+PHOTO_SETTLE_MS = 1500
+
+
+async def _settled_count(
+    page: Any, loc: Any, *, timeout_ms: int, until: Any = None, settle_ms: int = PHOTO_SETTLE_MS
+) -> int:
+    """轮询 ``loc.count()``，直到它满足 ``until``（缺省不限）且连续 ``settle_ms`` 不变；超时返回最后一次的值。"""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout_ms / 1000
+    last = await loc.count()
+    since = loop.time()
+    while loop.time() < deadline:
+        await page.wait_for_timeout(300)
+        n = await loc.count()
+        if n != last:
+            last, since = n, loop.time()
+            continue
+        if (until is None or until(n)) and (loop.time() - since) * 1000 >= settle_ms:
+            break
+    return last
+
+
 async def replace_photos(page: Any, local_paths: Sequence[str], *, timeout_ms: int) -> int:
     """删光编辑页现有图片，再按顺序上传 ``local_paths``；返回上传后的张数。
 
     删除按钮点下即删、没有确认框（实测）。上传后等缩略图数量追上再返回，否则紧接着的提交
     会带着没传完的图片走。张数对不上就抛——宁可整件修改失败，也不能提交一组残缺的图片。
+
+    **删之前必须等原图渲染出来**：编辑页先出表单、缩略图随商品数据晚到（MITM 下 networkidle
+    常等不到，只剩 domcontentloaded）。早一步数到 0 张就会当成「已删光」直接上传，原图随后
+    才冒出来，提交的就是「原图 + 新图」（任务报「期望 1 张，编辑页上有 2 张」）。在售商品
+    至少有 1 张图，所以数不到原图就抛，不上传。删完也要等一个稳定窗口确认没被页面回填。
     """
     paths = list(local_paths)
     if not paths:
@@ -115,24 +143,27 @@ async def replace_photos(page: Any, local_paths: Sequence[str], *, timeout_ms: i
         raise ValueError(f"图片最多 {MAX_PHOTOS} 张（当前 {len(paths)} 张）")
 
     delete_btns = page.locator(PHOTO_DELETE_SELECTOR)
-    for _ in range(MAX_PHOTOS + 5):
-        if await delete_btns.count() == 0:
+    existing = await _settled_count(page, delete_btns, timeout_ms=timeout_ms, until=lambda n: n > 0)
+    if existing == 0:
+        raise RuntimeError("编辑页上没有读到原有图片（页面可能未加载完），为免叠加旧图，未上传新图")
+    log.info("[revise] 编辑页原有图片 %s 张", existing)
+
+    for _ in range(3):
+        for _ in range(MAX_PHOTOS + 5):
+            if await delete_btns.count() == 0:
+                break
+            await delete_btns.first.click(timeout=timeout_ms)
+            await page.wait_for_timeout(300)
+        # 稳定窗口内又冒出来 = 页面晚到的数据把原图回填了，再删一轮
+        if await _settled_count(page, delete_btns, timeout_ms=timeout_ms) == 0:
             break
-        await delete_btns.first.click(timeout=timeout_ms)
-        await page.wait_for_timeout(300)
     if await delete_btns.count() != 0:
         raise RuntimeError("删除编辑页原有图片失败")
 
     await page.locator(PHOTO_UPLOAD_SELECTOR).first.set_input_files(paths, timeout=timeout_ms)
-    deadline = asyncio.get_running_loop().time() + timeout_ms / 1000
-    n = 0
-    while asyncio.get_running_loop().time() < deadline:
-        n = await delete_btns.count()
-        if n >= len(paths):
-            break
-        await page.wait_for_timeout(500)
+    n = await _settled_count(page, delete_btns, timeout_ms=timeout_ms, until=lambda c: c >= len(paths))
     if n != len(paths):
-        raise RuntimeError(f"图片上传未完成：期望 {len(paths)} 张，编辑页上只有 {n} 张")
+        raise RuntimeError(f"图片上传后张数不符：期望 {len(paths)} 张，编辑页上有 {n} 张")
     log.info("[revise] 图片已替换为 %s 张", n)
     return n
 

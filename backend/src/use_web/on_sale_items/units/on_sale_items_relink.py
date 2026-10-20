@@ -173,7 +173,9 @@ def relink_candidates(
     manual = (code or "").strip()
     if manual:
         return {
-            "source": {"id": ids[0] if ids else None, "mgmt_code": manual, "name": None, "in_new": False},
+            # source 仍是当前绑定的那件（「旧 → 新」的旧），输入的番号只决定候选
+            "source": {"id": ids[0] if ids else None, "mgmt_code": str(ids[0]) if ids else None,
+                       "name": None, "in_new": False},
             "candidates": _manual_candidates(manual),
         }
     # 自动匹配不到（没暗码 / 暗码在新旧库里都不存在）不报错，返回空候选，由前端转为手动输入
