@@ -108,6 +108,7 @@ export default {
       purchaseSettlement: "Purchase settlement",
       warehouses: "Warehouses",
       inboundShipments: "Inbound parcels",
+      inventoryHistory: "History Data",
       categories: "Game Categories",
       productTypeMappings: "Product Type Mappings",
       systemConfig: "System Settings",

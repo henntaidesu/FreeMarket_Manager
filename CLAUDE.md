@@ -261,6 +261,11 @@ Key tables in `backend/src/db_manage/models/`:
   （`relocate`，只搬那几件，旧货架原有的货不动）。建议货架**按商品记** = 该商品最近一条 `inbound_receipts` 的货架，
   没有再取 `inventory.warehouse_id`。全部入库完自动关单；手动「清点关单」把在途剩余记为丢失并从总数扣掉。
   货到前在途批次若已被售出扣减，入库会拒绝（「在途库存不足」），只能清点关单。
+- **inventory_old / inventory_batches_old**: 重新盘库（2026-10-20）前的整表归档，id 原样保留；新 `inventory`
+  从 1500 起编号，所以新旧 id 不会撞。**只读**，只有「其他功能 → 历史数据」（`/#/system/inventory-history`，
+  `use_web/system/inventory_history/`）读它们，库存计数 / 在售绑定 / 出库扣减都不碰。在售描述暗号、图片水印、
+  出库明细、流水里指向旧 id 的记录因此在新表里查不到，按「未绑定」处理。两张表注册为模型
+  （`models/inventory/inventory_old.py`）只是为了不被启动时的 drop-unknown-tables 删掉。
 - **warehouses**: Storage locations (shelf names duplicable per warehouse)
 - **product_type_category_mappings**: 商品类型主表 (one row = one 商品类型). `inventory.product_type_id` → `mapping_id` (TEXT PK, numeric, auto-incremented on create, never user-visible). See 商品类型映射 below.
 - **shop_accounts**: Marketplace account config (headers in `value` JSON field, `platform`,

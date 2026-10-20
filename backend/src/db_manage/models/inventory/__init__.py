@@ -5,9 +5,10 @@ from .inventory import InventoryModel
 from .image_embedding import ImageEmbeddingModel
 from .image_hash import ImageHashModel
 from .inventory_batch import InventoryBatchModel
+from .inventory_old import InventoryOldModel, InventoryBatchOldModel
 from .inbound_shipment import InboundShipmentModel
 from .inbound_shipment_line import InboundShipmentLineModel
 from .inbound_receipt import InboundReceiptModel
 
 __all__ = ["InventoryModel", "ImageEmbeddingModel", "ImageHashModel", "InventoryBatchModel",
-           "InboundShipmentModel", "InboundShipmentLineModel", "InboundReceiptModel"]
+           "InventoryOldModel", "InventoryBatchOldModel", "InboundShipmentModel", "InboundShipmentLineModel", "InboundReceiptModel"]

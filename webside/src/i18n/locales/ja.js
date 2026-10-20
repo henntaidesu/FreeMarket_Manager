@@ -108,6 +108,7 @@ export default {
       purchaseSettlement: "代行購入精算",
       warehouses: "倉庫管理",
       inboundShipments: "配送入庫",
+      inventoryHistory: "履歴データ",
       categories: "ゲームカテゴリ",
       productTypeMappings: "商品種別マッピング",
       systemConfig: "システム設定",

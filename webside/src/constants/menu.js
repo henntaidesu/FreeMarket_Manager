@@ -34,6 +34,7 @@ export const MENU_ITEMS = [
       // 仓储与包材：货放哪儿、用掉了哪些包材
       { path: '/system/warehouses', titleKey: 'layout.menu.warehouses', icon: 'OfficeBuilding', group: 'layout.menuGroup.storage' },
       { path: '/system/inbound-shipments', titleKey: 'layout.menu.inboundShipments', icon: 'Van', group: 'layout.menuGroup.storage' },
+      { path: '/system/inventory-history', titleKey: 'layout.menu.inventoryHistory', icon: 'Box', group: 'layout.menuGroup.storage' },
       { path: '/system/cost-records', titleKey: 'layout.menu.costRecords', icon: 'Money', group: 'layout.menuGroup.storage' },
       { path: '/system/cost-expenses', titleKey: 'layout.menu.costExpenses', icon: 'Wallet', group: 'layout.menuGroup.storage' },
 
