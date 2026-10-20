@@ -610,6 +610,10 @@ export default defineComponent({
     /** 工具栏「无码入库」：先选货架，再打开商品入库表单并直接拍照 */
     const noCodeInboundVisible = ref(false)
     const noCodeInboundPath = ref([])
+    /** 本次入库数量：只能下拉选 1–100（不许手输，扫码枪的字符不会误进数量） */
+    const noCodeInboundQty = ref(1)
+    const NO_CODE_INBOUND_QTY_OPTIONS = Array.from({ length: 100 }, (_, i) => i + 1)
+    const noCodeInboundQtyRef = ref()
     /** 本次表单来自无码入库：商品本来就没有条码，上传图片时不做条码识别 */
     const noCodeInboundActive = ref(false)
     const listingCategoryMappings = ref([])
@@ -874,6 +878,8 @@ export default defineComponent({
      * 选同一件 = 不变；选别的款式 / 新款式 = 先撤回那 1 件（undoStockIn，从当天该货架的批次扣回）。
      */
     const contReclassify = ref(null)
+    /** 选了「新款式」后等扫货架码：{ code, variant }，扫到货架码才打开建档表单 */
+    const contNewVariant = ref(null)
     const contGunInputRef = ref()
     const contGunInput = ref('')
     /** 下次拍照识别点击的 input（与另一路交替，缓解 iOS 重复选择同一 input 不触发 change） */
@@ -3460,6 +3466,8 @@ export default defineComponent({
       const wid = readNoBarcodeFormSelectionsCache()?.warehouse_id
       const path = wid != null ? warehouseTreeMeta.value.idToPath.get(Number(wid)) : null
       noCodeInboundPath.value = path ? [...path] : []
+      noCodeInboundQty.value = 1
+      noCodeInboundQtyAutoStart = false
       noCodeInboundVisible.value = true
     }
 
@@ -3470,11 +3478,17 @@ export default defineComponent({
         ElMessage.warning(t('inventory.pickWarehouseFirst'))
         return
       }
+      if (!noCodeInboundQty.value) {
+        ElMessage.warning(t('inventory.noCodeInboundPickQty'))
+        return
+      }
       noCodeInboundVisible.value = false
       openNoBarcodeEntry()
       noCodeInboundActive.value = true
       form.value.warehouse_id = wid
       syncWarehouseCascaderPathByWarehouseId(wid)
+      form.value.quantity = noCodeInboundQty.value
+      syncQuantityEditFromForm()
       await nextTick()
       openProductImageSource(-1)
     }
@@ -4976,12 +4990,14 @@ export default defineComponent({
         await gunStockIn(wid, true)
       } else if (contState.value === 'notfound') {
         openAddFromScan(wid)
+      } else if (contState.value === 'variant-shelf') {
+        await createNewVariantFromScan(wid)
       } else {
         ElMessage.warning(t('inventory.scannerScanProductFirst'))
       }
     }
 
-    /** 无码入库弹窗里扫码枪扫到的码：只认货架码，命中即按该货架开始拍照 */
+    /** 无码入库弹窗里扫码枪扫到的码：只认货架码，命中即选中该货架并弹出入库数量下拉，选完数量开始拍照 */
     async function handleNoCodeInboundShelfScan(code) {
       const wid = parseWarehouseQr(code)
       if (wid == null) {
@@ -4998,7 +5014,20 @@ export default defineComponent({
       }
       if (!noCodeInboundVisible.value) return // 等货架列表期间弹窗被关了
       noCodeInboundPath.value = [...path]
-      await confirmNoCodeInbound()
+      // 清空再让人选：保留默认 1 的话再选 1 不会触发 change，就不会开始拍照
+      noCodeInboundQty.value = null
+      noCodeInboundQtyAutoStart = true
+      await nextTick()
+      // automatic-dropdown：聚焦即展开下拉
+      noCodeInboundQtyRef.value?.focus()
+    }
+
+    /** 扫货架码后弹出的数量下拉：选定即开始拍照（手动选货架的路径仍点「开始拍照」） */
+    let noCodeInboundQtyAutoStart = false
+    function onNoCodeInboundQtyChange() {
+      if (!noCodeInboundQtyAutoStart) return
+      noCodeInboundQtyAutoStart = false
+      confirmNoCodeInbound()
     }
 
     /** 扫码枪 / 手动输入的一个码。串行执行：上一个还在查询或入库时，后一个排队，不丢也不交错 */
@@ -5006,11 +5035,11 @@ export default defineComponent({
       contScanQueue = contScanQueue.then(async () => {
         const wid = parseWarehouseQr(code)
         if (wid != null) return handleGunShelfCode(wid)
-        if (contState.value === 'need-warehouse' || contState.value === 'pick') {
+        if (contState.value === 'need-warehouse' || contState.value === 'variant-shelf' || contState.value === 'pick') {
           // 当前商品还没入库：不替换，免得扫过的这件悄悄丢掉
-          ElMessage.warning(t(contState.value === 'need-warehouse'
-            ? 'inventory.scannerNeedShelfFirst'
-            : 'inventory.scannerFinishCurrentFirst'))
+          ElMessage.warning(t(contState.value === 'pick'
+            ? 'inventory.scannerFinishCurrentFirst'
+            : 'inventory.scannerNeedShelfFirst'))
           return
         }
         return handleContBarcode(code)
@@ -5073,7 +5102,8 @@ export default defineComponent({
         contQuantity.value = keepQty
         contGunInput.value = ''
       }
-      if (contScanMode.value === 'gun') {
+      // 新款式等货架码：摄像头模式下扫码枪扫的货架码也收（摄像头此时已停）
+      if (contScanMode.value === 'gun' || contState.value === 'variant-shelf') {
         processGunCode(code)
         return
       }
@@ -5101,6 +5131,7 @@ export default defineComponent({
       contCandidates.value = []
       contFamily.value = null
       contReclassify.value = null
+      contNewVariant.value = null
       if (contScanMode.value === 'gun') {
         contState.value = 'gun-waiting'
         focusContGunInput()
@@ -5187,8 +5218,8 @@ export default defineComponent({
     }
 
     /**
-     * 候选列表里选了「新款式」：另建一件商品，条码 = 本条码、款式号 = 下一个（一对一条码随之转一对多，
-     * 后端把原有商品补成款式 1），然后直接打开摄像头拍这一款的图。货架带出上次商品入库用的。
+     * 候选列表里选了「新款式」：先停在「扫货架码」，扫到货架码再建档（createNewVariantFromScan）——
+     * 新款式是一件新商品，放哪格要由扫码定，不沿用上次入库的货架。
      */
     async function openNewVariantFromScan() {
       const family = contFamily.value
@@ -5196,12 +5227,28 @@ export default defineComponent({
       if (!code) return
       const variant = Number(family?.next_variant) || 1
       if (!(await undoLastInbound())) return
+      contNewVariant.value = { code, variant }
+      contState.value = 'variant-shelf'
+    }
+
+    /**
+     * 新款式建档：另建一件商品，条码 = 本条码、款式号 = 下一个（一对一条码随之转一对多，
+     * 后端把原有商品补成款式 1），货架 = 刚扫的货架码，然后直接打开摄像头拍这一款的图。
+     * shelfId 为空 = 没扫货架（摄像头模式下手动跳过），货架带出上次商品入库用的。
+     */
+    async function createNewVariantFromScan(shelfId = null) {
+      const nv = contNewVariant.value
+      if (!nv) return
       contScanVisible.value = false
       openNoBarcodeEntry()
       // 条码已定好，拍照时不再识别条码（否则又会弹一次「一码多品」）
       noCodeInboundActive.value = true
-      form.value.product_barcode = code
-      form.value.variant_no = variant
+      form.value.product_barcode = nv.code
+      form.value.variant_no = nv.variant
+      if (shelfId) {
+        form.value.warehouse_id = shelfId
+        syncWarehouseCascaderPathByWarehouseId(shelfId)
+      }
       await nextTick()
       openProductImageSource(-1)
     }
@@ -5658,6 +5705,8 @@ export default defineComponent({
       contFamily,
       contMultiMode,
       openNewVariantFromScan,
+      createNewVariantFromScan,
+      contNewVariant,
       contReclassify,
       onContMultiModeChange,
       contGunInputRef,
@@ -5836,6 +5885,10 @@ export default defineComponent({
       openNoBarcodeEntry,
       noCodeInboundVisible,
       noCodeInboundPath,
+      noCodeInboundQty,
+      NO_CODE_INBOUND_QTY_OPTIONS,
+      noCodeInboundQtyRef,
+      onNoCodeInboundQtyChange,
       openNoCodeInbound,
       confirmNoCodeInbound,
       mergeInventoryListingImageUrls,

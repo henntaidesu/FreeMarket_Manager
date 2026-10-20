@@ -1892,6 +1892,21 @@
           popper-class="product-type-cascader-popper"
           style="width: 100%"
         />
+        <!-- 入库数量：只能下拉选 1–100，不可输入；扫货架码后自动展开，选定即开始拍照 -->
+        <div class="no-code-inbound-qty">
+          <span class="no-code-inbound-qty__label">{{ t('inventory.noCodeInboundQty') }}</span>
+          <el-select
+            ref="noCodeInboundQtyRef"
+            v-model="noCodeInboundQty"
+            :filterable="false"
+            :placeholder="t('inventory.noCodeInboundPickQty')"
+            automatic-dropdown
+            style="width: 120px"
+            @change="onNoCodeInboundQtyChange"
+          >
+            <el-option v-for="n in NO_CODE_INBOUND_QTY_OPTIONS" :key="n" :label="String(n)" :value="n" />
+          </el-select>
+        </div>
       </div>
       <template #footer>
         <el-button @click="noCodeInboundVisible = false">{{ t('common.cancel') }}</el-button>
@@ -2086,6 +2101,21 @@
         </div>
         <div class="cont-actions">
           <el-button @click="resumeContScan">{{ t('inventory.continueScan') }}</el-button>
+        </div>
+      </div>
+
+      <!-- 选了「新款式」：先扫货架码定位置，再打开建档表单拍照 -->
+      <div v-if="contState === 'variant-shelf' && contNewVariant" class="cont-result">
+        <div class="barcode-tag">
+          <el-icon><Tickets /></el-icon>
+          <span>{{ contNewVariant.code }}-{{ contNewVariant.variant }}</span>
+        </div>
+        <p class="gun-need-shelf">{{ t('inventory.scannerNewVariantShelfHint', { code: `${contNewVariant.code}-${contNewVariant.variant}` }) }}</p>
+        <div class="cont-actions">
+          <el-button @click="resumeContScan">{{ t('inventory.continueScan') }}</el-button>
+          <el-button v-if="contScanMode !== 'gun'" type="primary" plain @click="createNewVariantFromScan()">
+            {{ t('inventory.scannerNewVariantSkipShelf') }}
+          </el-button>
         </div>
       </div>
 

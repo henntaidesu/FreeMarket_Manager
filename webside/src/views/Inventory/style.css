@@ -1796,3 +1796,15 @@ a.pef-lcard:hover {
 
 /* 历史库存（archive 模式）顶部的只读提示 */
 .archive-notice { margin-bottom: 12px; }
+
+/* 无码入库：入库数量下拉 */
+.no-code-inbound-qty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.no-code-inbound-qty__label {
+  font-size: 13px;
+  color: #a4aec1;
+}
