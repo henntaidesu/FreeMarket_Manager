@@ -90,6 +90,7 @@
           <template v-if="!listingPickMode">
             <el-button type="success" :disabled="archive" @click="openBarcodeInbound">{{ t('inventory.barcodeInbound') }}</el-button>
             <el-button type="success" plain :disabled="archive" @click="openNoBarcodeEntry">{{ t('inventory.noBarcodeInbound') }}</el-button>
+            <el-button type="success" plain :disabled="archive" @click="openNoCodeInbound">{{ t('inventory.noCodeInbound') }}</el-button>
             <el-button type="primary" plain :disabled="archive" @click="openImageSearch">{{ t('inventory.imageSearch') }}</el-button>
             <el-button :disabled="archive" @click="enterListingPickMode()">{{ t('inventory.multiSelect') }}</el-button>
           </template>
@@ -583,6 +584,17 @@
               v-if="form.product_barcode"
               class="pef-section__badge"
             >{{ t('inventory.productBarcode') }} {{ editFormBarcodeCode }}</span>
+            <!-- 从历史库存按管理番号带入名称 / 分类 / 类型 / 单价 / 出品设置 -->
+            <el-button
+              v-if="!archive"
+              class="pef-section__action"
+              size="small"
+              type="primary"
+              plain
+              :loading="archiveSyncing"
+              :title="t('inventory.syncFromArchiveTip')"
+              @click="syncListingFromArchive"
+            >{{ t('inventory.syncFromArchive') }}</el-button>
           </div>
           <!-- 一码多品：同条码下的其他款式 / 品相，点一下在本弹窗里切过去 -->
           <div v-if="form.id && barcodeSiblings.length > 1" class="pef-siblings">
@@ -869,16 +881,15 @@
           </div>
           <div class="pef-grid">
             <el-form-item v-if="Number(form.is_combined || 0) !== 1 && form.product_barcode" :label="t('inventory.variant')">
-                <el-input-number
+                <el-select
                   v-model="form.variant_no"
-                  :min="1"
-                  :step="1"
-                  step-strictly
-                  controls-position="right"
-                  :value-on-clear="null"
                   :placeholder="t('inventory.variantNone')"
+                  clearable
+                  :value-on-clear="null"
                   style="width: 100%"
-                />
+                >
+                  <el-option v-for="v in variantOptions" :key="v.value" :label="v.label" :value="v.value" />
+                </el-select>
               </el-form-item>
             <el-form-item v-if="Number(form.is_combined || 0) !== 1" :label="t('inventory.grade')">
                 <el-select
@@ -1033,39 +1044,26 @@
               :content="currentEditRowAlertReason"
               placement="top"
             >
-              <span class="listing-submit-buttons">
+              <!-- 一个出品按钮：煤炉 / 雅虎由「出品账号」所属平台决定，未选账号不可出品 -->
+              <span
+                class="listing-submit-buttons"
+                :title="listingPlatform ? '' : t('inventory.listSubmitNeedAccount')"
+              >
                 <el-popconfirm
                   title=""
                   hide-icon
                   popper-class="listing-confirm-popper"
                   :confirm-button-text="t('common.confirm')"
                   :cancel-button-text="t('common.cancel')"
-                  @confirm="submitListingToPlatform('mercari', Number(form.auto_listing_watermark) === 1)"
+                  @confirm="submitListingToPlatform(listingPlatform, Number(form.auto_listing_watermark) === 1)"
                 >
                   <template #reference>
                     <el-button
                       type="success"
                       size="default"
                       :loading="listingSubmitting"
-                      :disabled="archive || inventorySaveBlockedByImageUpload || listableQuantity(form) <= 0 || currentEditRowIsAlert || !hasListingAccountFor('mercari') || !currentTypeMercariReady"
-                    >{{ t('inventory.listSubmitMercari') }}</el-button>
-                  </template>
-                </el-popconfirm>
-                <el-popconfirm
-                  title=""
-                  hide-icon
-                  popper-class="listing-confirm-popper"
-                  :confirm-button-text="t('common.confirm')"
-                  :cancel-button-text="t('common.cancel')"
-                  @confirm="submitListingToPlatform('yahoo', Number(form.auto_listing_watermark) === 1)"
-                >
-                  <template #reference>
-                    <el-button
-                      type="success"
-                      size="default"
-                      :loading="listingSubmitting"
-                      :disabled="archive || inventorySaveBlockedByImageUpload || listableQuantity(form) <= 0 || currentEditRowIsAlert || !hasListingAccountFor('yahoo') || !currentTypeYahooReady || shippingFromIsUndecided"
-                    >{{ t('inventory.listSubmitYahoo') }}</el-button>
+                      :disabled="archive || inventorySaveBlockedByImageUpload || listableQuantity(form) <= 0 || currentEditRowIsAlert || !listingPlatformReady"
+                    >{{ listingPlatform === 'yahoo' ? t('inventory.listSubmitYahoo') : listingPlatform === 'mercari' ? t('inventory.listSubmitMercari') : t('inventory.listSubmit') }}</el-button>
                   </template>
                 </el-popconfirm>
               </span>
@@ -1877,6 +1875,30 @@
       </template>
     </el-dialog>
 
+    <el-dialog
+      v-model="noCodeInboundVisible"
+      :title="t('inventory.noCodeInbound')"
+      :width="isMobile ? '94vw' : '480px'"
+      destroy-on-close
+    >
+      <!-- data-scanner-capture：焦点在货架选择框里时扫码枪扫货架码也交给 onScannerCode -->
+      <div data-scanner-capture>
+        <el-cascader
+          v-model="noCodeInboundPath"
+          :options="warehouseCascaderOptionsWithDefault"
+          :props="warehouseCascaderProps"
+          separator="-"
+          :placeholder="t('inventory.warehouseShelfArrowPlaceholder')"
+          popper-class="product-type-cascader-popper"
+          style="width: 100%"
+        />
+      </div>
+      <template #footer>
+        <el-button @click="noCodeInboundVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" @click="confirmNoCodeInbound">{{ t('inventory.noCodeInboundStart') }}</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 拆分与复制共用这一个弹窗：要填的东西完全一样，只有数量的来路不同（见 script.js） -->
     <el-dialog
       v-model="splitDialogVisible"
@@ -1977,7 +1999,10 @@
     <Teleport to="body">
       <Transition name="inbound-flash">
         <div v-if="inboundFlash" :key="inboundFlash.key" class="inbound-flash">
-          <img :src="inboundFlash.image" class="inbound-flash-img" />
+          <div class="inbound-flash-card">
+            <img v-if="inboundFlash.image" :src="inboundFlash.image" class="inbound-flash-img" />
+            <img v-if="inboundFlash.shelfImage" :src="inboundFlash.shelfImage" class="inbound-flash-img inbound-flash-shelf" />
+          </div>
         </div>
       </Transition>
     </Teleport>
@@ -1993,19 +2018,25 @@
     >
       <!-- 扫码枪：等扫码（键盘输入，见 useBarcodeScanner）；输入框也可手动输入条码回车 -->
       <div v-if="contState === 'gun-waiting'" class="gun-waiting-box" data-scanner-capture>
-        <!-- 上一件扫码枪入库的结果 -->
-        <div v-if="contGunLast" class="gun-last">
-          <img v-if="contGunLast.image" :src="contGunLast.image" class="cont-pick-img" />
-          <div class="cont-pick-meta">
-            <span class="gun-last-ok">
-              {{ t(contGunLast.classified ? 'inventory.scannerClassifiedOk' : 'inventory.scannerInboundOk', { qty: contGunLast.newQuantity }) }}
-            </span>
-            <span class="product-meta-name">{{ contGunLast.name }}</span>
-            <span class="cont-pick-sub">{{ contGunLast.place }}</span>
+        <!-- 上一件扫码枪入库的结果：左商品图、右货架号贴纸 -->
+        <div v-if="contGunLast" class="gun-result">
+          <div class="gun-result-imgs">
+            <img v-if="contGunLast.image" :src="contGunLast.image" class="gun-result-img" />
+            <div v-else class="gun-result-img cont-pick-img--empty"><el-icon size="32"><Picture /></el-icon></div>
+            <img v-if="contGunLast.shelfImage" :src="contGunLast.shelfImage" class="gun-result-img gun-result-shelf" />
           </div>
+          <span class="gun-last-ok">
+            {{ t(contGunLast.classified ? 'inventory.scannerClassifiedOk' : 'inventory.scannerInboundOk', { qty: contGunLast.newQuantity }) }}
+          </span>
+          <span class="product-meta-name">{{ contGunLast.name }}</span>
+          <span class="cont-pick-sub">{{ contGunLast.place }}</span>
         </div>
-        <el-icon v-else size="50" color="#409EFF"><Tickets /></el-icon>
-        <p class="gun-waiting-title">{{ t('inventory.scannerWaitingHint') }}</p>
+        <!-- 点摄像机图标改用摄像头扫码 -->
+        <el-tooltip :content="t('inventory.scannerUseCamera')" placement="top">
+          <button type="button" class="gun-camera-btn" :aria-label="t('inventory.scannerUseCamera')" @click="openContScan">
+            <el-icon size="40"><VideoCamera /></el-icon>
+          </button>
+        </el-tooltip>
         <el-input
           ref="contGunInputRef"
           v-model="contGunInput"
@@ -2013,22 +2044,6 @@
           :placeholder="t('inventory.scannerManualPlaceholder')"
           @keydown.enter.prevent="submitContGunInput"
         />
-        <p class="gun-waiting-tip">{{ t('inventory.scannerImeHint') }}</p>
-        <div class="gun-waiting-links">
-          <el-button link type="primary" @click="openContScan">{{ t('inventory.scannerUseCamera') }}</el-button>
-          <el-button link @click="scannerDiagVisible = !scannerDiagVisible">{{ t('inventory.scannerDiag') }}</el-button>
-        </div>
-        <!-- 按键诊断：浏览器实际收到的按键（键名 / 与上一键的间隔 ms / 焦点元素），排查扫码枪没反应用 -->
-        <div v-if="scannerDiagVisible" class="scanner-diag">
-          <p class="gun-waiting-tip">{{ t('inventory.scannerDiagHint') }}</p>
-          <div v-if="!scannerRecentKeys.length" class="scanner-diag-empty">{{ t('inventory.scannerDiagEmpty') }}</div>
-          <div v-else class="scanner-diag-keys">
-            <span v-for="(k, i) in scannerRecentKeys" :key="i" class="scanner-diag-key">
-              <b>{{ k.key === ' ' ? 'Space' : k.key }}</b><small v-if="k.gap != null">+{{ k.gap }}</small>
-            </span>
-          </div>
-          <el-button link size="small" @click="scannerRecentKeys = []">{{ t('inventory.scannerDiagClear') }}</el-button>
-        </div>
       </div>
 
       <!-- 一个条码对应多件商品：选要入库的那一件 -->
@@ -2037,7 +2052,7 @@
           <el-icon><Tickets /></el-icon>
           <span>{{ contBarcode }}</span>
         </div>
-        <p class="gun-waiting-tip">{{ t('inventory.scannerPickItem') }}</p>
+        <p class="gun-waiting-tip">{{ t(contCandidates.length > 1 ? 'inventory.scannerPickItem' : 'inventory.scannerPickItemMulti') }}</p>
         <div class="cont-pick-list">
           <div
             v-for="c in contCandidates"
@@ -2052,6 +2067,20 @@
             <div class="cont-pick-meta">
               <span class="product-meta-name">{{ c.name || t('inventory.unnamed') }}</span>
               <span class="cont-pick-sub">{{ c.mgmt_code || c.id }} · {{ c.barcode_code || c.product_barcode }} · {{ c.owner_user_name || '-' }}</span>
+            </div>
+          </div>
+          <!-- 一码多货：同一条码下来了一款新图案，另建商品并重新拍照 -->
+          <div
+            v-if="contMultiMode"
+            class="cont-pick-item cont-pick-item--new"
+            role="button"
+            tabindex="0"
+            @click="openNewVariantFromScan"
+          >
+            <div class="cont-pick-img cont-pick-img--empty"><el-icon><Plus /></el-icon></div>
+            <div class="cont-pick-meta">
+              <span class="product-meta-name">{{ t('inventory.scannerNewVariant') }}</span>
+              <span class="cont-pick-sub">{{ t('inventory.scannerNewVariantSub', { code: `${contFamily?.code || contBarcode}-${contFamily?.next_variant || 1}` }) }}</span>
             </div>
           </div>
         </div>
@@ -2175,7 +2204,18 @@
       </div>
 
       <template #footer>
-        <el-button @click="contScanVisible = false">{{ t('common.close') }}</el-button>
+        <!-- data-scanner-capture：刚点过开关时焦点在开关的 checkbox 上，扫码也要交给 onScannerCode，
+             否则扫码被忽略、扫码枪的回车还会把开关切回去 -->
+        <div class="cont-footer" data-scanner-capture>
+          <el-tooltip :content="t('inventory.scannerMultiModeTip')" placement="top">
+            <el-switch
+              v-model="contMultiMode"
+              :active-text="t('inventory.scannerMultiMode')"
+              @change="onContMultiModeChange"
+            />
+          </el-tooltip>
+          <el-button @click="contScanVisible = false">{{ t('common.close') }}</el-button>
+        </div>
       </template>
     </el-dialog>
 

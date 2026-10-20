@@ -59,6 +59,8 @@ export const inventoryApi = {
   remove: (id) => http.delete(`/use_web/inventory/${id}`),
   stockIn: (id, data) => http.post(`/use_web/inventory/${id}/stock-in`, data),
   stockOut: (id, data) => http.post(`/use_web/inventory/${id}/stock-out`, data),
+  /** 撤回刚才的扫码入库（从当天该货架的批次扣回，不走先进先出） */
+  undoStockIn: (id, data) => http.post(`/use_web/inventory/${id}/stock-in/undo`, data),
   // AI 生成出品标题 / 出品说明（DeepSeek，日语；以商品名为主题）
   aiGenerateListing: (data) => http.post('/use_web/inventory/ai-generate-listing', data, { timeout: 60000 })
 }

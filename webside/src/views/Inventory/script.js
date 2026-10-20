@@ -34,7 +34,7 @@ import {
 } from '@/constants/mercariJapanAreas.js'
 import { MERCARI_UNDECIDED_AREA_ID } from '@/composables/useListingPlatform.js'
 import { useBarcodeScanner } from '@/composables/useBarcodeScanner.js'
-import { parseWarehouseQr } from '@/utils/warehouseQr.js'
+import { buildShelfNoLabel, parseWarehouseQr } from '@/utils/warehouseQr.js'
 import { useInventoryBatches } from './useInventoryBatches.js'
 import RegionRecognizeDialog from './RegionRecognizeDialog.vue'
 import BarcodeDuplicatePrompt from './BarcodeDuplicatePrompt.vue'
@@ -607,6 +607,11 @@ export default defineComponent({
     const batchWarehouseDialogVisible = ref(false)
     const batchWarehousePath = ref([])
     const batchWarehouseSubmitting = ref(false)
+    /** 工具栏「无码入库」：先选货架，再打开商品入库表单并直接拍照 */
+    const noCodeInboundVisible = ref(false)
+    const noCodeInboundPath = ref([])
+    /** 本次表单来自无码入库：商品本来就没有条码，上传图片时不做条码识别 */
+    const noCodeInboundActive = ref(false)
     const listingCategoryMappings = ref([])
     const noBarcodeEntryMode = ref(false)
     /** 无码入库且新建：选图后立即上传服务器，保存时只提交 /imges/ 路径 */
@@ -850,6 +855,25 @@ export default defineComponent({
     const contScanMode = ref('stream') // 'stream' | 'fallback' | 'gun'（扫码枪，不开摄像头）
     /** 一个条码对应多件商品（按归属人各一件 / 一码多品的 条码-N）时的候选，由人选 */
     const contCandidates = ref([])
+    /** 本次扫到的条码族（/inventory/barcode-family 的返回），「新款式」要用它的 code / next_variant */
+    const contFamily = ref(null)
+    /**
+     * 「一码多货」开关：开着时扫到已登记的条码一律停在候选列表（哪怕只有一件），
+     * 列表末尾多一项「新款式」——同一个条码下又来了一款图案不同的货，要另建商品重新拍照。
+     * 关着时一件直接入库（扫码枪）/ 多件才让人选，与原来一致。记在本机。
+     */
+    const CONT_MULTI_MODE_STORAGE_KEY = 'mercari.inventory.scanMultiMode'
+    const contMultiMode = ref((() => {
+      try { return localStorage.getItem(CONT_MULTI_MODE_STORAGE_KEY) === '1' } catch { return false }
+    })())
+    watch(contMultiMode, (v) => {
+      try { localStorage.setItem(CONT_MULTI_MODE_STORAGE_KEY, v ? '1' : '0') } catch { /* ignore */ }
+    })
+    /**
+     * 「改选上一件」：扫码枪已把这件 +1 了，才发现它是同条码下的另一款。此时候选列表里
+     * 选同一件 = 不变；选别的款式 / 新款式 = 先撤回那 1 件（undoStockIn，从当天该货架的批次扣回）。
+     */
+    const contReclassify = ref(null)
     const contGunInputRef = ref()
     const contGunInput = ref('')
     /** 下次拍照识别点击的 input（与另一路交替，缓解 iOS 重复选择同一 input 不触发 change） */
@@ -1118,6 +1142,75 @@ export default defineComponent({
       }
     }
 
+    /**
+     * 同步出品设置：按管理番号从历史库存（inventory_old）带入商品名称 / 游戏分类 / 商品类型 / 单价 /
+     * 出品标题 / 出品说明 / 出品参数，覆盖当前表单（历史里为空的项不覆盖），随后由实时保存落库。
+     * 走归档列表的关键词搜索而不是按 id 取单条：搜索认管理编号的各种写法，查不到也不会弹 404。
+     * 款式 / 品相是商品自身的身份，自动出品开关会立刻触发补挂，这三样不带。
+     */
+    const archiveSyncing = ref(false)
+    async function syncListingFromArchive() {
+      if (archive) return
+      let code
+      try {
+        const { value } = await ElMessageBox.prompt(
+          t('inventory.syncFromArchivePrompt'),
+          t('inventory.syncFromArchive'),
+          {
+            inputPlaceholder: t('inventory.syncFromArchivePlaceholder'),
+            inputValidator: (v) => !!String(v || '').trim() || t('inventory.syncFromArchiveInvalid'),
+            confirmButtonText: t('common.confirm'),
+            cancelButtonText: t('common.cancel')
+          }
+        )
+        code = String(value || '').trim()
+      } catch {
+        return
+      }
+      archiveSyncing.value = true
+      try {
+        const res = await inventoryArchiveApi.list({ keyword: code, page: 1, page_size: 50 })
+        const rows = Array.isArray(res?.items) ? res.items : []
+        const src =
+          rows.find((r) => String(r.mgmt_code || '') === code) ||
+          rows.find((r) => String(r.id) === code)
+        if (!src) {
+          ElMessage.warning(t('inventory.syncFromArchiveNotFound', { code }))
+          return
+        }
+        const f = form.value
+        const has = (v) => v != null && String(v).trim() !== ''
+        if (has(src.name)) f.name = src.name
+        if (src.category_id) f.category_id = src.category_id
+        if (src.product_type_id) f.product_type_id = src.product_type_id
+        if (Number(src.price) > 0) {
+          f.price = Math.round(Number(src.price))
+          syncPriceEditFromForm()
+        }
+        if (has(src.listing_title)) f.listing_title = src.listing_title
+        if (has(src.listing_body)) f.listing_body = stripTrailingMgmtBlock(src.listing_body)
+        if (has(src.listing_status)) f.listing_status = src.listing_status
+        if (src.listing_account_id != null) f.mercari_account_id = Number(src.listing_account_id)
+        if (has(src.shipping_payer)) f.shipping_payer = src.shipping_payer
+        if (has(src.shipping_method)) f.shipping_method = src.shipping_method
+        if (has(src.shipping_from_area_id)) {
+          f.shipping_from = src.shipping_from_area_id
+          syncShippingFromPathFromForm()
+        }
+        if (has(src.shipping_days)) f.shipping_days = src.shipping_days
+        if (has(src.sale_type)) f.sale_type = src.sale_type
+        if (has(src.auction_duration)) f.auction_duration = src.auction_duration
+        if (src.auto_listing_watermark != null) {
+          f.auto_listing_watermark = Number(src.auto_listing_watermark) === 0 ? 0 : 1
+        }
+        ElMessage.success(t('inventory.syncFromArchiveDone', { code: src.mgmt_code || src.id }))
+      } catch (e) {
+        // 后端错误详情已由 http 拦截器统一弹出
+      } finally {
+        archiveSyncing.value = false
+      }
+    }
+
     /** 编辑组合商品时右侧「组成明细」 */
     const combinedEditDetailLoading = ref(false)
     const combinedEditDetailRows = ref([])
@@ -1161,6 +1254,35 @@ export default defineComponent({
       { value: 'A', label: t('inventory.gradeA') },
       { value: 'J', label: t('inventory.gradeJ') }
     ])
+    /**
+     * 款式下拉：同条码别的商品已用到的款式号 + 下一个新款式。别的商品是一对一（没款式号）时
+     * 记作已占用款式 1——本商品一旦选款式，后端会把它补成款式 1（sync_barcode_mode）。
+     */
+    const variantFamilyMax = ref(0)
+    let variantFamilyReq = 0
+    watch(
+      () => [dialogVisible.value, form.value.id, String(form.value.product_barcode || '').trim()],
+      async ([visible, id, code]) => {
+        const req = ++variantFamilyReq
+        variantFamilyMax.value = 0
+        if (!visible || !code) return
+        try {
+          const family = await invApi.barcodeFamily(code)
+          if (req !== variantFamilyReq) return
+          const others = (family?.items || []).filter((it) => Number(it.id) !== Number(id || 0))
+          const used = others.map((it) => Number(it.variant_no) || 0)
+          variantFamilyMax.value = others.length ? Math.max(1, ...used) : 0
+        } catch { /* 取不到就只给当前值和 1 */ }
+      }
+    )
+    const variantOptions = computed(() => {
+      const existing = variantFamilyMax.value
+      const max = Math.max(existing + 1, Number(form.value.variant_no) || 0, 1)
+      return Array.from({ length: max }, (_, i) => {
+        const n = i + 1
+        return { value: n, label: n > existing ? t('inventory.variantNew', { n }) : t('inventory.variantN', { n }) }
+      })
+    })
     /** 品相 → 出品「商品の状態」自动带出（只写本商品，不改系统出品默认值） */
     const GRADE_LISTING_STATUS = { S: 'new_unused', A: 'good', J: 'bad' }
 
@@ -1746,6 +1868,19 @@ export default defineComponent({
     const shippingFromIsUndecided = computed(
       () => String(form.value?.shipping_from ?? '').trim() === MERCARI_UNDECIDED_AREA_ID
     )
+
+    /** 合并后的「出品」按钮：平台由所选出品账号决定（未选账号 = null，按钮禁用） */
+    const listingPlatform = computed(() => {
+      const a = currentListingAccount.value
+      if (!a) return null
+      return accountIsYahoo(a) ? 'yahoo' : 'mercari'
+    })
+    /** 该平台的出品前置条件：分类位置已配置；雅虎另需发货地不是「未定」 */
+    const listingPlatformReady = computed(() => {
+      if (listingPlatform.value === 'yahoo') return currentTypeYahooReady.value && !shippingFromIsUndecided.value
+      if (listingPlatform.value === 'mercari') return currentTypeMercariReady.value
+      return false
+    })
 
     const productTypeCascaderOptions = computed(() => productTypeTreeMeta.value.options)
 
@@ -3149,6 +3284,7 @@ export default defineComponent({
       linkedItemsLoadedFor = null
       resetNoBarcodeImageUploadState()
       noBarcodeEntryMode.value = false
+      noCodeInboundActive.value = false
       categoryCreateMode.value = false
       newCategoryName.value = ''
       combinedEditDetailRows.value = []
@@ -3271,6 +3407,7 @@ export default defineComponent({
         }
         resetNoBarcodeImageUploadState()
         noBarcodeEntryMode.value = false
+        noCodeInboundActive.value = false
         categoryCreateMode.value = false
         newCategoryName.value = ''
         combinedEditDetailRows.value = []
@@ -3315,6 +3452,31 @@ export default defineComponent({
         ? crypto.randomUUID()
         : `nb-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
       form.value.barcode = uuid
+    }
+
+    /** 工具栏「无码入库」：默认带出上次商品入库用的货架 */
+    function openNoCodeInbound() {
+      if (archive) return
+      const wid = readNoBarcodeFormSelectionsCache()?.warehouse_id
+      const path = wid != null ? warehouseTreeMeta.value.idToPath.get(Number(wid)) : null
+      noCodeInboundPath.value = path ? [...path] : []
+      noCodeInboundVisible.value = true
+    }
+
+    /** 选好货架 → 商品入库表单（货架已填）+ 立即打开摄像头；拍到第一张图即自动建档 */
+    async function confirmNoCodeInbound() {
+      const wid = warehouseIdFromCascaderPath(noCodeInboundPath.value)
+      if (wid == null) {
+        ElMessage.warning(t('inventory.pickWarehouseFirst'))
+        return
+      }
+      noCodeInboundVisible.value = false
+      openNoBarcodeEntry()
+      noCodeInboundActive.value = true
+      form.value.warehouse_id = wid
+      syncWarehouseCascaderPathByWarehouseId(wid)
+      await nextTick()
+      openProductImageSource(-1)
     }
 
     /** 多条库存合并图片 URL：按行顺序、去重，与列表「全部图」一致 */
@@ -3650,12 +3812,9 @@ export default defineComponent({
       )
     }
 
-    function hasListingAccountFor(platform) {
-      return listingAccountsOfPlatform(platform).length > 0
-    }
-
     /**
-     * 「煤炉出品 / 雅虎出品」：出品账号仍由表单里的下拉决定，这两个按钮只负责限定平台——
+     * 「出品」按钮：platform 取自所选出品账号（listingPlatform），所以下面通常直接命中；
+     * 其余分支保留作兜底——
      * 已选账号就是该平台的直接用；不是且该平台只有一个可用账号则自动切过去；
      * 有多个则要求用户明确选一个（不替他猜挂到哪个号上）。
      */
@@ -4153,6 +4312,7 @@ export default defineComponent({
     // ---- 上传图片识别条码 → 查重 ----
     /** 还没有产品条码的普通商品，上传图片时顺带识别 */
     function shouldDetectBarcode() {
+      if (noCodeInboundActive.value) return false
       return Number(form.value.is_combined || 0) !== 1 && !String(form.value.product_barcode || '').trim()
     }
 
@@ -4683,15 +4843,18 @@ export default defineComponent({
       contBarcode.value = barcode
       contInventory.value = null
       contCandidates.value = []
+      contFamily.value = null
+      contReclassify.value = null
 
       // 产品条码不唯一（按归属人各留一件，一码多品还有 条码-N），只取最新一件会静默入错商品，
       // 所以按条码族查：一件直接用，多件让人选
       try {
         const family = await invApi.barcodeFamily(barcode)
         const items = family?.items || []
+        contFamily.value = family
         if (!items.length) {
           contState.value = 'notfound'
-        } else if (items.length === 1) {
+        } else if (items.length === 1 && !contMultiMode.value) {
           await pickContCandidate(items[0].id)
         } else {
           contCandidates.value = items
@@ -4704,6 +4867,14 @@ export default defineComponent({
     }
 
     async function pickContCandidate(id) {
+      if (contReclassify.value) {
+        if (Number(id) === Number(contReclassify.value.inventoryId)) {
+          // 就是刚才入库的那一款：不用改
+          resumeContScan()
+          return
+        }
+        if (!(await undoLastInbound())) return
+      }
       contInventory.value = await invApi.get(id)
       contQuantity.value = 1
       if (contScanMode.value !== 'gun') {
@@ -4721,21 +4892,34 @@ export default defineComponent({
     const contGunLast = ref(null)
     let contScanQueue = Promise.resolve()
 
-    /** 入库成功后全屏大图展示 1 秒再缩小消失，扫码时不用低头找弹窗也能确认扫中的是哪件。
+    /** 入库成功后弹出 1 秒：左边商品图、右边货架号贴纸，扫码时不用低头找弹窗也能确认扫中哪件、该放哪格。
      *  不抢焦点、不拦点击，期间扫码枪照常排队入库；下一件入库会换图并重新计时 */
     const inboundFlash = ref(null)
     let inboundFlashTimer = null
-    function flashInboundImage(inv) {
+    function flashInboundImage(inv, wid) {
       const image = inventoryRowImages(inv)[0] || ''
-      if (!image) return
+      const shelfImage = shelfLabelImage(wid)
+      if (!image && !shelfImage) return
       clearTimeout(inboundFlashTimer)
-      inboundFlash.value = { image, key: Date.now() }
+      inboundFlash.value = { image, shelfImage, key: Date.now() }
       inboundFlashTimer = setTimeout(() => { inboundFlash.value = null }, 1000)
     }
     onBeforeUnmount(() => clearTimeout(inboundFlashTimer))
 
     function shelfById(wid) {
       return (warehouses.value || []).find((w) => Number(w.id) === Number(wid)) || null
+    }
+
+    /** 货架号贴纸图（与仓库页打印的货架号标签同一版式）；按货架 id 缓存，扫码枪一件一件扫时不重复画 */
+    const shelfLabelCache = new Map()
+    function shelfLabelImage(wid) {
+      const w = shelfById(wid)
+      if (!w) return ''
+      const shelfNo = w.name || `#${w.id}`
+      const shelfName = String(w.shelf_name || '').trim()
+      const key = `${w.id}|${shelfNo}|${shelfName}`
+      if (!shelfLabelCache.has(key)) shelfLabelCache.set(key, buildShelfNoLabel(shelfNo, shelfName))
+      return shelfLabelCache.get(key)
     }
 
     function shelfPlaceLabel(w) {
@@ -4759,9 +4943,14 @@ export default defineComponent({
           image: inventoryRowImages(inv)[0] || '',
           newQuantity: res.new_quantity,
           place: shelfPlaceLabel(shelfById(wid)),
+          shelfImage: shelfLabelImage(wid),
+          // 改选上一件（开「一码多货」）用：撤回要知道入到了哪件、哪个货架，再按条码列出同族款式
+          inventoryId: inv.id,
+          warehouseId: wid,
+          barcode: contBarcode.value,
           classified: !!moveExisting,
         }
-        flashInboundImage(inv)
+        flashInboundImage(inv, wid)
         load()
         loadInventoryStats()
         resumeContScan()
@@ -4790,6 +4979,26 @@ export default defineComponent({
       } else {
         ElMessage.warning(t('inventory.scannerScanProductFirst'))
       }
+    }
+
+    /** 无码入库弹窗里扫码枪扫到的码：只认货架码，命中即按该货架开始拍照 */
+    async function handleNoCodeInboundShelfScan(code) {
+      const wid = parseWarehouseQr(code)
+      if (wid == null) {
+        ElMessage.warning(t('inventory.noCodeInboundScanShelfOnly'))
+        return
+      }
+      if (!shelfById(wid)) {
+        try { warehouses.value = await warehouseApi.list() } catch { /* 拦截器已提示 */ }
+      }
+      const path = shelfById(wid) ? warehouseTreeMeta.value.idToPath.get(wid) : null
+      if (!path) {
+        ElMessage.warning(t('inventory.scannerShelfUnknown', { id: wid }))
+        return
+      }
+      if (!noCodeInboundVisible.value) return // 等货架列表期间弹窗被关了
+      noCodeInboundPath.value = [...path]
+      await confirmNoCodeInbound()
     }
 
     /** 扫码枪 / 手动输入的一个码。串行执行：上一个还在查询或入库时，后一个排队，不丢也不交错 */
@@ -4840,6 +5049,12 @@ export default defineComponent({
       if (archive) return // 历史库存页不接扫码枪（扫码会走入库流程）
       const code = String(rawCode || '').trim()
       if (!code) return
+      if (noCodeInboundVisible.value) {
+        // 无码入库选货架：扫到货架码 = 选中该货架并直接开始拍照
+        focusedEl?.blur()
+        handleNoCodeInboundShelfScan(code)
+        return
+      }
       if (!contScanVisible.value) {
         // 别的弹窗开着（编辑商品等）时不抢：扫码枪的输入不该落到不相干的流程里
         const overlayOpen = Array.from(document.querySelectorAll('.el-overlay'))
@@ -4878,13 +5093,14 @@ export default defineComponent({
       handleContBarcode(code)
     }
 
-    const { recentKeys: scannerRecentKeys } = useBarcodeScanner(onScannerCode)
-    const scannerDiagVisible = ref(false)
+    useBarcodeScanner(onScannerCode)
 
     function resumeContScan() {
       contBarcode.value = ''
       contInventory.value = null
       contCandidates.value = []
+      contFamily.value = null
+      contReclassify.value = null
       if (contScanMode.value === 'gun') {
         contState.value = 'gun-waiting'
         focusContGunInput()
@@ -4915,7 +5131,7 @@ export default defineComponent({
           remark: contScanMode.value === 'gun' ? '扫码枪入库' : '连续扫码入库'
         })
         ElMessage.success(t('inventory.inboundSuccessQty', { qty: res.new_quantity }))
-        flashInboundImage(contInventory.value)
+        flashInboundImage(contInventory.value, contInventory.value.warehouse_id)
         load()
         loadInventoryStats()
         // 扫码枪是一件接一件地扫，入库后留在弹窗里等下一件
@@ -4926,6 +5142,68 @@ export default defineComponent({
       } finally {
         contConfirming.value = false
       }
+    }
+
+    /** 撤回改选中的那 1 件；失败（拦截器已提示）返回 false，停在候选列表 */
+    async function undoLastInbound() {
+      const r = contReclassify.value
+      if (!r) return true
+      try {
+        await invApi.undoStockIn(r.inventoryId, { warehouse_id: r.warehouseId, quantity: 1, remark: '撤回扫码入库（一码多货改选）' })
+      } catch {
+        return false
+      }
+      contReclassify.value = null
+      contGunLast.value = null
+      load()
+      loadInventoryStats()
+      return true
+    }
+
+    /** 扫码后再打开「一码多货」：把当前这件切到款式选择 */
+    async function onContMultiModeChange(on) {
+      if (contState.value === 'gun-waiting') focusContGunInput()
+      if (!on || contConfirming.value) return
+      if (contState.value === 'found' && contBarcode.value) {
+        // 摄像头扫码还没入库：直接按条码重新列出款式
+        await handleContBarcode(contBarcode.value)
+        return
+      }
+      const last = contGunLast.value
+      if (contState.value !== 'gun-waiting' || !last?.barcode || !last.inventoryId) return
+      let family
+      try {
+        family = await invApi.barcodeFamily(last.barcode)
+      } catch {
+        return
+      }
+      if (contState.value !== 'gun-waiting' || contGunLast.value !== last) return // 期间又扫了一件
+      contBarcode.value = last.barcode
+      contInventory.value = null
+      contFamily.value = family
+      contCandidates.value = family?.items || []
+      contReclassify.value = { inventoryId: last.inventoryId, warehouseId: last.warehouseId }
+      contState.value = 'pick'
+    }
+
+    /**
+     * 候选列表里选了「新款式」：另建一件商品，条码 = 本条码、款式号 = 下一个（一对一条码随之转一对多，
+     * 后端把原有商品补成款式 1），然后直接打开摄像头拍这一款的图。货架带出上次商品入库用的。
+     */
+    async function openNewVariantFromScan() {
+      const family = contFamily.value
+      const code = String(family?.code || contBarcode.value || '').trim()
+      if (!code) return
+      const variant = Number(family?.next_variant) || 1
+      if (!(await undoLastInbound())) return
+      contScanVisible.value = false
+      openNoBarcodeEntry()
+      // 条码已定好，拍照时不再识别条码（否则又会弹一次「一码多品」）
+      noCodeInboundActive.value = true
+      form.value.product_barcode = code
+      form.value.variant_no = variant
+      await nextTick()
+      openProductImageSource(-1)
     }
 
     /** shelfId：扫码枪在「未登记」状态下扫了货架码 → 新商品直接放到该货架号 */
@@ -5241,7 +5519,6 @@ export default defineComponent({
       listingDefaultsFromServer,
       listingSubmitting,
       listingAccountsOfPlatform,
-      hasListingAccountFor,
       submitListingToPlatform,
       canEnableAutoListing,
       autoListingDisabledReason,
@@ -5266,6 +5543,8 @@ export default defineComponent({
       persistListingField,
       aiGenerating,
       aiGenerateListing,
+      archiveSyncing,
+      syncListingFromArchive,
       submitListingFromEditForm,
       combinedProductDialogVisible,
       combinedProductSubmitting,
@@ -5376,12 +5655,15 @@ export default defineComponent({
       contCameraRefB,
       contScanMode,
       contCandidates,
+      contFamily,
+      contMultiMode,
+      openNewVariantFromScan,
+      contReclassify,
+      onContMultiModeChange,
       contGunInputRef,
       contGunInput,
       contGunLast,
       inboundFlash,
-      scannerRecentKeys,
-      scannerDiagVisible,
       contCaptureUseA,
       contStream,
       contTimer,
@@ -5416,6 +5698,7 @@ export default defineComponent({
       editFormMgmtCode,
       editFormBarcodeCode,
       gradeOptions,
+      variantOptions,
       onGradeChange,
       copyMgmtIdCipher,
       formOwnerUserOptions,
@@ -5464,6 +5747,8 @@ export default defineComponent({
       pickFormCategoryFromPath,
       currentTypeMercariReady,
       currentTypeYahooReady,
+      listingPlatform,
+      listingPlatformReady,
       shippingFromIsUndecided,
       DEFAULT_WH_LABEL,
       warehouseGroupKey,
@@ -5549,6 +5834,10 @@ export default defineComponent({
       pickComponentImageForCombinedForm,
       openDialog,
       openNoBarcodeEntry,
+      noCodeInboundVisible,
+      noCodeInboundPath,
+      openNoCodeInbound,
+      confirmNoCodeInbound,
       mergeInventoryListingImageUrls,
       buildListingSeedFromInventoryRows,
       buildCombinedListingSeedFromInventoryRows,

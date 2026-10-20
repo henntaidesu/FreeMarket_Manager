@@ -121,3 +121,53 @@ def stock_out_inventory(pid: int, data: StockInRequest):
     )
     new_qty = db.execute_query("SELECT quantity FROM [inventory] WHERE id = ?", (pid,))
     return {"success": True, "new_quantity": (new_qty[0][0] if new_qty else 0), "inventory_id": pid}
+
+
+def undo_stock_in_inventory(pid: int, data: StockInRequest):
+    """撤回刚才的扫码入库（条码入库里扫完才发现是一码多货的另一款）：库存 −N，并从 stock_in 当时记进的
+    「今天、该仓位」批次里扣回——不能走 stock-out，那会按先进先出扣最早的批次，批次就记错了。"""
+    if not _inventory_exists(pid):
+        raise HTTPException(status_code=404, detail="商品不存在")
+    if data.quantity <= 0:
+        raise HTTPException(status_code=400, detail="撤回数量必须大于0")
+    from ....use_mercari.inventory_batches import ONSHORE_COND, _sync_head_warehouse
+    from ....use_mercari.inventory_counters import recompute_listable_quantity
+
+    qty = int(data.quantity)
+    today = time.strftime("%Y-%m-%d")
+    wh_cond = "[warehouse_id] IS NULL" if data.warehouse_id is None else "[warehouse_id] = ?"
+    params: tuple = (pid, f"{today} 00:00:00", f"{today} 23:59:59")
+    if data.warehouse_id is not None:
+        params += (int(data.warehouse_id),)
+    with db.transaction():
+        if db.execute_update(
+            "UPDATE [inventory] SET quantity = quantity - ? WHERE id = ? AND COALESCE(quantity, 0) >= ?",
+            (qty, pid, qty),
+        ) <= 0:
+            raise HTTPException(status_code=400, detail="库存不足，无法撤回")
+        rows = db.execute_query(
+            f"SELECT [id], [quantity] FROM [inventory_batches] WHERE [inventory_id] = ? "
+            f"AND [arrived_at] >= ? AND [arrived_at] <= ? AND {wh_cond} AND {ONSHORE_COND} "
+            f"AND [quantity] >= ? ORDER BY [id] DESC LIMIT 1",
+            params + (qty,),
+        )
+        if rows:
+            bid, bqty = int(rows[0][0]), int(rows[0][1] or 0)
+            if bqty == qty:
+                # 这一批就是刚才扫出来的，扣完即删（批次号不复用，删了也不会撞号）
+                db.execute_update("DELETE FROM [inventory_batches] WHERE [id] = ?", (bid,))
+            else:
+                db.execute_update(
+                    "UPDATE [inventory_batches] SET [quantity] = [quantity] - ? WHERE [id] = ?", (qty, bid)
+                )
+            _sync_head_warehouse(db, pid)
+        if data.warehouse_id:
+            db.execute_insert(
+                "INSERT INTO [transactions] (type, inventory_id, warehouse_id, quantity, remark, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                ("out", pid, int(data.warehouse_id), qty, data.remark or "撤回扫码入库", int(time.time())),
+            )
+    # 找不到当天批次（极少：例如中间被合并过）时，这里按先进先出把差额落到批次上
+    recompute_listable_quantity([pid])
+    new_qty = db.execute_query("SELECT quantity FROM [inventory] WHERE id = ?", (pid,))
+    return {"success": True, "new_quantity": (new_qty[0][0] if new_qty else 0), "inventory_id": pid}
