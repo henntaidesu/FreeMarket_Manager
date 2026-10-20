@@ -2,6 +2,7 @@
 """库存批次端点（库存编辑弹窗「批次」页）。业务口径见 use_mercari/inventory_batches.py。"""
 from fastapi import HTTPException
 
+from ....db_manage import archive_view
 from ....db_manage.database import DatabaseManager
 from ....use_mercari import inventory_batches as ib
 from ....use_mercari.inventory_counters import recompute_listable_quantity
@@ -38,7 +39,7 @@ def _result(pid: int) -> dict:
 def list_inventory_batches(pid: int):
     _check_item(pid)
     # 未分批的历史商品第一次打开批次页时，把现有数量原样转成一个批次（总数不变）
-    if ib.materialize_legacy(pid):
+    if not archive_view.is_active() and ib.materialize_legacy(pid):
         recompute_listable_quantity([pid])
     return _result(pid)
 

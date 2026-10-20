@@ -150,7 +150,6 @@ from .warehouses.API import router as warehouses_router
 from .inbound_shipments.API import router as inbound_shipments_router
 from .categories.API import router as categories_router
 from .transactions.API import router as transactions_router
-from .inventory_history.API import router as inventory_history_router
 from .product_type_category_mappings.API import router as ptcm_router
 from .yahoo_category_mappings.API import router as yahoo_ycm_router
 from .settlement.API import router as settlement_router
@@ -284,7 +283,7 @@ router.include_router(
     warehouses_router, prefix="/warehouses", tags=["warehouses"],
     dependencies=_page(
         "system/warehouses", "inventory", "orders", "system/cost-records", "system/transactions",
-        "system/inbound-shipments",
+        "system/inbound-shipments", "system/inventory-history",
     ),
 )
 # 快递入库：在途 → 到岸扫码上架（业务口径见 src/inbound_shipments）
@@ -294,21 +293,20 @@ router.include_router(
 )
 router.include_router(
     categories_router, prefix="/categories", tags=["categories"],
-    dependencies=_page("system/categories", "inventory", "orders"),
+    dependencies=_page("system/categories", "inventory", "orders", "system/inventory-history"),
 )
 router.include_router(
     transactions_router, prefix="/transactions", tags=["transactions"],
-    dependencies=_page("system/transactions", "inventory", "dashboard"),
-)
-router.include_router(
-    inventory_history_router, prefix="/inventory-history", tags=["inventory-history"],
-    dependencies=_page("system/inventory-history"),
+    dependencies=_page("system/transactions", "inventory", "dashboard", "system/inventory-history"),
 )
 router.include_router(
     ptcm_router,
     prefix="/product-type-category-mappings",
     tags=["product-type-category-mappings"],
-    dependencies=_page("system/product-type-category-mappings", "inventory", "on-sale-items", "orders"),
+    dependencies=_page(
+        "system/product-type-category-mappings", "inventory", "on-sale-items", "orders",
+        "system/inventory-history",
+    ),
 )
 router.include_router(
     yahoo_ycm_router,

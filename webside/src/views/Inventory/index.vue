@@ -1,5 +1,7 @@
 <template>
   <div :class="{ 'listing-pick-mode-active': listingPickMode }">
+    <!-- 历史库存：同一个页面读 inventory_old 归档表，只能看不能改 -->
+    <el-alert v-if="archive" :title="t('inventory.archiveNotice')" type="info" :closable="false" show-icon class="archive-notice" />
     <el-card shadow="never" class="search-card" :class="{ 'search-card--ios': isIOS }">
       <div class="search-row">
         <div class="search-left-group">
@@ -86,10 +88,10 @@
         </div>
         <div class="search-actions">
           <template v-if="!listingPickMode">
-            <el-button type="success" @click="openBarcodeInbound">{{ t('inventory.barcodeInbound') }}</el-button>
-            <el-button type="success" plain @click="openNoBarcodeEntry">{{ t('inventory.noBarcodeInbound') }}</el-button>
-            <el-button type="primary" plain @click="openImageSearch">{{ t('inventory.imageSearch') }}</el-button>
-            <el-button @click="enterListingPickMode()">{{ t('inventory.multiSelect') }}</el-button>
+            <el-button type="success" :disabled="archive" @click="openBarcodeInbound">{{ t('inventory.barcodeInbound') }}</el-button>
+            <el-button type="success" plain :disabled="archive" @click="openNoBarcodeEntry">{{ t('inventory.noBarcodeInbound') }}</el-button>
+            <el-button type="primary" plain :disabled="archive" @click="openImageSearch">{{ t('inventory.imageSearch') }}</el-button>
+            <el-button :disabled="archive" @click="enterListingPickMode()">{{ t('inventory.multiSelect') }}</el-button>
           </template>
           <template v-else>
             <span class="listing-pick-count">{{ t('inventory.selectedCount', { count: listingPickIds.size }) }}</span>
@@ -288,7 +290,7 @@
             <el-popover
               :visible="editingCategoryRowId === row.id"
               trigger="click"
-              :disabled="listingPickMode"
+              :disabled="listingPickMode || archive"
               placement="bottom-start"
               width="auto"
               popper-class="inline-edit-popover inline-edit-popover--cascader"
@@ -311,7 +313,7 @@
             <el-popover
               :visible="editingProductTypeRowId === row.id"
               trigger="click"
-              :disabled="listingPickMode"
+              :disabled="listingPickMode || archive"
               placement="bottom-start"
               width="auto"
               popper-class="inline-edit-popover inline-edit-popover--cascader"
@@ -351,7 +353,7 @@
             <el-popover
               :visible="editingOwnerRowId === row.id"
               trigger="click"
-              :disabled="listingPickMode"
+              :disabled="listingPickMode || archive"
               placement="bottom-start"
               :width="200"
               popper-class="inline-edit-popover"
@@ -374,7 +376,7 @@
               v-else
               :visible="editingWarehouseRowId === row.id"
               trigger="click"
-              :disabled="listingPickMode"
+              :disabled="listingPickMode || archive"
               placement="bottom-start"
               width="auto"
               popper-class="inline-edit-popover inline-edit-popover--cascader"
@@ -437,7 +439,7 @@
         <el-table-column v-if="!listingPickMode" :label="t('common.operate')" :width="isMobile ? 140 : 160" align="center" header-align="center" fixed="right">
           <template #default="{ row }">
             <div class="row-actions">
-              <el-button size="small" type="primary" @click.stop="openDialog(row)">{{ t('common.operate') }}</el-button>
+              <el-button size="small" type="primary" @click.stop="openDialog(row)">{{ archive ? t('inventory.archiveView') : t('common.operate') }}</el-button>
             </div>
           </template>
         </el-table-column>
@@ -554,6 +556,7 @@
         ref="formRef"
         label-position="top"
         size="small"
+        :disabled="archive"
         class="product-edit-form"
       >
       <div
@@ -1396,7 +1399,7 @@
                       inventoryImageDragFrom >= 0 &&
                       inventoryImageDragFrom !== imgIdx
                   }"
-                  :draggable="form.images.length > 1 && !!imgUrl"
+                  :draggable="!archive && form.images.length > 1 && !!imgUrl"
                   :title="t('inventory.dragToReorder')"
                   @dragstart="onInventoryImageDragStart(imgIdx, $event)"
                   @dragend="onInventoryImageDragEnd"

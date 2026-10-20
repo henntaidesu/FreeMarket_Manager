@@ -61,3 +61,28 @@ export const inventoryApi = {
   // AI 生成出品标题 / 出品说明（DeepSeek，日语；以商品名为主题）
   aiGenerateListing: (data) => http.post('/use_web/inventory/ai-generate-listing', data, { timeout: 60000 })
 }
+
+/**
+ * 历史数据页（其他功能 → 历史数据）用的同一套库存接口：带上这个头，后端在本请求内把
+ * inventory / inventory_batches 改读 *_old 归档表，且只放行 GET（见 backend db_manage/archive_view.py）。
+ */
+export const ARCHIVE_HEADERS = { 'X-Inventory-Archive': '1' }
+
+const archiveReads = {
+  list: (params) => http.get('/use_web/inventory', { params, headers: ARCHIVE_HEADERS }),
+  summary: () => http.get('/use_web/inventory/summary', { headers: ARCHIVE_HEADERS }),
+  get: (id) => http.get(`/use_web/inventory/${id}`, { headers: ARCHIVE_HEADERS }),
+  pendingOutboundLines: (id) => http.get(`/use_web/inventory/${id}/pending-outbound-lines`, { headers: ARCHIVE_HEADERS }),
+  usedInCombos: (id) => http.get(`/use_web/inventory/${id}/used-in-combos`, { headers: ARCHIVE_HEADERS }),
+  linkedItems: (id) => http.get(`/use_web/inventory/${id}/linked-items`, { headers: ARCHIVE_HEADERS }),
+  barcodeFamily: (code) => http.get('/use_web/inventory/barcode-family', { params: { code }, headers: ARCHIVE_HEADERS }),
+  listBatches: (id) => http.get(`/use_web/inventory/${id}/batches`, { headers: ARCHIVE_HEADERS })
+}
+
+/** 只读：除上面几个读接口外，其余方法一律拒绝（页面上对应按钮也是禁用的，这里兜底） */
+export const inventoryArchiveApi = Object.fromEntries(
+  Object.keys(inventoryApi).map((k) => [
+    k,
+    archiveReads[k] || (() => Promise.reject(new Error('历史数据只读')))
+  ])
+)

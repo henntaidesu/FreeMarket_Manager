@@ -262,10 +262,15 @@ Key tables in `backend/src/db_manage/models/`:
   没有再取 `inventory.warehouse_id`。全部入库完自动关单；手动「清点关单」把在途剩余记为丢失并从总数扣掉。
   货到前在途批次若已被售出扣减，入库会拒绝（「在途库存不足」），只能清点关单。
 - **inventory_old / inventory_batches_old**: 重新盘库（2026-10-20）前的整表归档，id 原样保留；新 `inventory`
-  从 1500 起编号，所以新旧 id 不会撞。**只读**，只有「其他功能 → 历史数据」（`/#/system/inventory-history`，
-  `use_web/system/inventory_history/`）读它们，库存计数 / 在售绑定 / 出库扣减都不碰。在售描述暗号、图片水印、
+  从 1500 起编号，所以新旧 id 不会撞。库存计数 / 在售绑定 / 出库扣减都不碰它们；在售描述暗号、图片水印、
   出库明细、流水里指向旧 id 的记录因此在新表里查不到，按「未绑定」处理。两张表注册为模型
   （`models/inventory/inventory_old.py`）只是为了不被启动时的 drop-unknown-tables 删掉。
+  **「其他功能 → 历史库存」（`/#/system/inventory-history`）就是库存页本身**（`views/Inventory`，
+  `props: { archive: true }`）：请求带 `X-Inventory-Archive: 1` 头，`db_manage/archive_view.py` 的中间件
+  在本请求内把 SQL 里的 `[inventory]` / `[inventory_batches]` 改指 `*_old`，并拒绝一切写语句与非 GET 方法。
+  所以库存页的读接口不用分叉；但**在 GET 里顺手写库的路径**（如批次页首次打开的 `materialize_legacy`）
+  要判 `archive_view.is_active()` 跳过，否则历史页会 500。权限上 `system/inventory-history` 只在带该头的
+  请求里算数（`page_access.require_page`）；库存页新调用了别组接口时，也要把这一页加进那组的页面列表。
 - **warehouses**: Storage locations (shelf names duplicable per warehouse)
 - **product_type_category_mappings**: 商品类型主表 (one row = one 商品类型). `inventory.product_type_id` → `mapping_id` (TEXT PK, numeric, auto-incremented on create, never user-visible). See 商品类型映射 below.
 - **shop_accounts**: Marketplace account config (headers in `value` JSON field, `platform`,

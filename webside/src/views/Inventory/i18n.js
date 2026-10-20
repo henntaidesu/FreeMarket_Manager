@@ -1,6 +1,8 @@
 export default {
   'zh-CN': {
     inventory: {
+      archiveNotice: "历史库存（重新盘库前的归档，只读）：可以查看商品、图片与表单，所有修改功能都已停用。",
+      archiveView: "查看",
       title: "库存管理",
       addItem: "添加商品",
       barcode: "条码",
@@ -441,6 +443,8 @@ export default {
   },
   ja: {
     inventory: {
+      archiveNotice: "履歴在庫（棚卸し前のアーカイブ・閲覧のみ）：商品・画像・フォームは閲覧できますが、編集機能はすべて無効です。",
+      archiveView: "表示",
       title: "在庫管理",
       addItem: "商品を追加",
       barcode: "バーコード",
@@ -881,6 +885,8 @@ export default {
   },
   en: {
     inventory: {
+      archiveNotice: "Archived inventory (before the restocktake, read-only): items, images and forms are viewable; all editing is disabled.",
+      archiveView: "View",
       title: "Inventory",
       addItem: "Add Item",
       barcode: "Barcode",

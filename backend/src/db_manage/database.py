@@ -14,6 +14,7 @@ from typing import List, Dict, Any, Optional
 
 from src.app_paths import backend_root_str
 from .dialects import get_dialect
+from . import archive_view
 
 
 class DatabaseManager:
@@ -55,7 +56,7 @@ class DatabaseManager:
             return
         conn = self.dialect.connect()
         try:
-            yield conn
+            yield archive_view.wrap(conn)
         finally:
             conn.close()
 
@@ -72,9 +73,9 @@ class DatabaseManager:
             return
         conn = self.dialect.connect()
         self.dialect.begin(conn)
-        self._tlocal.conn = conn
+        self._tlocal.conn = archive_view.wrap(conn)
         try:
-            yield conn
+            yield self._tlocal.conn
             self.dialect.commit(conn)
         except BaseException:
             try:

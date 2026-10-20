@@ -31,6 +31,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.use_web.image_storage import ensure_image_dir
 from src.API import router as v2_router
+from src.db_manage.archive_view import ArchiveViewMiddleware
 from src.image_route import register_image_routes
 from src.lifecycle import register_lifecycle
 from src.store_static import mount_store
@@ -68,6 +69,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# 历史数据页：带 X-Inventory-Archive 头的请求只读地改读 inventory_old（见 db_manage/archive_view.py）
+app.add_middleware(ArchiveViewMiddleware)
 
 # /imges 由 src/image_route.py 提供：它先查图片资产映射，落在图床上的跳转过去，
 # 仍在本地的照旧读盘。这里仍先建目录——本地后端与各类缓存（缩略图、煤炉图片）都要用它。

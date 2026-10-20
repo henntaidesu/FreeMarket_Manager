@@ -1741,3 +1741,6 @@ a.pef-lcard:hover {
   line-height: 1.2;
   color: var(--el-color-warning);
 }
+
+/* 历史库存（archive 模式）顶部的只读提示 */
+.archive-notice { margin-bottom: 12px; }

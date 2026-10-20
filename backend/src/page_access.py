@@ -24,6 +24,7 @@ from typing import Iterable, List, Optional
 from fastapi import Depends, HTTPException, Request
 
 from .auth import require_auth
+from .db_manage import archive_view
 
 # 与前端 constants/menu.js 一一对应（不含隐藏页 x9 / DFD：它们不受角色控制）
 PAGE_KEYS = frozenset({
@@ -112,6 +113,9 @@ def require_page(*pages: str, reads_open: bool = False):
             return claims
         if reads_open and request.method in ("GET", "HEAD"):
             return claims
+        # 历史数据页只在历史视图请求里算数：它复用库存页那几组接口，但只能读归档表
+        if not archive_view.is_active():
+            allowed = [p for p in allowed if p != archive_view.ARCHIVE_PAGE]
         if wanted.intersection(allowed):
             return claims
         raise HTTPException(status_code=403, detail="当前角色无权访问该功能")

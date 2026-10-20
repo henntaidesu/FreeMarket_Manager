@@ -7,7 +7,7 @@ import { inventoryApi } from '@/api/index.js'
  * 商品总数 = Σ批次数量（后端维护），这里只改批次；每次改动后用后端回传的商品行
  * 回填表单上的总数/仓位/计数（onItemUpdated）。
  */
-export function useInventoryBatches({ form, warehouseTreeMeta, t, onItemUpdated }) {
+export function useInventoryBatches({ form, warehouseTreeMeta, t, onItemUpdated, api = inventoryApi }) {
   const batchRows = ref([])
   const batchLoading = ref(false)
   const batchSaving = ref(false)
@@ -68,7 +68,7 @@ export function useInventoryBatches({ form, warehouseTreeMeta, t, onItemUpdated 
     if (!force && loadedFor === id) return
     batchLoading.value = true
     try {
-      applyResult(await inventoryApi.listBatches(id))
+      applyResult(await api.listBatches(id))
       loadedFor = id
     } catch (e) {
       ElMessage.error(e?.response?.data?.detail || t('inventory.batchLoadFailed'))
@@ -89,7 +89,7 @@ export function useInventoryBatches({ form, warehouseTreeMeta, t, onItemUpdated 
     }
     batchSaving.value = true
     try {
-      applyResult(await inventoryApi.createBatch(Number(form.value.id), {
+      applyResult(await api.createBatch(Number(form.value.id), {
         arrived_at: nb.arrived_at || null,
         warehouse_id: nb.warehouse_id ?? null,
         quantity: qty,
@@ -107,7 +107,7 @@ export function useInventoryBatches({ form, warehouseTreeMeta, t, onItemUpdated 
   async function saveBatchField(row, field, value) {
     if (!batchesEnabled.value || !row?.id) return
     try {
-      applyResult(await inventoryApi.updateBatch(Number(form.value.id), row.id, { [field]: value }))
+      applyResult(await api.updateBatch(Number(form.value.id), row.id, { [field]: value }))
     } catch {
       // 失败时重拉，把行内输入还原成库里的值
       loadBatches(true)
@@ -117,7 +117,7 @@ export function useInventoryBatches({ form, warehouseTreeMeta, t, onItemUpdated 
   async function removeBatch(row) {
     if (!batchesEnabled.value || !row?.id) return
     try {
-      applyResult(await inventoryApi.deleteBatch(Number(form.value.id), row.id))
+      applyResult(await api.deleteBatch(Number(form.value.id), row.id))
       ElMessage.success(t('inventory.batchDeleted'))
     } catch {
       loadBatches(true)

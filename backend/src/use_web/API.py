@@ -97,7 +97,7 @@ router.include_router(product_types_router, prefix="/product-types", tags=["prod
 router.include_router(web_drive_router, prefix="/web-drive", tags=["web-drive"], dependencies=_AUTH)
 router.include_router(
     on_sale_items_router, prefix="/on-sale-items", tags=["on-sale-items"],
-    dependencies=_page("on-sale-items", "inventory"),
+    dependencies=_page("on-sale-items", "inventory", "system/inventory-history"),
 )
 router.include_router(
     purchases_router, prefix="/purchases", tags=["purchases"],
@@ -106,7 +106,9 @@ router.include_router(
 router.include_router(orders_router, prefix="/orders", tags=["orders"], dependencies=_page("orders", "todos"))
 router.include_router(
     inventory_router, prefix="/inventory", tags=["inventory"],
-    dependencies=_page("inventory", "on-sale-items", "orders", "system/inbound-shipments"),
+    dependencies=_page(
+        "inventory", "on-sale-items", "orders", "system/inbound-shipments", "system/inventory-history",
+    ),
 )
 # 店铺账号：账号下拉全站都要读，只有店铺账号页能改（含 Cookie / 请求头）
 router.include_router(

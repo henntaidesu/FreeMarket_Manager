@@ -169,9 +169,11 @@
     </transition>
 
     <el-main class="main-content">
-      <router-view v-slot="{ Component }">
+      <!-- key = 路由名：库存管理与历史库存共用同一个组件（props.archive 不同），不按路由区分
+           就会复用实例、只换 props，而库存页的 setup 只读一次 archive -->
+      <router-view v-slot="{ Component, route: viewRoute }">
         <transition name="fade" mode="out-in">
-          <component :is="Component" />
+          <component :is="Component" :key="viewRoute.name" />
         </transition>
       </router-view>
     </el-main>

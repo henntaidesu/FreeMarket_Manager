@@ -6,12 +6,14 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
   inventoryApi,
+  inventoryArchiveApi,
   categoryApi,
   warehouseApi,
   authApi,
   scanApi,
   ocrApi,
   transactionApi,
+  transactionArchiveApi,
   productTypeCategoryMappingApi,
   onSaleItemApi,
   configApi,
@@ -50,8 +52,15 @@ export default defineComponent({
     RegionRecognizeDialog,
     BarcodeDuplicatePrompt,
   },
-  setup() {
+  props: {
+    // 历史库存（其他功能 → 历史数据）：同一个页面读 inventory_old 归档表，所有改动入口禁用
+    archive: { type: Boolean, default: false },
+  },
+  setup(props) {
     const { t } = useI18n()
+    const archive = props.archive
+    const invApi = archive ? inventoryArchiveApi : inventoryApi
+    const txApi = archive ? transactionArchiveApi : transactionApi
     const route = useRoute()
     const router = useRouter()
     const syncLockStore = useSyncLockStore()
@@ -422,6 +431,7 @@ export default defineComponent({
      * 多字段联动（如 sale_type 重置 auction_duration）可传入多个 field 一并保存。
      */
     async function persistListingField(...fields) {
+      if (archive) return
       const id = Number(form.value.id)
       const hasItem = Number.isFinite(id) && id > 0
       const validFields = fields.filter((f) => LISTING_FIELD_DB_COL[f])
@@ -432,7 +442,7 @@ export default defineComponent({
         const patch = {}
         for (const f of validFields) patch[LISTING_FIELD_DB_COL[f]] = listingFieldDbValue(f)
         try {
-          await inventoryApi.update(id, patch)
+          await invApi.update(id, patch)
         } catch {
           return // 错误由拦截器提示
         }
@@ -565,11 +575,11 @@ export default defineComponent({
       try {
         const isCopy = splitIsCopy.value
         const res = isCopy
-          ? await inventoryApi.copy(splitSourceId.value, {
+          ? await invApi.copy(splitSourceId.value, {
             owner_user_id: splitForm.value.owner_user_id,
             quantity: qty
           })
-          : await inventoryApi.split(splitSourceId.value, {
+          : await invApi.split(splitSourceId.value, {
             owner_user_id: splitForm.value.owner_user_id,
             split_quantity: qty
           })
@@ -772,7 +782,7 @@ export default defineComponent({
       if (linkedItemsLoadedFor === id) return
       linkedItemsLoading.value = true
       try {
-        const res = await inventoryApi.linkedItems(id)
+        const res = await invApi.linkedItems(id)
         linkedListings.value = Array.isArray(res?.listings) ? res.listings : []
         linkedSold.value = Array.isArray(res?.sold) ? res.sold : []
         linkedItemsLoadedFor = id
@@ -1092,7 +1102,7 @@ export default defineComponent({
       }
       aiGenerating.value = true
       try {
-        const res = await inventoryApi.aiGenerateListing({
+        const res = await invApi.aiGenerateListing({
           id: form.value.id || null,
           name,
           category_id: form.value.category_id || null,
@@ -1411,7 +1421,7 @@ export default defineComponent({
         if (res?.text) {
           if (ocrTargetRow.value) {
             // 从列表行直接调用：直接保存到后端并更新行数据
-            await inventoryApi.update(ocrTargetRow.value.id, { name: res.text })
+            await invApi.update(ocrTargetRow.value.id, { name: res.text })
             ocrTargetRow.value.name = res.text
             ElMessage.success(t('inventory.ocrSavedSuccess', { text: res.text }))
           } else {
@@ -1439,6 +1449,7 @@ export default defineComponent({
     }
 
     function startInlineEdit(row, field) {
+      if (archive) return
       if (listingPickMode.value) return
       editingCell.value = getCellKey(row, field)
       const currentValue = row[field]
@@ -1543,7 +1554,7 @@ export default defineComponent({
       }
       savingInlineCell.value = key
       try {
-        await inventoryApi.update(row.id, { [field]: newValue })
+        await invApi.update(row.id, { [field]: newValue })
         row[field] = newValue
         ElMessage.success(t('inventory.updated'))
       } finally {
@@ -1562,7 +1573,7 @@ export default defineComponent({
         return
       }
       try {
-        await inventoryApi.update(row.id, { category_id: normalizedCategoryId })
+        await invApi.update(row.id, { category_id: normalizedCategoryId })
         row.category_id = normalizedCategoryId
         const matched = categories.value.find((c) => c.id === normalizedCategoryId)
         row.category_name = matched?.name || null
@@ -1587,7 +1598,7 @@ export default defineComponent({
         return
       }
       try {
-        await inventoryApi.update(row.id, { product_type_id: normalized })
+        await invApi.update(row.id, { product_type_id: normalized })
         row.product_type_id = normalized
         const matched = productTypes.value.find((t) => t.id === normalized)
         row.product_type_name = matched?.name || ''
@@ -1622,7 +1633,7 @@ export default defineComponent({
         return
       }
       try {
-        await inventoryApi.update(row.id, { warehouse_id: newId })
+        await invApi.update(row.id, { warehouse_id: newId })
         row.warehouse_id = newId
         const matched =
           newId != null ? (warehouses.value || []).find((w) => Number(w.id) === newId) : null
@@ -1650,7 +1661,7 @@ export default defineComponent({
         return
       }
       try {
-        await inventoryApi.update(row.id, { owner_user_id: normalized })
+        await invApi.update(row.id, { owner_user_id: normalized })
         row.owner_user_id = normalized
         const matched = ownerUsers.value.find((u) => u.id === normalized)
         row.owner_user_name = matched ? (matched.display_name || matched.username) : ''
@@ -1922,6 +1933,7 @@ export default defineComponent({
 
     // ---- 批次：商品总数 = Σ批次数量，只在「批次」页改 ----
     const inventoryBatches = useInventoryBatches({
+      api: invApi,
       form,
       warehouseTreeMeta,
       t,
@@ -2064,7 +2076,7 @@ export default defineComponent({
 
     /** 取一页库存；同时刷新总条数 */
     async function fetchInventoryPage(page, size) {
-      const res = await inventoryApi.list({ ...buildInventoryQueryParams(), page, page_size: size })
+      const res = await invApi.list({ ...buildInventoryQueryParams(), page, page_size: size })
       total.value = Number(res?.total || 0)
       return Array.isArray(res?.items) ? res.items : []
     }
@@ -2322,8 +2334,8 @@ export default defineComponent({
     async function loadInventoryStats() {
       if (isMobile.value) return
       const [invSummary, tx] = await Promise.all([
-        inventoryApi.summary(),
-        transactionApi.list({ page_size: 10 }),
+        invApi.summary(),
+        txApi.list({ page_size: 10 }),
       ])
       inventorySummary.value = {
         total_inventory: invSummary.total_inventory ?? 0,
@@ -2544,6 +2556,10 @@ export default defineComponent({
     }
 
     function onInventoryImageDragStart(idx, e) {
+      if (archive) {
+        e.preventDefault()
+        return
+      }
       const imgs = form.value.images
       if (!Array.isArray(imgs) || imgs.length < 2 || !imgs[idx]) {
         e.preventDefault()
@@ -2620,6 +2636,7 @@ export default defineComponent({
     }
 
     function onInventoryImagesPanelDrop(e) {
+      if (archive) return
       inventoryImagesPanelDropHover.value = false
       if (inventoryImageDragFrom.value >= 0) return
       if (e?.dataTransfer?.files?.length) handleInventoryImageFilesDrop(-1, e)
@@ -2859,7 +2876,7 @@ export default defineComponent({
       }
       slot.outboundLoading = true
       try {
-        const res = await inventoryApi.pendingOutboundLines(row.id)
+        const res = await invApi.pendingOutboundLines(row.id)
         slot.outboundRows = Array.isArray(res?.items) ? res.items : []
         slot.outboundLoaded = true
       } catch {
@@ -2970,7 +2987,7 @@ export default defineComponent({
         const rows = await Promise.all(
           parsed.map(async ({ inventory_id, quantity }) => {
             try {
-              const p = await inventoryApi.get(inventory_id)
+              const p = await invApi.get(inventory_id)
               const imgs = inventoryRowImages(p)
               return {
                 inventory_id,
@@ -3009,7 +3026,7 @@ export default defineComponent({
         return
       }
       try {
-        const product = row.source || (await inventoryApi.get(row.inventory_id))
+        const product = row.source || (await invApi.get(row.inventory_id))
         openDialog(product)
       } catch {
         ElMessage.warning(t('inventory.cannotLoadInventoryItem'))
@@ -3031,7 +3048,7 @@ export default defineComponent({
       }
       combinedComponentRemoving.value = true
       try {
-        const updated = await inventoryApi.removeCombinedComponent(form.value.id, row.inventory_id)
+        const updated = await invApi.removeCombinedComponent(form.value.id, row.inventory_id)
         form.value.combined_items = updated?.combined_items ?? form.value.combined_items
         await loadCombinedEditDetailForRow({ is_combined: 1, combined_items: form.value.combined_items })
         ElMessage.success(t('inventory.removeCombinedComponentSuccess'))
@@ -3048,7 +3065,7 @@ export default defineComponent({
       if (!row || !row.id || Number(row.is_combined || 0) === 1) return
       usedInCombosLoading.value = true
       try {
-        const res = await inventoryApi.usedInCombos(row.id)
+        const res = await invApi.usedInCombos(row.id)
         usedInCombosRows.value = Array.isArray(res?.items) ? res.items : []
       } catch {
         usedInCombosRows.value = []
@@ -3064,7 +3081,7 @@ export default defineComponent({
         return
       }
       try {
-        const product = await inventoryApi.get(row.combined_id)
+        const product = await invApi.get(row.combined_id)
         openDialog(product)
       } catch {
         ElMessage.warning(t('inventory.cannotLoadInventoryItem'))
@@ -3456,7 +3473,7 @@ export default defineComponent({
       }
       combinedProductSubmitting.value = true
       try {
-        const res = await inventoryApi.combine(payload)
+        const res = await invApi.combine(payload)
         ElMessage.success(t('inventory.combinedCreated', { id: res?.id ?? '-' }))
         combinedProductDialogVisible.value = false
         await load({ resetPage: false })
@@ -3489,7 +3506,7 @@ export default defineComponent({
       // ── 1. 写回库存 出品标题、listing_body、price 与出品设置 ───────────────── //
       try {
         for (const id of ids) {
-          await inventoryApi.update(id, { listing_title, listing_body, price: safePrice, ...settingPatch })
+          await invApi.update(id, { listing_title, listing_body, price: safePrice, ...settingPatch })
         }
       } catch {
         // 错误提示由拦截器处理
@@ -3858,7 +3875,7 @@ export default defineComponent({
             continue
           }
           try {
-            await inventoryApi.update(r.id, { warehouse_id: newId })
+            await invApi.update(r.id, { warehouse_id: newId })
             ok += 1
           } catch {
             failed.push(r.id)
@@ -3959,6 +3976,7 @@ export default defineComponent({
      * iOS 或无 API 时用隐藏 file（iOS 带 capture）。
      */
     async function openProductImageSource(slotIndex) {
+      if (archive) return
       if (slotIndex === -1 && form.value.images.length >= MAX_INVENTORY_IMAGES) {
         ElMessage.warning(t('inventory.maxImagesAllowed', { n: MAX_INVENTORY_IMAGES }))
         return
@@ -4047,7 +4065,7 @@ export default defineComponent({
             return
           }
           const writeIdx = slot < 0 ? form.value.images.length : slot
-          const res = await inventoryApi.uploadImage(file, (pe) => {
+          const res = await invApi.uploadImage(file, (pe) => {
             if (!pe.total) return
             nbCameraUploadPercent.value = Math.min(100, Math.round((pe.loaded / pe.total) * 100))
           }, undefined, { detectBarcode: shouldDetectBarcode() })
@@ -4147,11 +4165,11 @@ export default defineComponent({
       const draftId = formCreatedInSession
       formCreatedInSession = null
       if (draftId && Number(draftId) !== Number(id)) {
-        try { await inventoryApi.remove(draftId) } catch { /* 拦截器已提示 */ }
+        try { await invApi.remove(draftId) } catch { /* 拦截器已提示 */ }
       }
       let row
       try {
-        row = await inventoryApi.get(id)
+        row = await invApi.get(id)
       } catch {
         return
       }
@@ -4193,7 +4211,7 @@ export default defineComponent({
       if (!code) return false
       let family
       try {
-        family = await inventoryApi.barcodeFamily(code)
+        family = await invApi.barcodeFamily(code)
       } catch {
         return false
       }
@@ -4263,7 +4281,7 @@ export default defineComponent({
         slot.uploading = true
         slot.percent = 0
         try {
-          const res = await inventoryApi.uploadImage(
+          const res = await invApi.uploadImage(
             file,
             (pe) => {
               if (!pe.total) return
@@ -4396,6 +4414,7 @@ export default defineComponent({
 
     /** 表单任意字段变化后，节流调度一次后台实时保存 */
     function scheduleFormAutosave() {
+      if (archive) return
       if (formAutosaveInitializing) return
       if (!dialogVisible.value) return
       cancelFormAutosave()
@@ -4404,6 +4423,7 @@ export default defineComponent({
 
     /** 后台静默保存当前表单：已有商品 -> 更新；新建商品 -> 必填项齐全后自动创建并回填 id */
     async function runFormAutosave() {
+      if (archive) return
       autosaveTimer = null
       if (!dialogVisible.value) return
       if (autosaving.value) return scheduleFormAutosave()
@@ -4427,7 +4447,7 @@ export default defineComponent({
       autosaveInFlight = (async () => {
         try {
           if (isNew) {
-            const created = await inventoryApi.create(payload)
+            const created = await invApi.create(payload)
             if (created && created.id != null) {
               form.value.id = created.id
               formCreatedInSession = created.id
@@ -4436,7 +4456,7 @@ export default defineComponent({
             }
             if (noBarcodeEntryMode.value) writeNoBarcodeFormSelectionsCache(payload)
           } else {
-            await inventoryApi.update(payload.id, payload)
+            await invApi.update(payload.id, payload)
           }
           formAutosaved = true
         } catch (e) {
@@ -4479,7 +4499,7 @@ export default defineComponent({
       const code = String(form.value.product_barcode || '').trim()
       if (!form.value.id || !code || Number(form.value.is_combined || 0) === 1) return
       try {
-        const family = await inventoryApi.barcodeFamily(code)
+        const family = await invApi.barcodeFamily(code)
         if (req !== barcodeSiblingsReq) return
         const items = family?.items || []
         barcodeSiblings.value = items.length > 1
@@ -4495,7 +4515,7 @@ export default defineComponent({
       await flushFormAutosave()
       let row
       try {
-        row = await inventoryApi.get(id)
+        row = await invApi.get(id)
       } catch {
         return
       }
@@ -4667,7 +4687,7 @@ export default defineComponent({
       // 产品条码不唯一（按归属人各留一件，一码多品还有 条码-N），只取最新一件会静默入错商品，
       // 所以按条码族查：一件直接用，多件让人选
       try {
-        const family = await inventoryApi.barcodeFamily(barcode)
+        const family = await invApi.barcodeFamily(barcode)
         const items = family?.items || []
         if (!items.length) {
           contState.value = 'notfound'
@@ -4684,7 +4704,7 @@ export default defineComponent({
     }
 
     async function pickContCandidate(id) {
-      contInventory.value = await inventoryApi.get(id)
+      contInventory.value = await invApi.get(id)
       contQuantity.value = 1
       if (contScanMode.value !== 'gun') {
         contState.value = 'found'
@@ -4718,9 +4738,9 @@ export default defineComponent({
       try {
         if (moveExisting) {
           // 改 warehouse_id：未分批商品直接换货架号，已分批商品后端把全部批次移过去（move_all_batches）
-          await inventoryApi.update(inv.id, { warehouse_id: wid })
+          await invApi.update(inv.id, { warehouse_id: wid })
         }
-        const res = await inventoryApi.stockIn(inv.id, { warehouse_id: wid, quantity: 1, remark: '扫码枪入库' })
+        const res = await invApi.stockIn(inv.id, { warehouse_id: wid, quantity: 1, remark: '扫码枪入库' })
         contGunLast.value = {
           name: inv.name || t('inventory.unnamed'),
           image: inventoryRowImages(inv)[0] || '',
@@ -4803,6 +4823,7 @@ export default defineComponent({
 
     /** 全局扫码枪回调（库存页任意位置）。focusedEl = 扫码时焦点所在的弹窗内输入框（数量框） */
     function onScannerCode(rawCode, focusedEl) {
+      if (archive) return // 历史库存页不接扫码枪（扫码会走入库流程）
       const code = String(rawCode || '').trim()
       if (!code) return
       if (!contScanVisible.value) {
@@ -4874,7 +4895,7 @@ export default defineComponent({
       contConfirming.value = true
       try {
         const quantity = Math.max(1, Math.round(Number(contQuantity.value) || 1))
-        const res = await inventoryApi.stockIn(contInventory.value.id, {
+        const res = await invApi.stockIn(contInventory.value.id, {
           warehouse_id: contInventory.value.warehouse_id,
           quantity,
           remark: contScanMode.value === 'gun' ? '扫码枪入库' : '连续扫码入库'
@@ -4965,7 +4986,7 @@ export default defineComponent({
 
     async function refreshImageSearchStatus() {
       try {
-        imageSearchIndexStatus.value = await inventoryApi.imageSearchStatus()
+        imageSearchIndexStatus.value = await invApi.imageSearchStatus()
       } catch {
         /* 拦截器已提示 */
       }
@@ -4984,7 +5005,7 @@ export default defineComponent({
       }
       imageSearchLoading.value = true
       try {
-        const res = await inventoryApi.imageSearch(file)
+        const res = await invApi.imageSearch(file)
         const results = res?.results || []
         imageSearchIndexStatus.value = res?.index || imageSearchIndexStatus.value
         if (!results.length) {
@@ -5095,7 +5116,7 @@ export default defineComponent({
       const { open: _open, ...rest } = route.query
       router.replace({ query: rest })
       try {
-        openDialog(await inventoryApi.get(id))
+        openDialog(await invApi.get(id))
       } catch {
         // 商品不存在 / 已删除：拦截器已提示
       }
@@ -5113,6 +5134,7 @@ export default defineComponent({
     })
 
     return {
+      archive,
       ref,
       computed,
       watch,
