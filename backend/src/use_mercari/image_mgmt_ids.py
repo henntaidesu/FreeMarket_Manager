@@ -3,7 +3,10 @@
 
 暗码由出品时 ``mgmt_image_cipher.embed_mgmt_code_in_file`` 写入每张上传图（与可见水印开关无关）。
 
-- **单品只解首图**：同一 listing 的每张图嵌的都是同一个 id，多解无益；
+- **单品只解首图**：同一 listing 的每张图嵌的都是同一个 id，多解无益；首图读不出时再试后面
+  两张（说明里已不再写文本暗号，没有兜底了）。单品还读首图右下角的**件数码**（专用出品一条挂牌
+  含 N 件），存成 id 重复 N 次，例如 ``[1534, 1534, 1534]``；``loads_ids`` 照旧去重，件数用
+  ``loads_first_qty`` 取；
 - **まとめ商品每张图一件**：组合 listing 是把各件原 listing 的图拼起来重新出品的，
   每张图带的是它原来那件的 id，所以逐张解、去重、保持顺序。判定见 ``is_photo_bundle``。
 
@@ -65,43 +68,83 @@ def _download(url: str) -> Optional[bytes]:
         return None
 
 
-def _decode_one(url: str) -> Optional[int]:
+#: 单品首图读不出 id 时最多再试几张（同一 listing 每张图嵌的是同一个 id）
+_SINGLE_TRY_PHOTOS = 3
+
+
+def _decode_one(url: str, *, with_qty: bool = False) -> Tuple[Optional[int], int]:
+    """→ (库存 id, 件数)。件数只在 ``with_qty`` 且读出 id 时才解，读不到为 1。"""
     from .get_order.description_mgmt_ids import _resolve_inventory_id
-    from .mgmt_image_cipher import decode_mgmt_code_from_file
+    from .mgmt_image_cipher import decode_listing_qty_from_file, decode_mgmt_code_from_file
 
     data = _download(url)
     if not data:
-        return None
+        return None, 1
     fd, path = tempfile.mkstemp(suffix=".img")
+    qty = 1
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data)
         raw = decode_mgmt_code_from_file(
             path, validate=lambda i: _resolve_inventory_id(i) is not None
         )
+        if raw is not None and with_qty:
+            qty = decode_listing_qty_from_file(path)
     finally:
         try:
             os.remove(path)
         except OSError:
             pass
-    return _resolve_inventory_id(raw) if raw is not None else None
+    return (_resolve_inventory_id(raw) if raw is not None else None), qty
+
+
+def decode_photo_mgmt(photo_urls: Iterable[Any], *, bundle: bool) -> Tuple[List[int], int]:
+    """逐张解码 → (去重后的库存 id（按图片顺序）, 件数)。阻塞 IO，异步调用方放线程里跑。
+
+    まとめ：每张图一件，件数恒 1。单品：首图起最多试 ``_SINGLE_TRY_PHOTOS`` 张，第一张读出 id 的
+    图同时读件数码。"""
+    urls = [str(u).strip() for u in (photo_urls or []) if str(u or "").strip()]
+    if not bundle:
+        for u in urls[:_SINGLE_TRY_PHOTOS]:
+            iid, qty = _decode_one(u, with_qty=True)
+            if iid is not None:
+                return [iid], max(1, int(qty))
+        return [], 1
+    out: List[int] = []
+    for u in urls:
+        iid, _qty = _decode_one(u)
+        if iid is not None and iid not in out:
+            out.append(iid)
+    return out, 1
 
 
 def decode_photo_inventory_ids(photo_urls: Iterable[Any], *, bundle: bool) -> List[int]:
-    """逐张解码（单品只看首图），返回去重后的库存 id（按图片顺序）。阻塞 IO，异步调用方放线程里跑。"""
-    urls = [str(u).strip() for u in (photo_urls or []) if str(u or "").strip()]
-    if not bundle:
-        urls = urls[:1]
-    out: List[int] = []
-    for u in urls:
-        iid = _decode_one(u)
-        if iid is not None and iid not in out:
-            out.append(iid)
-    return out
+    """只要 id 的旧口径（件数见 ``decode_photo_mgmt``）。"""
+    return decode_photo_mgmt(photo_urls, bundle=bundle)[0]
 
 
-def dumps_ids(ids: List[int]) -> str:
-    return json.dumps([int(i) for i in ids])
+def dumps_ids(ids: List[int], qty: int = 1) -> str:
+    """单品件数 N>1 时存成 id 重复 N 次（まとめ的 ids 已去重，qty 恒 1）。"""
+    vals = [int(i) for i in ids]
+    if len(vals) == 1 and int(qty or 1) > 1:
+        vals = vals * int(qty)
+    return json.dumps(vals)
+
+
+def loads_first_qty(raw: Any) -> int:
+    """存储值里首个 id 连续重复的次数 = 单品件数（没有 / 解析失败为 1）。"""
+    try:
+        vals = json.loads(raw) if raw else []
+    except (TypeError, ValueError):
+        return 1
+    if not isinstance(vals, list) or not vals:
+        return 1
+    n = 0
+    for v in vals:
+        if v != vals[0]:
+            break
+        n += 1
+    return max(1, n)
 
 
 def loads_ids(raw: Any) -> List[int]:
@@ -123,8 +166,8 @@ def loads_ids(raw: Any) -> List[int]:
     return out
 
 
-def listing_image_ids(item_id: str, photos: Any, *, bundle: bool) -> Tuple[List[int], Optional[str]]:
-    """items/get 的 ``photos`` → ``(库存 id, 要写回 on_sale_items.image_mgmt_ids 的值或 None)``。
+def listing_image_ids(item_id: str, photos: Any, *, bundle: bool) -> Tuple[List[int], Optional[str], int]:
+    """items/get 的 ``photos`` → ``(库存 id, 要写回 on_sale_items.image_mgmt_ids 的值或 None, 件数)``。
 
     图片没变且解过 → 复用存储值，不重新下载；响应不带 ``photos``（雅虎伪响应 / 本地重关联）
     → 只读存储值。
@@ -132,7 +175,8 @@ def listing_image_ids(item_id: str, photos: Any, *, bundle: bool) -> Tuple[List[
     from ..db_manage.database import DatabaseManager
 
     if not isinstance(photos, list):
-        return stored_on_sale_image_ids(item_id), None
+        raw = _stored_on_sale_raw(item_id)
+        return loads_ids(raw), None, loads_first_qty(raw)
     urls = [str(u).strip() for u in photos if isinstance(u, str) and str(u).strip()]
     iid = str(item_id or "").strip()
     rows = DatabaseManager().execute_query(
@@ -146,9 +190,9 @@ def listing_image_ids(item_id: str, photos: Any, *, bundle: bool) -> Tuple[List[
         except (TypeError, ValueError):
             same = False
         if same:
-            return loads_ids(rows[0][1]), None
-    ids = decode_photo_inventory_ids(urls, bundle=bundle)
-    return ids, dumps_ids(ids)
+            return loads_ids(rows[0][1]), None, loads_first_qty(rows[0][1])
+    ids, qty = decode_photo_mgmt(urls, bundle=bundle)
+    return ids, dumps_ids(ids, qty), qty
 
 
 def uncovered_bundle_titles(
@@ -178,33 +222,43 @@ def uncovered_bundle_titles(
     return [t for i, (t, _) in enumerate(rest) if i in keep]
 
 
-def stored_on_sale_image_ids(item_id: str) -> List[int]:
+def _stored_on_sale_raw(item_id: str) -> Optional[str]:
     from ..db_manage.database import DatabaseManager
 
     iid = str(item_id or "").strip()
     if not iid:
-        return []
+        return None
     rows = DatabaseManager().execute_query(
         "SELECT [image_mgmt_ids] FROM [on_sale_items] "
         "WHERE TRIM([item_id]) = ? AND [image_mgmt_ids] IS NOT NULL "
         "ORDER BY COALESCE([is_delete], 0) ASC, [id] DESC LIMIT 1",
         (iid,),
     )
-    return loads_ids(rows[0][0]) if rows else []
+    return rows[0][0] if rows else None
 
 
-def stored_order_image_ids(order_no: str) -> List[int]:
-    """订单的图片暗码：订单自己解过的优先（「获取商品说明」写入），否则用同一商品在售行的。"""
+def stored_on_sale_image_ids(item_id: str) -> List[int]:
+    return loads_ids(_stored_on_sale_raw(item_id))
+
+
+def stored_order_image_mgmt(order_no: str) -> Tuple[List[int], int]:
+    """订单的图片暗码 → (库存 id, 单品件数)：订单自己解过的优先（「获取商品说明」写入），
+    否则用同一商品在售行的。"""
     from ..db_manage.database import DatabaseManager
 
     ono = str(order_no or "").strip()
     if not ono:
-        return []
+        return [], 1
     rows = DatabaseManager().execute_query(
         "SELECT [image_mgmt_ids] FROM [orders] WHERE [order_no] = ? LIMIT 1", (ono,)
     )
     if rows and rows[0][0] is not None:
         ids = loads_ids(rows[0][0])
         if ids:
-            return ids
-    return stored_on_sale_image_ids(ono)
+            return ids, loads_first_qty(rows[0][0])
+    raw = _stored_on_sale_raw(ono)
+    return loads_ids(raw), loads_first_qty(raw)
+
+
+def stored_order_image_ids(order_no: str) -> List[int]:
+    return stored_order_image_mgmt(order_no)[0]

@@ -12,6 +12,10 @@
   以 sync 图案匹配度对齐（Mercari 缩放近似等比）。
 
 局限：Mercari 若**裁剪**（非等比缩放）或强力调色则可能失效；组合出品仅嵌首个 id。
+
+**件数码（右下角）**：一条挂牌含多件（专用出品选了数量 N>1）时，另在**右下角**按同一套 QIM
+嵌一份 ``_QTY_SYNC + 件数(20) + crc8``。sync 图案与左下角不同（含反相也不同），两个码区互不误认；
+没有件数码的图（含全部历史图片）一律按 1 件。左下角 id 码的线格式不因此改变。
 嵌入失败一律回退原图，绝不中断出品。可调参数：``_Q`` / ``_CELL_DIV`` / ``_R``。
 
 ⚠️ 安全声明：这是**混淆（obfuscation），不是加密（cryptography）**。CRC8 只做**纠错**，
@@ -49,6 +53,9 @@ _CRC_BITS = 8
 _BITS_PER_COPY = len(_SYNC) + _ID_BITS + _CRC_BITS  # 36
 _TOTAL_CELLS = _BITS_PER_COPY * _R                  # 108
 _MAX_ID = (1 << _ID_BITS) - 1
+# 右下角件数码：与 _SYNC 及其反相都不同的 sync，载荷结构相同（数值位存件数）
+_QTY_SYNC = [1, 1, 0, 0, 1, 0, 1, 0]
+_MAX_QTY = 999
 
 
 # ── 位工具 / CRC8 ────────────────────────────────────────────────────────
@@ -76,19 +83,19 @@ def _crc8(bits: List[int]) -> List[int]:
     return _int_to_bits(crc, 8)
 
 
-def _build_payload(inventory_id: int) -> List[int]:
-    id_bits = _int_to_bits(int(inventory_id), _ID_BITS)
-    return _SYNC + id_bits + _crc8(id_bits)
+def _build_payload(value: int, sync: List[int] = _SYNC) -> List[int]:
+    id_bits = _int_to_bits(int(value), _ID_BITS)
+    return sync + id_bits + _crc8(id_bits)
 
 
 # ── 几何 ─────────────────────────────────────────────────────────────────
-def _geometry(w: int, h: int, cell: Optional[int] = None):
-    """返回 (cell, cols, rows, x0, y0)：左下角码区。cell 可显式传入用于解码微搜。"""
+def _geometry(w: int, h: int, cell: Optional[int] = None, right: bool = False):
+    """返回 (cell, cols, rows, x0, y0)：左下角（right=True 为右下角）码区。cell 可显式传入用于解码微搜。"""
     c = cell if cell else max(8, round(min(w, h) / _CELL_DIV))
     cols = _COLS
     rows = (_TOTAL_CELLS + cols - 1) // cols
     m = max(6, round(min(w, h) * _MARGIN_FRAC))
-    x0 = m
+    x0 = w - cols * c - m if right else m
     y0 = h - rows * c - m
     return c, cols, rows, x0, y0
 
@@ -112,6 +119,24 @@ def embed_mgmt_code_in_file(src_path: str, inventory_id: int) -> str:
     if iid <= 0 or iid > _MAX_ID:
         log.warning("[mgmt_image_cipher] id=%s 超出可编码范围，跳过嵌入", inventory_id)
         return src_path
+    return _embed(src_path, _build_payload(iid), right=False)
+
+
+def embed_listing_qty_in_file(src_path: str, qty: int) -> str:
+    """在图片右下角嵌入「本挂牌含几件」，返回新临时 JPEG 路径；qty ≤ 1 不嵌（缺省即 1 件），失败回退原图。"""
+    try:
+        n = int(qty)
+    except (TypeError, ValueError):
+        return src_path
+    if n <= 1:
+        return src_path
+    if n > _MAX_QTY:
+        log.warning("[mgmt_image_cipher] 件数=%s 超出可编码范围，跳过嵌入", qty)
+        return src_path
+    return _embed(src_path, _build_payload(n, _QTY_SYNC), right=True)
+
+
+def _embed(src_path: str, payload: List[int], *, right: bool) -> str:
     try:
         import numpy as np
         from PIL import Image, ImageOps
@@ -121,12 +146,11 @@ def embed_mgmt_code_in_file(src_path: str, inventory_id: int) -> str:
         w, h = im.size
         arr = np.asarray(im).astype(np.float32)
 
-        c, cols, _rows, x0, y0 = _geometry(w, h)
+        c, cols, _rows, x0, y0 = _geometry(w, h, right=right)
         if x0 < 0 or y0 < 0 or x0 + cols * c > w or y0 + _cells_rows(cols) * c > h:
             log.warning("[mgmt_image_cipher] 图太小放不下码区，跳过嵌入 (%dx%d)", w, h)
             return src_path
 
-        payload = _build_payload(iid)
         wr, wg, wb = 0.299, 0.587, 0.114
         p = _pad(c)
         for k in range(_TOTAL_CELLS):
@@ -192,22 +216,22 @@ def _read_cell_bits(ii, x0: float, y0: float, c: float, w: int, h: int):
     return np.rint(means / _Q).astype(int) & 1
 
 
-def _try_payload(cell_bits) -> Tuple[Optional[int], int]:
-    """108 格 bit → (id, 三份一致的位数)。sync 不符（含全局反相后）/ CRC 不过返回 (None, 0)。"""
+def _try_payload(cell_bits, sync: List[int] = _SYNC, max_value: int = _MAX_ID) -> Tuple[Optional[int], int]:
+    """108 格 bit → (数值, 三份一致的位数)。sync 不符（含全局反相后）/ CRC 不过返回 (None, 0)。"""
     copies = [list(cell_bits[i * _BITS_PER_COPY:(i + 1) * _BITS_PER_COPY]) for i in range(_R)]
     votes = [sum(cp[pos] for cp in copies) for pos in range(_BITS_PER_COPY)]
     agree = sum(1 for v in votes if v in (0, _R))
     payload = [1 if v * 2 >= _R else 0 for v in votes]
-    if payload[:len(_SYNC)] != _SYNC:
+    if payload[:len(sync)] != sync:
         inv = [1 - b for b in payload]         # 亮度整体偏移致奇偶翻转
-        if inv[:len(_SYNC)] != _SYNC:
+        if inv[:len(sync)] != sync:
             return None, 0
         payload = inv
-    id_bits = payload[len(_SYNC):len(_SYNC) + _ID_BITS]
-    if payload[len(_SYNC) + _ID_BITS:] != _crc8(id_bits):
+    id_bits = payload[len(sync):len(sync) + _ID_BITS]
+    if payload[len(sync) + _ID_BITS:] != _crc8(id_bits):
         return None, 0
     iid = _bits_to_int(id_bits)
-    return (iid, agree) if 0 < iid <= _MAX_ID else (None, 0)
+    return (iid, agree) if 0 < iid <= max_value else (None, 0)
 
 
 def _cell_candidates(w: int, h: int) -> List[Tuple[float, float]]:
@@ -235,6 +259,23 @@ def decode_mgmt_code_from_file(
     ``validate``：可选的 id 校验回调（存在性/账号范围），只接受 ``validate(iid)`` 为真的候选，
     用于进一步压低误报。所有对齐候选里取三份副本一致度最高的那个。
     """
+    return _decode(path, validate, right=False, sync=_SYNC, max_value=_MAX_ID)
+
+
+def decode_listing_qty_from_file(path: str) -> int:
+    """读右下角件数码；读不到（含所有没嵌件数码的图）返回 1。"""
+    n = _decode(path, None, right=True, sync=_QTY_SYNC, max_value=_MAX_QTY)
+    return n if n and n > 1 else 1
+
+
+def _decode(
+    path: str,
+    validate: Optional[Callable[[int], bool]],
+    *,
+    right: bool,
+    sync: List[int],
+    max_value: int,
+) -> Optional[int]:
     try:
         import numpy as np
         from PIL import Image, ImageOps
@@ -249,7 +290,8 @@ def decode_mgmt_code_from_file(
         best: Optional[Tuple[int, int]] = None  # (agree, iid)
         rejected: set = set()
         for c, m in _cell_candidates(w, h):
-            bx, by = m, h - rows * c - m
+            bx = w - _COLS * c - m if right else m
+            by = h - rows * c - m
             step = max(0.5, c / 6.0)
             n = int(c * 0.75 / step)
             offs = [i * step for i in range(-n, n + 1)]
@@ -258,7 +300,7 @@ def decode_mgmt_code_from_file(
                     bits = _read_cell_bits(ii, bx + dx, by + dy, c, w, h)
                     if bits is None:
                         continue
-                    iid, agree = _try_payload(bits)
+                    iid, agree = _try_payload(bits, sync, max_value)
                     if iid is None or agree < _MIN_AGREE or iid in rejected:
                         continue
                     if best is not None and agree <= best[0]:

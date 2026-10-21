@@ -149,6 +149,40 @@ export function useInventoryBatches({ form, warehouseTreeMeta, t, onItemUpdated,
     }
   }
 
+  /** 可一键合并的分组：在岸批次按「货架 + 所有人」分组，只留 ≥2 个批次的组（组内按批次号先后） */
+  const autoMergeGroups = computed(() => {
+    const groups = new Map()
+    for (const r of batchRows.value) {
+      if (r?.stage === 'transit' || !r?.id) continue
+      const key = `${r.warehouse_id ?? ''}|${r.owner_user_id ?? ''}`
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key).push(r)
+    }
+    return [...groups.values()].filter((g) => g.length > 1)
+  })
+
+  /** 一键合并：每个「同货架 + 同所有人」分组各合并成一批（后端并入组内最早的批次，总数不变）。
+   *  逐组调用同一个合并接口，中途失败则停下并重拉，已合并的组不回滚（合并本身不改总数）。 */
+  async function autoMergeBatches() {
+    const groups = autoMergeGroups.value
+    if (!batchesEnabled.value || !groups.length) return
+    batchMerging.value = true
+    let res = null
+    let merged = 0
+    try {
+      for (const g of groups) {
+        res = await api.mergeBatches(Number(form.value.id), g.map((r) => r.id))
+        merged += 1
+      }
+      applyResult(res)
+      ElMessage.success(t('inventory.batchAutoMerged', { count: merged }))
+    } catch {
+      loadBatches(true)
+    } finally {
+      batchMerging.value = false
+    }
+  }
+
   async function removeBatch(row) {
     if (!batchesEnabled.value || !row?.id) return
     try {
@@ -177,6 +211,8 @@ export function useInventoryBatches({ form, warehouseTreeMeta, t, onItemUpdated,
     batchMerging,
     batchSelectable,
     onBatchSelectionChange,
-    mergeSelectedBatches
+    mergeSelectedBatches,
+    autoMergeGroups,
+    autoMergeBatches
   }
 }

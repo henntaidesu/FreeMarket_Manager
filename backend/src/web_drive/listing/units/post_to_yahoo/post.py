@@ -269,6 +269,8 @@ async def post_to_yahoo(
     shipping_from_area_id: str = "",
     watermark: bool = False,
     dedicated_for: str = "",
+    mgmt_inventory_id: Optional[int] = None,
+    listing_qty: int = 1,
     page_load_timeout_ms: int = DEFAULT_PAGE_LOAD_TIMEOUT_MS,
     element_timeout_ms: int = DEFAULT_ELEMENT_TIMEOUT_MS,
     progress_job_id: Optional[str] = None,
@@ -325,18 +327,16 @@ async def post_to_yahoo(
             report("watermark", f"正在为 {len(local_images)} 张图片添加水印…")
             local_images = apply_watermark_to_images(local_images, wm_text, wm_avatar)
 
-    if local_images:
-        try:
-            from src.use_mercari.mgmt_id_cipher import parse_trailing_cipher_mgmt_tokens
-            from src.use_mercari.mgmt_image_cipher import embed_mgmt_code_in_file
+    # 管理暗码（同煤炉，见 post_to_macket/_mgmt_code.py）
+    from ..post_to_macket._mgmt_code import embed_listing_mgmt_codes
 
-            tokens = parse_trailing_cipher_mgmt_tokens(description)
-            if tokens:
-                iid = int(tokens[0][0])
-                report("mgmt_watermark", f"正在为 {len(local_images)} 张图片嵌入管理暗码…")
-                local_images = [embed_mgmt_code_in_file(p, iid) or p for p in local_images]
-        except Exception as exc:  # noqa: BLE001
-            log.warning("管理暗码嵌入失败（忽略，不影响出品）：%s", exc)
+    local_images = embed_listing_mgmt_codes(
+        local_images,
+        mgmt_inventory_id=mgmt_inventory_id,
+        listing_qty=listing_qty,
+        description=description,
+        report=report,
+    )
 
     report("open_session", "正在初始化独立无头出品浏览器并进入雅虎出品页…")
 

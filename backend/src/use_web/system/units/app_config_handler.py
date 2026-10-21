@@ -10,12 +10,14 @@ from pydantic import BaseModel, Field, field_validator
 from ....db_manage.models.system.config_entry import ConfigEntryModel
 
 # 系统出品默认值：手动出品表单预填用（发货地/配送/快递费负担/发货天数）
-# + 默认出品图片（1=有水印，0=无水印）。自动出品（补挂）不读这些默认，只用商品自身保存值。
+# + 默认出品图片（1=有水印，0=无水印）+ 默认商品描述（出品说明为空时预填）。
+# 自动出品（补挂）不读这些默认，只用商品自身保存值。
 _K_SHIP_FROM = "listing_defaults_shipping_from_area_id"
 _K_SHIP_METHOD = "listing_defaults_shipping_method"
 _K_SHIP_PAYER = "listing_defaults_shipping_payer"
 _K_SHIP_DAYS = "listing_defaults_shipping_days"
 _K_WATERMARK = "listing_defaults_watermark"
+_K_DESCRIPTION = "listing_defaults_description"
 
 _ALLOWED_METHODS = frozenset({"undecided", "rakuraku", "yuuyu", "tanome", "regular_mail"})
 _ALLOWED_PAYERS = frozenset({"seller", "buyer"})
@@ -31,6 +33,8 @@ class ListingDefaultsOut(BaseModel):
     shipping_days: Optional[str] = None
     # 默认出品图片：1=有水印，0=无水印
     watermark: int = 1
+    # 默认商品描述（日文出品说明，与库存表单同为 900 字上限）
+    description: Optional[str] = None
 
 
 class ListingDefaultsUpdate(BaseModel):
@@ -39,6 +43,7 @@ class ListingDefaultsUpdate(BaseModel):
     shipping_payer: Optional[str] = None
     shipping_days: Optional[str] = None
     watermark: Optional[int] = None
+    description: Optional[str] = Field(default=None, max_length=900)
 
     @field_validator("shipping_from_area_id", mode="before")
     @classmethod
@@ -59,6 +64,15 @@ class ListingDefaultsUpdate(BaseModel):
         s = str(v).strip()
         return s if s else None
 
+    @field_validator("description", mode="before")
+    @classmethod
+    def trim_description(cls, v: Any) -> Any:
+        # 只去首尾空白，正文里的换行原样保留；全空白视为清空
+        if v is None:
+            return None
+        s = str(v).strip()
+        return s if s else None
+
 
 def _read_listing_defaults() -> Dict[str, Any]:
     raw_watermark = ConfigEntryModel.get_value(_K_WATERMARK)
@@ -74,6 +88,7 @@ def _read_listing_defaults() -> Dict[str, Any]:
         "shipping_payer": ConfigEntryModel.get_value(_K_SHIP_PAYER),
         "shipping_days": ConfigEntryModel.get_value(_K_SHIP_DAYS),
         "watermark": watermark,
+        "description": ConfigEntryModel.get_value(_K_DESCRIPTION),
     }
 
 
@@ -233,5 +248,7 @@ def put_listing_defaults(body: ListingDefaultsUpdate):
         ConfigEntryModel.set_value(
             _K_WATERMARK, None if v is None else str(0 if int(v) == 0 else 1)
         )
+    if "description" in data:
+        ConfigEntryModel.set_value(_K_DESCRIPTION, data["description"])
 
     return ListingDefaultsOut(**_read_listing_defaults())

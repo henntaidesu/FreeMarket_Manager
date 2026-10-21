@@ -24,6 +24,8 @@ from .embedder import embed_image
 _DEFAULT_MIN_SCORE = 0.6
 # 显著领先：榜首比第二名高出该值时视为唯一匹配，只返回榜首（前端据此直接打开详情表单）
 _DEFAULT_DOMINANT_MARGIN = 0.06
+# 必显阈值：相似度达到该值的商品**全部**返回，不受 top_k 截断，也不会被「显著领先」规则收成一条
+_DEFAULT_SHOW_ALL_SCORE = 0.75
 
 
 def _env_float(name: str, default: float) -> float:
@@ -68,17 +70,22 @@ async def image_search(file: UploadFile = File(...), top_k: int = Query(20, ge=1
             best_by_inventory[inv_id] = score
 
     threshold = _min_score()
+    show_all = _env_float("IMAGE_SEARCH_SHOW_ALL_SCORE", _DEFAULT_SHOW_ALL_SCORE)
     ranked: List[tuple] = sorted(
         ((iid, s) for iid, s in best_by_inventory.items() if s >= threshold),
         key=lambda x: x[1],
         reverse=True,
-    )[:top_k]
+    )
+    # 必显阈值以上的全部保留；其下的只用来补足到 top_k
+    must_count = sum(1 for _, s in ranked if s >= show_all)
+    ranked = ranked[:max(top_k, must_count)]
     if not ranked:
         return {"results": [], "min_score": threshold, "index": status}
 
-    # 榜首显著领先时视为唯一匹配（同品类商品 CLIP 分数普遍偏高，绝对阈值区分不开，用相对差距判定）
+    # 榜首显著领先时视为唯一匹配（同品类商品 CLIP 分数普遍偏高，绝对阈值区分不开，用相对差距判定）；
+    # 第二名已过必显阈值时不收，免得把同样很像的商品藏起来
     margin = _env_float("IMAGE_SEARCH_DOMINANT_MARGIN", _DEFAULT_DOMINANT_MARGIN)
-    if len(ranked) >= 2 and ranked[0][1] - ranked[1][1] >= margin:
+    if len(ranked) >= 2 and ranked[1][1] < show_all and ranked[0][1] - ranked[1][1] >= margin:
         ranked = ranked[:1]
 
     ids = [iid for iid, _ in ranked]

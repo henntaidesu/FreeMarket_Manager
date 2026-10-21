@@ -35,6 +35,17 @@
   border-radius: 8px;
 }
 
+/* 置顶筛选栏：加 search-card--sticky，下拉列表时筛选栏贴在滚动区（Layout 的 .main-content）顶端。
+   粘性定位以滚动容器的内边距为界，top 取负的上内边距才贴到真正的顶边；
+   手机端上内边距要让开悬浮菜单按钮，保持 0 即停在按钮下方。
+   卡片背景不透明（App.vue 的 .el-card），z-index 压过表格表头与卡片视图 */
+.search-card--sticky {
+  position: sticky;
+  top: -20px;
+  z-index: 20;
+  box-shadow: 0 6px 12px -6px rgba(0, 0, 0, 0.6);
+}
+
 .search-row {
   display: flex;
   align-items: center;
@@ -65,6 +76,11 @@
   flex: 1 1 180px;
   min-width: 150px !important;
   max-width: 260px;
+}
+/* el-cascader 自己伸缩了，里面那层 .el-input 却还被 App.vue 钉在 180px，
+   多出的宽度就成了控件之间参差的空缺——让它填满 cascader */
+.search-left-group > .el-cascader > .el-input {
+  width: 100% !important;
 }
 /* 关键词框通常是第一个、也最常用，给它多一点 */
 .search-left-group > .search-keyword {
@@ -298,6 +314,9 @@
   .search-card,
   .stats-card {
     margin-bottom: 12px;
+  }
+  .search-card--sticky {
+    top: 0;
   }
   .search-row {
     gap: 10px;

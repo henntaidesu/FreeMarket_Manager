@@ -27,6 +27,9 @@ class PostToMarketBody(PydanticModel):
     watermark: bool = False
     # 专用出品：买家名，非空时首图换成自动生成的「{名} 様 専用」
     dedicated_for: str = Field(default="", max_length=40)
+    # 图片管理暗码：库存 id（说明末尾已不写文本暗号，图片是唯一关联依据）与本挂牌件数
+    mgmt_inventory_id: Optional[int] = Field(default=None, ge=1)
+    listing_qty: int = Field(default=1, ge=1, le=999)
     # 商品类型：mapping_id 用于从 DB 查出各级 position
     category_mapping_id: Optional[str] = None
     # 商品状態
@@ -166,6 +169,8 @@ async def post_to_market(
                 image_urls=body.image_urls,
                 watermark=body.watermark,
                 dedicated_for=body.dedicated_for,
+                mgmt_inventory_id=body.mgmt_inventory_id,
+                listing_qty=body.listing_qty,
                 category_positions=cat_pos,
                 status=body.status,
                 shipping_method=body.shipping_method,
@@ -184,6 +189,8 @@ async def post_to_market(
                 image_urls=body.image_urls,
                 watermark=body.watermark,
                 dedicated_for=body.dedicated_for,
+                mgmt_inventory_id=body.mgmt_inventory_id,
+                listing_qty=body.listing_qty,
                 category_positions=cat_pos,
                 status=body.status,
                 shipping_payer=body.shipping_payer,

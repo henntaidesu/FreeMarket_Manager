@@ -9,8 +9,8 @@
 则在售出该商品的同一煤炉账号下，用商品当前保存的出品设置（不再读系统出品默认值，
 缺省仅回落硬编码安全兜底），复用既有出品自动化 `post_to_market` 把它重新上架。
 
-出品说明末行写入管理番号暗号（``encode_mgmt_id``），下次在售同步即可把新挂牌
-``item_id`` 重新绑回 ``inventory.id``，与手动「出品」保持一致。
+管理番号只嵌在图片里（出品任务把 ``inventory_ids[0]`` 嵌进每张图左下角），说明末尾不再写
+文本暗号；下次在售同步按图片把新挂牌 ``item_id`` 重新绑回 ``inventory.id``，与手动「出品」一致。
 
 去重（防无限循环出品，三层）：
   1. 订单级：以 ``orders.auto_relisted`` 标记，一个售出订单最多触发一次补挂；
@@ -38,7 +38,7 @@ from ..db_manage.models.shop_accounts.shop_account import ShopAccountModel
 from ..db_manage.models.orders.order import OrderModel
 from ..db_manage.models.orders.order_outbound_line import OrderOutboundLineModel
 from ..db_manage.models.system.system_log import SystemLogModel
-from .mgmt_id_cipher import encode_mgmt_id, is_cipher_mgmt_line
+from .mgmt_id_cipher import is_cipher_mgmt_line
 
 log = logging.getLogger(__name__)
 
@@ -156,19 +156,15 @@ def _inventory_ids_for_order(order_no: str) -> List[int]:
     return out
 
 
-def _build_relist_description(body_raw: Optional[str], inventory_id: int) -> str:
-    """正文去掉末行旧暗号后，追加本商品的管理番号暗号（沿用 1000 字截断逻辑）。"""
+def _build_relist_description(body_raw: Optional[str]) -> str:
+    """正文去掉末行旧暗号（不再追加：管理番号只嵌在图片里），按 1000 字截断。"""
     body = str(body_raw or "").rstrip()
     # 去掉末尾仅由暗号组成的行（避免重复 / 旧暗号残留）
     lines = body.splitlines()
     while lines and (not lines[-1].strip() or is_cipher_mgmt_line(lines[-1])):
         lines.pop()
     body = "\n".join(lines).rstrip()
-    foot = encode_mgmt_id(inventory_id)
-    max_body = max(0, _DESCRIPTION_MAX_LEN - len(foot) - 2)
-    if len(body) > max_body:
-        body = body[:max_body]
-    return f"{body}\n\n{foot}" if body else foot
+    return body[:_DESCRIPTION_MAX_LEN]
 
 
 def _inventory_image_urls(inv) -> List[str]:
@@ -279,7 +275,7 @@ async def _relist_single_inventory(
         return
 
     body_raw = getattr(inv, "listing_body", None) or getattr(inv, "description", None)
-    description = _build_relist_description(body_raw, inventory_id)
+    description = _build_relist_description(body_raw)
     price = int(getattr(inv, "price", 0) or 0)
 
     # 出品设置：只用商品自身保存值，缺省回落硬编码安全兜底（不再读系统出品默认值）。

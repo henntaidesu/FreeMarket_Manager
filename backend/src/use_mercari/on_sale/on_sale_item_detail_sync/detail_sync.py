@@ -68,7 +68,7 @@ def detail_sync_inventory_from_item_get_response(
     )
 
     # 图片左下角管理暗码是主方法，说明文本为兜底（见 use_mercari/image_mgmt_ids.py）
-    image_ids, image_ids_raw = listing_image_ids(
+    image_ids, image_ids_raw, image_qty = listing_image_ids(
         mid_api or str(item_id or "").strip(), data.get("photos"), bundle=photo_bundle
     )
     sync["image_inventory_ids"] = image_ids
@@ -167,11 +167,12 @@ def detail_sync_inventory_from_item_get_response(
         if image_ids and image_ids[0] not in qty_by_inventory:
             # 首图暗码与说明对不上（或说明里没有）→ 以图片为准。对得上时沿用说明的解析，
             # 组合出品的其余 id 与数量只在说明里（图片只嵌首个 id）。
+            # 件数取首图右下角件数码（专用出品一条挂牌含 N 件），没有即 1。
             inv_id = image_ids[0]
             resolved_lines = [
-                {"kind": "image", "value": inv_id, "quantity": 1, "inventory_id": inv_id}
+                {"kind": "image", "value": inv_id, "quantity": image_qty, "inventory_id": inv_id}
             ]
-            qty_by_inventory = {inv_id: 1}
+            qty_by_inventory = {inv_id: image_qty}
         if not qty_by_inventory:
             _alpha = MGMT_BINARY_ALPHABET if get_cipher_mode() == "binary" else MGMT_CIPHER_ALPHABET
             sync["message"] = (

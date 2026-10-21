@@ -2,7 +2,7 @@
   <div :class="{ 'listing-pick-mode-active': listingPickMode }">
     <!-- 历史库存：同一个页面读 inventory_old 归档表，只能看不能改 -->
     <el-alert v-if="archive" :title="t('inventory.archiveNotice')" type="info" :closable="false" show-icon class="archive-notice" />
-    <el-card shadow="never" class="search-card" :class="{ 'search-card--ios': isIOS }">
+    <el-card shadow="never" class="search-card search-card--sticky" :class="{ 'search-card--ios': isIOS }">
       <div class="search-row">
         <div class="search-left-group">
           <el-input
@@ -1058,7 +1058,7 @@
                     >{{ listingPlatform === 'yahoo' ? t('inventory.listSubmitYahoo') : listingPlatform === 'mercari' ? t('inventory.listSubmitMercari') : t('inventory.listSubmit') }}</el-button>
                   </template>
                 </el-popconfirm>
-                <!-- 专用出品：给某位买家单独挂一条（○○様専用），只填买家名与价格，首图自动生成 -->
+                <!-- 专用出品：给某位买家单独挂一条（○○様専用），填买家名、价格与数量，标题「○○様専用」与首图自动生成，原标题进说明第一行 -->
                 <el-button
                   type="success"
                   plain
@@ -1116,6 +1116,22 @@
                       :disabled="batchSelection.length < 2"
                       :loading="batchMerging"
                     >{{ t('inventory.batchMerge', { count: batchSelection.length }) }}</el-button>
+                  </template>
+                </el-popconfirm>
+                <!-- 一键合并：同一货架 + 同一所有人的在岸批次各归成一批，不用逐个勾选 -->
+                <el-popconfirm
+                  v-if="!archive && autoMergeGroups.length"
+                  :title="t('inventory.batchAutoMergeConfirm', { groups: autoMergeGroups.length, count: autoMergeGroups.reduce((n, g) => n + g.length, 0) })"
+                  @confirm="autoMergeBatches"
+                >
+                  <template #reference>
+                    <el-button
+                      size="small"
+                      type="primary"
+                      plain
+                      class="pef-batch-merge-auto"
+                      :loading="batchMerging"
+                    >{{ t('inventory.batchAutoMerge') }}</el-button>
                   </template>
                 </el-popconfirm>
               </div>
@@ -1915,7 +1931,7 @@
       </template>
     </el-dialog>
 
-    <!-- 专用出品：只填买家名与价格，其余跟随主商品（见 script.js openDedicatedListing） -->
+    <!-- 专用出品：填买家名、价格与数量，其余跟随主商品（见 script.js openDedicatedListing） -->
     <el-dialog
       v-model="dedicatedDialogVisible"
       :title="t('inventory.dedicatedListing')"
@@ -1946,6 +1962,15 @@
               <el-input-number v-model="dedicatedForm.price" :min="1" :step="100" :controls="false" />
             </el-form-item>
           </div>
+          <el-form-item :label="t('inventory.dedicatedQuantity', { max: dedicatedMaxQty })" required>
+            <el-input-number v-model="dedicatedForm.quantity" :min="1" :max="Math.max(1, dedicatedMaxQty)" :step="1" step-strictly />
+          </el-form-item>
+          <el-form-item :label="t('inventory.dedicatedTitle')">
+            <el-input :model-value="dedicatedTitlePreview" readonly />
+          </el-form-item>
+          <el-form-item :label="t('inventory.dedicatedDescLine')">
+            <el-input :model-value="dedicatedDescLinePreview" readonly />
+          </el-form-item>
           <div class="dedicated-hint">{{ t('inventory.dedicatedHint', { name: String(dedicatedForm.buyer_name || '').trim() || '○○' }) }}</div>
         </el-form>
       </div>

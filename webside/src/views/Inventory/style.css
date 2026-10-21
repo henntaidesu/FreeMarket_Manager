@@ -325,6 +325,10 @@ a.pef-lcard:hover {
 .pef-batch-merge {
   margin-left: auto;
 }
+/* 紧跟在「合并批次」后面；两个都用 margin-left:auto 会把空白平分到两者之间 */
+.pef-batch-merge-auto {
+  margin-left: 8px;
+}
 .pef-batch-table {
   width: 100%;
   border: 1px solid #2a3548;

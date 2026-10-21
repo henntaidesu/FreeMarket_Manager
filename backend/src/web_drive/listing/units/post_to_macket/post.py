@@ -42,6 +42,9 @@ async def post_to_market(
     watermark: bool = False,
     # 专用出品：非空时首图换成自动生成的「{名} 様 専用」
     dedicated_for: str = "",
+    # 图片管理暗码：库存 id（左下角）与本挂牌件数（>1 时右下角另嵌件数码）
+    mgmt_inventory_id: Optional[int] = None,
+    listing_qty: int = 1,
     # 代理 / 超时（proxy_server 保留为 API 兼容；实际由 listing_automation_browser 统一配置）
     proxy_server: Optional[str] = None,  # noqa: ARG001
     page_load_timeout_ms: int = DEFAULT_PAGE_LOAD_TIMEOUT_MS,
@@ -119,21 +122,17 @@ async def post_to_market(
             report("watermark", f"正在为 {len(local_images)} 张图片添加水印…")
             local_images = apply_watermark_to_images(local_images, wm_text, wm_avatar)
 
-    # ── 左下角嵌入「管理暗码」（inventory.id）：肉眼近不可见、程序可读 ── #
-    # 它是订单/在售反查库存的主方法（见 use_mercari/image_mgmt_ids.py），所以不跟可见水印开关走。
-    # id 从说明末行暗号解析（组合出品含多 id 时仅嵌首个）；全程吞异常不阻断出品。
-    if local_images:
-        try:
-            from src.use_mercari.mgmt_id_cipher import parse_trailing_cipher_mgmt_tokens
-            from src.use_mercari.mgmt_image_cipher import embed_mgmt_code_in_file
+    # ── 左下角嵌入「管理暗码」（inventory.id，多件时右下角另嵌件数）：肉眼近不可见、程序可读 ── #
+    # 它是订单/在售反查库存的唯一依据（说明末尾不再写文本暗号），所以不跟可见水印开关走。
+    from ._mgmt_code import embed_listing_mgmt_codes
 
-            tokens = parse_trailing_cipher_mgmt_tokens(description)
-            if tokens:
-                iid = int(tokens[0][0])
-                report("mgmt_watermark", f"正在为 {len(local_images)} 张图片嵌入管理暗码…")
-                local_images = [embed_mgmt_code_in_file(p, iid) or p for p in local_images]
-        except Exception as exc:  # noqa: BLE001
-            log.warning("管理暗码嵌入失败（忽略，不影响出品）：%s", exc)
+    local_images = embed_listing_mgmt_codes(
+        local_images,
+        mgmt_inventory_id=mgmt_inventory_id,
+        listing_qty=listing_qty,
+        description=description,
+        report=report,
+    )
 
     report("open_session", "正在初始化独立无头出品浏览器并进入出品页…")
 

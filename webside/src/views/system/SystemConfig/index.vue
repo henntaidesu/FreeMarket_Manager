@@ -1,51 +1,64 @@
 <template>
   <div ref="pageRef" class="sc">
-    <!-- 页头：标题 + 两个实时状态（数据库 / 打印机），不用再滚到对应卡片才知道当前状态 -->
-    <header class="sc-hero">
-      <div class="sc-hero-main">
-        <h1 class="sc-hero-title">{{ t('systemConfig.title') }}</h1>
-        <p class="sc-hero-sub">{{ t('systemConfig.subtitle') }}</p>
-      </div>
-      <div class="sc-hero-stats">
-        <div class="sc-stat">
-          <span class="sc-dot" :class="activeBackend === 'mysql' ? 'is-ok' : 'is-idle'" />
-          <span class="sc-stat-label">{{ t('systemConfig.databaseSection') }}</span>
-          <span class="sc-stat-value">
-            {{ activeBackend === 'mysql' ? 'MySQL' : 'SQLite' }}
-            <template v-if="activeBackend === 'mysql' && activeDatabase"> · {{ activeDatabase }}</template>
-          </span>
-        </div>
-        <div class="sc-stat">
-          <span class="sc-dot" :class="printerState.connected ? 'is-ok' : 'is-idle'" />
-          <span class="sc-stat-label">{{ t('qrPrint.device') }}</span>
-          <span class="sc-stat-value">
-            {{ printerState.connected ? t('qrPrint.connected') : t('qrPrint.disconnected') }}
-          </span>
-        </div>
-      </div>
-    </header>
-
     <div class="sc-body">
-      <!-- 侧边锚点导航：粘在滚动容器顶部，窄屏变成横向 chip 条 -->
+      <!-- 三级导航：按分类分组，始终展开不收起；点分类 / 模块只显示该分类下的模块。
+           宽屏是左侧粘性菜单，窄屏换成顶部两行（分类 + 当前分类的模块），同样常驻。 -->
       <nav class="sc-nav">
-        <button
-          v-for="s in visibleSections"
-          :key="s.id"
-          type="button"
-          class="sc-nav-item"
-          :class="{ 'is-active': activeSection === s.id }"
-          @click="goSection(s.id)"
-        >
-          <el-icon :size="15"><component :is="s.icon" /></el-icon>
-          <span class="sc-nav-text">{{ t(s.labelKey) }}</span>
-        </button>
+        <div v-for="g in navGroups" :key="g.id" class="sc-nav-group">
+          <button
+            type="button"
+            class="sc-nav-cat"
+            :class="{ 'is-current': activeCategory === g.id }"
+            @click="goCategory(g.id)"
+          >
+            <el-icon :size="14"><component :is="g.icon" /></el-icon>
+            <span class="sc-nav-text">{{ t(g.labelKey) }}</span>
+          </button>
+          <button
+            v-for="s in g.sections"
+            :key="s.id"
+            type="button"
+            class="sc-nav-item"
+            :class="{ 'is-active': activeCategory === g.id && activeSection === s.id }"
+            @click="goSection(s.id)"
+          >
+            <el-icon :size="15"><component :is="s.icon" /></el-icon>
+            <span class="sc-nav-text">{{ t(s.labelKey) }}</span>
+          </button>
+        </div>
+      </nav>
+      <nav class="sc-nav-m">
+        <div class="sc-nav-m-row">
+          <button
+            v-for="g in navGroups"
+            :key="g.id"
+            type="button"
+            class="sc-nav-m-cat"
+            :class="{ 'is-active': activeCategory === g.id }"
+            @click="goCategory(g.id)"
+          >
+            {{ t(g.labelKey) }}
+          </button>
+        </div>
+        <div class="sc-nav-m-row">
+          <button
+            v-for="s in currentGroupSections"
+            :key="s.id"
+            type="button"
+            class="sc-nav-m-item"
+            :class="{ 'is-active': activeSection === s.id }"
+            @click="goSection(s.id)"
+          >
+            {{ t(s.labelKey) }}
+          </button>
+        </div>
       </nav>
 
       <div class="sc-sections">
         <!-- 界面语言（原在侧边栏底部，改到这里统一管理；仍存 localStorage，跟随浏览器） -->
-        <section id="sc-language" class="sc-panel">
+        <section v-show="sectionShown('language')" id="sc-language" class="sc-panel">
           <div class="sc-panel-head">
-            <span class="sc-ic sc-ic--indigo"><el-icon :size="17"><Compass /></el-icon></span>
+            <span class="sc-ic"><el-icon :size="16"><Compass /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('systemConfig.languageSection') }}</div>
               <div class="sc-panel-desc">{{ t('systemConfig.descLanguage') }}</div>
@@ -68,9 +81,9 @@
         </section>
 
         <!-- 账号管理（仅管理员：后端 /users 是管理员接口） -->
-        <section v-if="auth.isAdmin" id="sc-account" class="sc-panel">
+        <section v-if="auth.isAdmin" v-show="sectionShown('account')" id="sc-account" class="sc-panel">
           <div class="sc-panel-head">
-            <span class="sc-ic sc-ic--blue"><el-icon :size="17"><User /></el-icon></span>
+            <span class="sc-ic"><el-icon :size="16"><User /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('system.accountManagement') }}</div>
               <div class="sc-panel-desc">{{ t('systemConfig.descAccount') }}</div>
@@ -117,9 +130,9 @@
 
         <!-- 系统角色：一个角色 = 一组允许访问的页面（仅管理员）。
              改动即时生效：后端每请求现读角色，前端每 30 秒重拉一次当前用户 -->
-        <section v-if="auth.isAdmin" id="sc-roles" class="sc-panel">
+        <section v-if="auth.isAdmin" v-show="sectionShown('roles')" id="sc-roles" class="sc-panel">
           <div class="sc-panel-head">
-            <span class="sc-ic sc-ic--violet"><el-icon :size="17"><Key /></el-icon></span>
+            <span class="sc-ic"><el-icon :size="16"><Key /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('roles.section') }}</div>
               <div class="sc-panel-desc">{{ t('roles.desc') }}</div>
@@ -163,9 +176,9 @@
         <!-- 代购用户：「购入商品」归属人下拉的取值来源。
              与上面的账号管理**不是同一张表**——那里是能登录这套系统的人，这里是
              「替谁买的」里的那个谁，多半根本不用这套系统，不该为了出现在下拉里就开账号。 -->
-        <section id="sc-proxy-users" class="sc-panel">
+        <section v-show="sectionShown('proxy-users')" id="sc-proxy-users" class="sc-panel">
           <div class="sc-panel-head">
-            <span class="sc-ic sc-ic--emerald"><el-icon :size="17"><UserFilled /></el-icon></span>
+            <span class="sc-ic"><el-icon :size="16"><UserFilled /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('proxyUsers.section') }}</div>
               <div class="sc-panel-desc">{{ t('proxyUsers.desc') }}</div>
@@ -201,9 +214,9 @@
         </section>
 
         <!-- 修改我的密码 -->
-        <section id="sc-password" class="sc-panel">
+        <section v-show="sectionShown('password')" id="sc-password" class="sc-panel">
           <div class="sc-panel-head">
-            <span class="sc-ic sc-ic--violet"><el-icon :size="17"><Lock /></el-icon></span>
+            <span class="sc-ic"><el-icon :size="16"><Lock /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('system.changeMyPassword') }}</div>
               <div class="sc-panel-desc">{{ t('systemConfig.descPassword') }}</div>
@@ -237,9 +250,9 @@
         </section>
 
         <!-- DeepSeek AI 配置 -->
-        <section id="sc-ai" class="sc-panel">
+        <section v-show="sectionShown('ai')" id="sc-ai" class="sc-panel">
           <div class="sc-panel-head">
-            <span class="sc-ic sc-ic--cyan"><el-icon :size="17"><MagicStick /></el-icon></span>
+            <span class="sc-ic"><el-icon :size="16"><MagicStick /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('systemConfig.deepseekSection') }}</div>
               <div class="sc-panel-desc">{{ t('systemConfig.descAi') }}</div>
@@ -269,9 +282,9 @@
         </section>
 
         <!-- 出品默认值 -->
-        <section id="sc-listing" class="sc-panel">
+        <section v-show="sectionShown('listing')" id="sc-listing" class="sc-panel">
           <div class="sc-panel-head">
-            <span class="sc-ic sc-ic--amber"><el-icon :size="17"><Sell /></el-icon></span>
+            <span class="sc-ic"><el-icon :size="16"><Sell /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('system.listingDefaults') }}</div>
               <div class="sc-panel-desc">{{ t('systemConfig.descListing') }}</div>
@@ -323,14 +336,26 @@
                   <el-option :label="t('system.listingImageNoWatermark')" :value="0" />
                 </el-select>
               </div>
+              <div class="sc-field sc-field--wide">
+                <div class="sc-label">{{ t('system.defaultDescription') }}</div>
+                <el-input
+                  v-model="listingDefForm.description"
+                  type="textarea"
+                  :rows="6"
+                  :maxlength="900"
+                  show-word-limit
+                  :placeholder="t('system.defaultDescriptionPlaceholder')"
+                  @change="saveListingDefaults"
+                />
+              </div>
             </div>
           </div>
         </section>
 
         <!-- 回国模式：开启=全部在售暂停出售 + 禁止上架；关闭=只恢复本模式暂停的那些 -->
-        <section id="sc-homecoming" class="sc-panel">
+        <section v-show="sectionShown('homecoming')" id="sc-homecoming" class="sc-panel">
           <div class="sc-panel-head">
-            <span class="sc-ic sc-ic--rose"><el-icon :size="17"><Suitcase /></el-icon></span>
+            <span class="sc-ic"><el-icon :size="16"><Suitcase /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('homecoming.section') }}</div>
               <div class="sc-panel-desc">{{ t('homecoming.desc') }}</div>
@@ -365,9 +390,9 @@
 
         <!-- 确认后隐藏商品：煤炉订单完成满 24 小时后设为「プロフィールから非表示」；
              开关只管开启之后到期的订单，历史订单用按钮补上 -->
-        <section id="sc-profile-hide" class="sc-panel">
+        <section v-show="sectionShown('profile-hide')" id="sc-profile-hide" class="sc-panel">
           <div class="sc-panel-head">
-            <span class="sc-ic sc-ic--indigo"><el-icon :size="17"><Hide /></el-icon></span>
+            <span class="sc-ic"><el-icon :size="16"><Hide /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('profileHide.section') }}</div>
               <div class="sc-panel-desc">{{ t('profileHide.desc') }}</div>
@@ -412,9 +437,9 @@
 
         <!-- 条码识别（历史数据）：打开即排一条任务——识别历史商品图片里的条码，
              再把同条码 + 同归属人的商品并入管理番号最大的那个 -->
-        <section id="sc-barcode-history" class="sc-panel">
+        <section v-show="sectionShown('barcode-history')" id="sc-barcode-history" class="sc-panel">
           <div class="sc-panel-head">
-            <span class="sc-ic sc-ic--indigo"><el-icon :size="17"><Search /></el-icon></span>
+            <span class="sc-ic"><el-icon :size="16"><Search /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('barcodeHistory.section') }}</div>
               <div class="sc-panel-desc">{{ t('barcodeHistory.desc') }}</div>
@@ -467,9 +492,9 @@
         </section>
 
         <!-- 一键修改发货时效：把范围内在售商品的「発送までの日数」整批改成同一个值 -->
-        <section id="sc-shipping-duration" class="sc-panel">
+        <section v-show="sectionShown('shipping-duration')" id="sc-shipping-duration" class="sc-panel">
           <div class="sc-panel-head">
-            <span class="sc-ic sc-ic--sky"><el-icon :size="17"><Timer /></el-icon></span>
+            <span class="sc-ic"><el-icon :size="16"><Timer /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('shippingDurationBatch.section') }}</div>
               <div class="sc-panel-desc">{{ t('shippingDurationBatch.desc') }}</div>
@@ -523,17 +548,17 @@
         </section>
 
         <!-- 数据库管理（连接 / 切换 + 备份） -->
-        <section id="sc-database" class="sc-panel">
+        <section v-show="sectionShown('database')" id="sc-database" class="sc-panel">
           <div class="sc-panel-head">
-            <span class="sc-ic sc-ic--emerald"><el-icon :size="17"><Coin /></el-icon></span>
+            <span class="sc-ic"><el-icon :size="16"><Coin /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('systemConfig.databaseSection') }}</div>
               <div class="sc-panel-desc">{{ t('systemConfig.descDatabase') }}</div>
             </div>
-            <div class="sc-seg">
-              <button type="button" :class="{ 'is-on': dbPane === 'connect' }" @click="dbPane = 'connect'">连接 / 切换</button>
-              <button type="button" :class="{ 'is-on': dbPane === 'backup' }" @click="dbPane = 'backup'">备份</button>
-            </div>
+            <el-radio-group v-model="dbPane" size="small">
+              <el-radio-button value="connect">连接 / 切换</el-radio-button>
+              <el-radio-button value="backup">备份</el-radio-button>
+            </el-radio-group>
           </div>
 
           <!-- v-show 而非 v-if：来回切换时两边已填的表单不丢 -->
@@ -744,9 +769,9 @@
         </section>
 
         <!-- 图床存储：商品图存本机 imges 目录，还是存独立图床服务 -->
-        <section id="sc-image-hosting" class="sc-panel">
+        <section v-show="sectionShown('image-hosting')" id="sc-image-hosting" class="sc-panel">
           <div class="sc-panel-head">
-            <span class="sc-ic sc-ic--emerald"><el-icon :size="17"><Picture /></el-icon></span>
+            <span class="sc-ic"><el-icon :size="16"><Picture /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('systemConfig.imageHostingSection') }}</div>
               <div class="sc-panel-desc">{{ t('systemConfig.descImageHosting') }}</div>
@@ -887,9 +912,9 @@
         </section>
 
         <!-- 二维码打印参数：存 localStorage（跟随浏览器，蓝牙配对本身也是按浏览器授权的） -->
-        <section id="sc-qrparams" class="sc-panel">
+        <section v-show="sectionShown('qrparams')" id="sc-qrparams" class="sc-panel">
           <div class="sc-panel-head">
-            <span class="sc-ic sc-ic--rose"><el-icon :size="17"><Tickets /></el-icon></span>
+            <span class="sc-ic"><el-icon :size="16"><Tickets /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('qrPrint.paramsSection') }}</div>
               <div class="sc-panel-desc">{{ t('systemConfig.descQrParams') }}</div>
@@ -931,9 +956,9 @@
         </section>
 
         <!-- 打印机连接：连接 / 测试打印 / 忘记设备 -->
-        <section id="sc-printer" class="sc-panel">
+        <section v-show="sectionShown('printer')" id="sc-printer" class="sc-panel">
           <div class="sc-panel-head">
-            <span class="sc-ic sc-ic--sky"><el-icon :size="17"><Printer /></el-icon></span>
+            <span class="sc-ic"><el-icon :size="16"><Printer /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('qrPrint.connSection') }}</div>
               <div class="sc-panel-desc">{{ t('systemConfig.descPrinter') }}</div>
@@ -963,9 +988,9 @@
         </section>
 
         <!-- 网页访问方式：nginx 反代 HTTP / 直连端口自签 HTTPS（摄像头需要安全上下文） -->
-        <section id="sc-web-access" class="sc-panel">
+        <section v-show="sectionShown('web-access')" id="sc-web-access" class="sc-panel">
           <div class="sc-panel-head">
-            <span class="sc-ic sc-ic--cyan"><el-icon :size="17"><Connection /></el-icon></span>
+            <span class="sc-ic"><el-icon :size="16"><Connection /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('webAccess.section') }}</div>
               <div class="sc-panel-desc">{{ t('webAccess.desc') }}</div>
@@ -1040,9 +1065,9 @@
         </section>
 
         <!-- Cookie 注入域名：代理经 nginx 以独立域名发布时的对外基址 -->
-        <section id="sc-proxy" class="sc-panel">
+        <section v-show="sectionShown('proxy')" id="sc-proxy" class="sc-panel">
           <div class="sc-panel-head">
-            <span class="sc-ic sc-ic--cyan"><el-icon :size="17"><Link /></el-icon></span>
+            <span class="sc-ic"><el-icon :size="16"><Link /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('systemConfig.proxySection') }}</div>
               <div class="sc-panel-desc">{{ t('systemConfig.descProxy') }}</div>
@@ -1212,7 +1237,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
 import { Plus, User, UserFilled, Key, Lock, MagicStick, Sell, Coin, Tickets, Printer, Compass, Suitcase, Timer, Link, Picture, Connection, Search, Hide } from '@element-plus/icons-vue'
@@ -1246,46 +1272,87 @@ import {
 
 const { t, locale } = useI18n()
 
-// ===== 区块锚点导航（图标名走全局注册的 element-plus 图标，与 Layout 侧边栏一致）=====
-const SECTIONS = [
-  { id: 'language', icon: 'Compass', labelKey: 'systemConfig.languageSection' },
-  { id: 'account', icon: 'User', labelKey: 'system.accountManagement', adminOnly: true },
-  { id: 'roles', icon: 'Key', labelKey: 'roles.section', adminOnly: true },
-  { id: 'proxy-users', icon: 'UserFilled', labelKey: 'proxyUsers.section' },
-  { id: 'password', icon: 'Lock', labelKey: 'system.changeMyPassword' },
-  { id: 'ai', icon: 'MagicStick', labelKey: 'systemConfig.deepseekSection' },
-  { id: 'listing', icon: 'Sell', labelKey: 'system.listingDefaults' },
-  { id: 'homecoming', icon: 'Suitcase', labelKey: 'homecoming.section' },
-  { id: 'profile-hide', icon: 'Hide', labelKey: 'profileHide.section' },
-  { id: 'barcode-history', icon: 'Search', labelKey: 'barcodeHistory.section' },
-  { id: 'shipping-duration', icon: 'Timer', labelKey: 'shippingDurationBatch.section' },
-  { id: 'database', icon: 'Coin', labelKey: 'systemConfig.databaseSection' },
-  { id: 'image-hosting', icon: 'Picture', labelKey: 'systemConfig.imageHostingSection' },
-  { id: 'qrparams', icon: 'Tickets', labelKey: 'qrPrint.paramsSection' },
-  { id: 'printer', icon: 'Printer', labelKey: 'qrPrint.connSection' },
-  { id: 'web-access', icon: 'Connection', labelKey: 'webAccess.section' },
-  { id: 'proxy', icon: 'Link', labelKey: 'systemConfig.proxySection' },
+// ===== 三级导航：分类 → 模块（图标名走全局注册的 element-plus 图标，与 Layout 侧边栏一致）=====
+// 模块在分类内的顺序 = 模板里 <section> 的顺序，两边要一起改
+const CATEGORIES = [
+  { id: 'basic', icon: 'Setting', labelKey: 'systemConfig.catBasic' },
+  { id: 'business', icon: 'Sell', labelKey: 'systemConfig.catBusiness' },
+  { id: 'data', icon: 'Coin', labelKey: 'systemConfig.catData' },
+  { id: 'device', icon: 'Monitor', labelKey: 'systemConfig.catDevice' },
 ]
+const SECTIONS = [
+  { id: 'language', cat: 'basic', icon: 'Compass', labelKey: 'systemConfig.languageSection' },
+  { id: 'account', cat: 'basic', icon: 'User', labelKey: 'system.accountManagement', adminOnly: true },
+  { id: 'roles', cat: 'basic', icon: 'Key', labelKey: 'roles.section', adminOnly: true },
+  { id: 'proxy-users', cat: 'basic', icon: 'UserFilled', labelKey: 'proxyUsers.section' },
+  { id: 'password', cat: 'basic', icon: 'Lock', labelKey: 'system.changeMyPassword' },
+  { id: 'ai', cat: 'business', icon: 'MagicStick', labelKey: 'systemConfig.deepseekSection' },
+  { id: 'listing', cat: 'business', icon: 'Sell', labelKey: 'system.listingDefaults' },
+  { id: 'homecoming', cat: 'business', icon: 'Suitcase', labelKey: 'homecoming.section' },
+  { id: 'profile-hide', cat: 'business', icon: 'Hide', labelKey: 'profileHide.section' },
+  { id: 'barcode-history', cat: 'business', icon: 'Search', labelKey: 'barcodeHistory.section' },
+  { id: 'shipping-duration', cat: 'business', icon: 'Timer', labelKey: 'shippingDurationBatch.section' },
+  { id: 'database', cat: 'data', icon: 'Coin', labelKey: 'systemConfig.databaseSection' },
+  { id: 'image-hosting', cat: 'data', icon: 'Picture', labelKey: 'systemConfig.imageHostingSection' },
+  { id: 'qrparams', cat: 'device', icon: 'Tickets', labelKey: 'qrPrint.paramsSection' },
+  { id: 'printer', cat: 'device', icon: 'Printer', labelKey: 'qrPrint.connSection' },
+  { id: 'web-access', cat: 'device', icon: 'Connection', labelKey: 'webAccess.section' },
+  { id: 'proxy', cat: 'device', icon: 'Link', labelKey: 'systemConfig.proxySection' },
+]
+const SECTION_CAT = Object.fromEntries(SECTIONS.map((s) => [s.id, s.cat]))
 
 const auth = useAuthStore()
+const route = useRoute()
+const router = useRouter()
 /** 账号 / 角色两块只给管理员看：对应接口是管理员专用，非管理员进来只会弹 403 */
 const visibleSections = computed(() => SECTIONS.filter((s) => !s.adminOnly || auth.isAdmin))
+const navGroups = computed(() =>
+  CATEGORIES.map((c) => ({ ...c, sections: visibleSections.value.filter((s) => s.cat === c.id) }))
+    .filter((g) => g.sections.length)
+)
+
+/** 当前分类记在地址栏 ?cat=，刷新 / 分享链接都停在同一分类 */
+const activeCategory = ref(
+  CATEGORIES.some((c) => c.id === route.query.cat) ? route.query.cat : CATEGORIES[0].id
+)
+const currentGroupSections = computed(
+  () => navGroups.value.find((g) => g.id === activeCategory.value)?.sections || []
+)
+function sectionShown(id) {
+  return SECTION_CAT[id] === activeCategory.value
+}
 
 const pageRef = ref(null)
-const activeSection = ref(SECTIONS[0].id)
+const activeSection = ref(currentGroupSections.value[0]?.id || SECTIONS[0].id)
 /** 真正的滚动容器是 Layout 的 .main-content，不是 window */
 let scrollRoot = null
 
-function goSection(id) {
+function setCategory(cat) {
+  if (activeCategory.value === cat) return false
+  activeCategory.value = cat
+  router.replace({ query: { ...route.query, cat } })
+  return true
+}
+
+function goCategory(cat) {
+  setCategory(cat)
+  activeSection.value = currentGroupSections.value[0]?.id || ''
+  ;(scrollRoot || window).scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+async function goSection(id) {
+  // 跨分类时先等目标分类的区块显示出来，否则 scrollIntoView 拿到的是 display:none 的元素
+  if (setCategory(SECTION_CAT[id])) await nextTick()
   document.getElementById(`sc-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   activeSection.value = id
 }
 
-/** 取最后一个越过「顶部 96px」的区块作为当前区块 */
+/** 当前分类内，取最后一个越过「顶部 96px」的区块作为当前区块 */
 function syncActiveSection() {
   const rootTop = scrollRoot ? scrollRoot.getBoundingClientRect().top : 0
-  let current = SECTIONS[0].id
-  for (const s of visibleSections.value) {
+  const list = currentGroupSections.value
+  let current = list[0]?.id || ''
+  for (const s of list) {
     const el = document.getElementById(`sc-${s.id}`)
     if (el && el.getBoundingClientRect().top - rootTop <= 96) current = s.id
   }
@@ -1783,7 +1850,9 @@ const listingDefForm = reactive({
   shipping_payer: null,
   shipping_days: null,
   // 默认出品图片：1=有水印 / 0=无水印
-  watermark: 1
+  watermark: 1,
+  // 默认商品描述：库存表单出品说明为空时预填（失焦保存）
+  description: ''
 })
 
 const listingDefLoading = ref(false)
@@ -1814,6 +1883,7 @@ async function loadListingDefaults() {
     listingDefForm.shipping_payer = d?.shipping_payer ?? null
     listingDefForm.shipping_days = d?.shipping_days ?? null
     listingDefForm.watermark = Number(d?.watermark) === 0 ? 0 : 1
+    listingDefForm.description = d?.description ?? ''
   } catch {
     /* 拦截器已提示 */
   } finally {
@@ -1830,7 +1900,8 @@ async function saveListingDefaults() {
       shipping_method: listingDefForm.shipping_method,
       shipping_payer: listingDefForm.shipping_payer,
       shipping_days: listingDefForm.shipping_days,
-      watermark: listingDefForm.watermark
+      watermark: listingDefForm.watermark,
+      description: listingDefForm.description
     })
     ElMessage.success(t('system.listingDefaultsSaved'))
   } catch {
@@ -2685,114 +2756,78 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* 配色沿用全站暗色（页面底 #0b1220 / 卡片 #131c2f / 描边 #2a3446），
-   这里只把「一堆并排卡片」改成「页头 + 锚点导航 + 单列区块」的设置页版式。 */
+/* 配色与全站卡片一致（App.vue：卡片 #131c2f / 卡片头 #161f33 / 描边 #2a3446 / 分隔 #28354a，
+   主色 Element 默认蓝），这里只保留「锚点导航 + 单列区块」的设置页版式。 */
 .sc {
-  --sc-line: #26314a;
-  --sc-line-soft: #202a41;
+  --sc-line: #2a3446;
+  --sc-line-soft: #28354a;
   --sc-text: #e6edf7;
   --sc-text-dim: #9ba8bf;
   --sc-text-mute: #7f8da6;
-  --sc-accent: #5b8cff;
+  --sc-accent: var(--el-color-primary);
   /* 跟随窗口，不设上限：外层 .main-content 已经给了 20px 内边距 */
   width: 100%;
 }
 
-/* ── 页头 ──────────────────────────────────────────────────── */
-.sc-hero {
-  position: relative;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 16px;
-  padding: 20px 24px;
-  margin-bottom: 18px;
-  border: 1px solid var(--sc-line);
-  border-radius: 16px;
-  background:
-    radial-gradient(760px 200px at 6% -60%, rgba(91, 140, 255, 0.22), transparent 70%),
-    linear-gradient(180deg, #16203a, #111a2c);
-}
-.sc-hero-title {
-  font-size: 21px;
-  font-weight: 650;
-  line-height: 1.2;
-  color: #f2f6ff;
-}
-.sc-hero-sub {
-  margin-top: 6px;
-  font-size: 13px;
-  color: var(--sc-text-mute);
-}
-.sc-hero-stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-.sc-stat {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 13px;
-  border: 1px solid var(--sc-line);
-  border-radius: 999px;
-  background: rgba(11, 18, 32, 0.55);
-  font-size: 12px;
-}
-.sc-stat-label {
-  color: var(--sc-text-mute);
-}
-.sc-stat-value {
-  color: var(--sc-text);
-  font-weight: 600;
-}
-.sc-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex: none;
-  background: #4c5b78;
-}
-.sc-dot.is-ok {
-  background: #34d399;
-  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.16);
-}
-.sc-dot.is-bad {
-  background: #f56c6c;
-  box-shadow: 0 0 0 3px rgba(245, 108, 108, 0.16);
-}
-
-/* ── 版式：左锚点导航 + 右单列区块 ────────────────────────── */
+/* ── 版式：左三级导航 + 右单列区块 ────────────────────────── */
 .sc-body {
   display: grid;
   grid-template-columns: 208px minmax(0, 1fr);
   gap: 20px;
   align-items: start;
 }
+/* 三级导航常驻：粘在滚动容器顶部，超出视口高度时自身滚动，永远不会被滚出视野 */
 .sc-nav {
   position: sticky;
-  top: 12px;
+  top: 0;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0 8px;
+  border: 1px solid var(--sc-line);
+  border-radius: 8px;
+  background: #131c2f;
+}
+.sc-nav-group {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 8px;
-  border: 1px solid var(--sc-line);
-  border-radius: 14px;
-  background: rgba(19, 28, 47, 0.82);
-  backdrop-filter: blur(8px);
 }
+.sc-nav-group + .sc-nav-group {
+  margin-top: 4px;
+  border-top: 1px solid var(--sc-line-soft);
+}
+/* 分类标题 = 二级菜单 el-menu-item-group 的标题样式，可点（切到该分类） */
+.sc-nav-cat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 20px 6px;
+  border: none;
+  background: none;
+  color: var(--sc-text-mute);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.sc-nav-cat.is-current {
+  color: var(--el-color-primary);
+  font-weight: 600;
+}
+/* 选中 / 悬停与左侧菜单（Layout.vue 的 el-menu-item）同一套 */
 .sc-nav-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  width: 100%;
-  padding: 8px 10px;
+  width: calc(100% - 16px);
+  margin: 0 8px;
+  padding: 9px 12px;
   border: none;
-  border-radius: 9px;
+  border-radius: 6px;
   background: none;
-  color: var(--sc-text-dim);
+  color: #a6adb4;
   font: inherit;
   font-size: 13px;
   text-align: left;
@@ -2802,14 +2837,13 @@ onUnmounted(() => {
 /* 触摸屏 :hover 会粘住：点过的锚点会一直亮着底色，和 is-active 混在一起 */
 @media (hover: hover) {
   .sc-nav-item:hover {
-    background: #18233a;
+    background: #1b2942;
     color: var(--sc-text);
   }
 }
 .sc-nav-item.is-active {
-  background: linear-gradient(90deg, rgba(91, 140, 255, 0.2), rgba(91, 140, 255, 0.04));
+  background: #1890ff;
   color: #fff;
-  box-shadow: inset 2px 0 0 var(--sc-accent);
 }
 .sc-nav-text {
   overflow: hidden;
@@ -2827,19 +2861,22 @@ onUnmounted(() => {
 /* ── 区块 ──────────────────────────────────────────────────── */
 .sc-panel {
   border: 1px solid var(--sc-line);
-  border-radius: 14px;
+  border-radius: 8px;
   /* 账号表格是贴边铺满的，不裁切的话会把圆角顶成直角 */
   overflow: hidden;
-  background: linear-gradient(180deg, #141d31, #111a2c);
+  background: #131c2f;
+  color: var(--sc-text);
   /* 点导航滚过来时，标题不要顶到容器边 */
   scroll-margin-top: 12px;
 }
+/* 区块头 = el-card__header 的样子 */
 .sc-panel-head {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
-  padding: 15px 18px;
+  padding: 14px 20px;
+  background: #161f33;
   border-bottom: 1px solid var(--sc-line-soft);
 }
 .sc-head-text {
@@ -2860,7 +2897,7 @@ onUnmounted(() => {
   margin-left: 4px;
 }
 .sc-panel-body {
-  padding: 18px;
+  padding: 20px;
 }
 .sc-panel-body--flush {
   padding: 0;
@@ -2875,24 +2912,14 @@ onUnmounted(() => {
   color: var(--sc-text);
 }
 
-/* 区块图标：色相只用于快速定位，与左侧导航一一对应 */
+/* 区块图标：与仪表盘卡片标题一样，主色小图标、不加底块 */
 .sc-ic {
-  width: 34px;
-  height: 34px;
   flex: none;
-  display: grid;
-  place-items: center;
-  border-radius: 10px;
-  border: 1px solid transparent;
+  display: inline-flex;
+  align-self: flex-start;
+  margin-top: 2px;
+  color: var(--el-color-primary);
 }
-.sc-ic--indigo { background: rgba(129, 140, 248, 0.14); border-color: rgba(129, 140, 248, 0.26); color: #949dfb; }
-.sc-ic--blue { background: rgba(91, 140, 255, 0.14); border-color: rgba(91, 140, 255, 0.24); color: #7ea6ff; }
-.sc-ic--violet { background: rgba(167, 139, 250, 0.14); border-color: rgba(167, 139, 250, 0.24); color: #b9a6fb; }
-.sc-ic--cyan { background: rgba(34, 211, 238, 0.13); border-color: rgba(34, 211, 238, 0.24); color: #4fd8ee; }
-.sc-ic--amber { background: rgba(245, 158, 11, 0.13); border-color: rgba(245, 158, 11, 0.24); color: #f0ad3d; }
-.sc-ic--emerald { background: rgba(52, 211, 153, 0.13); border-color: rgba(52, 211, 153, 0.24); color: #4bd8a5; }
-.sc-ic--rose { background: rgba(251, 113, 133, 0.13); border-color: rgba(251, 113, 133, 0.24); color: #fb8b9c; }
-.sc-ic--sky { background: rgba(56, 189, 248, 0.13); border-color: rgba(56, 189, 248, 0.24); color: #5cc7f9; }
 
 /* ── 字段栅格 ──────────────────────────────────────────────── */
 /* 一律 auto-fill 而非 auto-fit：区块本身铺满屏幕，但字段数少于列数时
@@ -3010,44 +3037,28 @@ onUnmounted(() => {
   gap: 7px;
   padding: 5px 11px;
   border: 1px solid rgba(245, 108, 108, 0.35);
-  border-radius: 999px;
+  border-radius: 4px;
   background: rgba(245, 108, 108, 0.08);
   font-size: 12px;
   color: #f56c6c;
 }
+.sc-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: #4c5b78;
+}
+.sc-dot.is-ok {
+  background: var(--el-color-success);
+}
+.sc-dot.is-bad {
+  background: var(--el-color-danger);
+}
 .sc-result.is-ok {
-  border-color: rgba(52, 211, 153, 0.35);
-  background: rgba(52, 211, 153, 0.08);
+  border-color: rgba(103, 194, 58, 0.35);
+  background: rgba(103, 194, 58, 0.08);
   color: #67c23a;
-}
-
-/* ── 分栏开关（连接/切换 · 备份） ──────────────────────────── */
-.sc-seg {
-  display: inline-flex;
-  padding: 3px;
-  border: 1px solid var(--sc-line);
-  border-radius: 10px;
-  background: #0f1728;
-}
-.sc-seg button {
-  padding: 5px 14px;
-  border: none;
-  border-radius: 7px;
-  background: none;
-  color: var(--sc-text-dim);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-@media (hover: hover) {
-  .sc-seg button:hover {
-    color: var(--sc-text);
-  }
-}
-.sc-seg button.is-on {
-  background: #26314a;
-  color: #fff;
 }
 
 /* ── 后端选择卡 ───────────────────────────────────────────── */
@@ -3064,8 +3075,8 @@ onUnmounted(() => {
   gap: 3px;
   padding: 13px 15px;
   border: 1px solid var(--sc-line);
-  border-radius: 12px;
-  background: #131c2f;
+  border-radius: 8px;
+  background: #161f33;
   text-align: left;
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease;
@@ -3074,12 +3085,12 @@ onUnmounted(() => {
    会紧挨着 is-on 的高亮描边，最不该在这里让人分不清哪张才是当前生效的。 */
 @media (hover: hover) {
   .sc-choice:hover {
-    border-color: #3a4c6e;
+    border-color: var(--el-color-primary-light-5);
   }
 }
 .sc-choice.is-on {
   border-color: var(--sc-accent);
-  background: linear-gradient(180deg, rgba(91, 140, 255, 0.12), rgba(91, 140, 255, 0.03));
+  background: rgba(64, 158, 255, 0.08);
 }
 .sc-choice-title {
   font-size: 14px;
@@ -3096,8 +3107,8 @@ onUnmounted(() => {
   right: 12px;
   padding: 1px 7px;
   border-radius: 999px;
-  background: rgba(52, 211, 153, 0.16);
-  color: #4bd8a5;
+  background: rgba(103, 194, 58, 0.16);
+  color: var(--el-color-success);
   font-size: 11px;
 }
 
@@ -3108,11 +3119,11 @@ onUnmounted(() => {
   gap: 13px;
   padding: 14px 16px;
   border: 1px solid var(--sc-line);
-  border-radius: 12px;
-  background: #131c2f;
+  border-radius: 8px;
+  background: #161f33;
 }
 .sc-device.is-on {
-  border-color: rgba(52, 211, 153, 0.4);
+  border-color: rgba(103, 194, 58, 0.45);
 }
 .sc-device-ic {
   width: 40px;
@@ -3120,13 +3131,13 @@ onUnmounted(() => {
   flex: none;
   display: grid;
   place-items: center;
-  border-radius: 11px;
+  border-radius: 8px;
   background: #1b2942;
   color: var(--sc-text-dim);
 }
 .sc-device.is-on .sc-device-ic {
-  background: rgba(52, 211, 153, 0.14);
-  color: #4bd8a5;
+  background: rgba(103, 194, 58, 0.14);
+  color: var(--el-color-success);
 }
 .sc-device-text {
   min-width: 0;
@@ -3168,40 +3179,72 @@ onUnmounted(() => {
   line-height: 1.4;
   color: var(--sc-text-dim);
 }
-.sc-table {
-  --el-table-border-color: var(--sc-line-soft);
-  background: transparent;
-}
 .sc-table :deep(.el-table__inner-wrapper::before) {
   display: none;
 }
-.sc-table :deep(th.el-table__cell) {
-  background: #18233a !important;
-  font-weight: 600;
+
+/* 窄屏版三级导航：两行横条（分类 / 当前分类的模块），宽屏不显示 */
+.sc-nav-m {
+  display: none;
 }
-.sc-table :deep(tr) {
-  background: transparent;
+.sc-nav-m-row {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+.sc-nav-m-row::-webkit-scrollbar {
+  display: none;
+}
+.sc-nav-m-row + .sc-nav-m-row {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--sc-line-soft);
+}
+.sc-nav-m-cat,
+.sc-nav-m-item {
+  flex: none;
+  padding: 7px 12px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: #a6adb4;
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.sc-nav-m-cat.is-active {
+  background: #1890ff;
+  color: #fff;
+}
+.sc-nav-m-item {
+  font-size: 12px;
+}
+.sc-nav-m-item.is-active {
+  background: #1b2942;
+  color: var(--sc-text);
 }
 
-/* ── 窄屏：导航变成顶部横向 chip 条 ───────────────────────── */
+/* ── 窄屏：左侧导航换成顶部常驻两行横条 ─────────────────────── */
 @media (max-width: 900px) {
   .sc-body {
     grid-template-columns: minmax(0, 1fr);
   }
   .sc-nav {
-    z-index: 5;
+    display: none;
+  }
+  .sc-nav-m {
+    display: block;
+    position: sticky;
     top: 0;
-    flex-direction: row;
-    gap: 6px;
-    overflow-x: auto;
-    border-radius: 12px;
-  }
-  .sc-nav-item {
-    width: auto;
-    flex: none;
-  }
-  .sc-nav-item.is-active {
-    box-shadow: inset 0 -2px 0 var(--sc-accent);
+    z-index: 5;
+    padding: 6px;
+    border: 1px solid var(--sc-line);
+    border-radius: 8px;
+    background: #131c2f;
   }
   .sc-field--wide {
     grid-column: auto;
@@ -3209,24 +3252,10 @@ onUnmounted(() => {
 }
 
 /* ── 手机端（iOS / Android）──────────────────────────────────
-   900px 那档已经把左侧锚点导航改成了顶部 chip 条，这里补的是触摸细节
+   900px 那档已经把左侧三级导航改成了顶部两行横条，这里补的是触摸细节
    和把内边距让出来——三层 padding（页面 12 + 面板 18 + 字段）在 375px
    屏上要吃掉整整 60px。 */
 @media (max-width: 768px) {
-  /* chip 条要能顺畅横滑，且不显示那条几乎看不见的滚动条 */
-  .sc-nav {
-    padding: 6px;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    overscroll-behavior-x: contain;
-  }
-  .sc-nav::-webkit-scrollbar {
-    display: none;
-  }
-  .sc-nav-item {
-    white-space: nowrap;
-    padding: 8px 12px;
-  }
   .sc-body {
     gap: 12px;
   }
@@ -3236,6 +3265,9 @@ onUnmounted(() => {
   .sc-panel-head {
     padding: 12px;
     gap: 8px;
+  }
+  .sc-panel-head > .el-radio-group {
+    margin-left: auto;
   }
   .sc-panel-body {
     padding: 12px;

@@ -95,11 +95,11 @@ async def fetch_order_item_detail(data: FetchOrderItemDetailBody):
 
     image_ids: List[int] = []
     if photos:
-        from .....use_mercari.image_mgmt_ids import decode_photo_inventory_ids, dumps_ids, is_photo_bundle
+        from .....use_mercari.image_mgmt_ids import decode_photo_mgmt, dumps_ids, is_photo_bundle
 
         bundle = is_photo_bundle(order.remark, desc or order.description, order.platform)
-        image_ids = await asyncio.to_thread(decode_photo_inventory_ids, photos, bundle=bundle)
-        order.image_mgmt_ids = dumps_ids(image_ids)
+        image_ids, image_qty = await asyncio.to_thread(decode_photo_mgmt, photos, bundle=bundle)
+        order.image_mgmt_ids = dumps_ids(image_ids, image_qty)
 
     if not desc and not image_ids:
         raise HTTPException(status_code=400, detail="未读取到商品说明，商品图也没有管理暗码，未改动订单")

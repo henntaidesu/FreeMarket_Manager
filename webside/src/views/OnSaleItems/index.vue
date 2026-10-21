@@ -1,6 +1,6 @@
 <template>
   <div :class="{ 'batch-pick-mode-active': batchMode }">
-    <el-card shadow="never" class="search-card">
+    <el-card shadow="never" class="search-card search-card--sticky">
       <div class="search-row">
         <div class="search-left-group">
           <el-input

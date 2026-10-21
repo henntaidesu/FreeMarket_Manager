@@ -9,7 +9,7 @@ from ._common import _normalize_int_id, _normalize_match_text
 from .inventory_resolve import _extract_bundle_product_titles, _inventory_id_by_barcode, _is_bundle_order_description, _resolve_inventory_id, _resolve_inventory_ids_by_bundle_title
 from .line_owners import keep_line_owners
 from .parsing import parse_order_description_outbound_tokens_with_quantity
-from ...image_mgmt_ids import is_photo_bundle, stored_order_image_ids, uncovered_bundle_titles
+from ...image_mgmt_ids import is_photo_bundle, stored_order_image_mgmt, uncovered_bundle_titles
 
 
 def _order_seller_id(order_no: str) -> Optional[str]:
@@ -302,7 +302,7 @@ def _sync_outbound_lines_for_order_impl(
     tokens = parse_order_description_outbound_tokens_with_quantity(description)
 
     # 商品图左下角管理暗码为主、说明文本为兜底（见 use_mercari/image_mgmt_ids.py）。
-    image_ids = stored_order_image_ids(ono)
+    image_ids, image_qty = stored_order_image_mgmt(ono)
     image_titles: List[str] = []
     if image_ids:
         if _order_is_photo_bundle(ono, description):
@@ -312,8 +312,9 @@ def _sync_outbound_lines_for_order_impl(
             )
             tokens = [("mgmt_id", i, 1) for i in image_ids]
         elif image_ids[0] not in _token_inventory_ids(tokens):
-            # 首图与说明对不上（或说明里没有）→ 以图片为准；对得上时沿用说明（含组合出品的其余 id 与数量）
-            tokens = [("mgmt_id", image_ids[0], 1)]
+            # 首图与说明对不上（或说明里没有）→ 以图片为准；对得上时沿用说明（含组合出品的其余 id 与数量）。
+            # 件数取首图件数码（专用出品一条挂牌含 N 件），没有即 1。
+            tokens = [("mgmt_id", image_ids[0], image_qty)]
         else:
             image_ids = []
     # 图片行的 token 可能与旧行不同（旧行是 bundle_title / 旧番号），按库存 id 继承出库状态，

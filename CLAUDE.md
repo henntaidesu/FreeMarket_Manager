@@ -504,7 +504,16 @@ header, not cookies, so the dangerous wildcard+credentials combination never occ
    is the fallback.** `mgmt_image_cipher.py` embeds `inventory.id` as a QIM watermark in the
    **bottom-left** of every uploaded image — on every listing, independent of the visible
    `watermark` switch. `mgmt_id_cipher.py`'s `-=~<>` (or `◇◆`) cipher on the **last line of the
-   description** is the fallback. `use_mercari/image_mgmt_ids.py` decodes: a single item reads
+   description** is the fallback — **for old listings only: new listings (inventory form + auto-relist)
+   no longer write it**, so the image is the sole link. The id to embed is passed explicitly
+   (`PostToMarketBody.mgmt_inventory_id` ← task `inventory_ids[0]`, see
+   `post_to_macket/_mgmt_code.py`); parsing it out of the description is only a legacy fallback.
+   A listing holding N>1 units (专用出品 with a quantity) also gets a **quantity code in the
+   bottom-right** (`embed_listing_qty_in_file`, same QIM scheme, its own sync pattern — the
+   bottom-left wire format is unchanged). Single items store it as the id repeated N times in
+   `image_mgmt_ids` (`[1534,1534,1534]`); `loads_ids` still dedups, `loads_first_qty` reads N, and
+   on-sale binding / order outbound lines use it. No quantity code = 1 unit. A single item now tries
+   up to 3 photos when the first doesn't decode. `use_mercari/image_mgmt_ids.py` decodes: a single item reads
    **only the first photo**; a まとめ listing reads **every photo, one item per photo**, and the
    「■ 商品内容」 titles only fill in the items no photo was recognized for
    (`uncovered_bundle_titles`). For a single item, the image wins only when it *disagrees* with

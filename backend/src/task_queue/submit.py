@@ -97,12 +97,22 @@ def submit_task(
         if not inventory_ids:
             raise ValueError("出品任务缺少 inventory_ids")
         data["inventory_ids"] = inventory_ids
-        reserved_qty = len(inventory_ids)
-        reserved_ids_json = json.dumps(inventory_ids)
+        # 一条挂牌含几件（专用出品可选数量，说明末行写「暗号*N」）：只对单商品出品生效，
+        # 占用按件数展开成重复 id，核销 / 释放 / TTL 兜底都按件处理，无需另外分支
+        try:
+            listing_qty = max(1, int(data.get("listing_qty") or 1))
+        except (TypeError, ValueError):
+            listing_qty = 1
+        if len(inventory_ids) != 1:
+            listing_qty = 1
+        data["listing_qty"] = listing_qty
+        reserve_ids = inventory_ids * listing_qty
+        reserved_qty = len(reserve_ids)
+        reserved_ids_json = json.dumps(reserve_ids)
         # 预扣减在 store.enqueue 的入队锁内执行，与写任务行构成原子段：
         # 可上架不足 → 抛错 → 任务行根本不会产生
-        on_reserve = lambda: reserve(inventory_ids)  # noqa: E731
-        on_rollback = lambda: release(inventory_ids)  # noqa: E731
+        on_reserve = lambda: reserve(reserve_ids)  # noqa: E731
+        on_rollback = lambda: release(reserve_ids)  # noqa: E731
 
     return store.enqueue(
         task_type=spec.task_type,

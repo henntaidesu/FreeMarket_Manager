@@ -177,6 +177,9 @@ async def handle_listing(task: Dict[str, Any]) -> Dict[str, Any]:
             image_urls=list(payload.get("image_urls") or []),
             watermark=bool(payload.get("watermark", False)),
             dedicated_for=str(payload.get("dedicated_for") or "")[:40],
+            # 首个库存 id 嵌进图片管理暗码；件数 = 入队时按此预扣减的件数（submit.py）
+            mgmt_inventory_id=inventory_ids[0] if inventory_ids else None,
+            listing_qty=max(1, int(payload.get("listing_qty") or 1)),
             category_mapping_id=payload.get("category_mapping_id"),
             status=str(payload.get("status") or ""),
             shipping_payer=str(payload.get("shipping_payer") or "seller"),

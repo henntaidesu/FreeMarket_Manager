@@ -21,7 +21,7 @@ import {
   TASK_TYPES
 } from '@/api/index.js'
 import { submitTask } from '@/utils/taskSubmit.js'
-import { encodeMgmtId, encodeMgmtIds, stripTrailingMgmtBlock } from '@/utils/mgmtIdCipher.js'
+import { encodeMgmtId, stripTrailingMgmtBlock } from '@/utils/mgmtIdCipher.js'
 import { warehouseShelfLeafLabel } from '@/utils/warehouseLabel.js'
 import { mercariImageUrl } from '@/utils/mercariImage.js'
 import { useSyncLockStore } from '@/stores/syncLock.js'
@@ -231,13 +231,14 @@ export default defineComponent({
     })
     let productImgStream = null
     /** 系统页「出品默认值」，打开编辑弹窗时预填空白出品字段（手动出品用）。
-     *  发货地/配送/快递费负担/发货天数 + 出品图片(watermark)；自动补挂不读这些默认。 */
+     *  发货地/配送/快递费负担/发货天数 + 出品图片(watermark) + 商品描述；自动补挂不读这些默认。 */
     const listingDefaultsFromServer = ref({
       shipping_from_area_id: null,
       shipping_method: null,
       shipping_payer: null,
       shipping_days: null,
-      watermark: 1
+      watermark: 1,
+      description: null
     })
 
     // ============ 出品表单（已融合进编辑弹窗） ============
@@ -395,6 +396,9 @@ export default defineComponent({
         normalizeShippingFromSeed(form.value.shipping_from) ||
         normalizeShippingFromSeed(cfg.shipping_from_area_id) ||
         ''
+      if (!String(form.value.listing_body || '').trim() && cfg.description) {
+        form.value.listing_body = String(cfg.description).slice(0, 900)
+      }
       syncShippingFromPathFromForm()
     }
 
@@ -478,20 +482,46 @@ export default defineComponent({
       description: ''
     })
     /** 「专用出品」弹窗：给某位买家单独挂一条链接（○○様専用）。
-     *  只填买家名与价格，其余出品参数跟随主商品；不新开管理番号、不回写商品的单价，
+     *  填买家名、价格与数量，其余出品参数跟随主商品；不新开管理番号、不回写商品的单价，
+     *  出品标题只有「{买家名}様専用」，原出品标题 + 件数（「原标题 N点」）放到说明第一行，
+     *  数量 >1 时后端在图片右下角另嵌件数码（说明里不写暗号），
      *  首图「{买家名} 様 専用」由后端出品时自动生成（web_drive/.../_dedicated_cover.py）。 */
     const dedicatedDialogVisible = ref(false)
-    const dedicatedForm = ref({ buyer_name: '', price: 0 })
+    const dedicatedForm = ref({ buyer_name: '', price: 0, quantity: 1 })
+    const dedicatedMaxQty = computed(() => Math.max(0, Number(listableQuantity(form.value)) || 0))
+    const dedicatedTitlePreview = computed(() => dedicatedListingTitle(dedicatedForm.value.buyer_name))
+    const dedicatedDescLinePreview = computed(() =>
+      dedicatedDescLine(
+        String(form.value?.listing_title || form.value?.name || '').trim(),
+        dedicatedForm.value.quantity
+      )
+    )
     const dedicatedCanSubmit = computed(() => {
       const price = Math.round(Number(dedicatedForm.value.price ?? 0))
-      return !!String(dedicatedForm.value.buyer_name || '').trim() && Number.isFinite(price) && price > 0
+      const qty = Math.round(Number(dedicatedForm.value.quantity ?? 0))
+      return !!String(dedicatedForm.value.buyer_name || '').trim()
+        && Number.isFinite(price) && price > 0
+        && Number.isFinite(qty) && qty >= 1 && qty <= dedicatedMaxQty.value
     })
+
+    /** 专用出品标题：只有「{买家名}様専用」，按煤炉标题上限 40 字截断 */
+    function dedicatedListingTitle(buyerName) {
+      const name = String(buyerName || '').trim() || '○○'
+      return `${name}様専用`.slice(0, 40)
+    }
+
+    /** 专用出品说明第一行：「原出品标题 N点」 */
+    function dedicatedDescLine(title, quantity) {
+      const qty = Math.max(1, Math.round(Number(quantity) || 1))
+      return `${String(title || '').trim()} ${qty}点`.trim()
+    }
 
     function openDedicatedListing() {
       applyPriceEditToForm()
       dedicatedForm.value = {
         buyer_name: '',
-        price: Math.round(Number(form.value?.price ?? 0)) || 0
+        price: Math.round(Number(form.value?.price ?? 0)) || 0,
+        quantity: 1
       }
       dedicatedDialogVisible.value = true
     }
@@ -504,7 +534,8 @@ export default defineComponent({
         Number(form.value.auto_listing_watermark) === 1,
         {
           dedicatedFor: String(dedicatedForm.value.buyer_name).trim(),
-          price: Math.round(Number(dedicatedForm.value.price))
+          price: Math.round(Number(dedicatedForm.value.price)),
+          quantity: Math.round(Number(dedicatedForm.value.quantity))
         }
       )
     }
@@ -3531,6 +3562,8 @@ export default defineComponent({
           image_urls: imageUrls,
           watermark: data.watermark === true,
           dedicated_for: dedicatedFor,
+          // 一条挂牌含几件（仅专用出品可 >1）：后端按此数预扣减可上架
+          listing_qty: Math.max(1, Math.round(Number(data.listing_qty) || 1)),
           category_mapping_id: data.category_mapping_id != null ? String(data.category_mapping_id) : null,
           status: data.status || '',
           shipping_payer: data.shipping_payer || 'seller',
@@ -3616,7 +3649,7 @@ export default defineComponent({
       await submitListingFromEditForm(watermark, overrides)
     }
 
-    /** overrides：专用出品传 { dedicatedFor, price }，只用于这一次出品，不写回商品 */
+    /** overrides：专用出品传 { dedicatedFor, price, quantity }，只用于这一次出品，不写回商品 */
     async function submitListingFromEditForm(watermark = false, overrides = {}) {
       const id = Number(form.value?.id)
       if (!Number.isFinite(id) || id <= 0) return
@@ -3624,7 +3657,8 @@ export default defineComponent({
 
       // ── 与列表「出品」一致的前置校验（可上架>0、未标红） ── //
       const row = findLoadedInventoryRow(id)
-      if (listableQuantity(row || form.value) <= 0) {
+      const listingQty = Math.max(1, Math.round(Number(overrides.quantity) || 1))
+      if (listableQuantity(row || form.value) < listingQty) {
         ElMessage.warning(t('inventory.cannotListZeroStock'))
         return
       }
@@ -3638,7 +3672,11 @@ export default defineComponent({
       const images = (Array.isArray(form.value.images) ? form.value.images : [])
         .map((u) => String(u || '').trim())
         .filter(Boolean)
-      const listingTitle = String(form.value.listing_title || form.value.name || '').trim()
+      const baseTitle = String(form.value.listing_title || form.value.name || '').trim()
+      // 专用出品：标题只写「○○様専用」，原标题挪到说明第一行（下方拼说明时加）
+      const listingTitle = overrides.dedicatedFor && baseTitle
+        ? dedicatedListingTitle(overrides.dedicatedFor)
+        : baseTitle
       const price = Math.round(Number(overrides.price ?? form.value.price ?? 0))
       const checks = [
         [images.length > 0, t('dialogs.singleListing.ruleImageRequired')],
@@ -3658,15 +3696,16 @@ export default defineComponent({
         return
       }
 
-      // ── 商品说明：剥离旧暗号末行后，按所选库存重拼末行暗号 ── //
+      // ── 商品说明：不再写末行暗号，管理番号（与多件时的件数）只嵌在图片里（后端出品时按
+      //    inventory_ids[0] / listing_qty 嵌入，见 web_drive/.../_mgmt_code.py）。
+      //    旧说明里残留的暗号末行仍要剥掉，否则会原样挂出去 ── //
       const ids = [id]
-      const foot = encodeMgmtIds(ids)
       let body = stripTrailingMgmtBlock(String(form.value.listing_body || '')).trimEnd()
-      if (foot) {
-        const maxBody = Math.max(0, 1000 - foot.length - 2)
-        if (body.length > maxBody) body = body.slice(0, maxBody)
+      if (overrides.dedicatedFor) {
+        const head = dedicatedDescLine(baseTitle, listingQty)
+        body = body ? `${head}\n\n${body}` : head
       }
-      const fullDescription = foot ? (body ? `${body}\n\n${foot}` : foot) : body
+      const fullDescription = body.slice(0, 1000)
 
       const data = {
         inventory_ids: ids,
@@ -3687,7 +3726,8 @@ export default defineComponent({
         listing_image_urls: images,
         image: images[0] || '',
         image_back: images[1] || '',
-        dedicated_for: overrides.dedicatedFor || ''
+        dedicated_for: overrides.dedicatedFor || '',
+        listing_qty: listingQty
       }
 
       listingSubmitting.value = true
@@ -5239,7 +5279,8 @@ export default defineComponent({
           shipping_method: d?.shipping_method ?? null,
           shipping_payer: d?.shipping_payer ?? null,
           shipping_days: d?.shipping_days ?? null,
-          watermark: Number(d?.watermark) === 0 ? 0 : 1
+          watermark: Number(d?.watermark) === 0 ? 0 : 1,
+          description: d?.description ?? null
         }
       } catch {
         /* 拦截器已提示；保持当前占位 */
@@ -5430,6 +5471,9 @@ export default defineComponent({
       combinedProductForm,
       dedicatedDialogVisible,
       dedicatedForm,
+      dedicatedMaxQty,
+      dedicatedTitlePreview,
+      dedicatedDescLinePreview,
       dedicatedCanSubmit,
       openDedicatedListing,
       submitDedicatedListing,

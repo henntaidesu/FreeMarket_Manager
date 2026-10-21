@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections import Counter
 from typing import Dict, Iterable, List, Optional
 
 from ..db_manage.database import DatabaseManager
@@ -59,15 +60,15 @@ def _recompute(inv_ids: Iterable[int]) -> None:
     recompute_listable_quantity(list(inv_ids))
 
 
-def _incr(inv_id: int) -> bool:
-    """CAS 占用一件：仅当该商品当前可上架 ≥ 1 时 ``pending_listing_qty`` +1。"""
+def _incr(inv_id: int, n: int = 1) -> bool:
+    """CAS 占用 n 件：仅当该商品当前可上架 ≥ n 时 ``pending_listing_qty`` +n。"""
     changed = DatabaseManager().execute_update(
         """
         UPDATE [inventory]
-        SET [pending_listing_qty] = COALESCE([pending_listing_qty], 0) + 1
-        WHERE [id] = ? AND COALESCE([listable_quantity], 0) >= 1
+        SET [pending_listing_qty] = COALESCE([pending_listing_qty], 0) + ?
+        WHERE [id] = ? AND COALESCE([listable_quantity], 0) >= ?
         """,
-        (int(inv_id),),
+        (int(n), int(inv_id), int(n)),
     )
     return bool(changed)
 
@@ -85,7 +86,8 @@ def _decr(inv_id: int, n: int = 1) -> None:
 
 
 def reserve(inventory_ids: List[int]) -> None:
-    """为一次出品占用每个库存各 1 件。任一件不足即整体回滚并抛 ``InsufficientListableError``。
+    """为一次出品占用库存：每个 id 出现几次占几件（一条挂牌含多件时 id 会重复）。
+    任一商品不足即整体回滚并抛 ``InsufficientListableError``。
 
     由 ``store.enqueue(on_reserve=...)`` 在入队锁内调用，与写任务行构成原子段。
     """
@@ -95,15 +97,17 @@ def reserve(inventory_ids: List[int]) -> None:
     # CAS 判据是落库的 listable_quantity，而库存列表是读取时重算展示的：先刷新这几行，
     # 免得任何一条漏调重算的写入路径导致「页面显示可上架 1，出品却被拒」。
     _recompute(ids)
+    # 同一商品的多件合成一次 CAS：listable_quantity 在循环里不重算，逐件 +1 会只比对旧值而超占
+    counts = Counter(ids)
     done: List[int] = []
     try:
-        for inv_id in ids:
-            if not _incr(inv_id):
+        for inv_id, n in counts.items():
+            if not _incr(inv_id, n):
                 raise InsufficientListableError(inv_id)
             done.append(inv_id)
     except Exception:
         for inv_id in done:  # 部分成功 → 全部退回
-            _decr(inv_id, 1)
+            _decr(inv_id, counts[inv_id])
         if done:
             _recompute(done)
         raise
@@ -205,21 +209,24 @@ def consume(inventory_id: int, n: int = 1) -> None:
             # 而非完整 payload 列表：升级前已部分核销的行若按完整列表持久化，
             # 之后释放会超量归还（列表长度 > 实际剩余占用）。
             remaining_ids = _remaining_release_ids(task)
-            if inv_id not in remaining_ids:
+            # 一条挂牌含多件时同一 id 在本任务里占了多件，按本次增量能核销几件就核销几件
+            take = min(left, remaining_ids.count(inv_id))
+            if take <= 0:
                 continue
-            _decr(inv_id, 1)
-            # 精确记录剩余占用（移除一个该库存 id），释放时不会落错库存
+            _decr(inv_id, take)
+            # 精确记录剩余占用（移除 take 个该库存 id），释放时不会落错库存
             new_ids = list(remaining_ids)
-            new_ids.remove(inv_id)
+            for _ in range(take):
+                new_ids.remove(inv_id)
             DatabaseManager().execute_update(
                 "UPDATE [task_queue] SET [reserved_qty] = ?, [reserved_ids] = ? WHERE [id] = ?",
-                (max(0, task["reserved_qty"] - 1), json.dumps(new_ids), int(task["id"])),
+                (max(0, task["reserved_qty"] - take), json.dumps(new_ids), int(task["id"])),
             )
-            left -= 1
+            left -= take
             touched = True
             log.info(
-                "[reservations] 任务 #%s 商品 %s 已被在售同步计入，核销 1 件占用",
-                task["id"], inv_id,
+                "[reservations] 任务 #%s 商品 %s 已被在售同步计入，核销 %s 件占用",
+                task["id"], inv_id, take,
             )
         if touched:
             _recompute([inv_id])

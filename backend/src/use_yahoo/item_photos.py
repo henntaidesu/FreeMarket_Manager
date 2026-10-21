@@ -101,7 +101,7 @@ def ensure_order_image_ids(order_no: str, title: Any, description: Any) -> None:
     """
     from ..db_manage.database import DatabaseManager
     from ..use_mercari.image_mgmt_ids import (
-        decode_photo_inventory_ids,
+        decode_photo_mgmt,
         dumps_ids,
         is_photo_bundle,
         stored_on_sale_image_ids,
@@ -118,7 +118,7 @@ def ensure_order_image_ids(order_no: str, title: Any, description: Any) -> None:
     if not item:
         return
     bundle = is_photo_bundle(title or item["title"], description, "yahoo")
-    ids = decode_photo_inventory_ids(item["photos"], bundle=bundle)
+    ids, qty = decode_photo_mgmt(item["photos"], bundle=bundle)
     db.execute_update(
-        "UPDATE [orders] SET [image_mgmt_ids] = ? WHERE [order_no] = ?", (dumps_ids(ids), ono)
+        "UPDATE [orders] SET [image_mgmt_ids] = ? WHERE [order_no] = ?", (dumps_ids(ids, qty), ono)
     )
