@@ -22,6 +22,7 @@ INVENTORY_COLUMNS = [
     "category_id",
     "product_type_id",
     "owner_user_id",
+    "series_id",
     "price",
     "quantity",
     "mercari_item_id",
@@ -66,6 +67,7 @@ def _row_to_inventory_detail(row: tuple) -> dict:
         "batch_warehouse_count",
         # 在途件数（快递单已发出、未扫码入库）；已计入 quantity，在岸 = quantity - transit_quantity
         "transit_quantity",
+        "series_name",
     ]
     return dict(zip(keys, row))
 
@@ -192,7 +194,8 @@ def _query_inventory_with_joins(
                COALESCE(cr.reserved, 0) AS combined_quantity,
                COALESCE(bt.batch_count, 0) AS batch_count,
                COALESCE(bt.batch_wh_count, 0) AS batch_warehouse_count,
-               COALESCE(bt.transit_qty, 0) AS transit_quantity
+               COALESCE(bt.transit_qty, 0) AS transit_quantity,
+               (SELECT sr.name FROM [inventory_series] sr WHERE sr.id = p.series_id) AS series_name
         FROM [inventory] p
         LEFT JOIN [categories] c ON c.id = p.category_id
         LEFT JOIN [warehouses] w ON w.id = p.warehouse_id

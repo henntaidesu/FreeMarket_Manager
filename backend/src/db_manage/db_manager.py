@@ -53,6 +53,7 @@ from .models import (
     InventoryBatchModel,
     InventoryOldModel,
     InventoryBatchOldModel,
+    InventorySeriesModel,
     InboundShipmentModel,
     InboundShipmentLineModel,
     InboundReceiptModel,
@@ -717,6 +718,7 @@ class DBManager:
             InventoryBatchModel,  # 库存批次（依赖 inventory / warehouses，仅顺序习惯）
             InventoryOldModel,  # 历史库存（重新盘库前的整表归档，只读；历史数据页）
             InventoryBatchOldModel,  # 历史库存批次（同上）
+            InventorySeriesModel,  # 商品系列（inventory.series_id 指向它；用户自定义分组）
             InboundShipmentModel,  # 快递单（入库快递；发出后装箱件数成为在途批次）
             InboundShipmentLineModel,  # 快递单明细
             InboundReceiptModel,  # 快递入库记录（改投货架 / 建议货架）

@@ -612,6 +612,10 @@ a.pef-lcard:hover {
   flex: 0 1 140px;
   min-width: 0;
 }
+.pef-field--series {
+  flex: 0 1 180px;
+  min-width: 0;
+}
 .pef-field--price {
   flex: 0 0 120px;
 }
@@ -1811,4 +1815,10 @@ a.pef-lcard:hover {
 .no-code-inbound-qty__label {
   font-size: 13px;
   color: #a4aec1;
+}
+
+/* 名称前的系列标签：点击按该系列筛选 */
+.inv-series-tag {
+  cursor: pointer;
+  margin-right: 4px;
 }

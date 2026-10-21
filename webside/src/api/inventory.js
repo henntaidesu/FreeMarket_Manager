@@ -55,6 +55,13 @@ export const inventoryApi = {
   deleteBatch: (id, batchId) => http.delete(`/use_web/inventory/${id}/batches/${batchId}`),
   mergeBatches: (id, batchIds) => http.post(`/use_web/inventory/${id}/batches/merge`, { batch_ids: batchIds }),
   update: (id, data) => http.put(`/use_web/inventory/${id}`, data),
+  // 商品系列（用户自定义的一组商品；一件商品最多一个系列）
+  listSeries: () => http.get('/use_web/inventory/series'),
+  createSeries: (data) => http.post('/use_web/inventory/series', data),
+  renameSeries: (id, data) => http.put(`/use_web/inventory/series/${id}`, data),
+  deleteSeries: (id) => http.delete(`/use_web/inventory/series/${id}`),
+  // series_id 为 null = 移出系列
+  assignSeries: (data) => http.post('/use_web/inventory/series/assign', data),
   remove: (id) => http.delete(`/use_web/inventory/${id}`),
   stockIn: (id, data) => http.post(`/use_web/inventory/${id}/stock-in`, data),
   stockOut: (id, data) => http.post(`/use_web/inventory/${id}/stock-out`, data),

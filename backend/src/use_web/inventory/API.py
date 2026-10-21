@@ -24,6 +24,7 @@ from .units.inventory_public_handler import get_image_thumb
 from .units.ocr_handler import ocr_region
 from .units.scan_handler import get_barcode_family, ocr_name_region, scan_barcode, scan_barcode_region
 from .units.ai_listing_handler import generate_listing_ai
+from .units.inventory_series import assign_series, create_series, delete_series, list_series, rename_series
 
 router = APIRouter()
 # 公开路由：缩略图等无需登录即可访问（图片本身已通过静态文件公开）
@@ -39,6 +40,12 @@ router.add_api_route("/barcode/{barcode}", find_by_barcode, methods=["GET"])
 # 「一码多品」：条码及其 -N 编号已用在哪些商品上 + 下一个可用编号（须在 /{pid} 之前注册）
 router.add_api_route("/barcode-family", get_barcode_family, methods=["GET"])
 router.add_api_route("/find-by-image", find_by_image, methods=["POST"])
+# 商品系列（须在 /{pid} 之前注册，避免 /series 被动态段捕获）
+router.add_api_route("/series", list_series, methods=["GET"])
+router.add_api_route("/series", create_series, methods=["POST"])
+router.add_api_route("/series/assign", assign_series, methods=["POST"])
+router.add_api_route("/series/{sid}", rename_series, methods=["PUT"])
+router.add_api_route("/series/{sid}", delete_series, methods=["DELETE"])
 # 图片搜索（CLIP 相似度检索，多结果带 match_score）
 router.add_api_route("/image-search", image_search, methods=["POST"])
 router.add_api_route("/image-search/status", image_search_status, methods=["GET"])

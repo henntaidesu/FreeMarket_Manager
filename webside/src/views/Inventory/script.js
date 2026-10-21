@@ -37,6 +37,7 @@ import { MERCARI_UNDECIDED_AREA_ID } from '@/composables/useListingPlatform.js'
 import { useBarcodeScanner } from '@/composables/useBarcodeScanner.js'
 import { buildShelfNoLabel, parseWarehouseQr } from '@/utils/warehouseQr.js'
 import { useInventoryBatches } from './useInventoryBatches.js'
+import { useInventorySeries } from './useInventorySeries.js'
 import RegionRecognizeDialog from './RegionRecognizeDialog.vue'
 import BarcodeDuplicatePrompt from './BarcodeDuplicatePrompt.vue'
 
@@ -2042,6 +2043,26 @@ export default defineComponent({
       if (v === 'batches') inventoryBatches.loadBatches()
     })
 
+    // ---- 商品系列：顶部筛选 / 多选「加入系列」/ 编辑表单字段（见 useInventorySeries.js）----
+    const inventorySeries = useInventorySeries({
+      api: invApi,
+      form,
+      t,
+      pickedIds: listingPickIds,
+      afterBatch: () => exitListingPickMode(),
+      onFormChanged() {
+        // 系列改动已直接落库：关窗时刷新列表
+        formAutosaved = true
+      }
+    })
+
+    /** 点列表里的系列标签：按该系列筛选 */
+    function filterBySeries(seriesId) {
+      if (!seriesId) return
+      inventorySeries.filterSeriesId.value = Number(seriesId)
+      load()
+    }
+
     // 在真实仓库分组之上追加「默认仓库」合成节点：顶部筛选用它筛未分配货位的商品，
     // 表格内联编辑用它把已分配的货位清回未分配（弹窗表单靠 clearable 叉号清空，不用这份选项）
     const WAREHOUSE_UNASSIGNED_VALUE = 'WH_UNASSIGNED'
@@ -2147,6 +2168,7 @@ export default defineComponent({
       if (filterWarehouseUnassigned.value) params.warehouse_unassigned = true
       if (filterProductType.value) params.product_type_id = filterProductType.value
       if (filterOwnerUserId.value) params.owner_user_id = filterOwnerUserId.value
+      if (inventorySeries.filterSeriesId.value) params.series_id = inventorySeries.filterSeriesId.value
       if (viewAutoListingOnly.value) params.auto_listing_only = true
       if (hideNoWarehouseSlot.value) {
         params.in_stock_only = true
@@ -3095,6 +3117,7 @@ export default defineComponent({
             category_id: row.category_id || null,
             product_type_id: row.product_type_id || null,
             owner_user_id: row.owner_user_id || null,
+            series_id: row.series_id || null,
             warehouse_id: row.warehouse_id || null,
             price: Math.round(Number(row.price ?? 0)),
             quantity: row.quantity ?? 0,
@@ -5303,6 +5326,7 @@ export default defineComponent({
       productTypes.value = buildProductTypeOptionsFromMappings(mappings)
       ownerUsers.value = users
       listingCategoryMappings.value = mappings
+      inventorySeries.loadSeries()
       await Promise.all([load(), loadInventoryStats()])
       await setupCardObserver()
       openFromRouteQuery()
@@ -5486,6 +5510,8 @@ export default defineComponent({
       dupPrompt,
       onDupPromptChoose,
       ...inventoryBatches,
+      ...inventorySeries,
+      filterBySeries,
       listingPickMode,
       listingPickIds,
       listingCategoryMappings,

@@ -72,6 +72,7 @@ def list_inventory(
     category_id: Optional[int] = None,
     product_type_id: Optional[int] = None,
     owner_user_id: Optional[int] = None,
+    series_id: Optional[int] = None,
     warehouse_id: Optional[int] = None,
     warehouse_unassigned: bool = False,
     in_stock_only: bool = False,
@@ -106,6 +107,11 @@ def list_inventory(
             "p.product_barcode LIKE ? ESCAPE '!'",
         ]
         kw_params = [f"%{kw}%", f"%{kw}%", kw, kw, f"{kw_esc}-%"]
+        # 系列名命中 → 系列下全部商品
+        clauses.append(
+            "EXISTS (SELECT 1 FROM [inventory_series] sk WHERE sk.id = p.series_id AND sk.name LIKE ?)"
+        )
+        kw_params.append(f"%{kw}%")
         # 纯数字 → 按管理番号（inventory.id）精确匹配
         mgmt_id_exact: Optional[int] = None
         if kw.isdigit():
@@ -153,6 +159,9 @@ def list_inventory(
     if product_type_id:
         where_parts.append("AND p.product_type_id = ?")
         params.append(product_type_id)
+    if series_id:
+        where_parts.append("AND p.series_id = ?")
+        params.append(series_id)
     # 并回过别人的货的商品：任一有货批次属于该所有人也命中
     if owner_user_id:
         where_parts.append(

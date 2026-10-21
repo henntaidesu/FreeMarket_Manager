@@ -50,6 +50,9 @@
           <el-select v-model="filterOwnerUserId" :placeholder="t('inventory.allOwners')" clearable @change="load">
             <el-option v-for="u in ownerUsers" :key="u.id" :label="u.display_name || u.username" :value="u.id" />
           </el-select>
+          <el-select v-model="filterSeriesId" :placeholder="t('inventory.allSeries')" filterable clearable @change="load">
+            <el-option v-for="s in seriesOptions" :key="s.id" :label="`${s.name} (${s.item_count})`" :value="s.id" />
+          </el-select>
           <!-- 开关式筛选：单独占一行 -->
           <div class="search-chips">
             <div
@@ -98,6 +101,9 @@
             <span class="listing-pick-count">{{ t('inventory.selectedCount', { count: listingPickIds.size }) }}</span>
             <el-button type="primary" :disabled="!listingPickIds.size" @click="openBatchWarehouseDialog">
               {{ t('inventory.batchChangeWarehouse') }}
+            </el-button>
+            <el-button type="primary" :disabled="!listingPickIds.size" @click="openSeriesDialog">
+              {{ t('inventory.seriesAdd') }}
             </el-button>
             <el-button type="primary" :disabled="!listingPickIds.size" @click="confirmListingPick">
               {{ t('inventory.combinedProduct') }}
@@ -282,6 +288,15 @@
             />
             <div v-else class="editable-cell" @click="startInlineEdit(row, 'name')">
               <el-tag v-if="Number(row.is_combined || 0) === 1" size="small" type="success" effect="light">{{ t('inventory.combinedTag') }}</el-tag>
+              <el-tag
+                v-if="row.series_name"
+                size="small"
+                type="info"
+                effect="plain"
+                class="inv-series-tag"
+                :title="t('inventory.seriesFilterTip')"
+                @click.stop="filterBySeries(row.series_id)"
+              >{{ row.series_name }}</el-tag>
               {{ row.name || '-' }}
             </div>
           </template>
@@ -512,6 +527,14 @@
             <div class="inv-card-body">
               <div class="inv-card-name">
                 <el-tag v-if="Number(row.is_combined || 0) === 1" size="small" type="success" effect="light">{{ t('inventory.combinedTag') }}</el-tag>
+                <el-tag
+                  v-if="row.series_name"
+                  size="small"
+                  type="info"
+                  effect="plain"
+                  class="inv-series-tag"
+                  @click.stop="filterBySeries(row.series_id)"
+                >{{ row.series_name }}</el-tag>
                 {{ row.name || '-' }}
               </div>
               <div class="inv-card-price">¥{{ Math.round(Number(row.price || 0)) }}</div>
@@ -717,6 +740,22 @@
                   :label="u.display_name || u.username"
                   :value="u.id"
                 />
+              </el-select>
+            </el-form-item>
+            <el-form-item class="pef-field--series" :label="t('inventory.series')">
+              <!-- 即时保存（useInventorySeries.onFormSeriesChange）；可直接输入新名字新建系列 -->
+              <el-select
+                :model-value="form.series_id"
+                :placeholder="form.id ? t('inventory.seriesNone') : t('inventory.seriesSaveFirst')"
+                :disabled="archive || !form.id"
+                filterable
+                allow-create
+                default-first-option
+                clearable
+                style="width: 100%"
+                @change="onFormSeriesChange"
+              >
+                <el-option v-for="s in seriesOptions" :key="s.id" :label="s.name" :value="s.id" />
               </el-select>
             </el-form-item>
             <el-form-item class="pef-field--price" :label="t('inventory.unitPrice')" prop="price">
@@ -1864,6 +1903,41 @@
         <el-button @click="combinedProductDialogVisible = false">{{ t('common.cancel') }}</el-button>
         <el-button type="primary" :loading="combinedProductSubmitting" @click="submitCombinedProduct">
           {{ t('inventory.createCombinedProduct') }}
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 加入系列：选已有系列，或直接输入新名字新建（useInventorySeries.js） -->
+    <el-dialog
+      v-model="seriesDialogVisible"
+      :title="t('inventory.seriesAdd')"
+      :width="isMobile ? '94vw' : '480px'"
+      destroy-on-close
+    >
+      <p class="cell-muted">{{ t('inventory.seriesDialogHint', { count: listingPickIds.size }) }}</p>
+      <el-select
+        v-model="seriesDialogValue"
+        :placeholder="t('inventory.seriesPickOrCreate')"
+        filterable
+        allow-create
+        default-first-option
+        clearable
+        style="width: 100%"
+      >
+        <el-option v-for="s in seriesOptions" :key="s.id" :label="s.name" :value="s.id">
+          <span class="series-option">
+            <span>{{ s.name }} <span class="cell-muted">({{ s.item_count }})</span></span>
+            <el-button link type="danger" size="small" @click.stop="deleteSeries(s)">{{ t('inventory.seriesDelete') }}</el-button>
+          </span>
+        </el-option>
+      </el-select>
+      <template #footer>
+        <el-button @click="seriesDialogVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="danger" plain :loading="seriesSubmitting" @click="submitSeriesDialog(true)">
+          {{ t('inventory.seriesRemove') }}
+        </el-button>
+        <el-button type="primary" :loading="seriesSubmitting" @click="submitSeriesDialog(false)">
+          {{ t('common.confirm') }}
         </el-button>
       </template>
     </el-dialog>

@@ -278,6 +278,9 @@ Key tables in `backend/src/db_manage/models/`:
   要判 `archive_view.is_active()` 跳过，否则历史页会 500。权限上 `system/inventory-history` 只在带该头的
   请求里算数（`page_access.require_page`）；库存页新调用了别组接口时，也要把这一页加进那组的页面列表。
 - **warehouses**: Storage locations (shelf names duplicable per warehouse)
+- **inventory_series**: 商品系列——用户自定义的一组商品（如管理番号 2101~2104），`inventory.series_id` 指向它，
+  一件商品最多一个系列。库存页可按系列筛选，关键词搜系列名命中系列下全部商品（`EXISTS` 子句，只依赖 `p`，
+  所以 count 查询也能用）。删除系列只把 `series_id` 置空。接口在 `use_web/inventory/units/inventory_series.py`。
 - **product_type_category_mappings**: 商品类型主表 (one row = one 商品类型). `inventory.product_type_id` → `mapping_id` (TEXT PK, numeric, auto-incremented on create, never user-visible). See 商品类型映射 below.
 - **shop_accounts**: Marketplace account config (headers in `value` JSON field, `platform`,
   `seller_id`). **Renamed twice** — `meilu_accounts` → `mercari_accounts` → `shop_accounts`, with

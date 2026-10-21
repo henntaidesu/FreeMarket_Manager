@@ -430,3 +430,12 @@
     padding: 14px;
   }
 }
+
+/* 加入系列弹窗：选项右侧的「删除」（下拉挂在 body 上，scoped 样式够不到） */
+.series-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
