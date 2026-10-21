@@ -40,6 +40,7 @@ export const MENU_ITEMS = [
 
       // 基础数据：上架前要先配好的那几张表
       { path: '/system/categories', titleKey: 'layout.menu.categories', icon: 'Collection', group: 'layout.menuGroup.masterData' },
+      { path: '/system/series', titleKey: 'layout.menu.series', icon: 'Files', group: 'layout.menuGroup.masterData' },
       { path: '/system/product-type-category-mappings', titleKey: 'layout.menu.productTypeMappings', icon: 'Connection', group: 'layout.menuGroup.masterData' },
       { path: '/system/talk-scripts', titleKey: 'layout.menu.talkScripts', icon: 'ChatLineRound', group: 'layout.menuGroup.masterData' },
 

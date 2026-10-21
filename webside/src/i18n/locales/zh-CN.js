@@ -118,6 +118,7 @@ export default {
       inboundShipments: "快递入库",
       inventoryHistory: "历史库存",
       categories: "游戏分类",
+      series: "系列管理",
       productTypeMappings: "商品类型映射",
       systemConfig: "系统配置",
       systemLogs: "系统日志",

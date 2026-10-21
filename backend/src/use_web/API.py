@@ -37,6 +37,7 @@ from .purchases.API import router as purchases_router
 from .orders.API import router as orders_router
 from .inventory.API import router as inventory_router
 from .inventory.API import public_router as inventory_public_router
+from .inventory.API import series_router as inventory_series_router
 from .shop_accounts.API import router as shop_accounts_router
 from .todos.API import router as todos_router
 from .tasks.API import router as tasks_router
@@ -104,6 +105,11 @@ router.include_router(
     dependencies=_page("system/purchases", "system/purchase-settlement"),
 )
 router.include_router(orders_router, prefix="/orders", tags=["orders"], dependencies=_page("orders", "todos"))
+# 商品系列：须在 inventory_router 之前挂，否则 GET /inventory/series 会被 /{pid} 吃掉
+router.include_router(
+    inventory_series_router, prefix="/inventory/series", tags=["inventory-series"],
+    dependencies=_page("inventory", "system/series", "system/inventory-history"),
+)
 router.include_router(
     inventory_router, prefix="/inventory", tags=["inventory"],
     dependencies=_page(

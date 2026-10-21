@@ -24,9 +24,13 @@ from .units.inventory_public_handler import get_image_thumb
 from .units.ocr_handler import ocr_region
 from .units.scan_handler import get_barcode_family, ocr_name_region, scan_barcode, scan_barcode_region
 from .units.ai_listing_handler import generate_listing_ai
-from .units.inventory_series import assign_series, create_series, delete_series, list_series, rename_series
+from .units.inventory_series import (
+    assign_series, create_series, delete_series, list_series, rename_series, set_series_items,
+)
 
 router = APIRouter()
+# 商品系列：库存页与「系列管理」页共用，单独一组以便只按这两页授权（use_web/API.py 挂在 /inventory/series）
+series_router = APIRouter()
 # 公开路由：缩略图等无需登录即可访问（图片本身已通过静态文件公开）
 public_router = APIRouter()
 
@@ -40,12 +44,6 @@ router.add_api_route("/barcode/{barcode}", find_by_barcode, methods=["GET"])
 # 「一码多品」：条码及其 -N 编号已用在哪些商品上 + 下一个可用编号（须在 /{pid} 之前注册）
 router.add_api_route("/barcode-family", get_barcode_family, methods=["GET"])
 router.add_api_route("/find-by-image", find_by_image, methods=["POST"])
-# 商品系列（须在 /{pid} 之前注册，避免 /series 被动态段捕获）
-router.add_api_route("/series", list_series, methods=["GET"])
-router.add_api_route("/series", create_series, methods=["POST"])
-router.add_api_route("/series/assign", assign_series, methods=["POST"])
-router.add_api_route("/series/{sid}", rename_series, methods=["PUT"])
-router.add_api_route("/series/{sid}", delete_series, methods=["DELETE"])
 # 图片搜索（CLIP 相似度检索，多结果带 match_score）
 router.add_api_route("/image-search", image_search, methods=["POST"])
 router.add_api_route("/image-search/status", image_search_status, methods=["GET"])
@@ -72,6 +70,14 @@ router.add_api_route("/{pid}", delete_inventory, methods=["DELETE"])
 
 # AI 生成出品标题 / 出品说明（DeepSeek，日语；以商品名为主题）
 router.add_api_route("/ai-generate-listing", generate_listing_ai, methods=["POST"])
+
+# 商品系列（series_router，前缀 /inventory/series）
+series_router.add_api_route("", list_series, methods=["GET"])
+series_router.add_api_route("", create_series, methods=["POST"])
+series_router.add_api_route("/assign", assign_series, methods=["POST"])
+series_router.add_api_route("/{sid}", rename_series, methods=["PUT"])
+series_router.add_api_route("/{sid}", delete_series, methods=["DELETE"])
+series_router.add_api_route("/{sid}/items", set_series_items, methods=["PUT"])
 
 # OCR 识别（库存页面"OCR 识别商品名"）
 router.add_api_route("/ocr-region", ocr_region, methods=["POST"])

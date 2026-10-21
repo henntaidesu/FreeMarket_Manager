@@ -46,6 +46,7 @@ PAGE_KEYS = frozenset({
     "system/cost-records",
     "system/cost-expenses",
     "system/categories",
+    "system/series",
     "system/product-type-category-mappings",
     "system/talk-scripts",
     "system/calendar",

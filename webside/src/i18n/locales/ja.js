@@ -118,6 +118,7 @@ export default {
       inboundShipments: "配送入庫",
       inventoryHistory: "履歴在庫",
       categories: "ゲームカテゴリ",
+      series: "シリーズ管理",
       productTypeMappings: "商品種別マッピング",
       systemConfig: "システム設定",
       systemLogs: "システムログ",

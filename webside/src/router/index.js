@@ -41,6 +41,7 @@ const routes = [
       { path: 'system/purchase-settlement', name: 'PurchaseSettlement', component: () => import('@/views/system/PurchaseSettlement/index.vue'), meta: { title: '购入结算', icon: 'Wallet' } },
       { path: 'system/warehouses', name: 'Warehouses', component: () => import('@/views/system/Warehouses/index.vue'), meta: { title: '仓库管理', icon: 'OfficeBuilding' } },
       { path: 'system/categories', name: 'Categories', component: () => import('@/views/system/Categories/index.vue'), meta: { title: '游戏分类', icon: 'Collection' } },
+      { path: 'system/series', name: 'Series', component: () => import('@/views/system/Series/index.vue'), meta: { title: '系列管理', icon: 'Files' } },
       { path: 'system/product-type-category-mappings', name: 'ProductTypeCategoryMappings', component: () => import('@/views/system/ProductTypeCategoryMappings/index.vue'), meta: { title: '商品类型映射', icon: 'Connection' } },
       { path: 'system/talk-scripts', name: 'TalkScripts', component: () => import('@/views/system/TalkScripts/index.vue'), meta: { title: '话术表', icon: 'ChatLineRound' } },
       { path: 'system/calendar', name: 'Calendar', component: () => import('@/views/system/Calendar/index.vue'), meta: { title: '日历', icon: 'Calendar' } },

@@ -60,6 +60,8 @@ export const inventoryApi = {
   createSeries: (data) => http.post('/use_web/inventory/series', data),
   renameSeries: (id, data) => http.put(`/use_web/inventory/series/${id}`, data),
   deleteSeries: (id) => http.delete(`/use_web/inventory/series/${id}`),
+  // 整组设定成员（管理番号）；不在列表里的现有成员移出
+  setSeriesItems: (id, data) => http.put(`/use_web/inventory/series/${id}/items`, data),
   // series_id 为 null = 移出系列
   assignSeries: (data) => http.post('/use_web/inventory/series/assign', data),
   remove: (id) => http.delete(`/use_web/inventory/${id}`),

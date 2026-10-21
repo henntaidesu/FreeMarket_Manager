@@ -1,0 +1,11 @@
+/* 筛选栏的结构与样式在 src/styles/page-modules.css（全站共用），这里不再重写 */
+.table-card { border-radius: 8px; }
+.series-members {
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}
+.series-hint {
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 4px;
+}

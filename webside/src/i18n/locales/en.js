@@ -118,6 +118,7 @@ export default {
       inboundShipments: "Inbound parcels",
       inventoryHistory: "Archived Inventory",
       categories: "Game Categories",
+      series: "Series",
       productTypeMappings: "Product Type Mappings",
       systemConfig: "System Settings",
       systemLogs: "System Logs",

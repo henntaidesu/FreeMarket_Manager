@@ -2056,6 +2056,20 @@ export default defineComponent({
       }
     })
 
+    /** /inventory?series=ID（系列管理页「查看商品」）：按该系列筛选，读完即从地址栏去掉 */
+    function applySeriesFromRouteQuery() {
+      const sid = Number(route.query.series)
+      if (!Number.isInteger(sid) || sid <= 0) return false
+      inventorySeries.filterSeriesId.value = sid
+      const { series: _series, ...rest } = route.query
+      router.replace({ query: rest })
+      return true
+    }
+    // 已在库存页时再从系列管理页跳过来，onMounted 不会再跑
+    watch(() => route.query.series, (v) => {
+      if (v && applySeriesFromRouteQuery()) load()
+    })
+
     /** 点列表里的系列标签：按该系列筛选 */
     function filterBySeries(seriesId) {
       if (!seriesId) return
@@ -5327,6 +5341,7 @@ export default defineComponent({
       ownerUsers.value = users
       listingCategoryMappings.value = mappings
       inventorySeries.loadSeries()
+      applySeriesFromRouteQuery()
       await Promise.all([load(), loadInventoryStats()])
       await setupCardObserver()
       openFromRouteQuery()
