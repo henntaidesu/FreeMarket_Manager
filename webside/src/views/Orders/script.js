@@ -23,6 +23,7 @@ import {
 } from '@/api/index.js'
 import { submitTask } from '@/utils/taskSubmit.js'
 import { useMercariAccountStore } from '@/stores/mercariAccount.js'
+import { useAuthStore } from '@/stores/auth.js'
 import { useViewModeStore } from '@/stores/viewMode.js'
 import { useCardWindow } from '@/composables/useCardWindow.js'
 import {
@@ -65,6 +66,9 @@ export default defineComponent({
     const fetchingItemDetailId = ref(null)
     /** 二级列表：正在执行出库的明细键 order_no:line_id */
     const lineStockingKey = ref('')
+    const authStore = useAuthStore()
+    /** 强制出库按 users.is_admin 判定（后端 require_admin 同口径），不是按用户名 */
+    const canForceStockOut = computed(() => authStore.isAdmin)
     const manualOutboundDialogVisible = ref(false)
     const manualOutboundSaving = ref(false)
     const manualInventoryLoading = ref(false)
@@ -1813,6 +1817,32 @@ export default defineComponent({
       }
     }
 
+    /** 强制出库（仅管理员）：只把行标为已出库，库存不动——用于未关联库存等普通出库走不通的行 */
+    async function forceStockOutLine(orderRow, line) {
+      const orderNo = String(orderRow?.order_no || '').trim()
+      const lineId = Number(line?.id || 0)
+      if (!orderNo || !lineId || Number(line?.is_stocked_out || 0) === 1) return
+      lineStockingKey.value = outboundLineKey(orderNo, lineId)
+      try {
+        await orderApi.forceStockOutOutboundLine(lineId)
+        ElMessage.success(t('inventory.outboundSuccess'))
+        const cur = expandState.value[orderNo]
+        if (cur?.loaded) {
+          const nextRows = (cur.rows || []).map((r) => (Number(r.id) === lineId ? { ...r, is_stocked_out: 1 } : r))
+          expandState.value = { ...expandState.value, [orderNo]: { ...cur, rows: nextRows } }
+        }
+        const inDialog = dialogVisible.value && String(form.value.order_no || '').trim() === orderNo
+        if (inDialog) loadDetailOutboundLines(orderNo)
+        load().then(() => {
+          if (!inDialog) return
+          const fresh = list.value.find((r) => String(r.order_no || '').trim() === orderNo)
+          if (fresh) detailRow.value = fresh
+        })
+      } finally {
+        lineStockingKey.value = ''
+      }
+    }
+
     function openDetail(row) {
       const dbMoney = row._owner_split_money_db
       detailRow.value = row
@@ -2104,6 +2134,8 @@ export default defineComponent({
       fetchingItemDetailId,
       fetchItemDetail,
       lineStockingKey,
+      canForceStockOut,
+      forceStockOutLine,
       manualOutboundDialogVisible,
       manualOutboundSaving,
       manualInventoryLoading,

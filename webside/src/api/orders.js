@@ -21,6 +21,9 @@ export const orderApi = {
   /** 订单二级列表：单行手动出库（已出库不可重复） */
   stockOutOutboundLine: (lineId, data = {}) =>
     http.post(`/use_web/orders/outbound-lines/${lineId}/stock-out`, data),
+  /** 强制出库（仅管理员）：只标已出库，不扣减库存 */
+  forceStockOutOutboundLine: (lineId) =>
+    http.post(`/use_web/orders/outbound-lines/${lineId}/force-stock-out`, {}),
   /** 订单二级列表：手动新增出库明细（预扣库存并进入待出库） */
   addManualOutboundLine: (data) => http.post('/use_web/orders/outbound-lines/manual', data),
   /** 订单二级列表：手动批量新增出库明细（多选商品） */

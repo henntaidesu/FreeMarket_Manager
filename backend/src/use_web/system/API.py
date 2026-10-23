@@ -56,11 +56,6 @@ from .units.web_access_handler import (
     post_regenerate_cert,
     put_web_access,
 )
-from .units.homecoming_handler import (
-    HomecomingStatusOut,
-    get_homecoming,
-    put_homecoming,
-)
 from .units.barcode_history_handler import (
     BarcodeHistoryStatusOut,
     get_barcode_history,
@@ -131,16 +126,14 @@ from .units.db_admin_handler import (
     switch_database,
     migrate_database,
     hot_switch_mysql_database,
-    backup_database,
 )
 from .units.db_sync_handler import (
-    BackupSettingsOut,
     SyncNowOut,
     SyncStatusOut,
-    get_backup_settings,
+    get_sync_settings,
     post_sync_now,
     put_sync_settings,
-    test_backup_target,
+    test_sync_target,
 )
 
 # 二级子模块 router
@@ -177,10 +170,6 @@ router.add_api_route("/listing-defaults", get_listing_defaults, methods=["GET"],
 router.add_api_route("/listing-defaults", put_listing_defaults, methods=["PUT"], response_model=ListingDefaultsOut, dependencies=_CONFIG_WRITE)
 router.add_api_route("/printer-params", get_printer_params, methods=["GET"], response_model=PrinterParams)
 router.add_api_route("/printer-params", put_printer_params, methods=["PUT"], response_model=PrinterParams)
-
-# 回国模式（开启=全部在售暂停出售 + 禁止上架；关闭=恢复本模式暂停的那些）
-router.add_api_route("/homecoming", get_homecoming, methods=["GET"], response_model=HomecomingStatusOut)
-router.add_api_route("/homecoming", put_homecoming, methods=["PUT"], response_model=HomecomingStatusOut, dependencies=_CONFIG_WRITE)
 
 # 条码识别（历史数据）：开启即排一条任务，识别历史商品图片条码并合并同条码同归属人的商品
 router.add_api_route("/barcode-history", get_barcode_history, methods=["GET"], response_model=BarcodeHistoryStatusOut)
@@ -231,11 +220,9 @@ router.add_api_route("/database/switch", switch_database, methods=["POST"], resp
 router.add_api_route("/database/migrate", migrate_database, methods=["POST"], response_model=SwitchOut, dependencies=_ADMIN)
 # MySQL 数据库热切换（同服务器切库：测试库 ⇄ 正式库，无需重启）
 router.add_api_route("/database/hot-switch", hot_switch_mysql_database, methods=["POST"], response_model=HotSwitchOut, dependencies=_ADMIN)
-# 数据库备份（当前库整库覆盖到目标 MySQL，可能较久，放宽超时）
-router.add_api_route("/database/backup", backup_database, methods=["POST"], response_model=SwitchOut, dependencies=_ADMIN)
-# 备份目标（手动备份后记住）+ 同步库（每隔 N 分钟整库覆盖一次）
-router.add_api_route("/database/backup-settings", get_backup_settings, methods=["GET"], response_model=BackupSettingsOut, dependencies=_ADMIN)
-router.add_api_route("/database/backup-target/test", test_backup_target, methods=["POST"], response_model=TestResult, dependencies=_ADMIN)
+# 同步库 = 数据库备份（当前库整库覆盖到目标 MySQL；可定时自动，也可立即同步一次）
+router.add_api_route("/database/sync-settings", get_sync_settings, methods=["GET"], response_model=SyncStatusOut, dependencies=_ADMIN)
+router.add_api_route("/database/sync-target/test", test_sync_target, methods=["POST"], response_model=TestResult, dependencies=_ADMIN)
 router.add_api_route("/database/sync-settings", put_sync_settings, methods=["PUT"], response_model=SyncStatusOut, dependencies=_ADMIN)
 router.add_api_route("/database/sync-now", post_sync_now, methods=["POST"], response_model=SyncNowOut, dependencies=_ADMIN)
 

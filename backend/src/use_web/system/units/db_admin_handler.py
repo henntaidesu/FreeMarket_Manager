@@ -171,8 +171,8 @@ async def migrate_database(body: SwitchIn) -> SwitchOut:
     source_db = mgr.db            # 当前运行的 DatabaseManager（后端无关）
     target_dialect = _build_target_dialect(body.backend, body.mysql)
 
-    # 迁移期间持全局同步锁，理由与「备份」完全相同：避免源库数据在逐表拷贝过程中被改动。
-    # 三个数据库管理操作里，备份与热切换本来都持锁，只有迁移漏了——而它做的是同一件
+    # 迁移期间持全局同步锁，理由与「同步库」完全相同：避免源库数据在逐表拷贝过程中被改动。
+    # 几个数据库管理操作里，同步库与热切换本来都持锁，只有迁移漏了——而它做的是同一件
     # 「整库读一遍再写到别处」的事。并发写入下，新增行会被末尾的行数校验抓到（会报
     # 「行数不一致」），但**并发 UPDATE 不会**：先拷的表是改前值、后拷的表是改后值，
     # 行数对得上，迁过去的却是一份自相矛盾的快照。
@@ -291,58 +291,4 @@ async def hot_switch_mysql_database(body: HotSwitchIn) -> HotSwitchOut:
     return HotSwitchOut(
         ok=True, database=target,
         message=f"已热切换到数据库 `{target}`（无需重启）",
-    )
-
-
-# ---------------------------------------------------------------------------
-# 数据库备份：把当前库全部数据「整库覆盖」到目标 MySQL（服务器/库任意），不改变当前后端
-# ---------------------------------------------------------------------------
-
-class BackupIn(BaseModel):
-    mysql: MysqlParams            # 备份目标：任意 MySQL 服务器 + 目标库名
-
-
-async def backup_database(body: BackupIn) -> SwitchOut:
-    """把当前数据库的全部数据备份到目标 MySQL（先清空目标同名表再整库覆盖），当前使用的数据库不变。
-
-    目标参数先写回 system.db（见 db_auto_sync），下次打开页面直接带出来。
-    """
-    from .... import db_auto_sync
-
-    p = body.mysql
-    target_db = (p.database or "").strip() if p else ""
-    if not p or not target_db:
-        raise HTTPException(status_code=400, detail="请填写备份目标库名")
-
-    # 密码留空：沿用上次备份目标的密码，再退回主 MySQL 密码
-    p = p.model_copy(update={
-        "database": target_db,
-        "password": db_auto_sync.resolve_password("backup", p.password),
-    })
-    test_mysql_connection(p)
-    try:
-        target = db_auto_sync.save_target("backup", p.model_dump())
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    try:
-        result = await asyncio.to_thread(
-            db_auto_sync.copy_to_target, target, "db_backup", "正在备份数据库",
-        )
-    except db_auto_sync.TargetIsActiveDb as e:
-        raise HTTPException(status_code=400, detail=f"备份{e}")
-    except db_auto_sync.SyncBusy as e:
-        raise HTTPException(status_code=409, detail=f"{e}，请稍后再备份")
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=f"备份失败：{e}")
-
-    if not result["ok"]:
-        bad = ", ".join(s["table"] for s in result["mismatch"])
-        raise HTTPException(status_code=500, detail=f"备份后行数不一致：{bad}")
-
-    return SwitchOut(
-        ok=True,
-        message=f"已备份到 {p.host}:{int(p.port)}/{target_db}（共 {len(result['tables'])} 张表）",
-        tables=result["tables"],
-        restarting=False,
     )

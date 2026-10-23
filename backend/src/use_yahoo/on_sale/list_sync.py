@@ -104,9 +104,7 @@ def yahoo_card_to_list_item(card: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """卡片 → 与煤炉 list.json 同形状的 item（交给 mercari_list_item_to_row 落库）。
 
     ``status`` 按煤炉口径取 ``on_sale`` / ``stop``：「出品中」这一页**同时装着公开在售和
-    公開停止中两种**，全写成 ``on_sale`` 的话，本地看不出哪些已暂停，而且会砸掉回国模式的
-    安身立命之处——它靠「开启前就已是 stop 的商品不打标」保证关闭时不会误恢复用户自己停掉的
-    商品；本地状态若全是 on_sale，这些商品就会被当成本模式暂停的，关闭时一并重新上架。
+    公開停止中两种**，全写成 ``on_sale`` 的话，本地就看不出哪些已暂停。
     在售计数不受影响（``LISTED_STATUSES`` 本来就同时含 on_sale 与 stop）。
     已成交的商品不在这一页（在 ``/my/item/sold``），所以这里不会出现 sold_out。
     """

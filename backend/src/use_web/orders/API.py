@@ -21,6 +21,7 @@ from .units.orders_outbound import (
     convert_outbound_line_owner,
     create_manual_outbound_line,
     create_manual_outbound_lines,
+    force_stock_out_order_outbound_line,
     refresh_order_info,
     refresh_order_progress,
     stock_out_order_outbound_line,
@@ -42,6 +43,8 @@ router.add_api_route("/messages/send", send_order_message, methods=["POST"])
 router.add_api_route("/outbound-lines/{line_id}/bind-inventory", bind_outbound_line_inventory, methods=["PATCH"])
 router.add_api_route("/outbound-lines/{line_id}/convert-owner", convert_outbound_line_owner, methods=["POST"])
 router.add_api_route("/outbound-lines/{line_id}/stock-out", stock_out_order_outbound_line, methods=["POST"])
+# 强制出库：仅管理员（require_admin），只标已出库、不扣库存
+router.add_api_route("/outbound-lines/{line_id}/force-stock-out", force_stock_out_order_outbound_line, methods=["POST"])
 router.add_api_route("/outbound-lines/manual", create_manual_outbound_line, methods=["POST"])
 router.add_api_route("/outbound-lines/manual/batch", create_manual_outbound_lines, methods=["POST"])
 router.add_api_route("/order-note", get_order_note, methods=["GET"])

@@ -789,9 +789,8 @@ soft-delete, inventory counters and order upsert semantics stay identical across
   **That page holds both publicly-listed and suspended items**, and a suspended card swaps its
   「N日前に出品/更新」 line for 「公開停止中」 — the only signal, so `status` is `stop` when that
   line is present and `on_sale` otherwise. Writing them all as `on_sale` (as it used to) doesn't
-  move any counter — `LISTED_STATUSES` already spans both — but it destroys 回国模式's one safety
-  property: it restores exactly the rows it suspended, identified by *not* having been `stop`
-  beforehand, so items the user had stopped themselves would come back listed.
+  move any counter — `LISTED_STATUSES` already spans both — but locally nothing shows which items
+  are suspended.
   `出品数: N/100` counts **only the public ones** (measured: 28 cards, 10 public, header said 10),
   so the completeness gate that guards absence-based soft-delete compares public-collected against
   that number — comparing it against the whole card count, as it used to, is always true and the
@@ -1152,7 +1151,7 @@ suspend / resume; purchases sync + single-row detail refresh (`purchases.sync` /
 `purchases.refresh_one`); todos sync / bulk-review /
 bulk-confirm-ship / shipping-QR /
 confirm-cancellation / send-message / send-reaction; the account
-card's 同步数据 (`account.sync_data`); 回国模式 (`system.homecoming`, see below); and
+card's 同步数据 (`account.sync_data`); 一键修改发货时效 (`system.shipping_duration`, see below); and
 确认后隐藏商品 (`system.profile_hide`, see below).
 **Batch revise is not a separate type** — the frontend
 submits N `on_sale.revise` tasks, so closing the page no longer aborts halfway.
@@ -1222,34 +1221,17 @@ the message instead of `404: …`.
   (released only by the TTL sweep) — a hard crash cannot tell whether 出品する was already
   clicked, and browser automation is never auto-retried.
 
-### 回国模式 (`src/homecoming.py`)
-
-System 配置页的一个开关：开启后把**全部在售商品**逐件暂停出售，并在开启期间禁止任何上架；
-关闭后只把**本模式暂停的那些**恢复出售。
-
-- **"只恢复自己暂停的"落在数据库上**：暂停成功即写 `on_sale_items.homecoming_suspended=1`，
-  关闭时只处理带标记的行。开启前就已是 `stop` 的商品从不打标，因此永远不会被误恢复。
-  同步的 upsert (`upsert_on_sale_item_row`) 只写它自己带来的字段，不会重置这一列。
-- **上架闸门只有两个开关位**，覆盖全部路径：`task_queue.submit_task`（入队时，抛
-  `ValueError` → 400）与 `post_to_market`（执行时，400）。`auto_relist` 另在
-  `run_auto_relist_for_orders` 开头直接返回——否则每笔售出都要写一条 error 级系统日志。
-- 批量执行是**一条** `system.homecoming` 任务（不是 N 条 `on_sale.suspend`），因为限速必须由
-  同一个循环控制。商品按账号分组：**组间并发**（各账号的浏览器/串行队列本就互不相干，
-  `account_serial_queue` 的锁是 per-queue-key 的），**组内逐件**，每件之间随机等待
-  `HOMECOMING_ITEM_DELAY_MIN_SEC` ~ `..._MAX_SEC`（默认 30/90 秒）——限速按账号计，因为被平台
-  盯上的是单账号的连续快速操作。sleep 同时是取消点。注意整条任务会长时间占住全局单 worker。
-- 两个方向都**幂等**：目标集合每次按当前 DB 状态重算，中途失败后再 PUT 一次同样的 `enable`
-  就只处理剩下的（系统配置页的「重试」按钮）。开关先写后入队，入队失败即回滚开关。
-
 ### 一键修改发货时效 (`src/bulk_shipping_duration.py`)
 
 系统配置页的另一个整批操作：把「平台 / 账号」范围内**全部**在售商品的 発送までの日数 改成
 同一个值。和在售页的批量修改是同一件事的两个尺度（那里一次最多勾 10 件）。执行体是任务队列的
-**一条** `system.shipping_duration` 任务，理由与回国模式相同——限速循环必须由同一个循环控制。
+**一条** `system.shipping_duration` 任务（不是 N 条 `on_sale.revise`）——限速循环必须由同一个循环控制。
 
 - **不含第二份平台分支**：单件走 `revise_on_sale_item`，它已按 `shop_accounts.platform` 分派
-  煤炉 / 雅虎，并把煤炉的 `1/2/3` 映射成雅虎枚举。分组 / 并发 / 随机等待与回国模式同构
-  （`BULK_SHIPPING_DURATION_ITEM_DELAY_MIN_SEC` ~ `..._MAX_SEC`，默认 30/90 秒，按账号计）。
+  煤炉 / 雅虎，并把煤炉的 `1/2/3` 映射成雅虎枚举。商品按账号分组：**组间并发**（各账号的浏览器/串行队列
+  本就互不相干），**组内逐件**，每件之间随机等待 `BULK_SHIPPING_DURATION_ITEM_DELAY_MIN_SEC` ~ `..._MAX_SEC`
+  （默认 30/90 秒）——限速按账号计，因为被平台盯上的是单账号的连续快速操作。sleep 同时是取消点。
+  注意整条任务会长时间占住全局单 worker。
 - **范围含 `status='stop'`**：两个平台的编辑页在暂停出售状态下同样能改该字段，漏掉它们会让
   「一键」名不副实。拍卖商品**一起改**（与在售页批量改价禁选拍卖的口径不同，那条限制是为改价）。
 - **幂等靠本地 `shipping_duration_id`**：目标集合每次只取「本地时效 ≠ 目标」的行，所以修改成功后
@@ -1375,10 +1357,11 @@ The **挂载子路径** setting (System 配置 → Cookie 注入域名, or `MERC
 
 **Database management UI**: System 管理 → 系统设置 (`/system/config`, view `views/system/SystemConfig`)
 lets the user choose SQLite/MySQL, test the MySQL connection, and switch backends. Switching migrates all data from the current backend to the target (`src/db_manage/migrate.py`), persists the choice + connection params to the always-SQLite bootstrap store `backend/system.db` (`src/db_manage/db_settings.py`), then auto-restarts the backend. In MySQL mode, `system.db` (SQLite) retains only this bootstrap config; all business data lives in MySQL.
-The same page's 备份 pane remembers the manual backup target and configures a **同步库**
-(`src/db_auto_sync.py`): every 30/60/120/360/720/1440 min the current DB is fully overwritten onto
-that MySQL via the same `migrate.migrate` as a manual backup (drop → rebuild → copy → row-count
-check). Both targets (passwords included) live in `system.db`, not the business DB. A run holds
+Backup is a separate module on the same page, **同步库** (`src/db_auto_sync.py`) — there is no
+separate manual-backup target any more. 「立即同步」 saves the form and overwrites the target once
+(that *is* the manual backup); with 自动同步 on it repeats every 30/60/120/360/720/1440 min. Both go
+through `migrate.migrate` (drop → rebuild → copy → row-count check). The target (password included)
+lives in `system.db`, not the business DB. A run holds
 `sync_lock`; if it is busy the run is skipped until the next 30s tick, not counted as a failure.
 "Target ≠ active DB" is re-checked on **every run**, since a hot-switch can land on it after saving.
 Each run writes a `system_logs` row (category `database`).
@@ -1451,11 +1434,9 @@ Each run writes a `system_logs` row (category `database`).
 - `MERCARI_QR_INJECT_RESULT`: Set to `0` to skip the `BarcodeDetector` result-injection layer on
   メルカリ's QR scanner page and go straight to pushing the re-encoded code. Kill switch for a hook
   into a third-party page that cannot be tested from here. See Task Queue above.
-- `HOMECOMING_ITEM_DELAY_MIN_SEC` / `HOMECOMING_ITEM_DELAY_MAX_SEC` (default 30 / 90): random wait
-  between two items **of the same account** in a 回国模式 batch; different accounts run in parallel
-  and are not paced against each other. See 回国模式 above.
-- `BULK_SHIPPING_DURATION_ITEM_DELAY_MIN_SEC` / `..._MAX_SEC` (default 30 / 90): the same per-account
-  pacing for the 一键修改发货时效 batch. See 一键修改发货时效 above.
+- `BULK_SHIPPING_DURATION_ITEM_DELAY_MIN_SEC` / `..._MAX_SEC` (default 30 / 90): random wait between
+  two items **of the same account** in the 一键修改发货时效 batch; different accounts run in parallel
+  and are not paced against each other. See 一键修改发货时效 above.
 - `WEB_DRIVE_QUEUE_IDLE_CLOSE_SEC` / `WEB_DRIVE_PROFILE_RELEASE_DELAY_SEC` / `WEB_DRIVE_PROFILES_DIR` / `WEB_DRIVE_LAUNCH_RETRY_DELAYS_SEC` / `MERCARI_BROWSER_TASK_TIMEOUT_SEC`: Playwright session lifetime, profile storage and retry tuning.
 - `WEB_DRIVE_FORCE_HEADED_DEBUG`: Force **every** automation browser headed. Overrides the `WEB_DRIVE_FORCE_HEADED_DEBUG` constant at the top of `main.py`.
 - `SSL_MITM_LISTEN_PORT` / `SSL_MITM_AUTO_TRUST_WINDOWS` / `MERCARI_SSL_MITM_DIR`: mitmproxy port, cert trust and working directory.

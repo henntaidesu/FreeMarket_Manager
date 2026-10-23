@@ -33,7 +33,6 @@ TODOS_CONFIRM_CANCELLATION = "todos.confirm_cancellation"
 TODOS_SEND_MESSAGE = "todos.send_message"
 TODOS_SEND_REACTION = "todos.send_reaction"
 ACCOUNT_SYNC_DATA = "account.sync_data"
-SYSTEM_HOMECOMING = "system.homecoming"
 SYSTEM_SHIPPING_DURATION = "system.shipping_duration"
 SYSTEM_BARCODE_HISTORY = "system.barcode_history"
 SYSTEM_PROFILE_HIDE = "system.profile_hide"
@@ -221,15 +220,6 @@ _SPECS: Dict[str, TaskSpec] = {
         title=lambda p: "账号同步数据："
         + (str(p.get("account_name") or "").strip() or f"账号#{p.get('account_id')}"),
     ),
-    SYSTEM_HOMECOMING: TaskSpec(
-        task_type=SYSTEM_HOMECOMING,
-        label_zh="回国模式",
-        # 开启与关闭改的是同一批在售商品，同时只允许排一条（重试也走这条去重位）
-        dedup_key=lambda p: SYSTEM_HOMECOMING,
-        title=lambda p: (
-            "回国模式：暂停全部在售商品" if p.get("enable") else "回国模式：恢复出售暂停的商品"
-        ),
-    ),
     SYSTEM_SHIPPING_DURATION: TaskSpec(
         task_type=SYSTEM_SHIPPING_DURATION,
         label_zh="一键修改发货时效",
@@ -329,9 +319,6 @@ def resolve_handler(task_type: str) -> Callable:
     if tt == ACCOUNT_SYNC_DATA:
         from .handlers.account import handle_sync_account_data
         return handle_sync_account_data
-    if tt == SYSTEM_HOMECOMING:
-        from .handlers.homecoming import handle_homecoming
-        return handle_homecoming
     if tt == SYSTEM_SHIPPING_DURATION:
         from .handlers.shipping_duration import handle_shipping_duration
         return handle_shipping_duration

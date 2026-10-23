@@ -61,7 +61,6 @@
             <span class="sc-ic"><el-icon :size="16"><Compass /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('systemConfig.languageSection') }}</div>
-              <div class="sc-panel-desc">{{ t('systemConfig.descLanguage') }}</div>
             </div>
           </div>
           <div class="sc-panel-body">
@@ -86,7 +85,6 @@
             <span class="sc-ic"><el-icon :size="16"><User /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('system.accountManagement') }}</div>
-              <div class="sc-panel-desc">{{ t('systemConfig.descAccount') }}</div>
             </div>
             <el-button type="primary" size="small" @click="openUserDialog()">
               <el-icon><Plus /></el-icon>
@@ -135,7 +133,6 @@
             <span class="sc-ic"><el-icon :size="16"><Key /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('roles.section') }}</div>
-              <div class="sc-panel-desc">{{ t('roles.desc') }}</div>
             </div>
             <el-button type="primary" size="small" @click="openRoleDialog()">
               <el-icon><Plus /></el-icon>
@@ -181,7 +178,6 @@
             <span class="sc-ic"><el-icon :size="16"><UserFilled /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('proxyUsers.section') }}</div>
-              <div class="sc-panel-desc">{{ t('proxyUsers.desc') }}</div>
             </div>
             <el-button type="primary" size="small" @click="openProxyUserDialog()">
               <el-icon><Plus /></el-icon>
@@ -219,7 +215,6 @@
             <span class="sc-ic"><el-icon :size="16"><Lock /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('system.changeMyPassword') }}</div>
-              <div class="sc-panel-desc">{{ t('systemConfig.descPassword') }}</div>
             </div>
           </div>
           <div class="sc-panel-body">
@@ -244,7 +239,6 @@
               <el-button type="primary" :loading="pwdSubmitting" @click="submitPassword">
                 {{ t('system.changePassword') }}
               </el-button>
-              <span class="sc-note">{{ t('system.pwdTip') }}</span>
             </div>
           </div>
         </section>
@@ -255,7 +249,6 @@
             <span class="sc-ic"><el-icon :size="16"><MagicStick /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('systemConfig.deepseekSection') }}</div>
-              <div class="sc-panel-desc">{{ t('systemConfig.descAi') }}</div>
             </div>
           </div>
           <div class="sc-panel-body" v-loading="loading">
@@ -287,7 +280,6 @@
             <span class="sc-ic"><el-icon :size="16"><Sell /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('system.listingDefaults') }}</div>
-              <div class="sc-panel-desc">{{ t('systemConfig.descListing') }}</div>
             </div>
           </div>
           <div class="sc-panel-body" v-loading="listingDefLoading">
@@ -352,42 +344,6 @@
           </div>
         </section>
 
-        <!-- 回国模式：开启=全部在售暂停出售 + 禁止上架；关闭=只恢复本模式暂停的那些 -->
-        <section v-show="sectionShown('homecoming')" id="sc-homecoming" class="sc-panel">
-          <div class="sc-panel-head">
-            <span class="sc-ic"><el-icon :size="16"><Suitcase /></el-icon></span>
-            <div class="sc-head-text">
-              <div class="sc-panel-title">{{ t('homecoming.section') }}</div>
-              <div class="sc-panel-desc">{{ t('homecoming.desc') }}</div>
-            </div>
-            <el-switch
-              v-model="homecoming.enabled"
-              :loading="homecomingSubmitting"
-              :disabled="homecomingLoading || homecomingSubmitting"
-              @change="onHomecomingChange"
-            />
-          </div>
-          <div class="sc-panel-body" v-loading="homecomingLoading">
-            <el-alert
-              v-if="homecoming.enabled"
-              :title="t('homecoming.onNotice')"
-              type="warning"
-              :closable="false"
-              show-icon
-            />
-            <div class="sc-hc-stats">
-              <span>{{ t('homecoming.onSaleCount', { n: homecoming.on_sale_count }) }}</span>
-              <span>{{ t('homecoming.suspendedCount', { n: homecoming.suspended_count }) }}</span>
-            </div>
-            <div class="sc-actions">
-              <el-button :loading="homecomingSubmitting" @click="retryHomecoming">
-                {{ t('homecoming.retry') }}
-              </el-button>
-              <span class="sc-note">{{ t('homecoming.retryTip') }}</span>
-            </div>
-          </div>
-        </section>
-
         <!-- 确认后隐藏商品：煤炉订单完成满 24 小时后设为「プロフィールから非表示」；
              开关只管开启之后到期的订单，历史订单用按钮补上 -->
         <section v-show="sectionShown('profile-hide')" id="sc-profile-hide" class="sc-panel">
@@ -395,7 +351,6 @@
             <span class="sc-ic"><el-icon :size="16"><Hide /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('profileHide.section') }}</div>
-              <div class="sc-panel-desc">{{ t('profileHide.desc') }}</div>
             </div>
             <el-switch
               v-model="profileHide.enabled"
@@ -430,7 +385,6 @@
                 :disabled="!profileHide.failed_count"
                 @click="submitProfileHide(() => configApi.retryProfileHideFailed())"
               >{{ t('profileHide.retryFailed') }}</el-button>
-              <span class="sc-note">{{ t('profileHide.tip') }}</span>
             </div>
           </div>
         </section>
@@ -442,7 +396,6 @@
             <span class="sc-ic"><el-icon :size="16"><Search /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('barcodeHistory.section') }}</div>
-              <div class="sc-panel-desc">{{ t('barcodeHistory.desc') }}</div>
             </div>
             <el-switch
               v-model="barcodeHistory.enabled"
@@ -483,7 +436,6 @@
                 :disabled="!barcodeHistory.none_count"
                 @click="barcodeSkippedVisible = true"
               >{{ t('barcodeHistory.viewSkipped', { n: barcodeHistory.none_count }) }}</el-button>
-              <span class="sc-note">{{ t('barcodeHistory.rerunTip') }}</span>
             </div>
             <BarcodeConflictDialog v-model="barcodeConflictVisible" @resolved="applyBarcodeHistory" />
             <BarcodeSkippedDialog v-model="barcodeSkippedVisible" />
@@ -497,7 +449,6 @@
             <span class="sc-ic"><el-icon :size="16"><Timer /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('shippingDurationBatch.section') }}</div>
-              <div class="sc-panel-desc">{{ t('shippingDurationBatch.desc') }}</div>
             </div>
           </div>
           <div class="sc-panel-body">
@@ -542,27 +493,20 @@
               >
                 {{ t('shippingDurationBatch.apply') }}
               </el-button>
-              <span class="sc-note">{{ t('shippingDurationBatch.tip') }}</span>
             </div>
           </div>
         </section>
 
-        <!-- 数据库管理（连接 / 切换 + 备份） -->
+        <!-- 数据库管理（连接 / 切换） -->
         <section v-show="sectionShown('database')" id="sc-database" class="sc-panel">
           <div class="sc-panel-head">
             <span class="sc-ic"><el-icon :size="16"><Coin /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('systemConfig.databaseSection') }}</div>
-              <div class="sc-panel-desc">{{ t('systemConfig.descDatabase') }}</div>
             </div>
-            <el-radio-group v-model="dbPane" size="small">
-              <el-radio-button value="connect">连接 / 切换</el-radio-button>
-              <el-radio-button value="backup">备份</el-radio-button>
-            </el-radio-group>
           </div>
 
-          <!-- v-show 而非 v-if：来回切换时两边已填的表单不丢 -->
-          <div v-show="dbPane === 'connect'" class="sc-panel-body">
+          <div class="sc-panel-body">
             <div class="sc-label">使用数据库</div>
             <div class="sc-choices">
               <button
@@ -655,56 +599,35 @@
             </div>
           </div>
 
-          <div v-show="dbPane === 'backup'" class="sc-panel-body">
-            <div class="sc-grid sc-grid--tight">
-              <div class="sc-field">
-                <div class="sc-label">主机</div>
-                <el-input v-model="backup.host" />
-              </div>
-              <div class="sc-field">
-                <div class="sc-label">端口</div>
-                <el-input-number v-model="backup.port" :min="1" :max="65535" :controls="false" class="sc-num" />
-              </div>
-              <div class="sc-field">
-                <div class="sc-label">用户</div>
-                <el-input v-model="backup.user" />
-              </div>
-              <div class="sc-field">
-                <div class="sc-label">密码</div>
-                <el-input v-model="backup.password" type="password" show-password :placeholder="backupPasswordSet ? '••••••••（留空沿用）' : ''" />
-              </div>
-              <div class="sc-field">
-                <div class="sc-label">目标库</div>
-                <el-input v-model="backup.database" />
-              </div>
-            </div>
-            <div class="sc-actions">
-              <el-button :loading="testingBackup" @click="onTestBackup">测试连接</el-button>
-              <el-button type="primary" :loading="backuping" :disabled="!backup.database" @click="onBackup">开始备份</el-button>
-              <span v-if="backupTestResult" class="sc-result" :class="{ 'is-ok': backupTestResult.ok }">
-                <span class="sc-dot" :class="backupTestResult.ok ? 'is-ok' : 'is-bad'" />
-                {{ backupTestResult.message }}
-                <template v-if="backupTestResult.ok">
-                  · 版本 {{ backupTestResult.version }}
-                  · 目标库{{ backupTestResult.database_exists ? '已存在' : '不存在（将自动创建）' }}
+          <!-- 迁移结果紧跟在数据库区块里，不再落到页面最底部 -->
+          <div v-if="migrateSummary.length" class="sc-panel-body sc-panel-body--sub">
+            <div class="sc-sub-title">迁移结果（逐表行数校验）</div>
+            <el-table :data="migrateSummary" size="small" max-height="360" class="sc-table">
+              <el-table-column prop="table" label="表" min-width="220" />
+              <el-table-column prop="src" label="源行数" width="100" align="right" />
+              <el-table-column prop="dst" label="目标行数" width="100" align="right" />
+              <el-table-column label="状态" width="120" align="center">
+                <template #default="{ row }">
+                  <el-tag :type="row.status === 'OK' ? 'success' : (row.status.includes('不一致') ? 'danger' : 'info')" size="small" effect="dark" round>
+                    {{ row.status }}
+                  </el-tag>
                 </template>
-              </span>
-            </div>
-            <div class="sc-note sc-note--gap">备份目标在每次开始备份时自动保存，下次打开直接带出。</div>
+              </el-table-column>
+            </el-table>
+          </div>
+        </section>
 
-            <!-- 同步库：每隔 N 分钟把当前库整库覆盖到这个库一次 -->
-            <div class="sc-sub-title sc-sub-title--gap">同步库（自动备份）</div>
+        <!-- 同步库（= 数据库备份）：把当前库整库覆盖到另一个 MySQL；可定时自动，也可立即同步一次 -->
+        <section v-if="auth.isAdmin" v-show="sectionShown('db-sync')" id="sc-db-sync" class="sc-panel">
+          <div class="sc-panel-head">
+            <span class="sc-ic"><el-icon :size="16"><CopyDocument /></el-icon></span>
+            <div class="sc-head-text">
+              <div class="sc-panel-title">{{ t('systemConfig.dbSyncSection') }}</div>
+            </div>
+          </div>
+
+          <div class="sc-panel-body">
             <div class="sc-grid sc-grid--tight">
-              <div class="sc-field">
-                <div class="sc-label">自动同步</div>
-                <el-switch v-model="syncForm.enabled" />
-              </div>
-              <div class="sc-field">
-                <div class="sc-label">同步间隔</div>
-                <el-select v-model="syncForm.interval_min">
-                  <el-option v-for="m in syncIntervals" :key="m" :label="formatInterval(m)" :value="m" />
-                </el-select>
-              </div>
               <div class="sc-field">
                 <div class="sc-label">主机</div>
                 <el-input v-model="syncForm.target.host" />
@@ -725,11 +648,26 @@
                 <div class="sc-label">同步库</div>
                 <el-input v-model="syncForm.target.database" />
               </div>
+              <div class="sc-field">
+                <div class="sc-label">自动同步</div>
+                <el-switch v-model="syncForm.enabled" />
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">同步间隔</div>
+                <el-select v-model="syncForm.interval_min" :disabled="!syncForm.enabled">
+                  <el-option v-for="m in syncIntervals" :key="m" :label="formatInterval(m)" :value="m" />
+                </el-select>
+              </div>
             </div>
             <div class="sc-actions">
               <el-button :loading="testingSync" @click="onTestSync">测试连接</el-button>
-              <el-button type="primary" :loading="savingSync" @click="onSaveSync">保存设置</el-button>
-              <el-button :loading="syncStatus.running || syncingNow" :disabled="!syncStatus.target?.database" @click="onSyncNow">立即同步</el-button>
+              <el-button :loading="savingSync" @click="onSaveSync">保存设置</el-button>
+              <el-button
+                type="primary"
+                :loading="syncStatus.running || syncingNow"
+                :disabled="!(syncForm.target.database || '').trim()"
+                @click="onSyncNow"
+              >立即同步</el-button>
               <span v-if="syncTestResult" class="sc-result" :class="{ 'is-ok': syncTestResult.ok }">
                 <span class="sc-dot" :class="syncTestResult.ok ? 'is-ok' : 'is-bad'" />
                 {{ syncTestResult.message }}
@@ -739,21 +677,19 @@
                 </template>
               </span>
             </div>
-            <div class="sc-note sc-note--gap">
-              每次同步会先清空同步库里的同名表再整库覆盖；同步期间其他同步任务需等待。
-              <template v-if="syncStatus.running"> · 正在同步…</template>
-              <template v-if="syncStatus.last_at">
-                · 上次同步 {{ formatTs(syncStatus.last_at) }}
+            <div v-if="syncStatus.running || syncStatus.last_at" class="sc-note sc-note--gap">
+              <template v-if="syncStatus.running">正在同步…</template>
+              <template v-else>
+                上次同步 {{ formatTs(syncStatus.last_at) }}
                 {{ syncStatus.last_ok ? '成功' : '失败' }}：{{ syncStatus.last_message }}
+                <template v-if="syncStatus.enabled && syncStatus.next_at"> · 下次约 {{ formatTs(syncStatus.next_at) }}</template>
               </template>
-              <template v-if="syncStatus.enabled && syncStatus.next_at"> · 下次约 {{ formatTs(syncStatus.next_at) }}</template>
             </div>
           </div>
 
-          <!-- 迁移 / 备份结果紧跟在数据库区块里，不再落到页面最底部 -->
-          <div v-if="migrateSummary.length" class="sc-panel-body sc-panel-body--sub">
-            <div class="sc-sub-title">迁移 / 备份结果（逐表行数校验）</div>
-            <el-table :data="migrateSummary" size="small" max-height="360" class="sc-table">
+          <div v-if="syncSummary.length" class="sc-panel-body sc-panel-body--sub">
+            <div class="sc-sub-title">同步结果（逐表行数校验）</div>
+            <el-table :data="syncSummary" size="small" max-height="360" class="sc-table">
               <el-table-column prop="table" label="表" min-width="220" />
               <el-table-column prop="src" label="源行数" width="100" align="right" />
               <el-table-column prop="dst" label="目标行数" width="100" align="right" />
@@ -774,7 +710,6 @@
             <span class="sc-ic"><el-icon :size="16"><Picture /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('systemConfig.imageHostingSection') }}</div>
-              <div class="sc-panel-desc">{{ t('systemConfig.descImageHosting') }}</div>
             </div>
           </div>
 
@@ -917,7 +852,6 @@
             <span class="sc-ic"><el-icon :size="16"><Tickets /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('qrPrint.paramsSection') }}</div>
-              <div class="sc-panel-desc">{{ t('systemConfig.descQrParams') }}</div>
             </div>
           </div>
           <div class="sc-panel-body">
@@ -961,7 +895,6 @@
             <span class="sc-ic"><el-icon :size="16"><Printer /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('qrPrint.connSection') }}</div>
-              <div class="sc-panel-desc">{{ t('systemConfig.descPrinter') }}</div>
             </div>
             <el-tag :type="printerState.connected ? 'success' : 'info'" effect="dark" round size="small">
               {{ printerState.connected ? t('qrPrint.connected') : t('qrPrint.disconnected') }}
@@ -993,7 +926,6 @@
             <span class="sc-ic"><el-icon :size="16"><Connection /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('webAccess.section') }}</div>
-              <div class="sc-panel-desc">{{ t('webAccess.desc') }}</div>
             </div>
           </div>
           <div class="sc-panel-body" v-loading="webAccessLoading">
@@ -1011,9 +943,6 @@
                 <el-radio value="direct">{{ t('webAccess.modeDirect') }}</el-radio>
                 <el-radio value="nginx">{{ t('webAccess.modeNginx') }}</el-radio>
               </el-radio-group>
-              <div class="sc-wa-hint">
-                {{ webAccess.mode === 'direct' ? t('webAccess.modeDirectHint') : t('webAccess.modeNginxHint') }}
-              </div>
             </div>
             <div v-if="webAccess.mode === 'direct'" class="sc-field sc-field--stack">
               <div class="sc-label">{{ t('webAccess.hosts') }}</div>
@@ -1040,7 +969,6 @@
                 <div class="sc-label">{{ t('webAccess.certExpires') }}</div>
                 <span>{{ webAccess.cert_not_after ? new Date(webAccess.cert_not_after * 1000).toLocaleDateString() : '-' }}</span>
               </div>
-              <div class="sc-wa-hint">{{ t('webAccess.certHint') }}</div>
             </template>
             <div class="sc-actions">
               <el-button type="primary" :loading="webAccessSaving" @click="saveWebAccess(false)">
@@ -1070,7 +998,6 @@
             <span class="sc-ic"><el-icon :size="16"><Link /></el-icon></span>
             <div class="sc-head-text">
               <div class="sc-panel-title">{{ t('systemConfig.proxySection') }}</div>
-              <div class="sc-panel-desc">{{ t('systemConfig.descProxy') }}</div>
             </div>
           </div>
           <div class="sc-panel-body" v-loading="proxyLoading">
@@ -1148,7 +1075,6 @@
           >
             <el-option v-for="r in roles" :key="r.id" :label="r.name" :value="r.id" />
           </el-select>
-          <div class="sc-form-hint">{{ userForm.is_admin ? t('roles.adminHint') : t('roles.unassignedTip') }}</div>
         </el-form-item>
         <el-form-item>
           <el-checkbox v-model="userForm.is_admin" :disabled="isSelfUser">{{ t('roles.admin') }}</el-checkbox>
@@ -1241,7 +1167,7 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
-import { Plus, User, UserFilled, Key, Lock, MagicStick, Sell, Coin, Tickets, Printer, Compass, Suitcase, Timer, Link, Picture, Connection, Search, Hide } from '@element-plus/icons-vue'
+import { Plus, User, UserFilled, Key, Lock, MagicStick, Sell, Coin, Tickets, Printer, Compass, Timer, Link, Picture, Connection, Search, Hide, CopyDocument } from '@element-plus/icons-vue'
 import { ElMessage } from '@/utils/notify'
 import { setLocale, SUPPORTED_LOCALES } from '@/i18n'
 import { authApi, roleApi, configApi, proxyUserApi, shopAccountApi } from '@/api/index.js'
@@ -1288,11 +1214,11 @@ const SECTIONS = [
   { id: 'password', cat: 'basic', icon: 'Lock', labelKey: 'system.changeMyPassword' },
   { id: 'ai', cat: 'business', icon: 'MagicStick', labelKey: 'systemConfig.deepseekSection' },
   { id: 'listing', cat: 'business', icon: 'Sell', labelKey: 'system.listingDefaults' },
-  { id: 'homecoming', cat: 'business', icon: 'Suitcase', labelKey: 'homecoming.section' },
   { id: 'profile-hide', cat: 'business', icon: 'Hide', labelKey: 'profileHide.section' },
   { id: 'barcode-history', cat: 'business', icon: 'Search', labelKey: 'barcodeHistory.section' },
   { id: 'shipping-duration', cat: 'business', icon: 'Timer', labelKey: 'shippingDurationBatch.section' },
   { id: 'database', cat: 'data', icon: 'Coin', labelKey: 'systemConfig.databaseSection' },
+  { id: 'db-sync', cat: 'data', icon: 'CopyDocument', labelKey: 'systemConfig.dbSyncSection', adminOnly: true },
   { id: 'image-hosting', cat: 'data', icon: 'Picture', labelKey: 'systemConfig.imageHostingSection' },
   { id: 'qrparams', cat: 'device', icon: 'Tickets', labelKey: 'qrPrint.paramsSection' },
   { id: 'printer', cat: 'device', icon: 'Printer', labelKey: 'qrPrint.connSection' },
@@ -1911,65 +1837,6 @@ async function saveListingDefaults() {
   }
 }
 
-// ===== 回国模式 =====
-// 开关本身在 PUT 返回时就已生效（后端立刻禁止上架）；暂停/恢复整批在售商品是后台任务，
-// 进度看 /#/tasks。两个计数用来判断是否还有漏网之鱼：开启后「在售中」应为 0，
-// 关闭后「待恢复」应为 0，不为 0 时点「重试」再跑一轮（只处理剩下的）。
-const homecoming = reactive({ enabled: false, on_sale_count: 0, suspended_count: 0 })
-const homecomingLoading = ref(false)
-const homecomingSubmitting = ref(false)
-
-function applyHomecoming(res) {
-  homecoming.enabled = !!res?.enabled
-  homecoming.on_sale_count = Number(res?.on_sale_count) || 0
-  homecoming.suspended_count = Number(res?.suspended_count) || 0
-}
-
-async function loadHomecoming() {
-  homecomingLoading.value = true
-  try {
-    applyHomecoming(await configApi.getHomecoming())
-  } catch {
-    /* 拦截器已提示 */
-  } finally {
-    homecomingLoading.value = false
-  }
-}
-
-async function submitHomecoming(enable) {
-  homecomingSubmitting.value = true
-  try {
-    applyHomecoming(await configApi.putHomecoming(enable))
-    ElMessage.success(t('homecoming.submitted'))
-  } catch {
-    // 提交失败（例如已有同类任务在排队）→ 回到后端的真实开关状态，不留下假开关
-    await loadHomecoming()
-  } finally {
-    homecomingSubmitting.value = false
-  }
-}
-
-/** el-switch 已经把值改掉了，确认框取消时要手工改回去 */
-async function onHomecomingChange(val) {
-  const target = !!val
-  try {
-    await ElMessageBox.confirm(
-      target ? t('homecoming.confirmOnMsg', { n: homecoming.on_sale_count }) : t('homecoming.confirmOffMsg', { n: homecoming.suspended_count }),
-      target ? t('homecoming.confirmOnTitle') : t('homecoming.confirmOffTitle'),
-      { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') }
-    )
-  } catch {
-    homecoming.enabled = !target
-    return
-  }
-  await submitHomecoming(target)
-}
-
-/** 重试：按当前开关方向再跑一轮，只处理上一轮没做完的商品 */
-function retryHomecoming() {
-  return submitHomecoming(homecoming.enabled)
-}
-
 // ===== 确认后隐藏商品 =====
 // 后端只写开关 / 标记并立刻试排一条 system.profile_hide 任务；实际点击在任务里分批跑，
 // 剩下的由自动获取循环约 10 分钟续排一批。
@@ -2196,8 +2063,6 @@ async function onSubmitShippingDuration() {
 }
 
 // ===== 数据库管理 =====
-/** 数据库卡片内的分栏：connect = 连接/切换，backup = 备份 */
-const dbPane = ref('connect')
 const activeBackend = ref('sqlite')
 const passwordSet = ref(false)
 const testing = ref(false)
@@ -2207,20 +2072,13 @@ const testResult = ref(null)
 const migrateSummary = ref([])
 const hotSwitching = ref(false)
 const activeDatabase = ref('')   // 当前生效的 MySQL 库名，用于判断库名是否被修改
-const testingBackup = ref(false)
-const backuping = ref(false)
-const backupTestResult = ref(null)
 
 const dbForm = reactive({
   backend: 'sqlite',
   mysql: { host: '127.0.0.1', port: 3306, user: 'root', password: '', database: 'mercari' }
 })
 
-// 备份目标：保存过就带出上次的目标，否则默认沿用当前 MySQL 服务器、库名留空
-const backup = reactive({ host: '127.0.0.1', port: 3306, user: 'root', password: '', database: '' })
-const backupPasswordSet = ref(false)
-
-// 同步库：每隔 interval_min 分钟把当前库整库覆盖过去一次
+// 同步库（= 数据库备份）：手动「立即同步」，或开启后每隔 interval_min 分钟整库覆盖过去一次
 const syncIntervals = ref([30, 60, 120, 360, 720, 1440])
 const syncForm = reactive({
   enabled: false,
@@ -2232,6 +2090,7 @@ const testingSync = ref(false)
 const savingSync = ref(false)
 const syncingNow = ref(false)
 const syncTestResult = ref(null)
+const syncSummary = ref([])   // 最近一次「立即同步」的逐表行数校验
 
 // ===== 图床存储 =====
 // ih   = 服务端当前状态（生效的存储位置 + 图片数量概览）
@@ -2434,23 +2293,11 @@ async function loadDbConfig() {
     host: cfg.mysql.host, port: cfg.mysql.port,
     user: cfg.mysql.user, database: cfg.mysql.database, password: ''
   })
-  // 备份目标默认预填当前 MySQL 服务器（库名留空，避免误备份到当前库）
-  Object.assign(backup, { host: cfg.mysql.host, port: cfg.mysql.port, user: cfg.mysql.user })
-  // 备份 / 同步库接口仅管理员可用
-  if (auth.isAdmin) await loadBackupSettings(cfg.mysql)
+  // 同步库接口仅管理员可用
+  if (auth.isAdmin) applySyncStatus(await databaseApi.getSyncSettings(), cfg.mysql)
 }
 
-async function loadBackupSettings(mysqlDefaults) {
-  const res = await databaseApi.getBackupSettings()
-  const b = res.backup
-  if (b.host && b.database) {
-    Object.assign(backup, { host: b.host, port: b.port, user: b.user, database: b.database, password: '' })
-  }
-  backupPasswordSet.value = !!b.password_set
-  applySyncStatus(res.sync, mysqlDefaults)
-}
-
-/** 用服务端状态刷新同步库表单；从未保存过同步库时预填当前 MySQL 服务器 */
+/** 用服务端状态刷新同步库表单；从未保存过同步库时预填当前 MySQL 服务器（库名留空，避免误覆盖当前库） */
 function applySyncStatus(st, mysqlDefaults) {
   syncStatus.value = st
   syncIntervals.value = st.intervals
@@ -2476,7 +2323,7 @@ async function onTestSync() {
   testingSync.value = true
   syncTestResult.value = null
   try {
-    syncTestResult.value = await databaseApi.testTarget('sync', { ...syncForm.target })
+    syncTestResult.value = await databaseApi.testSyncTarget({ ...syncForm.target })
   } catch (e) {
     // 错误消息已由 http 拦截器统一提示
   } finally {
@@ -2509,11 +2356,25 @@ async function onSaveSync() {
   }
 }
 
+/** 立即同步 = 手动备份：先保存当前表单（目标 / 开关 / 间隔），再整库覆盖一次 */
 async function onSyncNow() {
-  syncingNow.value = true
+  const target = `${syncForm.target.host}:${syncForm.target.port}/${syncForm.target.database.trim()}`
   try {
+    await ElMessageBox.confirm(
+      `将把当前数据库的全部数据同步到「${target}」（先清空同名表再整库覆盖）。当前使用的数据库不变。是否继续？`,
+      '确认立即同步',
+      { type: 'warning', confirmButtonText: '立即同步', cancelButtonText: '取消' }
+    )
+  } catch (_) {
+    return
+  }
+  syncingNow.value = true
+  syncSummary.value = []
+  try {
+    applySyncStatus(await databaseApi.saveSyncSettings({ ...syncForm, target: { ...syncForm.target } }))
     const res = await databaseApi.syncNow()
     syncStatus.value = res.status
+    syncSummary.value = res.tables || []
     if (res.ok) ElMessage.success(res.message)
     else if (res.skipped) ElMessage.warning(res.message)
     else ElMessage.error(res.message)
@@ -2521,43 +2382,6 @@ async function onSyncNow() {
     // 错误消息已由 http 拦截器统一提示
   } finally {
     syncingNow.value = false
-  }
-}
-
-async function onTestBackup() {
-  testingBackup.value = true
-  backupTestResult.value = null
-  try {
-    backupTestResult.value = await databaseApi.testTarget('backup', { ...backup })
-  } catch (e) {
-    // 错误消息已由 http 拦截器统一提示
-  } finally {
-    testingBackup.value = false
-  }
-}
-
-async function onBackup() {
-  const target = `${backup.host}:${backup.port}/${backup.database.trim()}`
-  try {
-    await ElMessageBox.confirm(
-      `将把当前数据库的全部数据备份到「${target}」（先清空目标库同名表再整库覆盖）。当前使用的数据库不变。是否继续？`,
-      '确认备份数据库',
-      { type: 'warning', confirmButtonText: '开始备份', cancelButtonText: '取消' }
-    )
-  } catch (_) {
-    return
-  }
-  backuping.value = true
-  migrateSummary.value = []
-  try {
-    const res = await databaseApi.backup({ ...backup })
-    migrateSummary.value = res.tables || []
-    backupPasswordSet.value = true
-    ElMessage.success(res.message)
-  } catch (e) {
-    // 错误消息已由 http 拦截器统一提示（如 409：有后台同步任务正在进行）
-  } finally {
-    backuping.value = false
   }
 }
 
@@ -2731,7 +2555,6 @@ onMounted(() => {
   loadProxyUsers()
   load()
   loadListingDefaults()
-  loadHomecoming()
   loadProfileHide()
   loadBarcodeHistory()
   loadSdAccounts()
@@ -2888,11 +2711,6 @@ onUnmounted(() => {
   font-weight: 600;
   color: var(--sc-text);
 }
-.sc-panel-desc {
-  margin-top: 2px;
-  font-size: 12px;
-  color: var(--sc-text-mute);
-}
 .sc-btn-text {
   margin-left: 4px;
 }
@@ -2941,20 +2759,8 @@ onUnmounted(() => {
 .sc-field--wide {
   grid-column: span 2;
 }
-.sc-wa-hint {
-  margin-top: 6px;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--el-text-color-secondary);
-}
 /* 系统角色 / 账号编辑（弹窗挂在 body 下，取不到页面根上的 --sc-* 变量，用 element 变量） */
 .sc-muted {
-  color: var(--el-text-color-secondary);
-}
-.sc-form-hint {
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 1.5;
   color: var(--el-text-color-secondary);
 }
 .sc-role-pages {
@@ -3022,7 +2828,7 @@ onUnmounted(() => {
 .sc-sub-title--gap {
   margin-top: 24px;
 }
-/* 回国模式的两个计数 */
+/* 业务开关模块的计数行 */
 .sc-hc-stats {
   display: flex;
   flex-wrap: wrap;

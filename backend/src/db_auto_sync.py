@@ -1,15 +1,13 @@
 # -*- coding: utf-8 -*-
-"""数据库备份目标的持久化 + 同步库（定时把当前库整库覆盖到另一个 MySQL）。
+"""同步库：把当前库「整库覆盖」到另一个 MySQL（即数据库备份）。
 
-- **备份目标**：系统配置页「备份」里手动备份用的那个库。每次手动备份前写回 ``system.db``，
-  下次打开页面直接带出来，不用每次重填。
-- **同步库**：开启后每隔 N 分钟（30 / 60 / …）自动把当前库「整库覆盖」到这个库一次，
-  与手动备份走同一个 ``migrate.migrate``（删表 → 按模型重建 → 回填 → 逐表校验行数）。
+开启自动同步后每隔 N 分钟（30 / 60 / …）执行一次；系统配置页「立即同步」随时手动执行一次，
+两者走同一个执行体与 ``migrate.migrate``（删表 → 按模型重建 → 回填 → 逐表校验行数）。
 
-两份配置都存 ``system.db``（与 MySQL 连接参数同处），不进业务库：热切换 / 切后端后照样在，
+配置存 ``system.db``（与 MySQL 连接参数同处），不进业务库：热切换 / 切后端后照样在，
 也不会被一起备份到目标库里去。
 
-执行期间持全局 ``sync_lock``——与手动备份同理，避免拷贝中源库被改出自相矛盾的快照。
+执行期间持全局 ``sync_lock``，避免拷贝中源库被改出自相矛盾的快照。
 锁被其他同步占着时**本轮跳过、下一个 tick 再试**，不排队等，也不算一次失败。
 
 「目标不能是当前正在使用的库」在**每次执行时**重新判断，而不是只在保存时：
@@ -33,7 +31,6 @@ _DEFAULT_INTERVAL = 60
 _TICK_SEC = 30.0
 _INITIAL_DELAY_SEC = 120.0  # 启动后先等一会儿，不和启动期的初始化抢资源
 
-_KEY_BACKUP_TARGET = "db_backup_target"
 _KEY_SYNC_TARGET = "db_sync_target"
 _KEY_SYNC_ENABLED = "db_sync_enabled"
 _KEY_SYNC_INTERVAL = "db_sync_interval_min"
@@ -57,9 +54,9 @@ def _load_json(key: str) -> Dict[str, Any]:
         return {}
 
 
-def get_target(kind: str) -> Dict[str, Any]:
-    """读出备份目标（kind='backup'）或同步库（kind='sync'）的连接参数，含明文密码。"""
-    t = _load_json(_KEY_BACKUP_TARGET if kind == "backup" else _KEY_SYNC_TARGET)
+def get_target() -> Dict[str, Any]:
+    """读出同步库的连接参数，含明文密码。"""
+    t = _load_json(_KEY_SYNC_TARGET)
     return {
         "host": str(t.get("host") or "").strip(),
         "port": int(t.get("port") or 3306),
@@ -69,32 +66,31 @@ def get_target(kind: str) -> Dict[str, Any]:
     }
 
 
-def resolve_password(kind: str, password: Optional[str]) -> str:
-    """密码留空：沿用这个目标上次保存的密码，再退回主 MySQL 密码（旧行为）。"""
+def resolve_password(password: Optional[str]) -> str:
+    """密码留空：沿用同步库上次保存的密码，再退回主 MySQL 密码。"""
     if password:
         return password
-    saved = get_target(kind).get("password")
+    saved = get_target().get("password")
     if saved:
         return saved
     return db_settings.get_mysql_config().get("password", "")
 
 
-def save_target(kind: str, target: Dict[str, Any]) -> Dict[str, Any]:
+def save_target(target: Dict[str, Any]) -> Dict[str, Any]:
     """保存目标库参数（密码留空则沿用旧密码），返回落库后的完整参数。"""
     cfg = {
         "host": str(target.get("host") or "").strip(),
         "port": int(target.get("port") or 3306),
         "user": str(target.get("user") or "").strip(),
-        "password": resolve_password(kind, target.get("password")),
+        "password": resolve_password(target.get("password")),
         "database": db_settings._validate_db_name(str(target.get("database") or "")),
     }
-    key = _KEY_BACKUP_TARGET if kind == "backup" else _KEY_SYNC_TARGET
-    db_settings.set_setting(key, json.dumps(cfg, ensure_ascii=False))
+    db_settings.set_setting(_KEY_SYNC_TARGET, json.dumps(cfg, ensure_ascii=False))
     return cfg
 
 
-def public_target(kind: str) -> Dict[str, Any]:
-    t = get_target(kind)
+def public_target() -> Dict[str, Any]:
+    t = get_target()
     pw = t.pop("password")
     t["password_set"] = bool(pw)
     return t
@@ -132,7 +128,7 @@ def sync_status() -> Dict[str, Any]:
     return {
         **s,
         "intervals": list(SYNC_INTERVAL_OPTIONS),
-        "target": public_target("sync"),
+        "target": public_target(),
         "running": _running,
         "last_at": last_at,
         "last_ok": last.get("ok"),
@@ -151,7 +147,7 @@ class TargetIsActiveDb(ValueError):
 
 
 class SyncBusy(RuntimeError):
-    """全局同步锁被占用（有其他同步 / 备份 / 迁移在进行）。"""
+    """全局同步锁被占用（有其他同步 / 迁移在进行）。"""
 
 
 def assert_not_active_db(target: Dict[str, Any]) -> None:
@@ -165,7 +161,7 @@ def assert_not_active_db(target: Dict[str, Any]) -> None:
         raise TargetIsActiveDb("目标不能是当前正在使用的库")
 
 
-def copy_to_target(target: Dict[str, Any], kind: str, label_zh: str) -> Dict[str, Any]:
+def copy_to_target(target: Dict[str, Any]) -> Dict[str, Any]:
     """把当前库整库覆盖到 target（阻塞，调用方自行放线程）。返回 migrate 的结果。
 
     锁拿不到抛 ``SyncBusy``；目标是当前库抛 ``TargetIsActiveDb``。
@@ -176,7 +172,7 @@ def copy_to_target(target: Dict[str, Any], kind: str, label_zh: str) -> Dict[str
     from .use_mercari.sync import sync_lock
 
     assert_not_active_db(target)
-    token = sync_lock.try_begin(kind, label_zh)
+    token = sync_lock.try_begin("db_sync", "正在同步数据库")
     if token is None:
         st = sync_lock.status()
         raise SyncBusy(f"{st.get('label_zh') or '有同步任务'}正在进行")
@@ -201,20 +197,25 @@ def _write_log(level: str, message: str, detail: Any = None) -> None:
 
 
 def _run_sync_blocking() -> Dict[str, Any]:
-    """执行一次同步库同步，记录结果。锁忙时返回 {'skipped': True}，不记为一次执行。"""
-    target = get_target("sync")
+    """执行一次同步库同步，记录结果。锁忙时返回 {'skipped': True}，不记为一次执行。
+
+    返回值另带 ``tables``（逐表行数校验，给「立即同步」展示）；它不写进 ``_KEY_SYNC_LAST``。
+    """
+    target = get_target()
+    tables: list = []
     where = f"{target['host']}:{target['port']}/{target['database']}"
     started = time.time()
     if not target["host"] or not target["database"]:
         ok, msg = False, "未配置同步库"
     else:
         try:
-            result = copy_to_target(target, "db_sync", "正在同步数据库")
+            result = copy_to_target(target)
         except SyncBusy as e:
             return {"skipped": True, "message": f"{e}，稍后重试"}
         except Exception as e:  # noqa: BLE001
             ok, msg = False, f"同步到 {where} 失败：{e}"
         else:
+            tables = result["tables"]
             if result["ok"]:
                 ok, msg = True, f"已同步到 {where}（共 {len(result['tables'])} 张表）"
             else:
@@ -229,7 +230,7 @@ def _run_sync_blocking() -> Dict[str, Any]:
         log.warning("[db_sync] %s", msg)
     # 成功也留一条：同步库是「出事时拿来恢复」的，什么时候最后一次成功必须查得到
     _write_log("info" if ok else "error", msg, {"duration_sec": last["duration_sec"]})
-    return last
+    return {**last, "tables": tables}
 
 
 async def run_sync_once() -> Dict[str, Any]:

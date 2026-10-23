@@ -10,6 +10,7 @@ from .lines import (
     convert_outbound_line_owner,
     stock_out_order_outbound_line,
 )
+from .force import force_stock_out_order_outbound_line
 from .manual import (
     create_manual_outbound_line,
     create_manual_outbound_lines,
@@ -21,6 +22,7 @@ __all__ = [
     "bind_outbound_line_inventory",
     "convert_outbound_line_owner",
     "stock_out_order_outbound_line",
+    "force_stock_out_order_outbound_line",
     "create_manual_outbound_line",
     "create_manual_outbound_lines",
     "waive_order_packaging",

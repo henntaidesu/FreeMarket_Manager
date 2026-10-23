@@ -204,7 +204,7 @@
                       </el-tag>
                     </template>
                   </el-table-column>
-                  <el-table-column :label="t('common.operate')" :width="isAdminUser ? 232 : 168" align="center" fixed="right">
+                  <el-table-column :label="t('common.operate')" :width="(isAdminUser ? 232 : 168) + (canForceStockOut ? 84 : 0)" align="center" fixed="right">
                     <template #default="{ row: line }">
                       <div class="order-outbound-actions">
                         <el-button
@@ -240,6 +240,25 @@
                               :disabled="!canStockOutLine(line)"
                             >
                               {{ t('orders.stockOut') }}
+                            </el-button>
+                          </template>
+                        </el-popconfirm>
+                        <el-popconfirm
+                          v-if="canForceStockOut && Number(line?.is_stocked_out || 0) !== 1"
+                          :title="t('orders.confirmForceStockOut')"
+                          :confirm-button-text="t('common.confirm')"
+                          :cancel-button-text="t('common.cancel')"
+                          width="260"
+                          @confirm="forceStockOutLine(row, line)"
+                        >
+                          <template #reference>
+                            <el-button
+                              size="small"
+                              type="danger"
+                              plain
+                              :loading="lineStockingKey === outboundLineKey(row.order_no, line.id)"
+                            >
+                              {{ t('orders.forceStockOut') }}
                             </el-button>
                           </template>
                         </el-popconfirm>
@@ -748,6 +767,23 @@
                             :loading="lineStockingKey === outboundLineKey(form.order_no, ln.id)"
                             :disabled="!canStockOutLine(ln)"
                           >{{ t('orders.stockOut') }}</el-button>
+                        </template>
+                      </el-popconfirm>
+                      <el-popconfirm
+                        v-if="canForceStockOut && Number(ln.is_stocked_out || 0) !== 1"
+                        :title="t('orders.confirmForceStockOut')"
+                        :confirm-button-text="t('common.confirm')"
+                        :cancel-button-text="t('common.cancel')"
+                        width="260"
+                        @confirm="forceStockOutLine(detailRow || form, ln)"
+                      >
+                        <template #reference>
+                          <el-button
+                            size="small"
+                            type="danger"
+                            plain
+                            :loading="lineStockingKey === outboundLineKey(form.order_no, ln.id)"
+                          >{{ t('orders.forceStockOut') }}</el-button>
                         </template>
                       </el-popconfirm>
                     </div>
