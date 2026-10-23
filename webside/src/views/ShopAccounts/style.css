@@ -1,6 +1,11 @@
 .list-card {
   border-radius: 8px;
 }
+.list-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
 .basic-info-row {
   display: flex;
   align-items: flex-start;

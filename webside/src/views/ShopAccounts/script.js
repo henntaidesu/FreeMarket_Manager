@@ -531,6 +531,29 @@ export default defineComponent({
       }
     })
 
+    // 一键暂停同步：全部账号的自动数据获取项一并关闭（自动上架不动）
+    const pausingAll = ref(false)
+
+    async function pauseAllAutoFetch() {
+      try {
+        await ElMessageBox.confirm(t('mercariAccounts.pauseAllSyncConfirm'), t('mercariAccounts.pauseAllSync'), {
+          type: 'warning',
+        })
+      } catch {
+        return
+      }
+      pausingAll.value = true
+      try {
+        const res = await shopAccountApi.pauseAllAutoFetch()
+        ElMessage.success(t('mercariAccounts.pauseAllSyncDone', { count: res?.paused ?? 0 }))
+        await load()
+      } catch {
+        // 错误详情由 axios 拦截器提示
+      } finally {
+        pausingAll.value = false
+      }
+    }
+
     async function remove(id) {
       await shopAccountApi.remove(id)
       ElMessage.success(t('mercariAccounts.msgDeleteSuccess'))
@@ -819,6 +842,8 @@ export default defineComponent({
       submit,
       remove,
       removeFromDialog,
+      pausingAll,
+      pauseAllAutoFetch,
       syncingIds,
       browserLoadingKeys,
       cookieInjectKeys,

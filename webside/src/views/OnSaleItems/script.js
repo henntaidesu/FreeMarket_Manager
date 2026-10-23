@@ -1,7 +1,7 @@
 import { defineComponent, watch, ref, computed, nextTick, onBeforeUnmount, onMounted, reactive } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { ElMessage } from '@/utils/notify'
-import { Download, Refresh, Loading, WarningFilled, Check, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
+import { Download, Loading, WarningFilled, Check, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { onSaleItemApi, shopAccountApi, inventoryApi, TASK_TYPES } from '@/api/index.js'
 import { submitTask, submitTasks } from '@/utils/taskSubmit.js'
@@ -53,7 +53,6 @@ export default defineComponent({
     /** 正在请求 items/get 的商品 ID（trim 后） */
     const detailLoadingIds = ref(new Set())
     const syncLoading = ref(false)
-    const fullUpdateLoading = ref(false)
 
     /** 「从煤炉同步」全屏等待与步骤文案（与后端 progress_job_id 轮询同步） */
     const syncOverlayVisible = ref(false)
@@ -1412,28 +1411,6 @@ export default defineComponent({
       }
     }
 
-    // TEMP_FULL_UPDATE: 临时功能，现有数据补齐发货时效后删除 runFullUpdate / fullUpdateLoading / 按钮 / i18n。
-    async function runFullUpdate() {
-      if (fullUpdateLoading.value || syncLoading.value) return
-      try {
-        await ElMessageBox.confirm(
-          t('onSaleItems.fullUpdateConfirmMsg'),
-          t('onSaleItems.fullUpdateConfirmTitle'),
-          { type: 'warning', confirmButtonText: t('onSaleItems.start'), cancelButtonText: t('common.cancel') },
-        )
-      } catch {
-        return
-      }
-
-      // 提交到任务队列即返回；执行进度在 /#/tasks 查看
-      fullUpdateLoading.value = true
-      try {
-        await submitTask(TASK_TYPES.ON_SALE_FULL_UPDATE, {}, { t })
-      } finally {
-        fullUpdateLoading.value = false
-      }
-    }
-
     async function loadSellerAccounts() {
       try {
         const res = await shopAccountApi.list({ page: 1, page_size: 200 })
@@ -1476,7 +1453,6 @@ export default defineComponent({
       ElMessage,
       ElMessageBox,
       Download,
-      Refresh,
       Loading,
       WarningFilled,
       useI18n,
@@ -1494,7 +1470,6 @@ export default defineComponent({
       loading,
       detailLoadingIds,
       syncLoading,
-      fullUpdateLoading,
       syncOverlayVisible,
       syncOverlayTitle,
       syncOverlayFailed,
@@ -1580,7 +1555,6 @@ export default defineComponent({
       fetchItemDetailForItemId,
       fetchItemDetail,
       runSync,
-      runFullUpdate,
       loadSellerAccounts,
       thumbUrl,
       detailGalleryImages,

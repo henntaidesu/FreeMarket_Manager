@@ -77,14 +77,10 @@
           </el-select>
         </div>
         <div class="search-actions">
-          <!-- 以下三项已改为提交任务队列：提交即返回，不再受全局同步锁阻挡 -->
+          <!-- 以下两项已改为提交任务队列：提交即返回，不再受全局同步锁阻挡 -->
           <template v-if="!batchMode">
             <el-button type="primary" :icon="Download" :loading="syncLoading" @click="runSync">
               {{ t('onSaleItems.syncFromMercari') }}
-            </el-button>
-            <!-- TEMP_FULL_UPDATE: 临时功能，现有数据补齐发货时效后删除此按钮 -->
-            <el-button type="warning" :icon="Refresh" :loading="fullUpdateLoading" @click="runFullUpdate">
-              {{ t('onSaleItems.fullUpdate') }}
             </el-button>
             <el-button type="success" @click="enterBatchMode">
               {{ t('onSaleItems.batchRevisePrice') }}

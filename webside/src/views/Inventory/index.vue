@@ -973,7 +973,7 @@
                         :type="accountPlatformTagType(currentListingAccount)"
                       >{{ accountPlatformName(currentListingAccount) }}</el-tag>
                       <template v-if="currentListingAccount">
-                        <span class="listing-account-onsale">{{ accountOnSaleText(currentListingAccount) }}</span>
+                        <span class="listing-account-onsale" :class="{ 'is-full': accountListingFull(currentListingAccount) }">{{ accountOnSaleText(currentListingAccount) }}</span>
                         <span class="listing-account-name">{{ accountDisplayName(currentListingAccount) }}</span>
                       </template>
                       <template v-else>{{ label }}</template>
@@ -987,7 +987,7 @@
                   >
                     <span class="listing-account-opt">
                       <el-tag size="small" effect="dark" :type="accountPlatformTagType(a)">{{ accountPlatformName(a) }}</el-tag>
-                      <span class="listing-account-onsale">{{ accountOnSaleText(a) }}</span>
+                      <span class="listing-account-onsale" :class="{ 'is-full': accountListingFull(a) }">{{ accountOnSaleText(a) }}</span>
                       <span class="listing-account-name">{{ accountDisplayName(a) }}</span>
                     </span>
                   </el-option>

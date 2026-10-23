@@ -11,6 +11,7 @@ from .units.shop_accounts_crud import (
     create_shop_account,
     delete_shop_account,
     list_shop_accounts,
+    pause_all_auto_fetch,
     update_shop_account,
 )
 from .units.shop_accounts_mitm import (
@@ -29,6 +30,8 @@ router = APIRouter()
 router.add_api_route("", list_shop_accounts, methods=["GET"])
 router.add_api_route("", create_shop_account, methods=["POST"])
 router.add_api_route("/{aid}", update_shop_account, methods=["PUT"])
+# 一键暂停同步：关闭全部账号的自动数据获取
+router.add_api_route("/pause-auto-fetch", pause_all_auto_fetch, methods=["POST"])
 router.add_api_route("/fetch-seller-id-via-mitm", fetch_seller_id_via_mitm, methods=["POST"])
 # 雅虎的「获取基础信息」：卖家ID 在 /my 的 DOM 里，不需要 MITM，故与煤炉分开成独立端点
 router.add_api_route("/fetch-yahoo-basic-info", fetch_yahoo_basic_info_endpoint, methods=["POST"])

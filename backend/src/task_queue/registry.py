@@ -106,7 +106,7 @@ _SPECS: Dict[str, TaskSpec] = {
         label_zh="在售同步",
         dedup_key=lambda p: f"{ON_SALE_SYNC}:{_account_scope(p)}",
         title=lambda p: (
-            "在售从煤炉同步"
+            "在售同步数据"
             + (f"（账号#{p['account_id']}）" if p.get("account_id") is not None else "（全部启用账号）")
         ),
     ),

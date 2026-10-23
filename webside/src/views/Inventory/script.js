@@ -342,8 +342,15 @@ export default defineComponent({
     function accountPlatformTagType(a) {
       return accountIsYahoo(a) ? 'warning' : 'danger'
     }
+    /** 平台同时在售上限：煤炉单账号 150，雅虎 100（雅虎只算公开中的，与 on_sale_count 口径一致） */
+    function accountListingLimit(a) {
+      return accountIsYahoo(a) ? 100 : 150
+    }
+    function accountListingFull(a) {
+      return Number(a?.on_sale_count ?? 0) >= accountListingLimit(a)
+    }
     function accountOnSaleText(a) {
-      return t('inventory.accountOnSaleCount', { n: Number(a?.on_sale_count ?? 0) })
+      return t('inventory.accountOnSaleCount', { n: Number(a?.on_sale_count ?? 0), max: accountListingLimit(a) })
     }
     function accountDisplayName(a) {
       const name = (a?.account_name || '').trim() || `ID ${a?.id}`
@@ -3742,6 +3749,14 @@ export default defineComponent({
         ElMessage.warning(failed[1])
         return
       }
+      const account = currentListingAccount.value
+      if (account && accountListingFull(account)) {
+        ElMessage.warning(t('inventory.accountListingFull', {
+          n: Number(account.on_sale_count ?? 0),
+          max: accountListingLimit(account)
+        }))
+        return
+      }
 
       // ── 商品说明：不再写末行暗号，管理番号（与多件时的件数）只嵌在图片里（后端出品时按
       //    inventory_ids[0] / listing_qty 嵌入，见 web_drive/.../_mgmt_code.py）。
@@ -5532,6 +5547,7 @@ export default defineComponent({
       accountPlatformName,
       accountPlatformTagType,
       accountOnSaleText,
+      accountListingFull,
       accountDisplayName,
       persistListingField,
       aiGenerating,

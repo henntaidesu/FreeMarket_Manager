@@ -28,11 +28,18 @@ SELLING_URL = f"{YAHOO_BASE_URL}/my/item/selling"
 #: 实测 28 张卡片（10 公开 + 18 停止）时这里写的是 10。两个口径不同，别拿它跟卡片数比。
 _TOTAL_RE = re.compile(r"出品数[：:]\s*(\d+)\s*/\s*\d+")
 
+#: 分页条旁的「1~50件/59件」。最后那个数是**全部卡片**（公开 + 公開停止中）跨页合计，
+#: 与 items 同口径，所以完整性闸门优先比它。
+_RANGE_RE = re.compile(r"(\d+)\s*[~〜～]\s*(\d+)\s*件\s*/\s*(\d+)\s*件")
+
 #: 卡片上表示「已暂停出售」的角标文案，占据公开商品显示「N日前に出品/更新」的那一行
 _STOP_BADGE_TEXT = "公開停止中"
 
 #: 滚到底的最多轮数（卡片数不再增长就提前收工）
 _MAX_SCROLL_ROUNDS = 30
+
+#: 每页 50 件；出品上限 100 件公开 + 公開停止中，10 页足够，只是防死循环
+_MAX_PAGES = 10
 
 _CARDS_JS = r"""
 () => {
@@ -129,11 +136,10 @@ def yahoo_card_to_list_item(card: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 async def _load_all_cards(page: Any) -> List[Dict[str, Any]]:
-    """滚到底直到卡片数不再增长，返回最后一次读到的全部卡片。
+    """滚到底直到卡片数不再增长，返回当前这一页读到的全部卡片。
 
-    ``?page=N`` **不是这一页的翻页方式**：实测 ``/my/item/selling?page=2`` 渲染出 0 张卡片、
-    连「出品数」那一行都没有，所以原来那套按页 goto 的循环从第二页起必然空手而归。
-    列表只有一页，长了是往下续；滚到底在不懒加载时也只是白滚两下，代价可忽略。
+    翻页靠 ``?page=N``（见 ``fetch_yahoo_selling_items``），这里只负责把单页读全；
+    页面不懒加载时也只是白滚两下，代价可忽略。
     """
     cards: List[Dict[str, Any]] = []
     last = -1
@@ -148,9 +154,16 @@ async def _load_all_cards(page: Any) -> List[Dict[str, Any]]:
 
 
 async def fetch_yahoo_selling_items(account_id: int) -> Dict[str, Any]:
-    """打开在售列表抓取全部商品（公开 + 公開停止中）。返回 ``{"items": [...], "meta": {...}}``。"""
+    """打开在售列表逐页抓取全部商品（公开 + 公開停止中）。返回 ``{"items": [...], "meta": {...}}``。
+
+    列表**每页 50 件，按 ``?page=N`` 翻页**（实测 59 件：page=1 → 50 件「1~50件/59件」，
+    page=2 → 9 件「51~59件/59件」，page=3 → 0 件）。早先「page=2 渲染 0 张卡片」的结论
+    是在不足 50 件时测的，那时第二页本来就是空的。只读第一页的话，超过 50 件后完整性
+    闸门永远不过，缺席软删也就永远不跑——已下架/已售的雅虎商品一直挂在在售里、继续占着库存。
+    """
     items: List[Dict[str, Any]] = []
     seen: set[str] = set()
+    total_all = 0
 
     async with yahoo_automation_browser(int(account_id), start_url=SELLING_URL) as (mgr, key):
         page = await mgr.active_tab_page(key)
@@ -164,25 +177,49 @@ async def fetch_yahoo_selling_items(account_id: int) -> Dict[str, Any]:
         m = _TOTAL_RE.search(body or "")
         total_public = int(m.group(1)) if m else 0
 
-        for card in await _load_all_cards(page):
-            item = yahoo_card_to_list_item(card)
-            if not item or item["id"] in seen:
-                continue
-            seen.add(item["id"])
-            items.append(item)
+        for page_no in range(1, _MAX_PAGES + 1):
+            if page_no > 1:
+                await page.goto(f"{SELLING_URL}?page={page_no}",
+                                wait_until="domcontentloaded", timeout=45000)
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=20000)
+                except Exception:
+                    pass
+                await page.wait_for_timeout(1200)
+                body = await page.inner_text("body")
+            rm = _RANGE_RE.search(body or "")
+            if rm:
+                total_all = int(rm.group(3))
+
+            fresh = 0
+            for card in await _load_all_cards(page):
+                item = yahoo_card_to_list_item(card)
+                if not item or item["id"] in seen:
+                    continue
+                seen.add(item["id"])
+                items.append(item)
+                fresh += 1
+            # 这一页没带来新商品（翻过头 / page 参数被忽略）或已凑够合计 → 收工
+            if not fresh or (total_all and len(items) >= total_all):
+                break
 
     public_collected = sum(1 for i in items if i.get("status") == "on_sale")
-    log.info("[yahoo_on_sale] 抓到 %d 件（公开 %d / 停止 %d），页面「出品数」= %s",
-             len(items), public_collected, len(items) - public_collected, total_public or "?")
+    log.info("[yahoo_on_sale] 抓到 %d 件（公开 %d / 停止 %d），页面合计 %s，「出品数」= %s",
+             len(items), public_collected, len(items) - public_collected,
+             total_all or "?", total_public or "?")
 
+    # 抓够了才允许「本地有、雅虎没有」的软删除，否则漏抓会把在售商品整批误下架。
+    # 优先比分页条的全部合计（与 items 同口径，公开 + 停止）；读不到它时退回
+    # **公开件数对公开件数**——「出品数」只数公开在售的，拿它跟 items 总数比永远成立。
+    if total_all:
+        has_next = len(items) < total_all
+    else:
+        has_next = bool(total_public and public_collected < total_public)
     return {
         "items": items,
         "meta": {
-            "total_item_count": total_public,
-            # 抓够了才允许「本地有、雅虎没有」的软删除，否则漏抓会把在售商品整批误下架。
-            # ⚠ 比的必须是**公开件数对公开件数**：页面的「出品数」只数公开在售的，
-            # 而 items 里公开 + 停止都有，拿两者直接比（旧写法）永远成立，这道闸门形同虚设。
-            "has_next": bool(total_public and public_collected < total_public),
+            "total_item_count": total_all or total_public,
+            "has_next": has_next,
         },
     }
 

@@ -1172,6 +1172,10 @@ a.pef-lcard:hover {
   color: #909399;
   font-size: 12px;
 }
+.listing-account-onsale.is-full {
+  color: #f56c6c;
+  font-weight: 600;
+}
 .listing-account-name {
   overflow: hidden;
   text-overflow: ellipsis;

@@ -244,6 +244,29 @@ def update_shop_account(aid: int, data: MercariAccountUpdate):
     return _item_api_dict(item)
 
 
+def pause_all_auto_fetch():
+    """一键暂停同步：关闭全部账号的所有自动数据获取项（间隔清空 = 关闭，同单账号在弹框里关掉）。
+
+    自动上架（售出即补挂）不是数据获取，不动；暂停时间段也保留。
+    """
+    paused = 0
+    for item in ShopAccountModel.find_all():
+        if not any(
+            (getattr(item, f"auto_fetch_{k}_interval", None) or "").strip()
+            for k in AUTO_FETCH_TASK_KEYS
+        ) and not getattr(item, "is_open", 0):
+            continue
+        for k in AUTO_FETCH_TASK_KEYS:
+            setattr(item, f"auto_fetch_{k}_interval", None)
+            setattr(item, f"auto_fetch_{k}", 0)
+            setattr(item, f"auto_fetch_{k}_last_at", None)
+        item.is_open = 0
+        if not item.save():
+            raise HTTPException(status_code=500, detail=f"账号 {item.id} 更新失败")
+        paused += 1
+    return {"paused": paused}
+
+
 def delete_shop_account(aid: int):
     item = ShopAccountModel.find_by_id(id=aid)
     if not item:

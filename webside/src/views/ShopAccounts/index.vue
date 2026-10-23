@@ -1,6 +1,15 @@
 <template>
   <div>
     <el-card shadow="never" class="list-card" v-loading="loading">
+      <div class="list-toolbar">
+        <el-button
+          type="warning"
+          plain
+          :loading="pausingAll"
+          :disabled="!list.some(anyTaskEnabled)"
+          @click="pauseAllAutoFetch"
+        >{{ t('mercariAccounts.pauseAllSync') }}</el-button>
+      </div>
       <!-- 各平台独立成块：煤炉与雅虎分开显示，不再混在同一网格里 -->
       <section v-for="section in platformSections" :key="section.value" class="platform-section">
         <div v-if="!section.rows.length" class="platform-section-empty">

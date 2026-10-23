@@ -6,6 +6,8 @@ export const shopAccountApi = {
   create: (data) => http.post('/use_web/shop-accounts', data),
   update: (id, data) => http.put(`/use_web/shop-accounts/${id}`, data),
   remove: (id) => http.delete(`/use_web/shop-accounts/${id}`),
+  /** 一键暂停同步：关闭全部账号的自动数据获取 */
+  pauseAllAutoFetch: () => http.post('/use_web/shop-accounts/pause-auto-fetch'),
   /**
    * 打开出品一覧页，MITM 截获 items/get_items（on_sale,stop）并解析 seller_id。
    * account_key: mercari_prepare（新增）或 mercari_{id}（编辑）

@@ -794,8 +794,10 @@ soft-delete, inventory counters and order upsert semantics stay identical across
   `出品数: N/100` counts **only the public ones** (measured: 28 cards, 10 public, header said 10),
   so the completeness gate that guards absence-based soft-delete compares public-collected against
   that number — comparing it against the whole card count, as it used to, is always true and the
-  gate never fires. The list is also not paginated: `?page=2` renders zero cards, so the crawl
-  scrolls to the bottom until the card count stops growing instead.
+  gate never fires. The list pages **50 per page via `?page=N`** (an earlier "page 2 is empty"
+  finding was measured with <50 items). The footer 「1~50件/59件」 gives the cross-page total of
+  *all* cards (public + suspended); when present the gate compares against that instead. Reading
+  only page 1 kept the gate shut forever past 50 items, so delisted/sold Yahoo items never left 在售.
 - `use_yahoo/on_sale/detail_sync.py` — reads the **edit page**'s form fields (textarea gives the
   description verbatim, so the `-=~<>` mgmt cipher survives) and feeds a Mercari-shaped pseudo
   `items/get` response into `detail_sync_inventory_from_item_get_response`. This is what binds a
