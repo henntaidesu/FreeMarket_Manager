@@ -1141,9 +1141,7 @@
               </div>
             </template>
             <template v-else>
-              <div class="pef-batch-summary">
-                <span>{{ t('inventory.batchSummary', { total: Number(form.quantity || 0), count: batchRows.length }) }}</span>
-                <span class="pef-batch-summary__fifo">{{ t('inventory.batchFifoTip') }}</span>
+              <div v-if="!archive && batchRows.length > 1" class="pef-batch-summary">
                 <!-- 合并：勾选同一货架、同一所有人的批次，并入其中最早的那个 -->
                 <el-popconfirm
                   v-if="!archive && batchRows.length > 1"
@@ -1246,8 +1244,16 @@
                     />
                   </template>
                 </el-table-column>
-                <el-table-column width="64" align="center">
+                <el-table-column width="104" align="center">
                   <template #default="{ row }">
+                    <el-button
+                      v-if="!archive && row.stage !== 'transit'"
+                      link
+                      type="primary"
+                      size="small"
+                      :disabled="!Number(row.quantity)"
+                      @click="openStockOut(row)"
+                    >{{ t('inventory.batchStockOut') }}</el-button>
                     <el-popconfirm
                       v-if="row.stage !== 'transit'"
                       :title="t('inventory.batchDeleteConfirm', { qty: Number(row.quantity || 0) })"
@@ -1260,6 +1266,44 @@
                   </template>
                 </el-table-column>
               </el-table>
+              <!-- 手动出库：从选中批次扣减（不走先进先出），总数同步减少 -->
+              <el-dialog
+                v-model="stockOutVisible"
+                :title="t('inventory.batchStockOutTitle', { no: stockOutForm.batch?.batch_no || '-' })"
+                width="380px"
+                append-to-body
+              >
+                <el-form label-width="80px" @submit.prevent>
+                  <el-form-item :label="t('inventory.batchStockOutAvailable')">
+                    <span>{{ Number(stockOutForm.batch?.quantity || 0) }}</span>
+                    <span v-if="stockOutForm.batch?.warehouse_name" class="cell-muted">（{{ stockOutForm.batch.warehouse_name }}）</span>
+                  </el-form-item>
+                  <el-form-item :label="t('inventory.batchStockOutQty')" required>
+                    <el-input-number
+                      v-model="stockOutForm.quantity"
+                      :min="1"
+                      :max="Math.max(1, Number(stockOutForm.batch?.quantity || 0))"
+                      :step="1"
+                      step-strictly
+                    />
+                  </el-form-item>
+                  <el-form-item :label="t('inventory.batchRemark')">
+                    <el-input
+                      v-model="stockOutForm.remark"
+                      type="textarea"
+                      :rows="2"
+                      maxlength="200"
+                      :placeholder="t('inventory.batchStockOutRemarkPlaceholder')"
+                    />
+                  </el-form-item>
+                </el-form>
+                <template #footer>
+                  <el-button @click="stockOutVisible = false">{{ t('common.cancel') }}</el-button>
+                  <el-button type="primary" :loading="stockOutSaving" @click="submitStockOut">
+                    {{ t('inventory.batchStockOut') }}
+                  </el-button>
+                </template>
+              </el-dialog>
               <!-- 新增一行：批次号自动编号，到货时间默认此刻，数量下拉选（建好后不可改）。
                    扫码枪扫货架码 = 货架切到该货架；货架 / 数量下拉带 data-scanner-capture，焦点停在上面时扫码也收 -->
               <div class="pef-batch-add">
@@ -1304,12 +1348,13 @@
           <template #label>
             {{ t('inventory.linkedItems') }}
             <span
-              v-if="linkedListings.length + linkedSold.length"
+              v-if="linkedListings.length + linkedSold.length + linkedManualOutbounds.length"
               class="pef-tab-count"
-            >{{ linkedListings.length + linkedSold.length }}</span>
+            >{{ linkedListings.length + linkedSold.length + linkedManualOutbounds.length }}</span>
           </template>
           <!-- 只读：在售来自 on_sale_items（按 mercari_item_id 的 ID 列表匹配），
-               已出售来自出库明细认下的订单。两边都是外链卡片，点开直达平台商品页 -->
+               已出售来自出库明细认下的订单。两边都是外链卡片，点开直达平台商品页；
+               手动出库来自批次页「出库」按钮写下的记录 -->
           <div v-loading="linkedItemsLoading" class="pef-linked">
             <template v-if="linkedListings.length">
               <div class="pef-linked__title">
@@ -1400,8 +1445,39 @@
               </div>
             </template>
 
+            <template v-if="linkedManualOutbounds.length">
+              <div class="pef-linked__title">
+                {{ t('inventory.linkedManualOutbound') }}
+                <span class="pef-tab-count">{{ linkedManualOutbounds.length }}</span>
+              </div>
+              <el-table :data="linkedManualOutbounds" size="small" class="pef-batch-table">
+                <el-table-column :label="t('inventory.linkedManualOutboundTime')" width="160">
+                  <template #default="{ row }">{{ row.created_at || '-' }}</template>
+                </el-table-column>
+                <el-table-column :label="t('inventory.batchNo')" width="64" align="center">
+                  <template #default="{ row }">#{{ row.batch_no || '-' }}</template>
+                </el-table-column>
+                <el-table-column :label="t('inventory.belongingShelf')" min-width="110">
+                  <template #default="{ row }">
+                    <span :class="{ 'cell-muted': !row.warehouse_name }">{{ row.warehouse_name || t('inventory.defaultWarehouse') }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column :label="t('inventory.batchQuantity')" width="64" align="center">
+                  <template #default="{ row }">−{{ Number(row.quantity || 0) }}</template>
+                </el-table-column>
+                <el-table-column :label="t('inventory.batchRemark')" min-width="140">
+                  <template #default="{ row }">
+                    <span :class="{ 'cell-muted': !row.remark }">{{ row.remark || '-' }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column :label="t('inventory.linkedManualOutboundOperator')" width="96">
+                  <template #default="{ row }">{{ row.operator || '-' }}</template>
+                </el-table-column>
+              </el-table>
+            </template>
+
             <div
-              v-if="!linkedItemsLoading && !linkedListings.length && !linkedSold.length"
+              v-if="!linkedItemsLoading && !linkedListings.length && !linkedSold.length && !linkedManualOutbounds.length"
               class="pef-linked-empty"
             >{{ t('inventory.noLinkedItems') }}</div>
           </div>

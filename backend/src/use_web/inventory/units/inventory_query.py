@@ -373,7 +373,31 @@ def list_inventory_linked_items(pid: int):
                 and str(it.get("item_id") or "").strip() in sold_ids)
     ]
 
-    return {"inventory_id": pid, "listings": listings, "sold": sold}
+    # 手动出库：批次页「出库」按钮写下的记录（批次号 / 货架是出库当时的快照）
+    from ....db_manage.models.system.warehouse import WarehouseModel
+
+    manual_rows = db.execute_query(
+        f"""
+        SELECT m.[id], m.[batch_no], m.[quantity], m.[remark], m.[created_at],
+               CASE WHEN w.[id] IS NULL THEN NULL ELSE {WarehouseModel.sql_display_label("w")} END,
+               COALESCE(u.[display_name], u.[username])
+        FROM [inventory_manual_outbounds] m
+        LEFT JOIN [warehouses] w ON w.[id] = m.[warehouse_id]
+        LEFT JOIN [users] u ON u.[id] = m.[created_by]
+        WHERE m.[inventory_id] = ?
+        ORDER BY m.[created_at] DESC, m.[id] DESC
+        """,
+        (pid,),
+    )
+    manual_keys = ("id", "batch_no", "quantity", "remark", "created_at", "warehouse_name", "operator")
+    manual = []
+    for r in manual_rows or []:
+        d = dict(zip(manual_keys, r))
+        d["quantity"] = int(d.get("quantity") or 0)
+        d["created_at"] = str(d["created_at"])[:19] if d.get("created_at") else None
+        manual.append(d)
+
+    return {"inventory_id": pid, "listings": listings, "sold": sold, "manual_outbounds": manual}
 
 
 def list_inventory_used_in_combos(pid: int):

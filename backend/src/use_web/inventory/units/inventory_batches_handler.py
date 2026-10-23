@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
 """库存批次端点（库存编辑弹窗「批次」页）。业务口径见 use_mercari/inventory_batches.py。"""
-from fastapi import HTTPException
+from fastapi import Depends, HTTPException
 
+from ....auth import require_auth
 from ....db_manage import archive_view
 from ....db_manage.database import DatabaseManager
 from ....use_mercari import inventory_batches as ib
 from ....use_mercari.inventory_counters import recompute_listable_quantity
 from .inventory_helpers import _inventory_exists, _query_inventory_with_joins, _warehouse_exists
-from .inventory_models import InventoryBatchCreate, InventoryBatchMerge, InventoryBatchUpdate
+from .inventory_models import (
+    InventoryBatchCreate, InventoryBatchMerge, InventoryBatchStockOut, InventoryBatchUpdate,
+)
 
 db = DatabaseManager()
 
@@ -74,6 +77,18 @@ def merge_inventory_batches(pid: int, data: InventoryBatchMerge):
     _check_item(pid)
     try:
         ib.merge_batches(pid, data.batch_ids)
+    except (ValueError, LookupError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    recompute_listable_quantity([pid])
+    return _result(pid)
+
+
+def stock_out_inventory_batch(pid: int, bid: int, data: InventoryBatchStockOut,
+                              claims: dict = Depends(require_auth)):
+    _check_item(pid)
+    _check_batch(pid, bid)
+    try:
+        ib.stock_out_batch(bid, data.quantity, data.remark, created_by=claims.get("user_id"))
     except (ValueError, LookupError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     recompute_listable_quantity([pid])

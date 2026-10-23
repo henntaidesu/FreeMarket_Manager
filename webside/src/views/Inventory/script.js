@@ -728,6 +728,7 @@ export default defineComponent({
     const linkedItemsLoading = ref(false)
     const linkedListings = ref([])
     const linkedSold = ref([])
+    const linkedManualOutbounds = ref([])
     let linkedItemsLoadedFor = null
 
     async function loadLinkedItems() {
@@ -735,6 +736,7 @@ export default defineComponent({
       if (!Number.isFinite(id) || id <= 0) {
         linkedListings.value = []
         linkedSold.value = []
+        linkedManualOutbounds.value = []
         linkedItemsLoadedFor = null
         return
       }
@@ -744,10 +746,12 @@ export default defineComponent({
         const res = await invApi.linkedItems(id)
         linkedListings.value = Array.isArray(res?.listings) ? res.listings : []
         linkedSold.value = Array.isArray(res?.sold) ? res.sold : []
+        linkedManualOutbounds.value = Array.isArray(res?.manual_outbounds) ? res.manual_outbounds : []
         linkedItemsLoadedFor = id
       } catch (e) {
         linkedListings.value = []
         linkedSold.value = []
+        linkedManualOutbounds.value = []
         ElMessage.error(e?.response?.data?.detail || t('inventory.linkedItemsLoadFailed'))
       } finally {
         linkedItemsLoading.value = false
@@ -2039,8 +2043,9 @@ export default defineComponent({
         }
         syncQuantityEditFromForm()
         syncWarehouseCascaderPathByWarehouseId(form.value.warehouse_id)
-        // 批次改动已直接落库：关窗时刷新列表
+        // 批次改动已直接落库：关窗时刷新列表；手动出库会新增关联商品里的记录，下次切过去重拉
         formAutosaved = true
+        linkedItemsLoadedFor = null
       }
     })
     watch(editActiveTab, (v) => {
@@ -3112,6 +3117,7 @@ export default defineComponent({
       inventoryBatches.resetBatches()
       linkedListings.value = []
       linkedSold.value = []
+      linkedManualOutbounds.value = []
       linkedItemsLoadedFor = null
       resetNoBarcodeImageUploadState()
       noBarcodeEntryMode.value = false
@@ -5612,6 +5618,7 @@ export default defineComponent({
       linkedItemsLoading,
       linkedListings,
       linkedSold,
+      linkedManualOutbounds,
       linkedOrderStatusMap,
       marketPlatformOf,
       marketItemUrl,

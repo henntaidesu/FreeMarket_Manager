@@ -58,6 +58,7 @@ from .models import (
     InboundShipmentModel,
     InboundShipmentLineModel,
     InboundReceiptModel,
+    InventoryManualOutboundModel,
 )
 
 
@@ -756,6 +757,7 @@ class DBManager:
             InboundShipmentModel,  # 快递单（入库快递；发出后装箱件数成为在途批次）
             InboundShipmentLineModel,  # 快递单明细
             InboundReceiptModel,  # 快递入库记录（改投货架 / 建议货架）
+            InventoryManualOutboundModel,  # 手动出库记录（批次页「出库」；关联商品页列出）
             TransactionModel, # 依赖 inventory, warehouses
             CostRecordModel,  # 依赖 warehouses（可为空）
             CostExpenseModel,  # 成本支出

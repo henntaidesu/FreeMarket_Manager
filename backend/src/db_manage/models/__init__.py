@@ -27,6 +27,7 @@ from .inventory.inventory_old import InventoryOldModel, InventoryBatchOldModel
 from .inventory.inbound_shipment import InboundShipmentModel
 from .inventory.inbound_shipment_line import InboundShipmentLineModel
 from .inventory.inbound_receipt import InboundReceiptModel
+from .inventory.inventory_manual_outbound import InventoryManualOutboundModel
 from .inventory.inventory_series import InventorySeriesModel
 from .inventory.inventory_series_item import InventorySeriesItemModel
 from .orders.order import OrderModel
@@ -95,4 +96,5 @@ __all__ = [
     'InboundShipmentModel',
     'InboundShipmentLineModel',
     'InboundReceiptModel',
+    'InventoryManualOutboundModel',
 ]

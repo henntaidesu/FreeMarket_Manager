@@ -445,6 +445,46 @@ def delete_batch(batch_id: int) -> int:
     return inv_id
 
 
+def stock_out_batch(batch_id: int, qty: int, remark: Optional[str],
+                    created_by: Optional[int] = None) -> int:
+    """手动出库：从**指定**在岸批次扣 qty 件（不走先进先出），总数同步 −qty，并记一条
+    inventory_manual_outbounds（「关联商品」页列出）。返回所属 inventory_id。
+    批次扣到 0 也保留（与售出扣减一致），要清掉可再删除。"""
+    db = DatabaseManager()
+    qty = int(qty or 0)
+    if qty <= 0:
+        raise ValueError("出库数量必须大于 0")
+    cur = get_batch(batch_id)
+    if not cur:
+        raise LookupError("批次不存在")
+    if cur["stage"] == STAGE_TRANSIT:
+        raise ValueError("在途批次由快递单管理，不能在这里出库")
+    inv_id = cur["inventory_id"]
+    with db.transaction():
+        if not db.execute_update(
+            "UPDATE [inventory_batches] SET [quantity] = [quantity] - ? WHERE [id] = ? AND [quantity] >= ?",
+            (qty, int(batch_id), qty),
+        ):
+            raise ValueError(f"批次数量不足，当前：{cur['quantity']}")
+        if not db.execute_update(
+            "UPDATE [inventory] SET [quantity] = COALESCE([quantity], 0) - ? "
+            "WHERE [id] = ? AND COALESCE([quantity], 0) >= ?",
+            (qty, int(inv_id), qty),
+        ):
+            raise ValueError("商品总数不足，请刷新后重试")
+        remark = (remark or "").strip() or None
+        bno = db.execute_query("SELECT [batch_no] FROM [inventory_batches] WHERE [id] = ?", (int(batch_id),))
+        db.execute_insert(
+            "INSERT INTO [inventory_manual_outbounds] ([inventory_id], [batch_id], [batch_no], [warehouse_id], "
+            "[quantity], [remark], [created_by], [created_at]) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (int(inv_id), int(batch_id), bno[0][0] if bno else None, cur["warehouse_id"], qty, remark,
+             created_by, now_str()),
+        )
+        _log_tx(db, "out", inv_id, cur["warehouse_id"], qty, remark or "手动出库")
+        _sync_head_warehouse(db, inv_id)
+    return inv_id
+
+
 def receive_stock(inv_id: int, qty: int, warehouse_id: Optional[int], remark: Optional[str]) -> None:
     """扫码入库后调用（inventory.quantity 已 +qty）：把这 qty 件记进「今天、该仓位」的批次，
     没有就新建一个。连续扫码每扫一下 +1，按天+仓位归并，不会一扫一个批次。"""

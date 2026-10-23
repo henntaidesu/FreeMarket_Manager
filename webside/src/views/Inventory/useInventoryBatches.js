@@ -183,6 +183,39 @@ export function useInventoryBatches({ form, warehouseTreeMeta, t, onItemUpdated,
     }
   }
 
+  /** 手动出库弹窗：从选中的那个在岸批次扣减（不走先进先出），总数同步减少 */
+  const stockOutVisible = ref(false)
+  const stockOutSaving = ref(false)
+  const stockOutForm = ref({ batch: null, quantity: 1, remark: '' })
+
+  function openStockOut(row) {
+    if (!batchesEnabled.value || !row?.id || row.stage === 'transit') return
+    stockOutForm.value = { batch: row, quantity: 1, remark: '' }
+    stockOutVisible.value = true
+  }
+
+  async function submitStockOut() {
+    const { batch, quantity, remark } = stockOutForm.value
+    const qty = Number(quantity)
+    if (!batch?.id || !Number.isInteger(qty) || qty <= 0 || qty > Number(batch.quantity || 0)) {
+      ElMessage.warning(t('inventory.batchStockOutQtyInvalid', { max: Number(batch?.quantity || 0) }))
+      return
+    }
+    stockOutSaving.value = true
+    try {
+      applyResult(await api.stockOutBatch(Number(form.value.id), batch.id, {
+        quantity: qty,
+        remark: String(remark || '').trim() || null
+      }))
+      stockOutVisible.value = false
+      ElMessage.success(t('inventory.batchStockOutDone', { qty }))
+    } catch {
+      loadBatches(true)
+    } finally {
+      stockOutSaving.value = false
+    }
+  }
+
   async function removeBatch(row) {
     if (!batchesEnabled.value || !row?.id) return
     try {
@@ -207,6 +240,11 @@ export function useInventoryBatches({ form, warehouseTreeMeta, t, onItemUpdated,
     addBatch,
     saveBatchField,
     removeBatch,
+    stockOutVisible,
+    stockOutSaving,
+    stockOutForm,
+    openStockOut,
+    submitStockOut,
     batchSelection,
     batchMerging,
     batchSelectable,

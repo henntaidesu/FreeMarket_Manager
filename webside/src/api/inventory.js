@@ -54,6 +54,8 @@ export const inventoryApi = {
   updateBatch: (id, batchId, data) => http.put(`/use_web/inventory/${id}/batches/${batchId}`, data),
   deleteBatch: (id, batchId) => http.delete(`/use_web/inventory/${id}/batches/${batchId}`),
   mergeBatches: (id, batchIds) => http.post(`/use_web/inventory/${id}/batches/merge`, { batch_ids: batchIds }),
+  /** 手动出库：从指定批次扣减（不走先进先出），data = { quantity, remark } */
+  stockOutBatch: (id, batchId, data) => http.post(`/use_web/inventory/${id}/batches/${batchId}/stock-out`, data),
   update: (id, data) => http.put(`/use_web/inventory/${id}`, data),
   // 商品系列（用户自定义的一组商品；一件商品最多一个系列）
   listSeries: () => http.get('/use_web/inventory/series'),

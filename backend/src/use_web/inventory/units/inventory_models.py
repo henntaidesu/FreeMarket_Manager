@@ -73,6 +73,11 @@ class InventoryBatchMerge(PydanticModel):
     batch_ids: List[int]
 
 
+class InventoryBatchStockOut(PydanticModel):
+    quantity: int
+    remark: Optional[str] = None
+
+
 class CombinedInventoryComponent(PydanticModel):
     inventory_id: int
     quantity: int = 1

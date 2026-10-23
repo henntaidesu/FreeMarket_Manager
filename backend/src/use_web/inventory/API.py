@@ -16,7 +16,7 @@ from .units.inventory_combined import create_combined_inventory, remove_combined
 from .units.inventory_split import copy_inventory
 from .units.inventory_batches_handler import (
     list_inventory_batches, create_inventory_batch, update_inventory_batch, delete_inventory_batch,
-    merge_inventory_batches,
+    merge_inventory_batches, stock_out_inventory_batch,
 )
 from .units.inventory_images import find_by_image, upload_inventory_image
 from .image_search import image_search, image_search_status
@@ -59,6 +59,7 @@ router.add_api_route("/{pid}/stock-in/undo", undo_stock_in_inventory, methods=["
 router.add_api_route("/{pid}/batches", list_inventory_batches, methods=["GET"])
 router.add_api_route("/{pid}/batches", create_inventory_batch, methods=["POST"])
 router.add_api_route("/{pid}/batches/merge", merge_inventory_batches, methods=["POST"])
+router.add_api_route("/{pid}/batches/{bid}/stock-out", stock_out_inventory_batch, methods=["POST"])
 router.add_api_route("/{pid}/batches/{bid}", update_inventory_batch, methods=["PUT"])
 router.add_api_route("/{pid}/batches/{bid}", delete_inventory_batch, methods=["DELETE"])
 router.add_api_route("/{pid}/pending-outbound-lines", list_inventory_pending_outbound_lines, methods=["GET"])
