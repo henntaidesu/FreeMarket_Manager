@@ -19,6 +19,12 @@ export default defineComponent({
     const dialogVisible = ref(false)
     const submitting = ref(false)
     const form = ref({ id: null, name: '', members: '', origMembers: '' })
+    const tableRef = ref(null)
+    const selected = ref([])
+    const mergeVisible = ref(false)
+    const merging = ref(false)
+    const mergeName = ref('')
+    const mergeItemCount = computed(() => selected.value.reduce((n, s) => n + (s.item_count || 0), 0))
 
     /** 关键词：系列名，或某个成员管理番号 */
     const filteredList = computed(() => {
@@ -111,6 +117,37 @@ export default defineComponent({
       load()
     }
 
+    function onSelectionChange(rows) {
+      selected.value = rows
+    }
+
+    /** 合并：保留勾选的第一个系列，名称默认用它的，可改（点标签可换成其他系列的名字） */
+    function openMerge() {
+      if (selected.value.length < 2) return
+      mergeName.value = selected.value[0].name || ''
+      mergeVisible.value = true
+    }
+
+    async function submitMerge() {
+      const name = String(mergeName.value || '').trim()
+      if (!name) {
+        ElMessage.warning(t('series.nameRequired'))
+        return
+      }
+      merging.value = true
+      try {
+        await inventoryApi.mergeSeries({ series_ids: selected.value.map((s) => s.id), name })
+        ElMessage.success(t('common.success'))
+        mergeVisible.value = false
+        tableRef.value?.clearSelection()
+      } catch {
+        /* 拦截器已提示（重名等） */
+      } finally {
+        merging.value = false
+        load()
+      }
+    }
+
     /** 跳到库存页并按该系列筛选 */
     function viewItems(row) {
       router.push({ path: '/inventory', query: { series: row.id } })
@@ -132,7 +169,16 @@ export default defineComponent({
       openDialog,
       submit,
       remove,
-      viewItems
+      viewItems,
+      tableRef,
+      selected,
+      onSelectionChange,
+      mergeVisible,
+      merging,
+      mergeName,
+      mergeItemCount,
+      openMerge,
+      submitMerge
     }
   }
 })

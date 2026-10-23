@@ -22,7 +22,6 @@ INVENTORY_COLUMNS = [
     "category_id",
     "product_type_id",
     "owner_user_id",
-    "series_id",
     "price",
     "quantity",
     "mercari_item_id",
@@ -67,7 +66,6 @@ def _row_to_inventory_detail(row: tuple) -> dict:
         "batch_warehouse_count",
         # 在途件数（快递单已发出、未扫码入库）；已计入 quantity，在岸 = quantity - transit_quantity
         "transit_quantity",
-        "series_name",
     ]
     return dict(zip(keys, row))
 
@@ -194,8 +192,7 @@ def _query_inventory_with_joins(
                COALESCE(cr.reserved, 0) AS combined_quantity,
                COALESCE(bt.batch_count, 0) AS batch_count,
                COALESCE(bt.batch_wh_count, 0) AS batch_warehouse_count,
-               COALESCE(bt.transit_qty, 0) AS transit_quantity,
-               (SELECT sr.name FROM [inventory_series] sr WHERE sr.id = p.series_id) AS series_name
+               COALESCE(bt.transit_qty, 0) AS transit_quantity
         FROM [inventory] p
         LEFT JOIN [categories] c ON c.id = p.category_id
         LEFT JOIN [warehouses] w ON w.id = p.warehouse_id
@@ -231,7 +228,26 @@ def _query_inventory_with_joins(
         d["combined_quantity"] = comb
         d["listable_quantity"] = max(0, q - os_q - pend - listing_pend - comb)
     _attach_merged_from_ids(items)
+    _attach_series(items)
     return items
+
+
+def _attach_series(items: list[dict]) -> None:
+    """附上每件商品所属的系列 ``series``：[{id, name}]，按系列名排序（一件可属多个系列）。"""
+    ids = [int(d["id"]) for d in items if d.get("id") is not None]
+    found: dict = {}
+    for i in range(0, len(ids), 500):
+        chunk = ids[i:i + 500]
+        ph = ",".join("?" * len(chunk))
+        for iid, sid, name in db.execute_query(
+            "SELECT si.[inventory_id], sr.[id], sr.[name] FROM [inventory_series_items] si "
+            f"JOIN [inventory_series] sr ON sr.[id] = si.[series_id] WHERE si.[inventory_id] IN ({ph}) "
+            "ORDER BY sr.[name]",
+            tuple(chunk),
+        ) or []:
+            found.setdefault(int(iid), []).append({"id": int(sid), "name": name})
+    for d in items:
+        d["series"] = found.get(int(d["id"]), []) if d.get("id") is not None else []
 
 
 def _attach_merged_from_ids(items: list[dict]) -> None:

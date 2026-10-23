@@ -123,12 +123,6 @@ class InventoryModel(BaseModel):
                 'not_null': False,
                 'default': None,
             },
-            # 商品系列（inventory_series.id），一件商品最多一个系列；NULL = 不属于任何系列
-            'series_id': {
-                'type': 'INTEGER',
-                'not_null': False,
-                'default': None,
-            },
             'price': {
                 'type': 'INTEGER',
                 'not_null': False,

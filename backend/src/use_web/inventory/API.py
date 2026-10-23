@@ -25,7 +25,8 @@ from .units.ocr_handler import ocr_region
 from .units.scan_handler import get_barcode_family, ocr_name_region, scan_barcode, scan_barcode_region
 from .units.ai_listing_handler import generate_listing_ai
 from .units.inventory_series import (
-    assign_series, create_series, delete_series, list_series, rename_series, set_series_items,
+    assign_series, create_series, delete_series, list_series, merge_series, rename_series,
+    set_item_series, set_series_items,
 )
 
 router = APIRouter()
@@ -75,6 +76,8 @@ router.add_api_route("/ai-generate-listing", generate_listing_ai, methods=["POST
 series_router.add_api_route("", list_series, methods=["GET"])
 series_router.add_api_route("", create_series, methods=["POST"])
 series_router.add_api_route("/assign", assign_series, methods=["POST"])
+series_router.add_api_route("/merge", merge_series, methods=["POST"])
+series_router.add_api_route("/item/{iid}", set_item_series, methods=["PUT"])
 series_router.add_api_route("/{sid}", rename_series, methods=["PUT"])
 series_router.add_api_route("/{sid}", delete_series, methods=["DELETE"])
 series_router.add_api_route("/{sid}/items", set_series_items, methods=["PUT"])

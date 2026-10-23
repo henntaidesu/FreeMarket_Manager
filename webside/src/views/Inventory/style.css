@@ -1608,6 +1608,8 @@ a.pef-lcard:hover {
 .gun-result-imgs { display: flex; justify-content: center; gap: 12px; width: 100%; margin-bottom: 6px; }
 .gun-result-img { width: 160px; height: 160px; max-width: calc(50% - 6px); object-fit: cover; border-radius: 6px; }
 .gun-result-shelf { object-fit: contain; background: #fff; }
+.gun-result-link { cursor: pointer; transition: opacity .15s; }
+.gun-result-link:hover { opacity: .85; }
 .gun-last {
   display: flex; align-items: center; gap: 12px; width: 100%; max-width: 420px; padding: 8px 10px;
   border: 1px solid #3b4961; border-radius: 8px;
@@ -1821,4 +1823,11 @@ a.pef-lcard:hover {
 .inv-series-tag {
   cursor: pointer;
   margin-right: 4px;
+}
+
+.series-dialog-form .series-dialog-select { width: 100%; }
+.series-dialog-hint {
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 4px;
 }

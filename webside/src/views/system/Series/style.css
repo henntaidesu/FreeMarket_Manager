@@ -9,3 +9,9 @@
   line-height: 1.5;
   margin-top: 4px;
 }
+.series-merge-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.series-merge-tag { cursor: pointer; }

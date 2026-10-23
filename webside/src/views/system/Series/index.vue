@@ -12,6 +12,9 @@
           />
         </div>
         <div class="search-actions">
+          <el-button :disabled="selected.length < 2" @click="openMerge">
+            {{ t('series.merge') }}<template v-if="selected.length">（{{ selected.length }}）</template>
+          </el-button>
           <el-button type="primary" @click="openDialog()">
             <el-icon><Plus /></el-icon> {{ t('series.add') }}
           </el-button>
@@ -20,7 +23,8 @@
     </el-card>
 
     <el-card shadow="never" class="table-card">
-      <el-table :data="filteredList" v-loading="loading" stripe>
+      <el-table ref="tableRef" :data="filteredList" v-loading="loading" stripe row-key="id" @selection-change="onSelectionChange">
+        <el-table-column type="selection" width="44" reserve-selection />
         <el-table-column :label="t('series.id')" prop="id" width="80" />
         <el-table-column :label="t('series.name')" prop="name" min-width="160" />
         <el-table-column :label="t('series.itemCount')" prop="item_count" width="90" align="center" />
@@ -72,6 +76,31 @@
       <template #footer>
         <el-button @click="dialogVisible = false">{{ t('common.cancel') }}</el-button>
         <el-button type="primary" :loading="submitting" @click="submit">{{ t('common.save') }}</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="mergeVisible"
+      :title="t('series.mergeTitle')"
+      :width="isMobile ? '94vw' : '480px'"
+      destroy-on-close
+    >
+      <el-form label-position="top" @submit.prevent>
+        <el-form-item :label="t('series.mergeSources')">
+          <div class="series-merge-list">
+            <el-tag v-for="s in selected" :key="s.id" class="series-merge-tag" @click="mergeName = s.name">
+              {{ s.name }}（{{ s.item_count }}）
+            </el-tag>
+          </div>
+        </el-form-item>
+        <el-form-item :label="t('series.mergeName')" required>
+          <el-input v-model="mergeName" maxlength="60" :placeholder="t('series.nameRequired')" />
+          <div class="cell-muted series-hint">{{ t('series.mergeHint', { count: mergeItemCount }) }}</div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="mergeVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="merging" @click="submitMerge">{{ t('series.merge') }}</el-button>
       </template>
     </el-dialog>
   </div>

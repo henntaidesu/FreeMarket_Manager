@@ -289,14 +289,15 @@
             <div v-else class="editable-cell" @click="startInlineEdit(row, 'name')">
               <el-tag v-if="Number(row.is_combined || 0) === 1" size="small" type="success" effect="light">{{ t('inventory.combinedTag') }}</el-tag>
               <el-tag
-                v-if="row.series_name"
+                v-for="sr in row.series || []"
+                :key="sr.id"
                 size="small"
                 type="info"
                 effect="plain"
                 class="inv-series-tag"
                 :title="t('inventory.seriesFilterTip')"
-                @click.stop="filterBySeries(row.series_id)"
-              >{{ row.series_name }}</el-tag>
+                @click.stop="filterBySeries(sr.id)"
+              >{{ sr.name }}</el-tag>
               {{ row.name || '-' }}
             </div>
           </template>
@@ -528,13 +529,14 @@
               <div class="inv-card-name">
                 <el-tag v-if="Number(row.is_combined || 0) === 1" size="small" type="success" effect="light">{{ t('inventory.combinedTag') }}</el-tag>
                 <el-tag
-                  v-if="row.series_name"
+                  v-for="sr in row.series || []"
+                  :key="sr.id"
                   size="small"
                   type="info"
                   effect="plain"
                   class="inv-series-tag"
-                  @click.stop="filterBySeries(row.series_id)"
-                >{{ row.series_name }}</el-tag>
+                  @click.stop="filterBySeries(sr.id)"
+                >{{ sr.name }}</el-tag>
                 {{ row.name || '-' }}
               </div>
               <div class="inv-card-price">¥{{ Math.round(Number(row.price || 0)) }}</div>
@@ -745,9 +747,10 @@
             <el-form-item class="pef-field--series" :label="t('inventory.series')">
               <!-- 即时保存（useInventorySeries.onFormSeriesChange）；可直接输入新名字新建系列 -->
               <el-select
-                :model-value="form.series_id"
+                :model-value="form.series_ids || []"
                 :placeholder="form.id ? t('inventory.seriesNone') : t('inventory.seriesSaveFirst')"
                 :disabled="archive || !form.id"
+                multiple
                 filterable
                 allow-create
                 default-first-option
@@ -1257,7 +1260,8 @@
                   </template>
                 </el-table-column>
               </el-table>
-              <!-- 新增一行：批次号自动编号，到货时间默认此刻，数量手输（建好后不可改） -->
+              <!-- 新增一行：批次号自动编号，到货时间默认此刻，数量下拉选（建好后不可改）。
+                   扫码枪扫货架码 = 货架切到该货架；货架 / 数量下拉带 data-scanner-capture，焦点停在上面时扫码也收 -->
               <div class="pef-batch-add">
                 <el-date-picker
                   v-model="newBatch.arrived_at"
@@ -1275,16 +1279,18 @@
                   size="small"
                   class="pef-batch-shelf"
                   popper-class="product-type-cascader-popper"
+                  data-scanner-capture
                   @change="(p) => { newBatch.warehouse_id = warehouseIdOfPath(p) }"
                 />
-                <el-input
+                <el-select
                   v-model="newBatch.quantity"
                   size="small"
-                  inputmode="numeric"
                   :placeholder="t('inventory.batchQuantity')"
                   class="pef-batch-qty"
-                  @keyup.enter="addBatch"
-                />
+                  data-scanner-capture
+                >
+                  <el-option v-for="n in GUN_QTY_OPTIONS" :key="n" :label="n" :value="n" />
+                </el-select>
                 <el-input v-model="newBatch.remark" size="small" :placeholder="t('inventory.batchRemark')" class="pef-batch-add__remark" />
                 <el-button type="primary" size="small" :loading="batchSaving" @click="addBatch">
                   {{ t('inventory.addBatch') }}
@@ -1907,36 +1913,38 @@
       </template>
     </el-dialog>
 
-    <!-- 加入系列：选已有系列，或直接输入新名字新建（useInventorySeries.js） -->
+    <!-- 加入系列：可多选已有系列，或直接输入新名字新建；只加入、不移出（useInventorySeries.js） -->
     <el-dialog
       v-model="seriesDialogVisible"
       :title="t('inventory.seriesAdd')"
       :width="isMobile ? '94vw' : '480px'"
       destroy-on-close
     >
-      <p class="cell-muted">{{ t('inventory.seriesDialogHint', { count: listingPickIds.size }) }}</p>
-      <el-select
-        v-model="seriesDialogValue"
-        :placeholder="t('inventory.seriesPickOrCreate')"
-        filterable
-        allow-create
-        default-first-option
-        clearable
-        style="width: 100%"
-      >
-        <el-option v-for="s in seriesOptions" :key="s.id" :label="s.name" :value="s.id">
-          <span class="series-option">
-            <span>{{ s.name }} <span class="cell-muted">({{ s.item_count }})</span></span>
-            <el-button link type="danger" size="small" @click.stop="deleteSeries(s)">{{ t('inventory.seriesDelete') }}</el-button>
-          </span>
-        </el-option>
-      </el-select>
+      <el-form label-position="top" class="series-dialog-form" @submit.prevent>
+        <el-form-item :label="t('inventory.seriesDialogLabel')">
+          <el-select
+            v-model="seriesDialogValue"
+            class="series-dialog-select"
+            :placeholder="t('inventory.seriesPickOrCreate')"
+            multiple
+            filterable
+            allow-create
+            default-first-option
+            clearable
+          >
+            <el-option v-for="s in seriesOptions" :key="s.id" :label="s.name" :value="s.id">
+              <span class="series-option">
+                <span>{{ s.name }} <span class="cell-muted">({{ s.item_count }})</span></span>
+                <el-button link type="danger" size="small" @click.stop="deleteSeries(s)">{{ t('inventory.seriesDelete') }}</el-button>
+              </span>
+            </el-option>
+          </el-select>
+          <div class="cell-muted series-dialog-hint">{{ t('inventory.seriesDialogHint', { count: listingPickIds.size }) }}</div>
+        </el-form-item>
+      </el-form>
       <template #footer>
         <el-button @click="seriesDialogVisible = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="danger" plain :loading="seriesSubmitting" @click="submitSeriesDialog(true)">
-          {{ t('inventory.seriesRemove') }}
-        </el-button>
-        <el-button type="primary" :loading="seriesSubmitting" @click="submitSeriesDialog(false)">
+        <el-button type="primary" :loading="seriesSubmitting" @click="submitSeriesDialog">
           {{ t('common.confirm') }}
         </el-button>
       </template>
@@ -2113,12 +2121,13 @@
         <!-- 上一件扫码枪入库的结果：左商品图、右货架号贴纸 -->
         <div v-if="contGunLast" class="gun-result">
           <div class="gun-result-imgs">
-            <img v-if="contGunLast.image" :src="contGunLast.image" class="gun-result-img" />
-            <div v-else class="gun-result-img cont-pick-img--empty"><el-icon size="32"><Picture /></el-icon></div>
+            <!-- 点商品图打开该商品详情表单 -->
+            <img v-if="contGunLast.image" :src="contGunLast.image" class="gun-result-img gun-result-link" @click="openGunLastDetail" />
+            <div v-else class="gun-result-img cont-pick-img--empty gun-result-link" @click="openGunLastDetail"><el-icon size="32"><Picture /></el-icon></div>
             <img v-if="contGunLast.shelfImage" :src="contGunLast.shelfImage" class="gun-result-img gun-result-shelf" />
           </div>
           <span class="gun-last-ok">
-            {{ t(contGunLast.classified ? 'inventory.scannerClassifiedOk' : 'inventory.scannerInboundOk', { qty: contGunLast.newQuantity }) }}
+            {{ t(contGunLast.classified ? 'inventory.scannerClassifiedOk' : 'inventory.scannerInboundOk', { n: contGunLast.quantity, qty: contGunLast.newQuantity }) }}
           </span>
           <span class="product-meta-name">{{ contGunLast.name }}</span>
           <span class="cont-pick-sub">{{ contGunLast.place }}</span>
@@ -2290,21 +2299,38 @@
         </div>
       </div>
 
-      <!-- 扫码枪：商品在默认仓库，等扫货架码归类 -->
-      <div v-if="contState === 'need-warehouse' && contInventory" class="cont-result">
+      <!-- 扫码枪：选好数量，等扫货架码入库到该货架（默认仓库里的商品同时归类） -->
+      <div v-if="contState === 'need-warehouse' && contInventory" class="cont-result" data-scanner-capture>
         <div class="barcode-tag">
           <el-icon><Tickets /></el-icon>
           <span>{{ contBarcode }}</span>
         </div>
-        <div class="gun-last">
-          <img v-if="inventoryRowImages(contInventory)[0]" :src="inventoryRowImages(contInventory)[0]" class="cont-pick-img" />
-          <div class="cont-pick-meta">
-            <span class="product-meta-name">{{ contInventory.name || t('inventory.unnamed') }}</span>
-            <span class="cont-pick-sub">{{ t('inventory.currentStockPieces', { qty: contInventory.quantity ?? 0 }) }}</span>
+        <!-- 与入库结果同一版式：左商品图、右当前货架号贴纸（默认仓库没有货架号，显示待扫占位） -->
+        <div class="gun-result">
+          <div class="gun-result-imgs">
+            <img v-if="inventoryRowImages(contInventory)[0]" :src="inventoryRowImages(contInventory)[0]" class="gun-result-img" />
+            <div v-else class="gun-result-img cont-pick-img--empty"><el-icon size="32"><Picture /></el-icon></div>
+            <img
+              v-if="contInventory.warehouse_id && shelfLabelImage(contInventory.warehouse_id)"
+              :src="shelfLabelImage(contInventory.warehouse_id)"
+              class="gun-result-img gun-result-shelf"
+            />
+            <div v-else class="gun-result-img cont-pick-img--empty"><el-icon size="32"><Box /></el-icon></div>
           </div>
+          <span class="product-meta-name">{{ contInventory.name || t('inventory.unnamed') }}</span>
+          <span class="cont-pick-sub">
+            {{ t('inventory.currentStockPieces', { qty: contInventory.quantity ?? 0 }) }}
+            <template v-if="!contMoveExisting"> · {{ t('inventory.warehouseLabel', { name: contInventory.warehouse_name || t('inventory.notSet') }) }}</template>
+          </span>
         </div>
-        <p class="gun-need-shelf">{{ t('inventory.scannerNeedShelfHint') }}</p>
-        <p class="gun-waiting-tip">{{ t('inventory.scannerNeedShelfMoveNote') }}</p>
+        <div class="cont-quantity-row">
+          <span class="cont-quantity-label">{{ t('inventory.thisTimeQuantity') }}</span>
+          <el-select v-model="contQuantity" :disabled="contConfirming" style="width: 120px">
+            <el-option v-for="n in GUN_QTY_OPTIONS" :key="n" :label="n" :value="n" />
+          </el-select>
+        </div>
+        <p class="gun-need-shelf">{{ t(contMoveExisting ? 'inventory.scannerNeedShelfHint' : 'inventory.scannerPickShelfHint', { n: contQuantity }) }}</p>
+        <p v-if="contMoveExisting" class="gun-waiting-tip">{{ t('inventory.scannerNeedShelfMoveNote', { n: contQuantity }) }}</p>
         <div class="cont-actions">
           <el-button :disabled="contConfirming" @click="resumeContScan">{{ t('inventory.continueScan') }}</el-button>
         </div>

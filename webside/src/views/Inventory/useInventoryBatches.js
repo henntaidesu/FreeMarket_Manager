@@ -21,8 +21,8 @@ export function useInventoryBatches({ form, warehouseTreeMeta, t, onItemUpdated,
   }
 
   function emptyNewBatch() {
-    // 批次号由后端自动编号；数量是手输文本，提交时再校验
-    return { arrived_at: nowStr(), warehouse_id: null, quantity: '', remark: '' }
+    // 批次号由后端自动编号；数量下拉选（null = 未选），提交时再校验
+    return { arrived_at: nowStr(), warehouse_id: null, quantity: null, remark: '' }
   }
 
   /** 已建档、非组合商品才有批次。批次建好后只可改备注 */

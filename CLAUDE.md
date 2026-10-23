@@ -278,9 +278,11 @@ Key tables in `backend/src/db_manage/models/`:
   要判 `archive_view.is_active()` 跳过，否则历史页会 500。权限上 `system/inventory-history` 只在带该头的
   请求里算数（`page_access.require_page`）；库存页新调用了别组接口时，也要把这一页加进那组的页面列表。
 - **warehouses**: Storage locations (shelf names duplicable per warehouse)
-- **inventory_series**: 商品系列——用户自定义的一组商品（如管理番号 2101~2104），`inventory.series_id` 指向它，
-  一件商品最多一个系列。库存页可按系列筛选，关键词搜系列名命中系列下全部商品（`EXISTS` 子句，只依赖 `p`，
-  所以 count 查询也能用）。删除系列只把 `series_id` 置空。接口在 `use_web/inventory/units/inventory_series.py`，
+- **inventory_series / inventory_series_items**: 商品系列——用户自定义的一组商品（如管理番号 2101~2104）。
+  成员在 `inventory_series_items`（`(series_id, inventory_id)` 唯一），**一件商品可同时属于多个系列**；
+  旧的 `inventory.series_id` 由启动迁移 `_migrate_inventory_series_to_items` 搬过来并置空。库存页可按系列筛选，
+  关键词搜系列名命中系列下全部商品（`EXISTS` 子句，只依赖 `p`，所以 count 查询也能用）；列表行带 `series: [{id, name}]`。
+  删除系列只删成员行。系列管理页可多选系列合并（`POST /merge`，保留第一个，成员取并集）。接口在 `use_web/inventory/units/inventory_series.py`，
   单独的 `series_router` 挂在 `/inventory/series`（须先于 inventory_router 挂载，否则被 `/{pid}` 吃掉），
   页面权限 = 库存 / 系列管理（`/#/system/series`）/ 历史库存。系列管理页按管理番号整组设定成员（`PUT /{sid}/items`）。
 - **product_type_category_mappings**: 商品类型主表 (one row = one 商品类型). `inventory.product_type_id` → `mapping_id` (TEXT PK, numeric, auto-incremented on create, never user-visible). See 商品类型映射 below.

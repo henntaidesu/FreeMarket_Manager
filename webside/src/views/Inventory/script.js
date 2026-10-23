@@ -801,6 +801,10 @@ export default defineComponent({
     const contBarcode = ref('')
     const contInventory = ref(null)
     const contQuantity = ref(1)
+    /** 扫码枪入库数量下拉的选项（1~100，只能选不能输入） */
+    const GUN_QTY_OPTIONS = Array.from({ length: 100 }, (_, i) => i + 1)
+    /** 扫码枪等货架码时：true = 商品在默认仓库，扫到货架码先把现有库存整体移过去（归类） */
+    const contMoveExisting = ref(false)
     const contScanning = ref(false)
     const contConfirming = ref(false)
     const contVideoRef = ref()
@@ -3131,7 +3135,7 @@ export default defineComponent({
             category_id: row.category_id || null,
             product_type_id: row.product_type_id || null,
             owner_user_id: row.owner_user_id || null,
-            series_id: row.series_id || null,
+            series_ids: (row.series || []).map((x) => x.id),
             warehouse_id: row.warehouse_id || null,
             price: Math.round(Number(row.price ?? 0)),
             quantity: row.quantity ?? 0,
@@ -4736,10 +4740,10 @@ export default defineComponent({
         contState.value = 'found'
         return
       }
-      // 扫码枪：已有货架号 → 直接入库 1 件；在默认仓库（warehouse_id 为空）→ 等扫货架码归类
-      const wid = contInventory.value?.warehouse_id
-      if (wid) await gunStockIn(wid, false)
-      else contState.value = 'need-warehouse'
+      // 扫码枪：一律等扫货架码，入库到扫到的那个货架（不沿用原货架）；
+      // 在默认仓库（warehouse_id 为空）的商品扫到货架码时先把现有库存整体移过去
+      contMoveExisting.value = !contInventory.value?.warehouse_id
+      contState.value = 'need-warehouse'
     }
 
     // ---- 扫码枪：货架码归类 + 直接入库 ----
@@ -4760,6 +4764,17 @@ export default defineComponent({
       inboundFlashTimer = setTimeout(() => { inboundFlash.value = null }, 1000)
     }
     onBeforeUnmount(() => clearTimeout(inboundFlashTimer))
+
+    /** 点上一件入库结果的商品图：打开该商品的详情表单（扫码弹窗留在下面，关掉详情接着扫） */
+    async function openGunLastDetail() {
+      const id = contGunLast.value?.inventoryId
+      if (!id) return
+      try {
+        openDialog(await invApi.get(id))
+      } catch {
+        ElMessage.warning(t('inventory.cannotLoadInventoryItem'))
+      }
+    }
 
     function shelfById(wid) {
       return (warehouses.value || []).find((w) => Number(w.id) === Number(wid)) || null
@@ -4782,20 +4797,22 @@ export default defineComponent({
       return [w.warehouse, w.shelf_name, w.name].map((s) => String(s || '').trim()).filter(Boolean).join(' / ')
     }
 
-    /** 当前商品入库 1 件到货架号 wid。moveExisting = 默认仓库里的商品归类：先把现有库存整体移过去 */
+    /** 当前商品按下拉选的数量入库到货架号 wid。moveExisting = 默认仓库里的商品归类：先把现有库存整体移过去 */
     async function gunStockIn(wid, moveExisting) {
       const inv = contInventory.value
       if (!inv) return
+      const quantity = Math.min(100, Math.max(1, Math.round(Number(contQuantity.value) || 1)))
       contConfirming.value = true
       try {
         if (moveExisting) {
           // 改 warehouse_id：未分批商品直接换货架号，已分批商品后端把全部批次移过去（move_all_batches）
           await invApi.update(inv.id, { warehouse_id: wid })
         }
-        const res = await invApi.stockIn(inv.id, { warehouse_id: wid, quantity: 1, remark: '扫码枪入库' })
+        const res = await invApi.stockIn(inv.id, { warehouse_id: wid, quantity, remark: '扫码枪入库' })
         contGunLast.value = {
           name: inv.name || t('inventory.unnamed'),
           image: inventoryRowImages(inv)[0] || '',
+          quantity,
           newQuantity: res.new_quantity,
           place: shelfPlaceLabel(shelfById(wid)),
           shelfImage: shelfLabelImage(wid),
@@ -4828,7 +4845,7 @@ export default defineComponent({
         return
       }
       if (contState.value === 'need-warehouse') {
-        await gunStockIn(wid, true)
+        await gunStockIn(wid, contMoveExisting.value)
       } else if (contState.value === 'notfound') {
         openAddFromScan(wid)
       } else if (contState.value === 'variant-shelf') {
@@ -4869,6 +4886,22 @@ export default defineComponent({
       if (!noCodeInboundQtyAutoStart) return
       noCodeInboundQtyAutoStart = false
       confirmNoCodeInbound()
+    }
+
+    /** 详情表单里扫到货架码：「新增批次」那一行的货架切到该货架，并切到批次页让人看到 */
+    async function handleFormShelfScan(code) {
+      const wid = parseWarehouseQr(code)
+      if (wid == null || !inventoryBatches.batchesEnabled.value) return
+      if (!shelfById(wid)) {
+        try { warehouses.value = await warehouseApi.list() } catch { /* 拦截器已提示 */ }
+      }
+      if (!shelfById(wid)) {
+        ElMessage.warning(t('inventory.scannerShelfUnknown', { id: wid }))
+        return
+      }
+      if (!dialogVisible.value) return // 等货架列表期间表单被关了
+      inventoryBatches.newBatch.value.warehouse_id = wid
+      editActiveTab.value = 'batches'
     }
 
     /** 扫码枪 / 手动输入的一个码。串行执行：上一个还在查询或入库时，后一个排队，不丢也不交错 */
@@ -4976,6 +5009,12 @@ export default defineComponent({
       if (archive) return // 历史库存页不接扫码枪（扫码会走入库流程）
       const code = String(rawCode || '').trim()
       if (!code) return
+      if (dialogVisible.value) {
+        // 详情表单开着（包括从扫码结果点开、盖在扫码弹窗上的）：只认货架码，其余不进入库流程
+        focusedEl?.blur()
+        handleFormShelfScan(code)
+        return
+      }
       if (noCodeInboundVisible.value) {
         // 无码入库选货架：扫到货架码 = 选中该货架并直接开始拍照
         focusedEl?.blur()
@@ -5073,12 +5112,12 @@ export default defineComponent({
       }
     }
 
-    /** 撤回改选中的那 1 件；失败（拦截器已提示）返回 false，停在候选列表 */
+    /** 撤回改选中的那一笔入库（数量 = 当时选的件数）；失败（拦截器已提示）返回 false，停在候选列表 */
     async function undoLastInbound() {
       const r = contReclassify.value
       if (!r) return true
       try {
-        await invApi.undoStockIn(r.inventoryId, { warehouse_id: r.warehouseId, quantity: 1, remark: '撤回扫码入库（一码多货改选）' })
+        await invApi.undoStockIn(r.inventoryId, { warehouse_id: r.warehouseId, quantity: r.quantity || 1, remark: '撤回扫码入库（一码多货改选）' })
       } catch {
         return false
       }
@@ -5111,7 +5150,7 @@ export default defineComponent({
       contInventory.value = null
       contFamily.value = family
       contCandidates.value = family?.items || []
-      contReclassify.value = { inventoryId: last.inventoryId, warehouseId: last.warehouseId }
+      contReclassify.value = { inventoryId: last.inventoryId, warehouseId: last.warehouseId, quantity: last.quantity }
       contState.value = 'pick'
     }
 
@@ -5601,6 +5640,8 @@ export default defineComponent({
       contBarcode,
       contInventory,
       contQuantity,
+      GUN_QTY_OPTIONS,
+      contMoveExisting,
       contScanning,
       contConfirming,
       contVideoRef,
@@ -5618,6 +5659,8 @@ export default defineComponent({
       contGunInputRef,
       contGunInput,
       contGunLast,
+      openGunLastDetail,
+      shelfLabelImage,
       inboundFlash,
       contCaptureUseA,
       contStream,

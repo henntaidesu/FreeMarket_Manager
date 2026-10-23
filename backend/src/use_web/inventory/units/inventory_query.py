@@ -109,7 +109,8 @@ def list_inventory(
         kw_params = [f"%{kw}%", f"%{kw}%", kw, kw, f"{kw_esc}-%"]
         # 系列名命中 → 系列下全部商品
         clauses.append(
-            "EXISTS (SELECT 1 FROM [inventory_series] sk WHERE sk.id = p.series_id AND sk.name LIKE ?)"
+            "EXISTS (SELECT 1 FROM [inventory_series_items] ski JOIN [inventory_series] sk ON sk.id = ski.series_id "
+            "WHERE ski.inventory_id = p.id AND sk.name LIKE ?)"
         )
         kw_params.append(f"%{kw}%")
         # 纯数字 → 按管理番号（inventory.id）精确匹配
@@ -160,7 +161,9 @@ def list_inventory(
         where_parts.append("AND p.product_type_id = ?")
         params.append(product_type_id)
     if series_id:
-        where_parts.append("AND p.series_id = ?")
+        where_parts.append(
+            "AND EXISTS (SELECT 1 FROM [inventory_series_items] sf WHERE sf.inventory_id = p.id AND sf.series_id = ?)"
+        )
         params.append(series_id)
     # 并回过别人的货的商品：任一有货批次属于该所有人也命中
     if owner_user_id:

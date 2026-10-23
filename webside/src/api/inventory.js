@@ -60,10 +60,14 @@ export const inventoryApi = {
   createSeries: (data) => http.post('/use_web/inventory/series', data),
   renameSeries: (id, data) => http.put(`/use_web/inventory/series/${id}`, data),
   deleteSeries: (id) => http.delete(`/use_web/inventory/series/${id}`),
+  // series_ids[0] 保留，其余并入后删除
+  mergeSeries: (data) => http.post('/use_web/inventory/series/merge', data),
   // 整组设定成员（管理番号）；不在列表里的现有成员移出
   setSeriesItems: (id, data) => http.put(`/use_web/inventory/series/${id}/items`, data),
-  // series_id 为 null = 移出系列
+  // 加入系列（不影响商品原有的其他系列）
   assignSeries: (data) => http.post('/use_web/inventory/series/assign', data),
+  // 设定单件商品所属的全部系列：{ series_ids: [...] }
+  setItemSeries: (id, data) => http.put(`/use_web/inventory/series/item/${id}`, data),
   remove: (id) => http.delete(`/use_web/inventory/${id}`),
   stockIn: (id, data) => http.post(`/use_web/inventory/${id}/stock-in`, data),
   stockOut: (id, data) => http.post(`/use_web/inventory/${id}/stock-out`, data),

@@ -54,6 +54,7 @@ from .models import (
     InventoryOldModel,
     InventoryBatchOldModel,
     InventorySeriesModel,
+    InventorySeriesItemModel,
     InboundShipmentModel,
     InboundShipmentLineModel,
     InboundReceiptModel,
@@ -509,6 +510,38 @@ class DBManager:
             print(f"[错误] product_type_category_mappings 主键迁移失败: {e}")
             return False
 
+    def _migrate_inventory_series_to_items(self) -> bool:
+        """``inventory.series_id``（一件一个系列）→ ``inventory_series_items``（可多个）。
+
+        **必须在 ensure_table_exists() 之前跑**：模型已不再声明 series_id，测试库上表结构
+        同步会删掉这一列。搬完把旧列置空——生产库上旧列不会被删、会留下来，不置空的话
+        每次启动都会把用户已移出的成员再搬回去。
+        """
+        import time as _time
+
+        db = self.db
+        if not db.table_exists("inventory"):
+            return True
+        if "series_id" not in [c["name"] for c in db.get_table_columns("inventory")]:
+            return True
+        try:
+            InventorySeriesItemModel.ensure_table_exists()
+            db.execute_update(
+                "INSERT INTO [inventory_series_items] ([series_id], [inventory_id], [created_at]) "
+                "SELECT p.[series_id], p.[id], ? FROM [inventory] p "
+                "WHERE p.[series_id] IS NOT NULL AND NOT EXISTS ("
+                "SELECT 1 FROM [inventory_series_items] si "
+                "WHERE si.[series_id] = p.[series_id] AND si.[inventory_id] = p.[id])",
+                (int(_time.time()),),
+            )
+            n = db.execute_update("UPDATE [inventory] SET [series_id] = NULL WHERE [series_id] IS NOT NULL")
+            if n:
+                print(f"[OK] 商品系列归属已迁移到 inventory_series_items: {n} 件")
+            return True
+        except Exception as e:
+            print(f"[错误] 商品系列归属迁移失败: {e}")
+            return False
+
     def _migrate_restore_combined_source_stock(self) -> bool:
         """一次性：历史「组合商品」创建时曾扣减来源库存。改为「组合不扣库存、仅展示拉走件数」后，
         把曾被扣减的来源库存补回（每个来源 += Σ 组合商品库存 × 每套件数，含已软删的组合）。
@@ -718,7 +751,8 @@ class DBManager:
             InventoryBatchModel,  # 库存批次（依赖 inventory / warehouses，仅顺序习惯）
             InventoryOldModel,  # 历史库存（重新盘库前的整表归档，只读；历史数据页）
             InventoryBatchOldModel,  # 历史库存批次（同上）
-            InventorySeriesModel,  # 商品系列（inventory.series_id 指向它；用户自定义分组）
+            InventorySeriesModel,  # 商品系列（用户自定义分组）
+            InventorySeriesItemModel,  # 系列成员（一件商品可属多个系列）
             InboundShipmentModel,  # 快递单（入库快递；发出后装箱件数成为在途批次）
             InboundShipmentLineModel,  # 快递单明细
             InboundReceiptModel,  # 快递入库记录（改投货架 / 建议货架）
@@ -821,6 +855,9 @@ class DBManager:
         # 必须在下面的 ensure_table_exists() 之前：模型已不再声明旧 position 列，
         # 表结构同步一跑就会删掉它们，回填得赶在那之前取数
         if not self._migrate_ptcm_positions_to_json_array():
+            return False
+        # 同理：模型已不再声明 inventory.series_id
+        if not self._migrate_inventory_series_to_items():
             return False
 
         defined_tables = {m.get_table_name() for m in self.models}
