@@ -2,9 +2,7 @@
   <div>
     <el-card shadow="never" class="search-card">
       <div class="search-row">
-        <div class="search-left-group">
-          <span class="page-hint">{{ t('system.costRecordShipSizesHint') }}</span>
-        </div>
+        <div class="search-left-group" />
         <div class="search-actions">
           <el-button type="primary" @click="openCreate">{{ t('system.costRecordCreate') }}</el-button>
         </div>
@@ -71,7 +69,7 @@
     <el-dialog
       v-model="dialogVisible"
       :title="form.id ? t('system.costRecordEdit') : t('system.costRecordCreate')"
-      width="520px"
+      width="760px"
       destroy-on-close
     >
       <el-form :model="form" :rules="rules" ref="formRef" label-width="96px">
@@ -102,20 +100,24 @@
           />
         </el-form-item>
         <el-form-item :label="t('system.costRecordShipSizes')">
-          <el-select
-            v-model="form.ship_sizes"
-            multiple
-            filterable
-            allow-create
-            default-first-option
-            clearable
-            :placeholder="t('system.costRecordShipSizesPlaceholder')"
-            style="width: 100%"
-          >
-            <el-option-group v-for="g in SHIP_SIZE_GROUPS" :key="g.label" :label="g.label">
-              <el-option v-for="n in g.names" :key="n" :label="n" :value="n" />
-            </el-option-group>
-          </el-select>
+          <!-- 卡片多选：点一下选中，再点取消；一张都不选 = 所有尺寸都可选 -->
+          <div class="size-picker">
+            <div v-for="g in SHIP_SIZE_GROUPS" :key="g.label" class="size-group">
+              <div class="size-group__label">{{ g.label }}</div>
+              <div class="size-grid">
+                <div
+                  v-for="s in g.sizes"
+                  :key="s.name"
+                  :class="['size-card', { 'size-card--active': isSizePicked(s.name) }]"
+                  @click="toggleSize(s.name)"
+                >
+                  <img class="size-card__img" :src="shipSizeImageUrl(s.img)" alt="" @error="onSizeImgError" />
+                  <span class="size-card__name">{{ s.name }}</span>
+                  <el-icon v-if="isSizePicked(s.name)" class="size-card__check"><Check /></el-icon>
+                </div>
+              </div>
+            </div>
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>

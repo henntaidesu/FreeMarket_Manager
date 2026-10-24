@@ -2237,7 +2237,9 @@ export default defineComponent({
      *  否则翻到包材页（只列关联了该尺寸的包材）；不记包材的直接走 next（发送方法 / 拍照）。 */
     async function proceedAfterSize(next) {
       if (!shipFlowHasPackaging.value) return next()
-      if (!(packagingItemsOptions.value || []).length) await loadPackagingItemOptions()
+      // 每次都现拉：详情打开时那次预载是异步不等的，且可能在别的标签页刚改过包材的关联尺寸，
+      // 用旧数据判不出「只关联一种」就会多出一页让人再选一次
+      await loadPackagingItemOptions()
       const auto = autoPackagingItem.value
       if (auto) {
         shipPackagingRows.value = [{ item_name: auto.item_name }]

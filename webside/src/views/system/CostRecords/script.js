@@ -2,7 +2,8 @@ import { defineComponent, ref, computed, onMounted } from 'vue'
 import { ElMessage } from '@/utils/notify'
 import { useI18n } from 'vue-i18n'
 import { costRecordApi } from '@/api/index.js'
-import { SHIP_SIZE_GROUPS } from '@/constants/shipSizes.js'
+import { Check } from '@element-plus/icons-vue'
+import { SHIP_SIZE_GROUPS, shipSizeImageUrl } from '@/constants/shipSizes.js'
 
 // 库存包材 = 包材目录：只维护 物品图 / 物品名称 / 单价 / 关联发货尺寸。
 // 数量按无限计算（后端不再扣减、不再按数量过滤），所以这里不显示也不提交数量。
@@ -66,6 +67,20 @@ export default defineComponent({
       dialogVisible.value = true
     }
 
+    function isSizePicked(name) {
+      return (form.value.ship_sizes || []).includes(name)
+    }
+
+    function toggleSize(name) {
+      const cur = form.value.ship_sizes || []
+      form.value.ship_sizes = cur.includes(name) ? cur.filter((s) => s !== name) : [...cur, name]
+    }
+
+    // 插图缺失时隐藏，卡片只留名字
+    function onSizeImgError(e) {
+      e.target.style.visibility = 'hidden'
+    }
+
     async function submit() {
       await formRef.value?.validate()
       submitting.value = true
@@ -124,7 +139,12 @@ export default defineComponent({
 
     return {
       t,
+      Check,
       SHIP_SIZE_GROUPS,
+      shipSizeImageUrl,
+      isSizePicked,
+      toggleSize,
+      onSizeImgError,
       loading,
       submitting,
       list,
