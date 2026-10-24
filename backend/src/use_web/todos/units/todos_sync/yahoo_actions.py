@@ -153,6 +153,7 @@ async def yahoo_ship_qr_endpoint(
         is_post_box_method,
         parse_material_code,
         resolve_ship_method,
+        validate_contents_name,
     )
     from . import virtual_ship
     from .qr_photo import cleanup_photo, decode_qr, mark_shipping, save_photo
@@ -175,6 +176,12 @@ async def yahoo_ship_qr_endpoint(
     # 拒绝同一件事；哪天雅虎多出一档投函型，虚拟发货也不会跟着自动放行。
     if req.virtual:
         virtual_ship.ensure_size_allowed(req.size)
+    # 品名在入队前就校验：组合购买的品名框是空的，空品名 / 非法字符要等任务跑到
+    # 雅虎 /shipcode 才 400，那时照片已落盘、行已标成「发货中」，还得再走一遍重试。
+    try:
+        item_name = validate_contents_name(req.item_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
     qr_text = decode_qr(req.photo)
     if not qr_text:
@@ -195,7 +202,7 @@ async def yahoo_ship_qr_endpoint(
         "order_no": item_id,
         # class_text 与煤炉同义：本单提交时选的商品尺寸
         "class_text": req.size,
-        "item_name": req.item_name,
+        "item_name": item_name,
         "material_code": material_code,
         "qr_text": qr_text,
     }

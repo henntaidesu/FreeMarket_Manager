@@ -579,6 +579,69 @@
                 </el-button>
               </div>
             </div>
+            <!-- 发货扫码照片 + 解出的码：仅「已扫码(排队/执行中)」与「失败」期间存在（成功后照片已删除）。
+                 两个平台共用：失败时可就地重扫（原照片）或换一张重拍，不必回列表。 -->
+            <div v-if="shipQrPhotoUrl" class="detail-shipqr">
+              <div class="detail-shipqr__head">
+                <span class="detail-label">{{ t('todos.shipQrPhotoTitle') }}</span>
+                <el-tag
+                  :type="shipQrFailed ? 'danger' : 'success'"
+                  size="small"
+                  effect="light"
+                >{{ shipQrFailed ? t('todos.kind.shipFailed') : t('todos.kind.scanned') }}</el-tag>
+              </div>
+              <el-image
+                class="detail-shipqr__img"
+                :src="shipQrPhotoUrl"
+                :preview-src-list="[shipQrPhotoUrl]"
+                :preview-teleported="true"
+                fit="contain"
+              >
+                <template #error><span class="thumb-fallback">-</span></template>
+              </el-image>
+              <!-- 后端从这张照片里解出来的二维码原文：发给平台的就是它（煤炉注入扫描页、雅虎取中间 30 位材料码）。
+                   失败时这是唯一能核对「当时读到的是哪个码」的东西，所以直接摊开显示。
+                   末 5 位行内标红 + 下方单独放大 —— 跟贴纸核对时眼睛只找这几位。 -->
+              <div v-if="shipQrText" class="detail-shipqr__text">
+                <span class="detail-label">{{ t('todos.shipQrText') }}</span>
+                <span class="detail-shipqr__code"
+                  >{{ shipQrTextParts.head
+                  }}<span class="detail-shipqr__code-tail">{{ shipQrTextParts.tail }}</span
+                  >{{ shipQrTextParts.rest }}</span
+                >
+              </div>
+              <div v-if="shipQrTail" class="detail-shipqr__tail">
+                <span class="detail-label">{{ t('todos.shipQrTail') }}</span>
+                <span class="detail-shipqr__tail-value">{{ shipQrTail }}</span>
+              </div>
+              <!-- 雅虎重试要带品名：组合购买的交易页品名框是空的，上次失败常常就败在品名上，
+                   不给改的话「重新扫码」只会原样再败一次。 -->
+              <div v-if="shipQrCanRetry && isYahoo" class="detail-shipqr__text">
+                <span class="detail-label">{{ t('todos.yahoo.itemName') }}</span>
+                <el-input
+                  v-model="yahooForm.item_name"
+                  :maxlength="yahooItemNameMax"
+                  show-word-limit
+                  :placeholder="t('todos.yahoo.itemNamePlaceholder')"
+                />
+              </div>
+              <div class="detail-shipqr__actions">
+                <!-- 「重新扫码」用的还是这张照片与这段码：失败几乎都出在扫码之后
+                     （开浏览器/进扫描页/发行配送码/发通知），重拍一张一样的没有意义。 -->
+                <el-button
+                  v-if="shipQrCanRetry"
+                  size="default"
+                  type="primary"
+                  :loading="shipQrRetrying"
+                  @click="onRetryShipQr"
+                >
+                  {{ t('todos.shipQrRetry') }}
+                </el-button>
+                <el-button v-if="!isYahoo || !yahooShipped" size="default" type="warning" @click="onRetakeShipQr">
+                  {{ t('todos.shipQrRetake') }}
+                </el-button>
+              </div>
+            </div>
             <!-- 虚拟发货完成：平台侧已发行配送码并通知买家（买家的受取期限已经在走），
                  只差把实物投进邮筒。此时没有任何发货动作可做——再发一次会被平台以
                  「已发行配送码」拒绝——所以整栏收成一句说明 + 「已实际发货」。 -->
@@ -654,7 +717,8 @@
                   />
                 </div>
               </div>
-              <div v-else class="detail-ship-form">
+              <!-- 扫码流程进行中/失败时（isShipQrActive）不显示——与煤炉同口径，发货已交给重扫任务接管 -->
+              <div v-else-if="!isShipQrActive" class="detail-ship-form">
                 <div class="detail-method-row">
                   <div class="detail-method-head">
                     <img
@@ -745,58 +809,6 @@
             </template>
 
             <template v-else>
-            <!-- 发货扫码照片 + 解出的码：仅「已扫码(排队/执行中)」与「失败」期间存在（成功后照片已删除）。
-                 失败时可就地重扫（原照片）或换一张重拍，不必回列表。 -->
-            <div v-if="shipQrPhotoUrl" class="detail-shipqr">
-              <div class="detail-shipqr__head">
-                <span class="detail-label">{{ t('todos.shipQrPhotoTitle') }}</span>
-                <el-tag
-                  :type="shipQrFailed ? 'danger' : 'success'"
-                  size="small"
-                  effect="light"
-                >{{ shipQrFailed ? t('todos.kind.shipFailed') : t('todos.kind.scanned') }}</el-tag>
-              </div>
-              <el-image
-                class="detail-shipqr__img"
-                :src="shipQrPhotoUrl"
-                :preview-src-list="[shipQrPhotoUrl]"
-                :preview-teleported="true"
-                fit="contain"
-              >
-                <template #error><span class="thumb-fallback">-</span></template>
-              </el-image>
-              <!-- 后端从这张照片里解出来的二维码原文：发给煤炉扫描器的就是它。
-                   失败时这是唯一能核对「当时读到的是哪个码」的东西，所以直接摊开显示。
-                   末 5 位行内标红 + 下方单独放大 —— 跟贴纸核对时眼睛只找这几位。 -->
-              <div v-if="shipQrText" class="detail-shipqr__text">
-                <span class="detail-label">{{ t('todos.shipQrText') }}</span>
-                <span class="detail-shipqr__code"
-                  >{{ shipQrTextParts.head
-                  }}<span class="detail-shipqr__code-tail">{{ shipQrTextParts.tail }}</span
-                  >{{ shipQrTextParts.rest }}</span
-                >
-              </div>
-              <div v-if="shipQrTail" class="detail-shipqr__tail">
-                <span class="detail-label">{{ t('todos.shipQrTail') }}</span>
-                <span class="detail-shipqr__tail-value">{{ shipQrTail }}</span>
-              </div>
-              <div class="detail-shipqr__actions">
-                <!-- 「重新扫码」用的还是这张照片与这段码：失败几乎都出在扫码之后
-                     （开浏览器/进扫描页/发通知），重拍一张一样的没有意义。 -->
-                <el-button
-                  v-if="shipQrFailed"
-                  size="default"
-                  type="primary"
-                  :loading="shipQrRetrying"
-                  @click="onRetryShipQr"
-                >
-                  {{ t('todos.shipQrRetry') }}
-                </el-button>
-                <el-button size="default" type="warning" @click="onRetakeShipQr">
-                  {{ t('todos.shipQrRetake') }}
-                </el-button>
-              </div>
-            </div>
             <!-- 已发行二维码/条形码：发送场所（图标 + 标题 + 说明）+ 发货码 -->
             <template v-if="detail.qr_image_url">
               <div v-if="detail.shipping_facility_name || detail.shipping_facility_image_url" class="detail-facility">
@@ -1321,8 +1333,18 @@
       <!-- 第 3 步：发送方法（发货场所） -->
       <!-- ── 雅虎第 2 步：选择商品尺寸。与煤炉尺寸页同一套卡片（复用 ship-card 类）：
            插图 + 规格行 + 注意事项，文案与排序都对齐煤炉的 SHIPPING_OPTIONS。
-           品名不在这里填：雅虎已按商品名预填好，改它没有意义（买家与配送公司看到的就是它）。 -->
+           品名也在这一页：普通单雅虎已按商品名预填，但组合购买（まとめ買い）的品名框是空的，
+           回落用的商品标题又是出品文案——雅虎必填且只收 EUC-JP 字符，不给改就发不出去。 -->
       <template v-else-if="shippingStep === 'ysize'">
+          <div class="yship-field">
+            <span class="yship-label">{{ t('todos.yahoo.itemName') }}</span>
+            <el-input
+              v-model="yahooForm.item_name"
+              :maxlength="yahooItemNameMax"
+              show-word-limit
+              :placeholder="t('todos.yahoo.itemNamePlaceholder')"
+            />
+          </div>
           <el-radio-group v-if="yahooSizeCards.length" v-model="yahooForm.size" class="ship-radio-group">
             <div
               v-for="opt in yahooSizeCards"

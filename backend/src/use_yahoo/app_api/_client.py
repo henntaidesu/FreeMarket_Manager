@@ -257,8 +257,11 @@ def _request_sync(
             row, access = _ensure_access_token(int(account_id), force=True)
             continue
         if resp.status_code >= 400:
+            # 正文要进消息本身：任务行只记 str(exc)，只剩「HTTP 400」就无从知道雅虎为什么拒
+            detail = " ".join((resp.text or "").split())[:300]
             raise YahooAppApiError(
-                f"雅虎 App API {method.upper()} {url} 返回 HTTP {resp.status_code}",
+                f"雅虎 App API {method.upper()} {url} 返回 HTTP {resp.status_code}"
+                + (f"：{detail}" if detail else ""),
                 status=resp.status_code,
                 body=(resp.text or "")[:500],
             )

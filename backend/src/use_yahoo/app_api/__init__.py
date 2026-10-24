@@ -13,6 +13,7 @@ from ._client import (
     get_token_status,
     save_token,
 )
+from .contents_name import suggest_contents_name, validate_contents_name
 from .oauth import build_authorization_request, login_yahoo_app_account
 from .ship import (
     fetch_app_ship_state,
@@ -43,4 +44,6 @@ __all__ = [
     "resolve_ship_method",
     "save_token",
     "ship_via_app",
+    "suggest_contents_name",
+    "validate_contents_name",
 ]

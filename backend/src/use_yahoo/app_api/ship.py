@@ -16,8 +16,8 @@ import logging
 from typing import Any, Dict
 
 from ._client import YahooAppApiError
+from .contents_name import suggest_contents_name, validate_contents_name
 from .trade import (
-    CONTENTS_NAME_MAX_LEN,
     JAPAN_POST_SHIP_METHODS,
     VENDOR_JAPAN_POST,
     check_material_code,
@@ -65,7 +65,8 @@ def _summarize(seller: Dict[str, Any]) -> Dict[str, Any]:
         "tracking_no": (str(order.get("shipInvoiceNumber") or "").strip() or None),
         "shippable": progress == _SHIPPABLE_PROGRESS,
         "ship_notified": progress in _SHIPPED_PROGRESS,
-        "item_name": (str((seller.get("item") or {}).get("title") or "").strip() or None),
+        # 交易页品名框为空时（组合购买）前端拿它当默认品名，所以给的是剥过标签的建议值，不是原标题
+        "item_name": suggest_contents_name(str((seller.get("item") or {}).get("title") or "")) or None,
     }
 
 
@@ -94,9 +95,7 @@ async def ship_via_app(
     成功后**还没有**通知买家发货，需要在真的投函之后再调 ``notify_shipped_via_app``。
     """
     method = resolve_ship_method(ship_method)
-    name = (item_name or "").strip()[:CONTENTS_NAME_MAX_LEN]
-    if not name:
-        raise ValueError("品名不能为空（雅虎必填）")
+    name = validate_contents_name(item_name)
     code = parse_material_code(material_code) if (material_code or "").strip() else ""
     if is_post_box_method(method) and not code:
         raise ValueError(

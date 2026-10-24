@@ -11,8 +11,9 @@
 任务——``ship_qr_state`` 的失败复位、取消复位、关处理弹窗时的会话守卫全都挂在那个类型上，
 换一个新类型就得在每一处重新登记，漏一处就会留下永远卡在「发货中」的行。
 
-**只对煤炉开放。** 雅虎侧同一个失败态意味着配送コード可能已经发行，重跑会被雅虎以
-「已经发行过配送コード」拒绝；那边的补救口是详情面板的「补发发货通知」。
+雅虎投函型同样可以重试：``ship_via_app`` 每次都先向雅虎回读交易状态，配送コード已发行
+就直接拒绝（「已经发行过配送コード」），绝不会重复发行——所以失败在发行之前（例如
+``/shipcode`` 返回 400）的单子重跑是安全的；已发行、只差通知的仍走「补发发货通知」。
 """
 from __future__ import annotations
 
@@ -36,6 +37,19 @@ def _abs_photo_path(web_path: str) -> str:
     return os.path.join(get_image_root(), name) if name else ""
 
 
+def _yahoo_payload_fields(todo: Any, req: ShippingQrRetryRequest, qr_text: str) -> Dict[str, Any]:
+    """雅虎任务另需材料码与品名（与 ``yahoo_ship_qr_endpoint`` 入队时的字段同名）。"""
+    from .....use_yahoo.app_api import parse_material_code, validate_contents_name
+
+    try:
+        material_code = parse_material_code(qr_text)
+        # 品名随这次请求带上（详情面板可改）：上次失败常常就是品名的问题，照抄旧值只会再败一次
+        item_name = validate_contents_name(req.item_name or getattr(todo, "item_name", "") or "")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"material_code": material_code, "item_name": item_name}
+
+
 async def retry_shipping_qr(
     todo_id: int, req: ShippingQrRetryRequest, claims: Dict[str, Any]
 ) -> Dict[str, Any]:
@@ -49,11 +63,6 @@ async def retry_shipping_qr(
         raise HTTPException(status_code=404, detail="待办事项不存在")
 
     platform = (getattr(todo, "platform", "") or "mercari").strip().lower()
-    if platform == "yahoo":
-        raise HTTPException(
-            status_code=400,
-            detail="雅虎的配送コード不能重复发行，请用详情面板的「补发发货通知」。",
-        )
 
     state = (getattr(todo, "ship_qr_state", "") or "").strip().lower()
     if state == "shipping":
@@ -101,6 +110,8 @@ async def retry_shipping_qr(
         "facility": None,
         "order_no": str(getattr(todo, "item_id", "") or "").strip(),
     }
+    if platform == "yahoo":
+        payload.update(_yahoo_payload_fields(todo, req, qr_text))
     if req.timeout_sec:
         payload["timeout_sec"] = float(req.timeout_sec)
 

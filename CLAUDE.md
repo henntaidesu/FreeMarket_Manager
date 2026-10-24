@@ -1063,6 +1063,17 @@ soft-delete, inventory counters and order upsert semantics stay identical across
     string gets a flat rejection with no hint why. It is idempotent, so an already-extracted code
     passes through unchanged. Yahoo also answers a malformed code with **HTTP 400, not
     `status: NG`** — `check_material_code` folds a 400 into `NG`.
+  - **品名 (`contentsGroupName`) is validated before anything leaves this server**
+    (`app_api/contents_name.py`, same rule as the app's `nb/a.java`: non-blank, ≤17, NFKC then
+    lossless EUC-JP round-trip). A **まとめ買い** trade page has an *empty* 品名 box (z708827142),
+    and the fallback title `＜まとめ買い＞ …` is listing copy, not a 品名 — `suggest_contents_name`
+    strips bracket tags and trims by word, and the wizard's size step now has an editable 品名 field.
+    Checked at enqueue (`/yahoo/ship-qr`, `/retry-ship-qr`) and in `ship_yahoo_todo`, so a bad name
+    400s on the spot instead of failing inside the task at `/shipcode`. App API 4xx messages now
+    carry the response body — before, the task row only said `HTTP 400`.
+  - **「重新扫码」works for Yahoo too** (`qr_retry.py`): safe because `ship_via_app` re-reads the
+    trade and refuses if a code was already issued. The panel hides it once `yahooShipped` (code
+    issued, only the notice missing) — that case is still 补发发货通知.
 - `use_yahoo/orders/batch_refresh.py` — 订单「更新状态」的雅虎实现（逐条重读交易页）。
   `OrderModel.find_for_batch_info_refresh` now takes `platform`; without it the Mercari
   `transaction_evidences` batch would pick up `z…` orders and open Mercari transaction pages that

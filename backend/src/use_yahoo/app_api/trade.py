@@ -51,9 +51,6 @@ POST_BOX_SHIP_METHODS: Tuple[str, ...] = ("JP_YUPACKET_POST", "JP_YUPACKET_POST_
 #: 承运商枚举名（``ShipVendor``）。发货方式与承运商必须匹配，否则 shipcode 会被服务端拒。
 VENDOR_JAPAN_POST = "JAPAN_POST"
 
-#: 品名上限，与网页端发货表单的 maxlength 一致
-CONTENTS_NAME_MAX_LEN = 17
-
 
 def is_post_box_method(ship_method: str) -> bool:
     """该发货方式是否是「投函型」（ゆうパケットポスト / mini）。"""

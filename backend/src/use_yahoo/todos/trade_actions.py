@@ -40,6 +40,7 @@ from ..app_api import (
     notify_shipped_via_app,
     resolve_ship_method,
     ship_via_app,
+    validate_contents_name,
 )
 from .todo_sync import YAHOO_WAIT_REPLY_KIND, YAHOO_WAIT_SHIPPING_KIND
 
@@ -189,6 +190,8 @@ async def ship_yahoo_todo(
     （专用箱/シール/封筒 上的二维码）。
     """
     aid, item_id = _resolve_yahoo_todo(todo_id)
+    # 两条路共用同一套品名规则（雅虎服务端也只认这一套），在开浏览器 / 调接口之前就拦下
+    item_name = validate_contents_name(item_name)
     if _wants_app_path(size):
         return await _ship_yahoo_todo_via_app(
             todo_id,

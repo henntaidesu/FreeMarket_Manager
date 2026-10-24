@@ -94,6 +94,8 @@ class ShippingQrRetryRequest(PydanticModel):
     timeout_sec: Optional[float] = None
     #: 前端一次点击生成的幂等 token
     client_token: Optional[str] = Field(default=None, max_length=128)
+    #: 雅虎必填的品名（详情面板当前的值）；留空回落到待办行上的商品名
+    item_name: Optional[str] = Field(default=None, max_length=200)
 
 
 class SubmitTransactionReviewRequest(PydanticModel):

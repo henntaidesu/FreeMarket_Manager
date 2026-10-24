@@ -451,6 +451,8 @@ export default defineComponent({
         !!detail.yahoo_app?.is_ship_code_created &&
         !detail.yahoo_app?.ship_notified,
     )
+    /** 品名上限：交易页输入框的 maxlength，读不到时用雅虎的 17 */
+    const yahooItemNameMax = computed(() => Number(detail.yahoo_ship_form?.item_name_max || 17))
     const canSubmitYahooShip = computed(() => {
       if (!yahooForm.item_name.trim() || !yahooForm.size) return false
       return isYahooPostBoxSize.value ? !!qrShot.value : !!yahooForm.location
@@ -1572,6 +1574,8 @@ export default defineComponent({
       return p ? mercariImageUrl(p) : ''
     })
     const shipQrFailed = computed(() => currentRow.value?.ship_qr_state === 'failed')
+    /** 能不能「重新扫码」：雅虎配送コード已发行（只差通知）时重跑会被拒，补救口是「补发发货通知」 */
+    const shipQrCanRetry = computed(() => shipQrFailed.value && !(isYahoo.value && yahooShipped.value))
     /** 后端从这张照片里解出来的二维码原文。发出去的就是它（注入煤炉扫描页的正是这段文本），
      *  所以失败时它是唯一能拿来核对「当时到底读到了哪个码」的东西 —— 详情面板直接显示。 */
     const shipQrText = computed(() => String(currentRow.value?.ship_qr_text || '').trim())
@@ -1607,6 +1611,14 @@ export default defineComponent({
       // 上次是按虚拟发货提交的（意图还留在行上），重拍必须照旧带着它——否则重来一次
       // 就悄悄变成普通发货，这单办完直接消失，没人再记得实物还没投出去。
       const wasVirtual = row.virtual_ship_state === 'pending'
+      if (isYahoo.value) {
+        // 雅虎：回到尺寸页（品名也在那一页，上次常常就败在品名上），预选上次的尺寸；
+        // 点尺寸卡片即进拍照页。包材在第一次提交时已记账，不再走包材页。
+        resetQrScanState()
+        openShipFlow({ target: 'yahoo', withPackaging: false, virtual: wasVirtual })
+        if (row.ship_qr_class_text) yahooForm.size = row.ship_qr_class_text
+        return
+      }
       if (row.ship_qr_class_text) {
         // 记得上次选的尺寸 → 向导只开拍照这一页，任务用它重走完整流程
         openShipFlow({ target: 'mercari', withPackaging: false, scanOnly: true, virtual: wasVirtual })
@@ -1631,7 +1643,10 @@ export default defineComponent({
       if (!id || shipQrRetrying.value) return
       shipQrRetrying.value = true
       try {
-        await todosApi.retryShipQr(id, { client_token: newClientToken() })
+        const body = { client_token: newClientToken() }
+        // 雅虎重发要带品名（面板上可改）；煤炉不需要
+        if (isYahoo.value) body.item_name = yahooForm.item_name.trim()
+        await todosApi.retryShipQr(id, body)
         ElMessage.success(t('tasks.enqueued'))
         // 与拍照提交同一收尾：后续全在后台任务里跑，详情页已无可操作的东西
         detailDialogVisible.value = false
@@ -1884,10 +1899,11 @@ export default defineComponent({
       // 品名雅虎已按商品名预填过，用户可改；已选过的尺寸/场所回显。
       // 回落用的商品名常常超过雅虎的 17 字上限（页面输入框会自行截断），这里先截好，
       // 免得计数器显示超限、提交的却是被悄悄截短的另一个品名。
-      // 交易页的品名框可能是空的（实测 z708827142），待办行也未必有商品名，再回落到 App 读到的商品标题——
-      // 向导里没有品名输入框，这里留空的话提交按钮会一直点不动。
+      // 组合购买（まとめ買い）的交易页品名框是空的（实测 z708827142），回落到 App 读到的商品标题——
+      // 后端已剥掉「＜まとめ買い＞」这类标签并按词截到 17 字（suggest_contents_name），比待办行上的原始
+      // 商品名更像品名，所以排在它前面。这只是默认值，向导尺寸页与失败重试处都能改。
       yahooForm.item_name = String(
-        form?.item_name || currentRow.value?.item_name || detail.yahoo_app?.item_name || '',
+        form?.item_name || detail.yahoo_app?.item_name || currentRow.value?.item_name || '',
       )
         .slice(0, Number(form?.item_name_max || 17))
       yahooForm.size = form?.size || ''
@@ -3245,6 +3261,8 @@ export default defineComponent({
       openPrinterSettings,
       shipQrPhotoUrl,
       shipQrFailed,
+      shipQrCanRetry,
+      yahooItemNameMax,
       shipQrText,
       shipQrTail,
       shipQrTextParts,
