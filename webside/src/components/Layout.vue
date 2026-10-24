@@ -695,13 +695,13 @@ const handleLogout = async () => {
    按钮直接压在页面标题上 */
 @media (max-width: 768px) {
   .main-content {
-    /* 顶部同时避开刘海（独立 App 模式状态栏透明）与左上角悬浮菜单按钮；
-       左右 / 底部让开横屏刘海与 Home 指示条 */
+    /* 顶部避开刘海（独立 App 模式状态栏透明）；底部给左下角悬浮菜单按钮留出位置，
+       滚到底时最后一行内容不被它盖住；左右让开横屏刘海 */
     padding: 12px;
-    padding-top: calc(56px + env(safe-area-inset-top, 0px));
+    padding-top: max(12px, env(safe-area-inset-top, 0px));
     padding-left: max(12px, env(safe-area-inset-left, 0px));
     padding-right: max(12px, env(safe-area-inset-right, 0px));
-    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px));
   }
 }
 
@@ -740,15 +740,17 @@ const handleLogout = async () => {
 }
 .layout-mobile-fab {
   position: fixed;
-  left: max(12px, env(safe-area-inset-left, 0px));
-  top: max(12px, env(safe-area-inset-top, 0px));
+  left: calc(16px + env(safe-area-inset-left, 0px));
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   z-index: 5020;
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
-  background: #121b2e;
-  border: 1px solid #253149;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: rgba(18, 27, 46, 0.88);
+  border: 1px solid #2f3d5a;
   color: #ecf2ff;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;

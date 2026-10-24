@@ -37,7 +37,7 @@
 
 /* 置顶筛选栏：加 search-card--sticky，下拉列表时筛选栏贴在滚动区（Layout 的 .main-content）顶端。
    粘性定位以滚动容器的内边距为界，top 取负的上内边距才贴到真正的顶边；
-   手机端上内边距要让开悬浮菜单按钮，保持 0 即停在按钮下方。
+   手机端菜单按钮在左下角，上内边距只让开刘海，见下方媒体查询。
    卡片背景不透明（App.vue 的 .el-card），z-index 压过表格表头与卡片视图 */
 .search-card--sticky {
   position: sticky;
@@ -316,7 +316,8 @@
     margin-bottom: 12px;
   }
   .search-card--sticky {
-    top: 0;
+    /* 手机端上内边距 = max(12px, 刘海)：贴到刘海下沿，没有刘海时贴到顶边 */
+    top: calc(env(safe-area-inset-top, 0px) - max(12px, env(safe-area-inset-top, 0px)));
   }
   .search-row {
     gap: 10px;

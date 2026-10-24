@@ -1859,7 +1859,11 @@ export default defineComponent({
       // 品名雅虎已按商品名预填过，用户可改；已选过的尺寸/场所回显。
       // 回落用的商品名常常超过雅虎的 17 字上限（页面输入框会自行截断），这里先截好，
       // 免得计数器显示超限、提交的却是被悄悄截短的另一个品名。
-      yahooForm.item_name = String(form?.item_name || currentRow.value?.item_name || '')
+      // 交易页的品名框可能是空的（实测 z708827142），待办行也未必有商品名，再回落到 App 读到的商品标题——
+      // 向导里没有品名输入框，这里留空的话提交按钮会一直点不动。
+      yahooForm.item_name = String(
+        form?.item_name || currentRow.value?.item_name || detail.yahoo_app?.item_name || '',
+      )
         .slice(0, Number(form?.item_name_max || 17))
       yahooForm.size = form?.size || ''
       yahooForm.location = form?.location || ''
@@ -2141,7 +2145,11 @@ export default defineComponent({
      *  照片读不出会当场 400 让用户重拍，不会排队几分钟才发现照糊了。 */
     async function submitYahooShipQr() {
       const row = currentRow.value
-      if (!row?.id || !canSubmitYahooShip.value || yahooShipLoading.value) return
+      if (!row?.id || yahooShipLoading.value) return
+      if (!canSubmitYahooShip.value) {
+        ElMessage.warning(t('todos.yahoo.shipFormIncomplete'))
+        return
+      }
       // 发行配送码后雅虎侧不可撤回：出发前先确认所选包材仍存在且库存足够
       if (!(await validatePackagingBeforeShip())) return
       yahooShipLoading.value = true
