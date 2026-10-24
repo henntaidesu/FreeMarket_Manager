@@ -476,6 +476,20 @@ is the single lookup used by the listing dispatcher.
    forcing a logout kills every existing token immediately. Set a positive number to also get
    time-based expiry.
 
+### 门户单点登录（`src/portal_sso/`，系统设置 → 系统关联）
+
+门户（`D:\Project\Portal`）当 OIDC 提供方，本系统当客户端，授权码 + PKCE。对接规格见
+`D:\Project\Portal\docs\单点登录对接文档.md`。**本系统这边打开且配齐才生效**（`settings.is_active`），
+否则 `/use_web/sso/*` 除 `/status` 外一律 404、登录页不画按钮。配置在 `config` 表 `portal_sso_*` 键，
+绑定关系在 `sso_identities` 表（`(provider, subject)` 唯一，subject = 门户用户 id）。
+
+- 回调后**不把 JWT 放进地址**：跳 `#/login?sso_ticket=` 一次性票（进程内 60 秒），前端 POST
+  `/use_web/sso/exchange` 换回与密码登录相同的 `{token, user}`——JWT 默认永不过期，进地址栏就进了历史和 nginx 日志。
+- 认人：sub → 已绑定用户；否则按用户名（不分大小写）匹配并绑定；都没有则按配置自动新建（不可密码登录、
+  非管理员、挂「新用户默认角色」）。同名用户已绑着别的 sub 时拒绝，不自动改绑。**用户名不随门户改名**
+  （它是密码登录的登录名）。
+- 门户的 `groups: ["admin"]` 有意**不**映射成本系统管理员。
+
 ### 系统角色 / 页面权限（`src/page_access.py`）
 
 一个角色（表 `roles`）= 一组可访问的页面；`users.role_id` 指向它。页面 key = 前端路由路径去掉

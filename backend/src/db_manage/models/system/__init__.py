@@ -16,6 +16,7 @@ from .system_log import SystemLogModel
 from .task_queue import TaskQueueModel
 from .user import UserModel
 from .role import RoleModel
+from .sso_identity import SsoIdentityModel
 from .config_entry import ConfigEntryModel
 from .image_asset import ImageAssetModel
 
@@ -35,6 +36,7 @@ __all__ = [
     "TaskQueueModel",
     "UserModel",
     "RoleModel",
+    "SsoIdentityModel",
     "ConfigEntryModel",
     "ImageAssetModel",
 ]

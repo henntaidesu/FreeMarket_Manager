@@ -27,6 +27,7 @@ from ..auth import require_auth
 from ..page_access import require_page
 
 from .login.API import router as login_router
+from .sso.API import router as sso_router
 from .dashboard.API import router as dashboard_router
 from .system.API import router as system_router
 from .system.API import public_router as system_public_router
@@ -54,6 +55,8 @@ router = APIRouter(prefix="/use_web")
 # ============ 公开端点（无需认证） ============
 # 登录页：login 端点 + 启动种子事件（自带失败锁定，见 login_handler）
 router.include_router(login_router, prefix="/login", tags=["login"])
+# 门户单点登录（登录页的「门户登录」按钮）。本系统没开时除 /status 外一律 404，见 sso/API.py
+router.include_router(sso_router, prefix="/sso", tags=["sso"])
 
 # 两个图片端点是公开的（前端 <img> 直接用 URL 访问，带不了 Bearer 头），但它们都会让
 # 服务端干重活：缩略图要解码+落盘，代理要发外网请求+落盘。服务绑 0.0.0.0、CORS 为 *，

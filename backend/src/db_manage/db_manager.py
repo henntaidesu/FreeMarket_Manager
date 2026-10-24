@@ -19,6 +19,7 @@ from .models import (
     TransactionModel,
     UserModel,
     RoleModel,
+    SsoIdentityModel,
     CostRecordModel,
     CostExpenseModel,
     SettlementRecordModel,
@@ -745,6 +746,7 @@ class DBManager:
         return [
             UserModel,        # 无外键依赖（登录依赖）
             RoleModel,        # 系统角色（users.role_id 指向它；鉴权每请求 LEFT JOIN）
+            SsoIdentityModel,  # 门户单点登录的身份绑定（user_id 指向 users，仅顺序习惯）
             ConfigEntryModel,  # 键值配置（出品默认值等）
             CategoryModel,    # 无外键依赖
             WarehouseModel,   # 无外键依赖

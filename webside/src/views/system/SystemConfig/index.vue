@@ -170,6 +170,95 @@
           </div>
         </section>
 
+        <!-- 系统关联 · 门户单点登录：本系统这边打开且配齐才生效（登录页才出现「门户登录」），
+             门户那边还要在 conf.json 的 idp.clients 里登记本系统。两边都同意才能用。 -->
+        <section v-if="auth.isAdmin" v-show="sectionShown('sso')" id="sc-sso" class="sc-panel">
+          <div class="sc-panel-head">
+            <span class="sc-ic"><el-icon :size="16"><Share /></el-icon></span>
+            <div class="sc-head-text">
+              <div class="sc-panel-title">{{ t('systemConfig.ssoSection') }}</div>
+            </div>
+          </div>
+
+          <div class="sc-panel-body">
+            <div class="sc-field">
+              <div class="sc-label">{{ t('systemConfig.ssoEnable') }}</div>
+              <el-switch v-model="ssoEnabled" :loading="ssoSwitching" :disabled="!sso.configured"
+                         :before-change="onToggleSso" />
+            </div>
+
+            <div class="sc-grid sc-grid--tight">
+              <div class="sc-field">
+                <div class="sc-label">{{ t('systemConfig.ssoPortalUrl') }}</div>
+                <el-input v-model="ssoForm.portal_url" placeholder="https://portal.example.com" />
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">{{ t('systemConfig.ssoInternalUrl') }}</div>
+                <el-input v-model="ssoForm.internal_url" :placeholder="t('systemConfig.ssoInternalUrlPlaceholder')" />
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">Client ID</div>
+                <el-input v-model="ssoForm.client_id" />
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">Client Secret</div>
+                <el-input v-model="ssoForm.client_secret" type="password" show-password
+                          :placeholder="sso.secret_set ? t('systemConfig.ssoSecretKeep') : ''" />
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">{{ t('systemConfig.ssoAutoCreate') }}</div>
+                <el-switch v-model="ssoForm.auto_create" />
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">{{ t('systemConfig.ssoDefaultRole') }}</div>
+                <el-select v-model="ssoForm.default_role_id" clearable :placeholder="t('systemConfig.ssoNoRole')">
+                  <el-option v-for="r in roles" :key="r.id" :label="r.name" :value="r.id" />
+                </el-select>
+              </div>
+              <div class="sc-field">
+                <div class="sc-label">{{ t('systemConfig.ssoButtonLabel') }}</div>
+                <el-input v-model="ssoForm.button_label" maxlength="20" />
+              </div>
+            </div>
+
+            <div class="sc-actions">
+              <el-button :loading="ssoSaving" @click="onSaveSso">{{ t('systemConfig.save') }}</el-button>
+              <el-button :loading="ssoTesting" :disabled="!sso.configured" @click="onTestSso">
+                {{ t('systemConfig.ssoTest') }}
+              </el-button>
+              <span v-if="ssoTestResult" class="sc-result" :class="{ 'is-ok': ssoTestResult.ok }">
+                <span class="sc-dot" :class="ssoTestResult.ok ? 'is-ok' : 'is-bad'" />
+                {{ ssoTestResult.message }}
+              </span>
+            </div>
+
+            <!-- 门户里要登记的回调地址：浏览器打开本系统用哪个地址，就登记哪个（多个域名各登记一条） -->
+            <div class="sc-note sc-note--gap">
+              {{ t('systemConfig.ssoCallbackHint') }}<code>{{ ssoCallbackUrl }}</code>
+            </div>
+          </div>
+
+          <div class="sc-panel-body sc-panel-body--flush">
+            <el-table :data="ssoBindings" v-loading="ssoBindingsLoading" class="sc-table"
+                      :empty-text="t('systemConfig.ssoNoBindings')">
+              <el-table-column :label="t('systemConfig.ssoPortalUser')" min-width="140">
+                <template #default="{ row }">{{ row.portal_username }} <span class="sc-muted">#{{ row.portal_sub }}</span></template>
+              </el-table-column>
+              <el-table-column :label="t('systemConfig.ssoLocalUser')" min-width="140">
+                <template #default="{ row }">{{ row.display_name || row.username }}（{{ row.username }}）</template>
+              </el-table-column>
+              <el-table-column prop="last_login_at" :label="t('systemConfig.ssoLastLogin')" min-width="150" />
+              <el-table-column :label="t('common.operate')" width="100" align="center">
+                <template #default="{ row }">
+                  <el-button link type="danger" size="small" @click="onUnbindSso(row)">
+                    {{ t('systemConfig.ssoUnbind') }}
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </section>
+
         <!-- 代购用户：「购入商品」归属人下拉的取值来源。
              与上面的账号管理**不是同一张表**——那里是能登录这套系统的人，这里是
              「替谁买的」里的那个谁，多半根本不用这套系统，不该为了出现在下拉里就开账号。 -->
@@ -1167,10 +1256,10 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
-import { Plus, User, UserFilled, Key, Lock, MagicStick, Sell, Coin, Tickets, Printer, Compass, Timer, Link, Picture, Connection, Search, Hide, CopyDocument } from '@element-plus/icons-vue'
+import { Plus, User, UserFilled, Key, Lock, MagicStick, Sell, Coin, Tickets, Printer, Compass, Timer, Link, Picture, Connection, Search, Hide, CopyDocument, Share } from '@element-plus/icons-vue'
 import { ElMessage } from '@/utils/notify'
 import { setLocale, SUPPORTED_LOCALES } from '@/i18n'
-import { authApi, roleApi, configApi, proxyUserApi, shopAccountApi } from '@/api/index.js'
+import { authApi, roleApi, configApi, proxyUserApi, shopAccountApi, ssoApi } from '@/api/index.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { MENU_ITEMS, pageKeyOf } from '@/constants/menu.js'
 import { databaseApi } from '@/api/database'
@@ -1210,6 +1299,7 @@ const SECTIONS = [
   { id: 'language', cat: 'basic', icon: 'Compass', labelKey: 'systemConfig.languageSection' },
   { id: 'account', cat: 'basic', icon: 'User', labelKey: 'system.accountManagement', adminOnly: true },
   { id: 'roles', cat: 'basic', icon: 'Key', labelKey: 'roles.section', adminOnly: true },
+  { id: 'sso', cat: 'basic', icon: 'Share', labelKey: 'systemConfig.ssoSection', adminOnly: true },
   { id: 'proxy-users', cat: 'basic', icon: 'UserFilled', labelKey: 'proxyUsers.section' },
   { id: 'password', cat: 'basic', icon: 'Lock', labelKey: 'system.changeMyPassword' },
   { id: 'ai', cat: 'business', icon: 'MagicStick', labelKey: 'systemConfig.deepseekSection' },
@@ -1360,6 +1450,88 @@ function toggleGroup(g, checked) {
   const keys = g.items.map((p) => p.key)
   const rest = roleForm.pages.filter((k) => !keys.includes(k))
   roleForm.pages = checked ? [...rest, ...keys] : rest
+}
+
+// ===== 系统关联 · 门户单点登录 =====
+const sso = reactive({ configured: false, secret_set: false, callback_path: '/mercariV2/src/use_web/sso/callback' })
+const ssoForm = reactive({
+  portal_url: '', internal_url: '', client_id: '', client_secret: '',
+  auto_create: true, default_role_id: null, button_label: ''
+})
+const ssoEnabled = ref(false)
+const ssoSaving = ref(false)
+const ssoTesting = ref(false)
+const ssoSwitching = ref(false)
+const ssoTestResult = ref(null)
+const ssoBindings = ref([])
+const ssoBindingsLoading = ref(false)
+/** 门户 conf.json 的 redirect_uris 要登记的地址：当前浏览器打开本系统用的地址 + 回调路径 */
+const ssoCallbackUrl = computed(() => location.origin + sso.callback_path)
+
+function applySso(cfg) {
+  Object.assign(sso, cfg)
+  ssoEnabled.value = !!cfg.enabled
+  Object.assign(ssoForm, {
+    portal_url: cfg.portal_url, internal_url: cfg.internal_url, client_id: cfg.client_id,
+    client_secret: '', auto_create: cfg.auto_create, default_role_id: cfg.default_role_id,
+    button_label: cfg.button_label
+  })
+}
+
+async function loadSso() {
+  if (!auth.isAdmin) return
+  applySso(await ssoApi.getConfig())
+  loadSsoBindings()
+}
+
+async function loadSsoBindings() {
+  ssoBindingsLoading.value = true
+  try {
+    ssoBindings.value = await ssoApi.bindings()
+  } finally {
+    ssoBindingsLoading.value = false
+  }
+}
+
+async function onSaveSso() {
+  ssoSaving.value = true
+  try {
+    const payload = { ...ssoForm, default_role_id: ssoForm.default_role_id || 0 }
+    if (!payload.client_secret) delete payload.client_secret   // 留空 = 不改已保存的 Secret
+    applySso(await ssoApi.saveConfig(payload))
+    ssoTestResult.value = null
+    ElMessage.success(t('systemConfig.saveSuccess'))
+  } finally {
+    ssoSaving.value = false
+  }
+}
+
+async function onTestSso() {
+  ssoTesting.value = true
+  try {
+    ssoTestResult.value = await ssoApi.test()
+  } catch (err) {
+    ssoTestResult.value = { ok: false, message: err?.response?.data?.detail || String(err) }
+  } finally {
+    ssoTesting.value = false
+  }
+}
+
+/** el-switch 的 before-change：成功才放行切换，失败（如配置不齐）保持原状 */
+async function onToggleSso() {
+  ssoSwitching.value = true
+  try {
+    applySso(await ssoApi.saveConfig({ enabled: !ssoEnabled.value }))
+    return false   // 状态已由 applySso 按服务端结果写回
+  } finally {
+    ssoSwitching.value = false
+  }
+}
+
+async function onUnbindSso(row) {
+  await ElMessageBox.confirm(t('systemConfig.ssoUnbindConfirm', { name: row.portal_username }), t('systemConfig.ssoUnbind'), { type: 'warning' })
+  await ssoApi.unbind(row.id)
+  loadSsoBindings()
 }
 
 async function loadRoles() {
@@ -2562,6 +2734,7 @@ onMounted(() => {
   loadDbConfig()
   loadImageHosting()
   pollImageJob()
+  loadSso()
   loadPrinterParams()
   loadProxyBase()
   loadWebAccess()

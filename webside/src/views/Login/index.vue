@@ -58,6 +58,14 @@
         </el-form-item>
       </el-form>
 
+      <!-- 门户单点登录：系统设置 → 系统关联里开启后才出现（/use_web/sso/status） -->
+      <template v-if="ssoEnabled">
+        <el-divider>{{ t('login.or') }}</el-divider>
+        <el-button size="large" style="width: 100%" :loading="ssoLoading" @click="handleSsoLogin">
+          {{ ssoLabel || t('login.sso') }}
+        </el-button>
+      </template>
+
       <div class="tip">{{ t('login.defaultAccount') }}</div>
     </el-card>
   </div>

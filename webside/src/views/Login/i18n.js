@@ -9,6 +9,9 @@ export default {
       success: '登录成功',
       usernameRequired: '请输入用户名',
       passwordRequired: '请输入密码',
+      or: '或',
+      sso: '门户登录',
+      ssoFailed: '门户登录失败：',
     },
   },
   ja: {
@@ -21,6 +24,9 @@ export default {
       success: 'ログインに成功しました',
       usernameRequired: 'ユーザー名を入力してください',
       passwordRequired: 'パスワードを入力してください',
+      or: 'または',
+      sso: 'ポータルでログイン',
+      ssoFailed: 'ポータルログインに失敗しました：',
     },
   },
   en: {
@@ -33,6 +39,9 @@ export default {
       success: 'Login successful',
       usernameRequired: 'Please enter username',
       passwordRequired: 'Please enter password',
+      or: 'or',
+      sso: 'Sign in with Portal',
+      ssoFailed: 'Portal sign-in failed: ',
     },
   },
 }

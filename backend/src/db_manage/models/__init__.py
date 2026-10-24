@@ -8,6 +8,7 @@ from .system.product_type import ProductTypeModel
 from .system.transaction import TransactionModel
 from .system.user import UserModel
 from .system.role import RoleModel
+from .system.sso_identity import SsoIdentityModel
 from .system.cost_record import CostRecordModel
 from .system.cost_expense import CostExpenseModel
 from .system.settlement_record import SettlementRecordModel
@@ -57,6 +58,7 @@ __all__ = [
     'TransactionModel',
     'UserModel',
     'RoleModel',
+    'SsoIdentityModel',
     'CostRecordModel',
     'CostExpenseModel',
     'SettlementRecordModel',

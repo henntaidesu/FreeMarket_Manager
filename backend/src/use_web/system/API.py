@@ -49,6 +49,14 @@ from .units.app_config_handler import (
     get_proxy_public_base,
     put_proxy_public_base,
 )
+from .units.portal_sso_handler import (
+    PortalSsoConfigOut,
+    get_portal_sso_config,
+    put_portal_sso_config,
+    test_portal_sso,
+    list_portal_sso_bindings,
+    delete_portal_sso_binding,
+)
 from .units.web_access_handler import (
     WebAccessOut,
     download_web_cert,
@@ -238,6 +246,13 @@ router.add_api_route("/image-hosting/migrate", post_image_hosting_migrate, metho
 router.add_api_route("/image-hosting/rollback", post_image_hosting_rollback, methods=["POST"], response_model=MigrationStatusOut, dependencies=_ADMIN)
 router.add_api_route("/image-hosting/migration", get_image_hosting_migration, methods=["GET"], response_model=MigrationStatusOut)
 router.add_api_route("/image-hosting/migration/cancel", post_image_hosting_migration_cancel, methods=["POST"], response_model=MigrationStatusOut, dependencies=_ADMIN)
+
+# ===== 系统关联 · 门户单点登录（整组限管理员：能决定「谁能不用密码登进来」） =====
+router.add_api_route("/sso/config", get_portal_sso_config, methods=["GET"], response_model=PortalSsoConfigOut, dependencies=_ADMIN)
+router.add_api_route("/sso/config", put_portal_sso_config, methods=["PUT"], response_model=PortalSsoConfigOut, dependencies=_ADMIN)
+router.add_api_route("/sso/test", test_portal_sso, methods=["POST"], dependencies=_ADMIN)
+router.add_api_route("/sso/bindings", list_portal_sso_bindings, methods=["GET"], dependencies=_ADMIN)
+router.add_api_route("/sso/bindings/{binding_id}", delete_portal_sso_binding, methods=["DELETE"], dependencies=_ADMIN)
 
 # 网页访问方式：nginx 反代 HTTP / 直连端口自签 HTTPS（改动需重启，限管理员）
 router.add_api_route("/web-access", get_web_access, methods=["GET"], response_model=WebAccessOut)
