@@ -5,13 +5,13 @@
   · ``db_manager.initialize_database`` 删掉数据库里所有「模型未声明」的表；
   · ``base_model._check_and_update_table_structure`` 删掉表里所有「``get_fields()`` 未声明」的列。
 
-这两件事在开发库上很方便，但触发条件太廉价——把连接指到另一个已有库、或者回滚到旧版本
-后端（``self.models`` / ``get_fields()`` 少几项），重启一次就会静默删数据。因此这里统一
-把闸门收到一处：
+**测试库与生产库一视同仁，默认都执行**，让两边的结构始终与模型一致。代价是触发条件很廉价：
+把连接指到另一个已有库、或者回滚到旧版本后端（``self.models`` / ``get_fields()`` 少几项），
+重启一次就会静默删数据。所以闸门仍收在这一处：
 
-  1. **非测试库一律禁止**。``db_settings.is_test_database()`` 是既有判据（SQLite 视为测试库，
-     MySQL 只认白名单库名）。生产库上跳过而**不是抛错**——抛错会让应用在生产库上根本起不来。
-  2. 测试库上默认放行（保持开发便利），可用 ``DB_DESTRUCTIVE_SCHEMA_SYNC=0`` 关掉。
+  1. ``DB_DESTRUCTIVE_SCHEMA_SYNC=0`` 关掉（任何库）。关掉时跳过而**不是抛错**——
+     抛错会让应用根本起不来。
+  2. 每次执行或跳过都留痕（见下）。
 
 被跳过的删除**必须留痕**：只打 ``print`` 在打包成 .exe 后完全看不见，而「表还在但代码
 以为它没了」正是最需要人知道的状态。启动早期 ``system_logs`` 表可能还没建好，所以先缓冲，
@@ -23,8 +23,6 @@ import logging
 import os
 from typing import Dict, List, Sequence, Tuple
 
-from .db_settings import is_test_database
-
 log = logging.getLogger(__name__)
 
 #: 启动早期攒下的「跳过删除」通知，等 system_logs 建好后统一写入
@@ -33,8 +31,6 @@ _pending_notices: List[Dict[str, object]] = []
 
 def destructive_schema_allowed() -> Tuple[bool, str]:
     """是否允许执行销毁性结构同步。返回 ``(允许, 不允许的原因)``。"""
-    if not is_test_database():
-        return False, "当前连接的不是测试库，生产库禁止任何销毁性结构变更"
     raw = (os.environ.get("DB_DESTRUCTIVE_SCHEMA_SYNC") or "").strip().lower()
     if raw in ("0", "false", "no", "off"):
         return False, "已由环境变量 DB_DESTRUCTIVE_SCHEMA_SYNC=0 关闭"
@@ -55,7 +51,7 @@ def note_skipped_drop(kind: str, reason: str, table: str, columns: Sequence[str]
 
 
 def note_executed_drop(kind: str, table: str, columns: Sequence[str] = ()) -> None:
-    """记录一次**已执行**的删除——测试库上放行，但同样要留痕，便于事后追查数据去向。"""
+    """记录一次**已执行**的删除——同样要留痕，便于事后追查数据去向。"""
     cols = [str(c) for c in columns]
     if kind == "table":
         msg = f"已删除废弃表 [{table}]"

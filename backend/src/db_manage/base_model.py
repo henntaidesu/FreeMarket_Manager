@@ -304,8 +304,8 @@ class BaseModel(ABC):
     def _check_and_update_table_structure(cls) -> bool:
         """检查并同步表结构（添加缺失字段；多余字段按闸门决定删或留）。
 
-        删列走 ``schema_guard``：生产库一律跳过、测试库默认放行。跳过时留下的多余列是无害的
-        （``get_fields()`` 不声明就永远不读它），而误删一列的数据不可恢复——两者不对等。
+        删列走 ``schema_guard``：测试库与生产库默认都删，``DB_DESTRUCTIVE_SCHEMA_SYNC=0`` 时跳过。
+        跳过时留下的多余列是无害的（``get_fields()`` 不声明就永远不读它）。
 
         **每次 ALTER 后都失效列缓存**：``_create_from_row`` 是按数据库**物理列序**把行元组映射
         成字段的，缓存和实际表结构一旦不同步，取出来的每个字段都会错位。这里是全仓库唯一

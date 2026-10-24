@@ -515,9 +515,9 @@ class DBManager:
     def _migrate_inventory_series_to_items(self) -> bool:
         """``inventory.series_id``（一件一个系列）→ ``inventory_series_items``（可多个）。
 
-        **必须在 ensure_table_exists() 之前跑**：模型已不再声明 series_id，测试库上表结构
-        同步会删掉这一列。搬完把旧列置空——生产库上旧列不会被删、会留下来，不置空的话
-        每次启动都会把用户已移出的成员再搬回去。
+        **必须在 ensure_table_exists() 之前跑**：模型已不再声明 series_id，表结构同步会删掉
+        这一列。搬完把旧列置空——关掉销毁性同步（``DB_DESTRUCTIVE_SCHEMA_SYNC=0``）时旧列会
+        留下来，不置空的话每次启动都会把用户已移出的成员再搬回去。
         """
         import time as _time
 
@@ -870,7 +870,7 @@ class DBManager:
         # 删除代码中已移除的表。get_all_tables() 返回的是**当前 schema 下的全部表**，
         # 所以这一步等价于「删光所有不属于本应用的表」——指错库名、与别的应用共库、
         # 或回滚到 models 更少的旧版本，都会在此静默销毁数据。交给 schema_guard 把关：
-        # 生产库一律跳过，测试库默认放行，两种情况都留痕。
+        # 默认放行（不分测试/生产库），DB_DESTRUCTIVE_SCHEMA_SYNC=0 时跳过，两种情况都留痕。
         to_drop = [t for t in db_tables if t not in defined_tables and t != "product_types"]
         if to_drop:
             allowed, reason = destructive_schema_allowed()

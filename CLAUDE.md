@@ -20,13 +20,14 @@ When unsure which database is active, check the name before writing — an unrec
 `db_manage/db_settings.py::is_test_database()` whitelists `freemarket_test` (plus anything in
 `TEST_DATABASE_NAMES`) and treats SQLite as a test DB. The production DB name is `mercari`.
 
-**What that predicate actually gates is narrow, so read this before assuming you are protected.**
-It guards exactly one thing: the two destructive schema-sync steps, via
-`db_manage/schema_guard.py::destructive_schema_allowed()` —
-`initialize_database()`'s drop-unknown-tables pass and `BaseModel`'s drop-undeclared-columns pass.
-On a non-test database both are **skipped, not aborted** (raising would make the app unbootable in
-production), and every skip *and* every executed drop is written to `system_logs` under category
-`schema`. `DB_DESTRUCTIVE_SCHEMA_SYNC=0` turns them off on test databases too.
+**That predicate does NOT gate the startup schema sync.** The two destructive schema-sync steps —
+`initialize_database()`'s drop-unknown-tables pass and `BaseModel`'s drop-undeclared-columns pass,
+via `db_manage/schema_guard.py::destructive_schema_allowed()` — run on **every** database,
+production included, so both stay in sync with the models. `DB_DESTRUCTIVE_SCHEMA_SYNC=0` turns
+them off (skipped, not aborted). Every skip *and* every executed drop is written to `system_logs`
+under category `schema`. Consequence: pointing the app at the wrong MySQL database, or booting an
+older build against production, drops whatever that build doesn't declare.
+`is_test_database()` is still used by `assert_data_mutation_allowed()` and `tools/merge_split_families.py`.
 Ordinary `INSERT`/`UPDATE`/`DELETE` are **not** gated by anything — the rule above is a convention
 you have to follow, not something the code will stop you from breaking.
 
@@ -403,16 +404,14 @@ have several — never convert their writes to UPSERT without restructuring firs
 - `_check_and_update_table_structure()` (`base_model.py`) auto-adds columns declared in
   `get_fields()` and DROPs columns that are not (both dialects implement `drop_column`).
 
-`schema_guard.destructive_schema_allowed()` runs both **only on a test database** (and only while
-`DB_DESTRUCTIVE_SCHEMA_SYNC` isn't `0`). Elsewhere they are skipped with a `system_logs` entry
-rather than raising — an exception here would make the app unbootable in production. Executed drops
-are logged too, so data that vanishes is always traceable.
+`schema_guard.destructive_schema_allowed()` runs both on **any** database (test and production)
+unless `DB_DESTRUCTIVE_SCHEMA_SYNC=0`, in which case they are skipped with a `system_logs` entry
+rather than raising. Executed drops are logged too, so data that vanishes is always traceable.
 
-On a test database the old behaviour still applies: removing a field from a model deletes its data
-on the next startup, so any migration that needs to read a column being removed **must be
-registered in the pre-model block of `init_database()`**, above the `ensure_table_exists()` loop,
-not below it. Off a test database, undeclared columns/tables simply linger — harmless, since
-nothing reads what `get_fields()` doesn't declare.
+Removing a field from a model deletes its data on the next startup — **on production too** — so any
+migration that needs to read a column being removed **must be registered in the pre-model block of
+`init_database()`**, above the `ensure_table_exists()` loop, not below it. With the sync turned off,
+undeclared columns/tables simply linger — harmless, since nothing reads what `get_fields()` doesn't declare.
 
 **Dialect traps that only bite on MySQL.** All four cost a real bug; none is caught by
 `compileall`, which never executes SQL. Exercise changed SQL in its *actual* calling context.
@@ -1435,8 +1434,8 @@ Each run writes a `system_logs` row (category `database`).
   a thread (deleting files is blocking IO and must not delay `mark_ready`), never touches
   pending/running task rows, and swallows every error — cleanup must never block startup.
 - `TEST_DATABASE_NAMES`: Extra comma-separated MySQL names to treat as test DBs. See Database Safety.
-- `DB_DESTRUCTIVE_SCHEMA_SYNC`: Set to `0` to also skip the drop-unknown-tables / drop-undeclared-columns
-  startup passes on a **test** database (they are already skipped everywhere else). See Database Safety.
+- `DB_DESTRUCTIVE_SCHEMA_SYNC`: Set to `0` to skip the drop-unknown-tables / drop-undeclared-columns
+  startup passes (by default they run on every database, production included). See Database Safety.
 - `PURCHASE_DETAIL_AUTO` (默认开) / `PURCHASE_DETAIL_MAX_PER_RUN` (20) /
   `PURCHASE_DETAIL_MAX_FAILURES` (3) / `PURCHASE_DETAIL_TIMEOUT_SEC` (90): 购入商品同步后
   在**同一浏览器会话**里逐笔抓取取引详情的开关与限流。每笔都是一次完整页面加载，首次导入
