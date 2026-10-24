@@ -144,7 +144,7 @@ def verify_id_token(id_token: str, nonce: str, cfg: Dict[str, Any]) -> Dict[str,
         )
     except jwt.InvalidIssuerError:
         raise SsoError(f"id_token 的签发方与这里填的门户地址（{cfg['portal_url']}）对不上："
-                       "两边必须一字不差，门户那边看 conf.json 的 idp.issuer") from None
+                       "两边必须一字不差，门户那边看右上角菜单 → 单点登录 里的门户地址") from None
     except jwt.InvalidSignatureError:
         raise SsoError("id_token 签名校验不过：确认 Client Secret 与门户里登记的一致") from None
     except jwt.InvalidTokenError as exc:
@@ -188,7 +188,7 @@ def probe() -> Dict[str, Any]:
     except requests.RequestException as exc:
         raise SsoError(f"连不上门户（{url}）：{exc}") from None
     if resp.status_code == 404:
-        raise SsoError("门户没有开单点登录提供方（门户 conf.json 的 idp.enabled）")
+        raise SsoError("门户没有开单点登录提供方（门户右上角菜单 → 单点登录）")
     if resp.status_code != 200:
         raise SsoError(f"门户返回 {resp.status_code}")
     try:
