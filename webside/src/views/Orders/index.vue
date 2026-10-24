@@ -339,7 +339,7 @@
                             <el-option
                               v-for="item in packagingItemsOptions"
                               :key="item.item_name"
-                              :label="`${item.item_name}（${t('orders.stockLabel')}:${Number(item.quantity || 0)}）`"
+                              :label="item.item_name"
                               :value="item.item_name"
                             />
                           </el-select>
@@ -1008,7 +1008,7 @@
           </span>
           <span class="pkg-pick__name">{{ pkg.item_name }}</span>
           <span class="pkg-pick__meta">
-            <span>{{ t('orders.stockLabel') }} {{ Number(pkg.quantity || 0) }}</span>
+            <span />
             <span class="pkg-pick__price">{{ Math.round(Number(pkg.amount || 0)) }}</span>
           </span>
         </button>

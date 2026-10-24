@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 """成本记录处理器：增/删/改/查与图片上传。"""
 
+import json
 from datetime import datetime, timezone
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import HTTPException, UploadFile, File
 from pydantic import BaseModel as PydanticModel
 
-from .....db_manage.models.system.cost_record import CostRecordModel
+from .....db_manage.models.system.cost_record import CostRecordModel, parse_ship_sizes
 from ....image_storage import save_upload_image, delete_image_file
 
 ALLOWED_TYPES = {"purchase", "shipping", "packaging", "operation", "other"}
@@ -15,11 +16,13 @@ ALLOWED_TYPES = {"purchase", "shipping", "packaging", "operation", "other"}
 
 class CostRecordCreate(PydanticModel):
     cost_date: Optional[int] = None
-    type: str
+    # 本页只维护包材目录：类型固定为包材，数量按无限计算（列保留但不再读写）
+    type: str = "packaging"
     item_name: str
     item_image: Optional[str] = None
     amount: int
-    quantity: int
+    quantity: int = 0
+    ship_sizes: Optional[List[str]] = None
     warehouse_id: Optional[int] = None
     remark: Optional[str] = None
     operator: Optional[str] = "管理员"
@@ -32,9 +35,15 @@ class CostRecordUpdate(PydanticModel):
     item_image: Optional[str] = None
     amount: Optional[int] = None
     quantity: Optional[int] = None
+    ship_sizes: Optional[List[str]] = None
     warehouse_id: Optional[int] = None
     remark: Optional[str] = None
     operator: Optional[str] = None
+
+
+def _dump_ship_sizes(values: Optional[List[str]]) -> Optional[str]:
+    names = parse_ship_sizes(json.dumps(values or [], ensure_ascii=False))
+    return json.dumps(names, ensure_ascii=False) if names else None
 
 
 def _validate_type(cost_type: str):
@@ -94,15 +103,12 @@ def list_packaging_items():
             "source_type": row.type,
             "expense_type": "包装材料",
             "amount": int(row.amount or 0),
-            "quantity": int(row.quantity or 0),
             # 订单详情的包材卡片要在左侧显示实物图
             "item_image": (row.item_image or "").strip() or None,
+            "ship_sizes": parse_ship_sizes(row.ship_sizes),
         }
-    # 库存（最新记录数量）为 0 的包材不出现在下拉选择中
-    items = sorted(
-        (v for v in latest_by_name.values() if v["quantity"] > 0),
-        key=lambda x: x["item_name"],
-    )
+    # 包材按无限库存计算，不再按数量过滤
+    items = sorted(latest_by_name.values(), key=lambda x: x["item_name"])
     return {"items": items}
 
 
@@ -112,8 +118,6 @@ def create_cost_record(data: CostRecordCreate):
         raise HTTPException(status_code=400, detail="物品名称不能为空")
     if data.amount <= 0:
         raise HTTPException(status_code=400, detail="金额必须大于0")
-    if data.quantity < 0:
-        raise HTTPException(status_code=400, detail="数量不能小于0")
     cost_ts = data.cost_date if data.cost_date else int(datetime.now(timezone.utc).timestamp())
     item = CostRecordModel(
         cost_date=cost_ts,
@@ -122,6 +126,7 @@ def create_cost_record(data: CostRecordCreate):
         item_image=_validate_image_path(data.item_image),
         amount=data.amount,
         quantity=data.quantity,
+        ship_sizes=_dump_ship_sizes(data.ship_sizes),
         warehouse_id=data.warehouse_id,
         remark=data.remark,
         operator=data.operator,
@@ -159,6 +164,8 @@ def update_cost_record(cid: int, data: CostRecordUpdate):
         if data.quantity < 0:
             raise HTTPException(status_code=400, detail="数量不能小于0")
         item.quantity = data.quantity
+    if data.ship_sizes is not None:
+        item.ship_sizes = _dump_ship_sizes(data.ship_sizes)
     if data.warehouse_id is not None:
         item.warehouse_id = data.warehouse_id
     if data.remark is not None:

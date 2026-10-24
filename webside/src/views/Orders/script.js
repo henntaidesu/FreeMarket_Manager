@@ -929,8 +929,7 @@ export default defineComponent({
 
     /**
      * 包材卡片：图片来自 cost_records.item_image（后端按物品名回填到支出行上），
-     * 用光库存的包材也仍然有图 —— 不能只靠 packagingItemsOptions 反查，那份列表按
-     * quantity > 0 过滤过。
+     * 已从库存包材删掉的包材也仍然有图 —— 不能只靠 packagingItemsOptions 反查。
      */
     const packagingCards = computed(() => {
       const ono = String(form.value.order_no || '').trim()

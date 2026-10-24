@@ -316,7 +316,11 @@ Key tables in `backend/src/db_manage/models/`:
   整单替换写入；`is_buyer` 恒指「这条是买家写的」，不随视角翻转。见 購入した商品 below。
 - **order_outbound_lines**: Line items for outbound shipments
 - **transactions**: In/out stock movements with warehouse tracking
-- **cost_records**: Packaging material inventory
+- **cost_records**: 包材目录（页面 `/#/system/cost-records` 只维护 图 / 名称 / 单价 / 关联发货尺寸 `ship_sizes`）。
+  **数量按无限计算**：`quantity` 列保留但不再扣减、不再校验，`_deduct_packaging_stock` / `_restore_packaging_stock`
+  只留签名。待办发货向导是「尺寸 → 包材 → 发送方法/拍照」：包材页只列 `ship_sizes` 含所选尺寸名的包材
+  （没有任何包材关联该尺寸则列全部），恰好关联一种时自动选定并跳过包材页。尺寸名清单在
+  `webside/src/constants/shipSizes.js`，须与 `views/Todos/script.js` 的尺寸卡片 name 一致。
 - **cost_expenses**: Packaging material usage per order
 
 ## 图床存储 (Image Hosting)
@@ -440,7 +444,7 @@ undeclared columns/tables simply linger — harmless, since nothing reads what `
 **Decrementing stock**: always an atomic conditional UPDATE — `… SET quantity = quantity - ?
 WHERE id = ? AND COALESCE(quantity,0) >= ?` plus a `rowcount <= 0` check — never a pre-check
 followed by an unconditional decrement. A read-then-write pair leaves a TOCTOU window that
-concurrent requests drive negative. See `_deduct_packaging_stock`, `orders_outbound/lines.py`,
+concurrent requests drive negative. See `orders_outbound/lines.py`,
 `inventory_stock.py`, `inventory_split.py`.
 
 ### 商品类型映射 (`product_type_category_mappings`)

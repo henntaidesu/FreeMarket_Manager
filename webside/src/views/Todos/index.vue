@@ -1234,7 +1234,8 @@
       >
         <div>{{ t('todos.virtualShipSizeHint') }}</div>
       </el-alert>
-      <!-- 第 1 步：选择包材。卡片挑选（与订单管理的包材卡片同一形态），
+      <!-- 第 2 步（选完尺寸之后）：选择包材。卡片挑选（与订单管理的包材卡片同一形态），
+           只列关联了所选尺寸的包材；尺寸只关联一种包材时本页被跳过。
            点中一张即选定并直接进下一步，无需再点确认按钮。 -->
       <template v-if="shippingStep === 'packaging'">
         <!-- 「不选择包材」始终在列：包材库存为空时也要能照常发货 -->
@@ -1249,7 +1250,7 @@
             <span class="pkg-pick__name">{{ t('orders.noPackaging') }}</span>
           </div>
           <div
-            v-for="pkg in packagingItemsOptions"
+            v-for="pkg in visiblePackagingOptions"
             :key="pkg.item_name"
             :class="['pkg-pick', packagingPickedName === pkg.item_name ? 'pkg-pick-active' : '']"
             @click="onPickPackagingCard(pkg.item_name)"
@@ -1265,19 +1266,19 @@
             </span>
             <span class="pkg-pick__name">{{ pkg.item_name }}</span>
             <span class="pkg-pick__meta">
-              <span>{{ t('orders.stockLabel') }} {{ Number(pkg.quantity || 0) }}</span>
+              <span />
               <span class="pkg-pick__price">{{ Math.round(Number(pkg.amount || 0)) }}</span>
             </span>
           </div>
         </div>
         <el-empty
-          v-if="!packagingItemsOptions.length"
+          v-if="!visiblePackagingOptions.length"
           :description="t('orders.packagingOptionsEmpty')"
           :image-size="48"
         />
       </template>
 
-      <!-- 第 2 步：商品尺寸（纯前端硬编码列表，按当前配送方式区分）。点中即翻页 -->
+      <!-- 第 1 步：商品尺寸（纯前端硬编码列表，按当前配送方式区分）。点中即翻页 -->
       <template v-else-if="shippingStep === 'size'">
       <el-radio-group v-if="shippingOptions.length" v-model="shippingPickedIdx" class="ship-radio-group">
         <div

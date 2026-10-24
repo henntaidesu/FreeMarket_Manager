@@ -1,9 +1,11 @@
 import { defineComponent, ref, computed, onMounted } from 'vue'
 import { ElMessage } from '@/utils/notify'
 import { useI18n } from 'vue-i18n'
-import { costRecordApi, warehouseApi } from '@/api/index.js'
-import { warehouseShelfLabel } from '@/utils/warehouseLabel.js'
+import { costRecordApi } from '@/api/index.js'
+import { SHIP_SIZE_GROUPS } from '@/constants/shipSizes.js'
 
+// 库存包材 = 包材目录：只维护 物品图 / 物品名称 / 单价 / 关联发货尺寸。
+// 数量按无限计算（后端不再扣减、不再按数量过滤），所以这里不显示也不提交数量。
 export default defineComponent({
   setup() {
     const { t } = useI18n()
@@ -14,59 +16,24 @@ export default defineComponent({
     const total = ref(0)
     const page = ref(1)
     const pageSize = ref(20)
-    const warehouses = ref([])
-    const dateRange = ref([])
     const dialogVisible = ref(false)
     const formRef = ref()
     const fileInputRef = ref()
     const uploadingImage = ref(false)
 
-    const filters = ref({
-      type: '',
-      warehouse_id: null,
-    })
-
-    const typeOptions = computed(() => [
-      { label: t('system.costRecordTypePurchase'), value: 'purchase' },
-      { label: t('system.costRecordTypeShipping'), value: 'shipping' },
-      { label: t('system.costRecordTypePackaging'), value: 'packaging' },
-      { label: t('system.costRecordTypeOperation'), value: 'operation' },
-      { label: t('system.costRecordTypeOther'), value: 'other' },
-    ])
-
-    const typeMap = computed(() => ({
-      purchase: { label: t('system.costRecordTypePurchase'), tag: 'primary' },
-      shipping: { label: t('system.costRecordTypeShipping'), tag: 'warning' },
-      packaging: { label: t('system.costRecordTypePackaging'), tag: 'danger' },
-      operation: { label: t('system.costRecordTypeOperation'), tag: 'success' },
-      other: { label: t('system.costRecordTypeOther'), tag: 'info' },
-    }))
-
     const createDefaultForm = () => ({
       id: null,
-      cost_date: Date.now(),
-      type: 'purchase',
       item_name: '',
       item_image: '',
       amount: null,
-      quantity: 1,
-      warehouse_id: null,
-      remark: '',
+      ship_sizes: [],
     })
 
     const form = ref(createDefaultForm())
 
-    function formatTs(ts) {
-      if (!ts) return '-'
-      return new Date(ts * 1000).toLocaleString()
-    }
-
     const rules = computed(() => ({
-      cost_date: [{ required: true, message: t('system.costRecordSelectRecordTime'), trigger: 'change' }],
-      type: [{ required: true, message: t('system.costRecordSelectType'), trigger: 'change' }],
       item_name: [{ required: true, message: t('system.costRecordInputItemName'), trigger: 'blur' }],
-      amount: [{ required: true, message: t('system.costRecordInputAmount'), trigger: 'blur' }],
-      quantity: [{ required: true, message: t('system.costRecordInputQuantity'), trigger: 'blur' }],
+      amount: [{ required: true, message: t('system.costRecordInputUnitPrice'), trigger: 'blur' }],
     }))
 
     async function load() {
@@ -74,30 +41,13 @@ export default defineComponent({
       const params = {
         page: page.value,
         page_size: pageSize.value,
-      }
-      if (filters.value.type) params.type = filters.value.type
-      if (filters.value.warehouse_id) params.warehouse_id = filters.value.warehouse_id
-      if (dateRange.value?.length === 2) {
-        params.start_date = dateRange.value[0]
-        params.end_date = dateRange.value[1]
+        type: 'packaging',
       }
       const res = await costRecordApi.list(params).finally(() => {
         loading.value = false
       })
       list.value = res.items || []
       total.value = res.total || 0
-    }
-
-    function onFilterChange() {
-      page.value = 1
-      load()
-    }
-
-    function resetFilters() {
-      filters.value = { type: '', warehouse_id: null }
-      dateRange.value = []
-      page.value = 1
-      load()
     }
 
     function openCreate() {
@@ -108,14 +58,10 @@ export default defineComponent({
     function openEdit(row) {
       form.value = {
         id: row.id,
-        cost_date: (row.cost_date || 0) * 1000,
-        type: row.type,
         item_name: row.item_name || '',
         item_image: row.item_image || '',
         amount: Number(row.amount || 0),
-        quantity: Number(row.quantity ?? 0),
-        warehouse_id: row.warehouse_id || null,
-        remark: row.remark || '',
+        ship_sizes: Array.isArray(row.ship_sizes) ? [...row.ship_sizes] : [],
       }
       dialogVisible.value = true
     }
@@ -124,14 +70,11 @@ export default defineComponent({
       await formRef.value?.validate()
       submitting.value = true
       const payload = {
-        cost_date: Math.floor((form.value.cost_date || Date.now()) / 1000),
-        type: form.value.type,
+        type: 'packaging',
         item_name: String(form.value.item_name || '').trim(),
         item_image: form.value.item_image || null,
         amount: Number(form.value.amount || 0),
-        quantity: Number(form.value.quantity || 0),
-        warehouse_id: form.value.warehouse_id,
-        remark: form.value.remark || null,
+        ship_sizes: (form.value.ship_sizes || []).map((s) => String(s || '').trim()).filter(Boolean),
       }
       try {
         if (form.value.id) {
@@ -177,43 +120,24 @@ export default defineComponent({
       load()
     }
 
-    onMounted(async () => {
-      warehouses.value = await warehouseApi.list()
-      load()
-    })
+    onMounted(load)
 
     return {
-      ref,
-      computed,
-      onMounted,
-      ElMessage,
-      useI18n,
-      costRecordApi,
-      warehouseApi,
-      warehouseShelfLabel,
       t,
+      SHIP_SIZE_GROUPS,
       loading,
       submitting,
       list,
       total,
       page,
       pageSize,
-      warehouses,
-      dateRange,
       dialogVisible,
       formRef,
       fileInputRef,
       uploadingImage,
-      filters,
-      typeOptions,
-      typeMap,
-      createDefaultForm,
       form,
-      formatTs,
       rules,
       load,
-      onFilterChange,
-      resetFilters,
       openCreate,
       openEdit,
       submit,

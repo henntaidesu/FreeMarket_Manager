@@ -3,10 +3,27 @@
 成本记录表模型
 """
 
+import json
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 from ...base_model import BaseModel
 from .warehouse import WarehouseModel
+
+
+def parse_ship_sizes(raw) -> List[str]:
+    """ship_sizes 列（JSON 数组字符串）→ 去空去重后的尺寸名列表；坏值按未关联处理。"""
+    try:
+        vals = json.loads(raw) if raw else []
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(vals, list):
+        return []
+    out: List[str] = []
+    for v in vals:
+        name = str(v or '').strip()
+        if name and name not in out:
+            out.append(name)
+    return out
 
 
 class CostRecordModel(BaseModel):
@@ -57,6 +74,13 @@ class CostRecordModel(BaseModel):
             },
             'warehouse_id': {
                 'type': 'INTEGER',
+                'not_null': False,
+                'default': None,
+            },
+            # 关联的发货尺寸名（JSON 数组，如 ["ゆうパケットポストmini"]）。发货向导选定尺寸后
+            # 只列出关联了该尺寸的包材；某尺寸只关联一种包材时直接选定、跳过包材页。
+            'ship_sizes': {
+                'type': 'TEXT',
                 'not_null': False,
                 'default': None,
             },
@@ -129,7 +153,7 @@ class CostRecordModel(BaseModel):
         wh_l = WarehouseModel.sql_display_label("w")
         select_sql = f"""
             SELECT c.id, c.cost_date, c.type, c.item_name, c.item_image, c.amount, c.quantity, c.warehouse_id, {wh_l} as warehouse_name,
-                   c.remark, c.operator, c.created_at
+                   c.ship_sizes, c.remark, c.operator, c.created_at
             {base_sql}
             ORDER BY c.cost_date DESC, c.id DESC
             LIMIT ? OFFSET ?
@@ -137,10 +161,13 @@ class CostRecordModel(BaseModel):
         query_params = params + [page_size, (page - 1) * page_size]
         rows = db.execute_query(select_sql, tuple(query_params))
 
-        keys = ['id', 'cost_date', 'type', 'item_name', 'item_image', 'amount', 'quantity', 'warehouse_id', 'warehouse_name', 'remark', 'operator', 'created_at']
+        keys = ['id', 'cost_date', 'type', 'item_name', 'item_image', 'amount', 'quantity', 'warehouse_id', 'warehouse_name', 'ship_sizes', 'remark', 'operator', 'created_at']
         return {
             'total': total,
             'page': page,
             'page_size': page_size,
-            'items': [dict(zip(keys, row)) for row in rows],
+            'items': [
+                {**d, 'ship_sizes': parse_ship_sizes(d.get('ship_sizes'))}
+                for d in (dict(zip(keys, row)) for row in rows)
+            ],
         }

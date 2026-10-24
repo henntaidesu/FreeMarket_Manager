@@ -79,14 +79,12 @@ def _packaging_images_by_name(names) -> dict:
 
 
 def _validate_packaging_stock(item_name: str, quantity: int, source=None):
-    """source 可由调用方预取传入，避免重复查询 cost_records。"""
+    """包材按无限库存计算：只校验该包材存在，不再比较数量。
+    source 可由调用方预取传入，避免重复查询 cost_records。"""
     if source is None:
         source = _find_packaging_item_latest(item_name)
     if not source:
         raise HTTPException(status_code=400, detail="库存包材中不存在该物品名称")
-    stock_qty = int(source.quantity or 0)
-    if stock_qty < quantity:
-        raise HTTPException(status_code=400, detail=f"库存包材数量不足，当前仅剩 {stock_qty}")
 
 
 def _sync_expense_type_from_source(item_name: str, source=None) -> str:
@@ -153,9 +151,9 @@ def _restore_order_net_income_cost(order_no: Optional[str], expense_total: int) 
 
 
 def _deduct_packaging_stock(item_name: str, quantity: int) -> Optional[int]:
-    """扣减库存包材（原子条件更新）：仅当库存足量才扣，防跨连接 TOCTOU 导致的超卖/丢更新。
+    """包材按无限库存计算，不再扣减 cost_records.quantity。
 
-    返回命中的 cost_records 行 id（存到支出行 source_record_id，归还时落回同一行）。
+    仍返回命中的 cost_records 行 id（存到支出行 source_record_id，便于追溯用的是哪条包材）。
     """
     qty = int(quantity or 0)
     if qty <= 0:
@@ -163,40 +161,12 @@ def _deduct_packaging_stock(item_name: str, quantity: int) -> Optional[int]:
     source = _find_packaging_item_latest(item_name)
     if not source:
         raise HTTPException(status_code=400, detail="库存包材中不存在该物品名称")
-    affected = CostRecordModel().db.execute_update(
-        "UPDATE [cost_records] SET [quantity] = COALESCE([quantity], 0) - ? "
-        "WHERE [id] = ? AND COALESCE([quantity], 0) >= ?",
-        (qty, int(source.id), qty),
-    )
-    if affected == 0:
-        raise HTTPException(status_code=400, detail="库存包材数量不足（可能被并发操作占用），请重试")
     return int(source.id)
 
 
 def _restore_packaging_stock(item_name: str, quantity: int, record_id: Optional[int] = None) -> None:
-    """归还库存包材（原子增量更新）：扣减的逆操作（删除/编辑时调用）。
-
-    优先归还到扣减时命中的 ``record_id`` 行；该行已删（或历史行未记录）时回退到
-    该物品最新一条记录。两处都找不到时静默跳过。
-    """
-    qty = int(quantity or 0)
-    if qty <= 0:
-        return
-    db = CostRecordModel().db
-    if record_id:
-        affected = db.execute_update(
-            "UPDATE [cost_records] SET [quantity] = COALESCE([quantity], 0) + ? WHERE [id] = ?",
-            (qty, int(record_id)),
-        )
-        if affected > 0:
-            return
-    source = _find_packaging_item_latest(item_name)
-    if not source:
-        return
-    db.execute_update(
-        "UPDATE [cost_records] SET [quantity] = COALESCE([quantity], 0) + ? WHERE [id] = ?",
-        (qty, int(source.id)),
-    )
+    """包材按无限库存计算，扣减已取消，归还也无事可做（保留签名供删除/编辑支出调用）。"""
+    return None
 
 
 def _order_period_settled(order_no: Optional[str]) -> bool:

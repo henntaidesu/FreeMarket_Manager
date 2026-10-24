@@ -508,8 +508,10 @@ export default defineComponent({
     const packagingItemsOptions = ref([])
     // 用户选定的包材列表（可多个、可同种重复；每行数量固定 1）
     const shipPackagingRows = ref([{ item_name: '' }])
-    // 发货向导：包材 → 商品尺寸 → 发送方法，三页共用一个弹窗（见 shippingDialogVisible）。
-    // shipFlowTarget 决定选完包材后往哪走：'mercari' → 尺寸页；'yahoo' → 直接提交发货表单。
+    // 发货向导：商品尺寸 → 包材 → 发送方法 / 拍照，共用一个弹窗（见 shippingDialogVisible）。
+    // 包材页只列关联了所选尺寸的包材（/#/system/cost-records 的「关联发货尺寸」）；该尺寸只关联
+    // 一种包材时直接选定、不出包材页（如 ゆうパケットポストmini → 专用封筒，选完尺寸即进拍照）。
+    // shipFlowTarget 决定走哪套尺寸表与提交方式：'mercari' / 'yahoo'。
     // shipFlowHasPackaging：本次是否包含包材页（非待发货不记包材，重扫已记过账，都跳过）
     const shipFlowTarget = ref('mercari')
     const shipFlowHasPackaging = ref(true)
@@ -524,7 +526,7 @@ export default defineComponent({
     function selectedPackagingMeta(itemName) {
       return (packagingItemsOptions.value || []).find((it) => it.item_name === itemName) || null
     }
-    /** 发货前预校验所选包材：拉最新库存，确认每种所选包材仍存在且库存足够。
+    /** 发货前预校验所选包材：拉最新列表，确认每种所选包材仍存在（包材按无限库存计算，不比数量）。
      *  原来只在发货完成后记账时才校验，煤炉侧已不可撤回；提前到点「确认并发送」前拦截。 */
     async function validatePackagingBeforeShip() {
       const counts = new Map()
@@ -540,16 +542,9 @@ export default defineComponent({
         ElMessage.error(t('todos.packagingStockUnknown'))
         return false
       }
-      // 记账按「每个关联订单各记一份」（见 commitShipPackagingAndOutbound），需求量要乘订单数
-      const orderCount = Math.max(
-        1,
-        [...new Set((invMatch.order_nos || []).map((x) => String(x || '').trim()).filter(Boolean))].length,
-      )
-      for (const [name, qty] of counts) {
-        const meta = selectedPackagingMeta(name)
-        const stock = Number(meta?.quantity || 0)
-        if (!meta || stock < qty * orderCount) {
-          ElMessage.error(t('todos.packagingStockShort', { name, stock }))
+      for (const name of counts.keys()) {
+        if (!selectedPackagingMeta(name)) {
+          ElMessage.error(t('todos.packagingMissing', { name }))
           return false
         }
       }
@@ -566,7 +561,7 @@ export default defineComponent({
       const filled = rows.filter((r) => r.item_name.trim())
       shipPackagingRows.value = filled.length ? filled : [{ item_name: '' }]
     }
-    // ── 包材卡片选择（发货第 1 步的弹窗）──
+    // ── 包材卡片选择（发货第 2 步，选完尺寸之后）──
     // 一张卡片 = 一种包材，点中即选定并直接进下一步（弹窗没有确认按钮）。
     // 上次的选择会从 localStorage 恢复，重开弹窗时对应卡片高亮。
     const packagingPickedName = computed(() => {
@@ -984,7 +979,7 @@ export default defineComponent({
 
     // 发货向导 dialog（尺寸不再走 MITM 抓取，纯前端硬编码列表）
     const shippingDialogVisible = ref(false)
-    // 当前页：'packaging' 选包材 → 'size' 选商品尺寸 →（该尺寸需要发货场所时）'facility' 选发送方法
+    // 当前页：'size' 选商品尺寸 → 'packaging' 选包材 →（该尺寸需要发货场所时）'facility' 选发送方法
     const shippingStep = ref('size')
     const shippingConfirmLoading = ref(false)
     const shippingPickedIdx = ref(null)
@@ -1011,16 +1006,39 @@ export default defineComponent({
       const opt = shippingOptions.value[shippingPickedIdx.value]
       return Array.isArray(opt?.facilities) ? opt.facilities : []
     })
+    // 当前所选尺寸名（两个平台的尺寸表不同，名字是与包材关联的唯一口径）
+    const shipSizeName = computed(() => {
+      if (shipFlowTarget.value === 'yahoo') return String(yahooForm.size || '')
+      if (shippingPickedIdx.value == null) return ''
+      return String(shippingOptions.value[shippingPickedIdx.value]?.name || '')
+    })
+    // 关联了所选尺寸的包材；没有任何包材关联该尺寸时列出全部（未配置关联不该把人卡住）
+    const shipSizeLinkedPackaging = computed(() => {
+      const name = shipSizeName.value
+      if (!name) return []
+      return (packagingItemsOptions.value || []).filter(
+        (it) => Array.isArray(it.ship_sizes) && it.ship_sizes.includes(name),
+      )
+    })
+    const visiblePackagingOptions = computed(() =>
+      shipSizeLinkedPackaging.value.length ? shipSizeLinkedPackaging.value : packagingItemsOptions.value || [],
+    )
+    // 该尺寸只关联了一种包材 → 就是它，不再让人选
+    const autoPackagingItem = computed(() =>
+      shipSizeLinkedPackaging.value.length === 1 ? shipSizeLinkedPackaging.value[0] : null,
+    )
+    const shipFlowShowsPackaging = computed(() => shipFlowHasPackaging.value && !autoPackagingItem.value)
     // 顶部步骤条。第三步是发送方法还是拍照，取决于所选尺寸要不要发货场所：
     // 还没选尺寸时先按「发送方法」显示，选中 ゆうパケットポスト 系后换成「拍照」
     const shipFlowSteps = computed(() => {
       if (shipFlowScanOnly.value) return [{ key: 'qrscan', label: t('todos.qrScanTitle') }]
       const steps = []
-      if (shipFlowHasPackaging.value) steps.push({ key: 'packaging', label: t('todos.pickPackagingTitle') })
+      const packagingStep = { key: 'packaging', label: t('todos.pickPackagingTitle') }
       if (shipFlowTarget.value === 'yahoo') {
         // 雅虎与煤炉步骤形态一致但取值/提交方式完全不同（投函型走 App API，其余走网页模拟），
         // 所以用独立的 step key，别去复用煤炉那套只认煤炉尺寸表的分支
         steps.push({ key: 'ysize', label: t('todos.pickShippingSize') })
+        if (shipFlowShowsPackaging.value) steps.push(packagingStep)
         steps.push(
           isYahooPostBoxSize.value
             ? { key: 'yqr', label: t('todos.yahoo.stepQr') }
@@ -1029,6 +1047,7 @@ export default defineComponent({
         return steps
       }
       steps.push({ key: 'size', label: t('todos.pickShippingSize') })
+      if (shipFlowShowsPackaging.value) steps.push(packagingStep)
       steps.push(
         shippingPickedIdx.value != null && !shippingNeedsFacility.value
           ? { key: 'qrscan', label: t('todos.qrScanTitle') }
@@ -1043,13 +1062,19 @@ export default defineComponent({
      *  拍照页不让点进来——它由选中尺寸时统一入口开摄像头，直接跳会是一片黑画面。 */
     function onShipStepClick(key) {
       if (key === shippingStep.value || key === 'qrscan') return
-      if (key === 'size' && !hasPackagingSelected.value) return
-      if (key === 'facility' && (shippingPickedIdx.value == null || !shippingNeedsFacility.value)) return
-      // 雅虎：包材没选完不许跳到尺寸页；尺寸没选不许跳到最后一页
-      if (key === 'ysize' && shipFlowHasPackaging.value && !hasPackagingSelected.value) return
-      if ((key === 'ylocation' || key === 'yqr') && !yahooForm.size) return
+      // 尺寸没选不许去包材页；尺寸或包材没选完不许去最后一页
+      const sizePicked = !!shipSizeName.value
+      const packagingDone = !shipFlowHasPackaging.value || hasPackagingSelected.value
+      if (key === 'packaging' && !sizePicked) return
+      if (key === 'facility' && (!sizePicked || !shippingNeedsFacility.value || !packagingDone)) return
+      if ((key === 'ylocation' || key === 'yqr') && (!sizePicked || !packagingDone)) return
       // 离开拍照页要把摄像头关掉，否则相机灯一直亮着
       if (shippingStep.value === 'qrscan' || shippingStep.value === 'yqr') resetQrScanState()
+      // 雅虎拍照页要经统一入口开摄像头，直接切过去会是一片黑画面
+      if (key === 'yqr') {
+        proceedAfterYahooSize()
+        return
+      }
       shippingStep.value = key
     }
 
@@ -1057,7 +1082,7 @@ export default defineComponent({
     function onPickShipping(idx) {
       shippingPickedIdx.value = idx
       shippingFacility.value = null
-      onShippingSizeNext()
+      proceedAfterSize(onShippingSizeNext)
     }
     // 发货地图标：public/static/post_hukuro/<img>.png
     function facilityImageUrl(img) {
@@ -2199,7 +2224,7 @@ export default defineComponent({
       shippingPickedIdx.value = null
       shippingFacility.value = null
       const firstStep = target === 'yahoo' ? 'ysize' : 'size'
-      shippingStep.value = scanOnly ? 'qrscan' : withPackaging ? 'packaging' : firstStep
+      shippingStep.value = scanOnly ? 'qrscan' : firstStep
       shippingDialogVisible.value = true
     }
 
@@ -2208,9 +2233,33 @@ export default defineComponent({
       resetQrScanState()
     }
 
-    /** 点中包材卡片后自动翻到下一页：两个平台都进各自的尺寸页 */
+    /** 选定尺寸后：要记包材时先定包材——该尺寸只关联一种包材就直接选定、跳过包材页，
+     *  否则翻到包材页（只列关联了该尺寸的包材）；不记包材的直接走 next（发送方法 / 拍照）。 */
+    async function proceedAfterSize(next) {
+      if (!shipFlowHasPackaging.value) return next()
+      if (!(packagingItemsOptions.value || []).length) await loadPackagingItemOptions()
+      const auto = autoPackagingItem.value
+      if (auto) {
+        shipPackagingRows.value = [{ item_name: auto.item_name }]
+        savePackagingSelection()
+        return next()
+      }
+      // 之前选的（或从缓存恢复的）包材不在该尺寸的可选范围内 → 清掉，别带着不匹配的包材往下走
+      const picked = packagingPickedName.value
+      if (
+        picked &&
+        picked !== PACKAGING_ITEM_NONE &&
+        !visiblePackagingOptions.value.some((it) => it.item_name === picked)
+      ) {
+        shipPackagingRows.value = [{ item_name: '' }]
+      }
+      shippingStep.value = 'packaging'
+    }
+
+    /** 点中包材卡片后自动翻到下一页：发送方法 / 拍照 */
     async function proceedAfterPackaging() {
-      shippingStep.value = shipFlowTarget.value === 'yahoo' ? 'ysize' : 'size'
+      if (shipFlowTarget.value === 'yahoo') await proceedAfterYahooSize()
+      else onShippingSizeNext()
     }
 
     /** 雅虎尺寸页：点中即选定并翻页。
@@ -2220,6 +2269,11 @@ export default defineComponent({
       if (yahooForm.size !== size) resetQrScanState() // 换尺寸后原来那张码不再适用
       yahooForm.size = size
       yahooForm.location = ''
+      await proceedAfterSize(proceedAfterYahooSize)
+    }
+
+    /** 雅虎尺寸（与包材）定下后翻到最后一页：投函型进拍照，其余选発送場所 */
+    async function proceedAfterYahooSize() {
       if (!isYahooPostBoxSize.value) {
         shippingStep.value = 'ylocation'
         return
@@ -3093,6 +3147,7 @@ export default defineComponent({
       hasLocalInventoryImages,
       showMercariPhoto,
       packagingItemsOptions,
+      visiblePackagingOptions,
       shipOutbound,
       packagingIsNone,
       packagingPickedName,

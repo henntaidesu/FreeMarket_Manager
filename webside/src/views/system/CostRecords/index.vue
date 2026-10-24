@@ -3,21 +3,7 @@
     <el-card shadow="never" class="search-card">
       <div class="search-row">
         <div class="search-left-group">
-          <el-select v-model="filters.type" :placeholder="t('system.costRecordTypeFilter')" clearable @change="onFilterChange">
-            <el-option v-for="item in typeOptions" :key="item.value" :label="item.label" :value="item.value" />
-          </el-select>
-          <el-select v-model="filters.warehouse_id" :placeholder="t('system.costRecordSelectWarehouse')" clearable @change="onFilterChange">
-            <el-option v-for="w in warehouses" :key="w.id" :label="warehouseShelfLabel(w)" :value="w.id" />
-          </el-select>
-          <el-date-picker
-            v-model="dateRange"
-            type="daterange"
-            :range-separator="t('common.to')"
-            :start-placeholder="t('common.startDate')"
-            :end-placeholder="t('common.endDate')"
-            value-format="YYYY-MM-DD"
-            @change="onFilterChange"
-          />
+          <span class="page-hint">{{ t('system.costRecordShipSizesHint') }}</span>
         </div>
         <div class="search-actions">
           <el-button type="primary" @click="openCreate">{{ t('system.costRecordCreate') }}</el-button>
@@ -42,39 +28,18 @@
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column :label="t('common.type')" width="110" align="center">
-          <template #default="{ row }">
-            <el-tag :type="typeMap[row.type]?.tag || 'info'" size="small" effect="light">
-              {{ typeMap[row.type]?.label || row.type }}
-            </el-tag>
-          </template>
-        </el-table-column>
         <el-table-column :label="t('system.costRecordItemName')" prop="item_name" min-width="140" />
-        <el-table-column :label="t('common.amount')" width="120" align="right">
+        <el-table-column :label="t('system.costRecordUnitPrice')" width="120" align="right">
           <template #default="{ row }">
             <span class="amount">¥{{ Math.round(row.amount || 0) }}</span>
           </template>
         </el-table-column>
-        <el-table-column :label="t('common.quantity')" width="100" align="center">
+        <el-table-column :label="t('system.costRecordShipSizes')" min-width="240">
           <template #default="{ row }">
-            {{ row.quantity || 0 }}
-          </template>
-        </el-table-column>
-        <el-table-column :label="t('system.costRecordTotalAmount')" width="120" align="right">
-          <template #default="{ row }">
-            <span class="amount">¥{{ Math.round((row.amount || 0) * (row.quantity || 0)) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column :label="t('inventory.warehouse')" prop="warehouse_name" width="140">
-          <template #default="{ row }">
-            {{ row.warehouse_name || '-' }}
-          </template>
-        </el-table-column>
-        <el-table-column :label="t('common.remark')" prop="remark" min-width="180" show-overflow-tooltip />
-        <el-table-column :label="t('common.operator')" prop="operator" width="100" />
-        <el-table-column :label="t('system.costRecordRecordTime')" width="175">
-          <template #default="{ row }">
-            {{ formatTs(row.cost_date) }}
+            <div v-if="(row.ship_sizes || []).length" class="size-tags">
+              <el-tag v-for="s in row.ship_sizes" :key="s" size="small" effect="light">{{ s }}</el-tag>
+            </div>
+            <span v-else class="size-none">{{ t('system.costRecordShipSizesNone') }}</span>
           </template>
         </el-table-column>
         <el-table-column :label="t('common.actions')" width="150" fixed="right">
@@ -109,21 +74,7 @@
       width="520px"
       destroy-on-close
     >
-      <el-form :model="form" :rules="rules" ref="formRef" label-width="78px">
-        <el-form-item :label="t('system.costRecordRecordTime')" prop="cost_date">
-          <el-date-picker
-            v-model="form.cost_date"
-            type="datetime"
-            value-format="x"
-            :placeholder="t('system.costRecordSelectRecordTime')"
-            style="width: 100%"
-          />
-        </el-form-item>
-        <el-form-item :label="t('common.type')" prop="type">
-          <el-select v-model="form.type" :placeholder="t('system.costRecordSelectType')" style="width: 100%">
-            <el-option v-for="item in typeOptions" :key="item.value" :label="item.label" :value="item.value" />
-          </el-select>
-        </el-form-item>
+      <el-form :model="form" :rules="rules" ref="formRef" label-width="96px">
         <el-form-item :label="t('system.costRecordItemName')" prop="item_name">
           <el-input v-model="form.item_name" :placeholder="t('system.costRecordInputItemName')" maxlength="60" clearable />
         </el-form-item>
@@ -140,39 +91,31 @@
           </div>
           <input ref="fileInputRef" type="file" accept="image/*" style="display:none" @change="handleImageUpload" />
         </el-form-item>
-        <el-row :gutter="12">
-          <el-col :span="12">
-            <el-form-item :label="t('system.costRecordUnitPrice')" prop="amount">
-              <el-input-number
-                v-model="form.amount"
-                :min="1"
-                :precision="0"
-                :controls="false"
-                :placeholder="t('system.costRecordInputUnitPrice')"
-                style="width: 100%"
-              />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item :label="t('common.quantity')" prop="quantity">
-              <el-input-number
-                v-model="form.quantity"
-                :min="0"
-                :precision="0"
-                :controls="false"
-                :placeholder="t('system.costRecordInputQuantity')"
-                style="width: 100%"
-              />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-form-item :label="t('inventory.warehouse')">
-          <el-select v-model="form.warehouse_id" clearable :placeholder="t('system.costRecordWarehouseOptional')" style="width: 100%">
-            <el-option v-for="w in warehouses" :key="w.id" :label="warehouseShelfLabel(w)" :value="w.id" />
-          </el-select>
+        <el-form-item :label="t('system.costRecordUnitPrice')" prop="amount">
+          <el-input-number
+            v-model="form.amount"
+            :min="1"
+            :precision="0"
+            :controls="false"
+            :placeholder="t('system.costRecordInputUnitPrice')"
+            style="width: 100%"
+          />
         </el-form-item>
-        <el-form-item :label="t('common.remark')">
-          <el-input v-model="form.remark" type="textarea" :rows="3" maxlength="200" show-word-limit />
+        <el-form-item :label="t('system.costRecordShipSizes')">
+          <el-select
+            v-model="form.ship_sizes"
+            multiple
+            filterable
+            allow-create
+            default-first-option
+            clearable
+            :placeholder="t('system.costRecordShipSizesPlaceholder')"
+            style="width: 100%"
+          >
+            <el-option-group v-for="g in SHIP_SIZE_GROUPS" :key="g.label" :label="g.label">
+              <el-option v-for="n in g.names" :key="n" :label="n" :value="n" />
+            </el-option-group>
+          </el-select>
         </el-form-item>
       </el-form>
       <template #footer>

@@ -11,6 +11,20 @@
   color: #f56c6c;
   font-weight: 600;
 }
+.page-hint {
+  font-size: 12px;
+  color: #8ea2c0;
+  line-height: 1.5;
+}
+.size-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.size-none {
+  color: #8ea2c0;
+  font-size: 12px;
+}
 .image-row {
   display: flex;
   align-items: center;
