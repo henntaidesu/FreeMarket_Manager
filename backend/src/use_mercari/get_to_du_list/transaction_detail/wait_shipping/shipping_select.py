@@ -21,6 +21,11 @@ log = logging.getLogger(__name__)
 
 _SIZE_SELECT_BUTTON_TEXT = "商品サイズと発送場所を選択する"
 
+# 改版后的交易页先给一张「おすすめの発送設定」卡（最近用过的尺寸+发货地，一键发货），
+# 原入口换成这个按钮。推荐卡一律无视——尺寸/发货地必须由我们自己选，不能沿用上次的。
+# 新旧两版并存（按交易不同），所以两个文言都认。
+_MANUAL_SELECT_BUTTON_TEXT = "サイズと発送場所を手動で選択する"
+
 _SELECT_NEXT_BUTTON_TEXT = "選択して次へ"
 
 _SELECT_FINISH_BUTTON_TEXT = "選択して完了する"
@@ -34,22 +39,38 @@ _GENERATE_SHIP_CODE_TEXTS = (
 )
 
 async def _click_size_select_entry(page: Any, *, aid: int, report) -> None:
-    """点交易页「商品サイズと発送場所を選択する」入口 → 等浏览器跳到 /shipping_class。"""
-    report("locate_button", "正在定位「商品サイズと発送場所を選択する」按钮…")
-    btn = page.get_by_role("button", name=_SIZE_SELECT_BUTTON_TEXT)
+    """点交易页的尺寸/发货地选择入口 → 等浏览器跳到 /shipping_class。
+
+    旧版页面：「商品サイズと発送場所を選択する」；
+    改版页面（带「おすすめの発送設定」）：「サイズと発送場所を手動で選択する」。
+    """
+    report("locate_button", "正在定位「サイズと発送場所」选择按钮…")
+    manual = page.get_by_role("button", name=_MANUAL_SELECT_BUTTON_TEXT).or_(
+        page.get_by_role("link", name=_MANUAL_SELECT_BUTTON_TEXT)
+    )
+    legacy = page.get_by_role("button", name=_SIZE_SELECT_BUTTON_TEXT)
+    btn = manual.or_(legacy)
     try:
         await btn.first.wait_for(state="visible", timeout=8000)
     except Exception:
-        btn = page.locator(f'button:has-text("{_SIZE_SELECT_BUTTON_TEXT}")')
+        btn = page.locator(
+            f'button:has-text("{_MANUAL_SELECT_BUTTON_TEXT}"), '
+            f'a:has-text("{_MANUAL_SELECT_BUTTON_TEXT}"), '
+            f'button:has-text("{_SIZE_SELECT_BUTTON_TEXT}")'
+        )
         try:
             await btn.first.wait_for(state="visible", timeout=4000)
         except Exception as exc:
             raise RuntimeError(
-                f"未找到「{_SIZE_SELECT_BUTTON_TEXT}」按钮（当前 URL: {page.url}）"
+                f"未找到「{_MANUAL_SELECT_BUTTON_TEXT}」或「{_SIZE_SELECT_BUTTON_TEXT}」按钮"
+                f"（当前 URL: {page.url}）"
             ) from exc
+    # 两者理论上不会同时出现；万一同时在，优先手动入口
+    target = manual.first if await manual.count() > 0 else btn.first
+    label = (await target.inner_text()).strip()
     report("click_button", "正在点击按钮，等待跳转到 /shipping_class…")
-    await btn.first.click()
-    log.info("[shipping] 已点击「%s」 account_id=%s", _SIZE_SELECT_BUTTON_TEXT, aid)
+    await target.click()
+    log.info("[shipping] 已点击「%s」 account_id=%s", label, aid)
     # 等浏览器跳到 /shipping_class
     try:
         await page.wait_for_url("**/shipping_class*", timeout=8000)

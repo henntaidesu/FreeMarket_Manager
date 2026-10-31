@@ -18,6 +18,9 @@ _K_SHIP_PAYER = "listing_defaults_shipping_payer"
 _K_SHIP_DAYS = "listing_defaults_shipping_days"
 _K_WATERMARK = "listing_defaults_watermark"
 _K_DESCRIPTION = "listing_defaults_description"
+# 煤炉单账号同时在售上限：库存页出品时据此提示「账号已满」（雅虎固定 100，不在此配置）
+_K_MERCARI_LISTING_LIMIT = "listing_mercari_account_limit"
+_DEFAULT_MERCARI_LISTING_LIMIT = 150
 
 _ALLOWED_METHODS = frozenset({"undecided", "rakuraku", "yuuyu", "tanome", "regular_mail"})
 _ALLOWED_PAYERS = frozenset({"seller", "buyer"})
@@ -35,6 +38,8 @@ class ListingDefaultsOut(BaseModel):
     watermark: int = 1
     # 默认商品描述（日文出品说明，与库存表单同为 900 字上限）
     description: Optional[str] = None
+    # 煤炉单账号同时在售上限
+    mercari_listing_limit: int = _DEFAULT_MERCARI_LISTING_LIMIT
 
 
 class ListingDefaultsUpdate(BaseModel):
@@ -44,6 +49,8 @@ class ListingDefaultsUpdate(BaseModel):
     shipping_days: Optional[str] = None
     watermark: Optional[int] = None
     description: Optional[str] = Field(default=None, max_length=900)
+    # None = 恢复默认 150
+    mercari_listing_limit: Optional[int] = Field(default=None, ge=1, le=10000)
 
     @field_validator("shipping_from_area_id", mode="before")
     @classmethod
@@ -82,6 +89,13 @@ def _read_listing_defaults() -> Dict[str, Any]:
             watermark = 0 if int(str(raw_watermark).strip()) == 0 else 1
         except ValueError:
             watermark = 1
+    limit = _DEFAULT_MERCARI_LISTING_LIMIT
+    raw_limit = ConfigEntryModel.get_value(_K_MERCARI_LISTING_LIMIT)
+    if raw_limit is not None:
+        try:
+            limit = max(1, int(str(raw_limit).strip()))
+        except ValueError:
+            pass
     return {
         "shipping_from_area_id": ConfigEntryModel.get_value(_K_SHIP_FROM),
         "shipping_method": ConfigEntryModel.get_value(_K_SHIP_METHOD),
@@ -89,6 +103,7 @@ def _read_listing_defaults() -> Dict[str, Any]:
         "shipping_days": ConfigEntryModel.get_value(_K_SHIP_DAYS),
         "watermark": watermark,
         "description": ConfigEntryModel.get_value(_K_DESCRIPTION),
+        "mercari_listing_limit": limit,
     }
 
 
@@ -250,5 +265,8 @@ def put_listing_defaults(body: ListingDefaultsUpdate):
         )
     if "description" in data:
         ConfigEntryModel.set_value(_K_DESCRIPTION, data["description"])
+    if "mercari_listing_limit" in data:
+        v = data["mercari_listing_limit"]
+        ConfigEntryModel.set_value(_K_MERCARI_LISTING_LIMIT, None if v is None else str(int(v)))
 
     return ListingDefaultsOut(**_read_listing_defaults())

@@ -239,7 +239,9 @@ export default defineComponent({
       shipping_payer: null,
       shipping_days: null,
       watermark: 1,
-      description: null
+      description: null,
+      // 煤炉单账号同时在售上限（系统配置 → 出品默认值）
+      mercari_listing_limit: 150
     })
 
     // ============ 出品表单（已融合进编辑弹窗） ============
@@ -342,9 +344,9 @@ export default defineComponent({
     function accountPlatformTagType(a) {
       return accountIsYahoo(a) ? 'warning' : 'danger'
     }
-    /** 平台同时在售上限：煤炉单账号 150，雅虎 100（雅虎只算公开中的，与 on_sale_count 口径一致） */
+    /** 平台同时在售上限：煤炉单账号按系统配置（默认 150），雅虎 100（雅虎只算公开中的，与 on_sale_count 口径一致） */
     function accountListingLimit(a) {
-      return accountIsYahoo(a) ? 100 : 150
+      return accountIsYahoo(a) ? 100 : (Number(listingDefaultsFromServer.value.mercari_listing_limit) || 150)
     }
     function accountListingFull(a) {
       return Number(a?.on_sale_count ?? 0) >= accountListingLimit(a)
@@ -5377,7 +5379,8 @@ export default defineComponent({
           shipping_payer: d?.shipping_payer ?? null,
           shipping_days: d?.shipping_days ?? null,
           watermark: Number(d?.watermark) === 0 ? 0 : 1,
-          description: d?.description ?? null
+          description: d?.description ?? null,
+          mercari_listing_limit: Number(d?.mercari_listing_limit) || 150
         }
       } catch {
         /* 拦截器已提示；保持当前占位 */

@@ -417,6 +417,18 @@
                   <el-option :label="t('system.listingImageNoWatermark')" :value="0" />
                 </el-select>
               </div>
+              <div class="sc-field">
+                <div class="sc-label">{{ t('system.mercariListingLimit') }}</div>
+                <el-input-number
+                  v-model="listingDefForm.mercari_listing_limit"
+                  :min="1"
+                  :max="10000"
+                  :step="1"
+                  step-strictly
+                  controls-position="right"
+                  @change="saveListingDefaults"
+                />
+              </div>
               <div class="sc-field sc-field--wide">
                 <div class="sc-label">{{ t('system.defaultDescription') }}</div>
                 <el-input
@@ -1950,7 +1962,9 @@ const listingDefForm = reactive({
   // 默认出品图片：1=有水印 / 0=无水印
   watermark: 1,
   // 默认商品描述：库存表单出品说明为空时预填（失焦保存）
-  description: ''
+  description: '',
+  // 煤炉单账号同时在售上限（库存页出品时据此判断账号已满）
+  mercari_listing_limit: 150
 })
 
 const listingDefLoading = ref(false)
@@ -1982,6 +1996,7 @@ async function loadListingDefaults() {
     listingDefForm.shipping_days = d?.shipping_days ?? null
     listingDefForm.watermark = Number(d?.watermark) === 0 ? 0 : 1
     listingDefForm.description = d?.description ?? ''
+    listingDefForm.mercari_listing_limit = Number(d?.mercari_listing_limit) || 150
   } catch {
     /* 拦截器已提示 */
   } finally {
@@ -1999,7 +2014,9 @@ async function saveListingDefaults() {
       shipping_payer: listingDefForm.shipping_payer,
       shipping_days: listingDefForm.shipping_days,
       watermark: listingDefForm.watermark,
-      description: listingDefForm.description
+      description: listingDefForm.description,
+      // 清空输入框时 el-input-number 给 null → 后端恢复默认 150
+      mercari_listing_limit: listingDefForm.mercari_listing_limit ?? null
     })
     ElMessage.success(t('system.listingDefaultsSaved'))
   } catch {
