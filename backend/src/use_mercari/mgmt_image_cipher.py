@@ -16,6 +16,8 @@
 **件数码（右下角）**：一条挂牌含多件（专用出品选了数量 N>1）时，另在**右下角**按同一套 QIM
 嵌一份 ``_QTY_SYNC + 件数(20) + crc8``。sync 图案与左下角不同（含反相也不同），两个码区互不误认；
 没有件数码的图（含全部历史图片）一律按 1 件。左下角 id 码的线格式不因此改变。
+**码区所在的角可配**（隐藏页 /x9，见 ``mgmt_image_code_settings``）：缺省仍是 id 左下、件数右下；
+嵌入按调用方传入的角，解码按 ``corners`` 顺序逐角找、命中即停——线格式与角无关，只是起点不同。
 嵌入失败一律回退原图，绝不中断出品。可调参数：``_Q`` / ``_CELL_DIV`` / ``_R``。
 
 ⚠️ 安全声明：这是**混淆（obfuscation），不是加密（cryptography）**。CRC8 只做**纠错**，
@@ -30,7 +32,7 @@ from __future__ import annotations
 
 import logging
 import tempfile
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 log = logging.getLogger(__name__)
 
@@ -56,6 +58,8 @@ _MAX_ID = (1 << _ID_BITS) - 1
 # 右下角件数码：与 _SYNC 及其反相都不同的 sync，载荷结构相同（数值位存件数）
 _QTY_SYNC = [1, 1, 0, 0, 1, 0, 1, 0]
 _MAX_QTY = 999
+#: 码区所在角：tl 左上 / tr 右上 / bl 左下 / br 右下
+_ALL_CORNERS = ("bl", "br", "tl", "tr")
 
 
 # ── 位工具 / CRC8 ────────────────────────────────────────────────────────
@@ -89,15 +93,19 @@ def _build_payload(value: int, sync: List[int] = _SYNC) -> List[int]:
 
 
 # ── 几何 ─────────────────────────────────────────────────────────────────
-def _geometry(w: int, h: int, cell: Optional[int] = None, right: bool = False):
-    """返回 (cell, cols, rows, x0, y0)：左下角（right=True 为右下角）码区。cell 可显式传入用于解码微搜。"""
-    c = cell if cell else max(8, round(min(w, h) / _CELL_DIV))
-    cols = _COLS
-    rows = (_TOTAL_CELLS + cols - 1) // cols
+def _origin(w, h, c, m, corner: str):
+    """码区左上角坐标（嵌入用整数、解码用浮点，同一套公式）。"""
+    x0 = w - _COLS * c - m if corner in ("tr", "br") else m
+    y0 = m if corner in ("tl", "tr") else h - _cells_rows(_COLS) * c - m
+    return x0, y0
+
+
+def _geometry(w: int, h: int, corner: str):
+    """返回 (cell, cols, rows, x0, y0)：``corner`` 角上的码区。"""
+    c = max(8, round(min(w, h) / _CELL_DIV))
     m = max(6, round(min(w, h) * _MARGIN_FRAC))
-    x0 = w - cols * c - m if right else m
-    y0 = h - rows * c - m
-    return c, cols, rows, x0, y0
+    x0, y0 = _origin(w, h, c, m, corner)
+    return c, _COLS, _cells_rows(_COLS), x0, y0
 
 
 def _qim_target(mean: float, bit: int) -> float:
@@ -110,8 +118,8 @@ def _qim_target(mean: float, bit: int) -> float:
 
 
 # ── 嵌入 ─────────────────────────────────────────────────────────────────
-def embed_mgmt_code_in_file(src_path: str, inventory_id: int) -> str:
-    """在图片左下角嵌入 inventory.id 暗码，返回新临时 JPEG 路径；失败回退原图。"""
+def embed_mgmt_code_in_file(src_path: str, inventory_id: int, corner: str = "bl") -> str:
+    """在图片 ``corner`` 角（缺省左下）嵌入 inventory.id 暗码，返回新临时 JPEG 路径；失败回退原图。"""
     try:
         iid = int(inventory_id)
     except (TypeError, ValueError):
@@ -119,11 +127,11 @@ def embed_mgmt_code_in_file(src_path: str, inventory_id: int) -> str:
     if iid <= 0 or iid > _MAX_ID:
         log.warning("[mgmt_image_cipher] id=%s 超出可编码范围，跳过嵌入", inventory_id)
         return src_path
-    return _embed(src_path, _build_payload(iid), right=False)
+    return _embed(src_path, _build_payload(iid), corner=corner)
 
 
-def embed_listing_qty_in_file(src_path: str, qty: int) -> str:
-    """在图片右下角嵌入「本挂牌含几件」，返回新临时 JPEG 路径；qty ≤ 1 不嵌（缺省即 1 件），失败回退原图。"""
+def embed_listing_qty_in_file(src_path: str, qty: int, corner: str = "br") -> str:
+    """在图片 ``corner`` 角（缺省右下）嵌入「本挂牌含几件」，返回新临时 JPEG 路径；qty ≤ 1 不嵌（缺省即 1 件），失败回退原图。"""
     try:
         n = int(qty)
     except (TypeError, ValueError):
@@ -133,10 +141,10 @@ def embed_listing_qty_in_file(src_path: str, qty: int) -> str:
     if n > _MAX_QTY:
         log.warning("[mgmt_image_cipher] 件数=%s 超出可编码范围，跳过嵌入", qty)
         return src_path
-    return _embed(src_path, _build_payload(n, _QTY_SYNC), right=True)
+    return _embed(src_path, _build_payload(n, _QTY_SYNC), corner=corner)
 
 
-def _embed(src_path: str, payload: List[int], *, right: bool) -> str:
+def _embed(src_path: str, payload: List[int], *, corner: str) -> str:
     try:
         import numpy as np
         from PIL import Image, ImageOps
@@ -146,7 +154,7 @@ def _embed(src_path: str, payload: List[int], *, right: bool) -> str:
         w, h = im.size
         arr = np.asarray(im).astype(np.float32)
 
-        c, cols, _rows, x0, y0 = _geometry(w, h, right=right)
+        c, cols, _rows, x0, y0 = _geometry(w, h, corner)
         if x0 < 0 or y0 < 0 or x0 + cols * c > w or y0 + _cells_rows(cols) * c > h:
             log.warning("[mgmt_image_cipher] 图太小放不下码区，跳过嵌入 (%dx%d)", w, h)
             return src_path
@@ -252,27 +260,38 @@ def _cell_candidates(w: int, h: int) -> List[Tuple[float, float]]:
 
 
 def decode_mgmt_code_from_file(
-    path: str, validate: Optional[Callable[[int], bool]] = None
+    path: str,
+    validate: Optional[Callable[[int], bool]] = None,
+    corners: Sequence[str] = _ALL_CORNERS,
 ) -> Optional[int]:
     """从图片读回 inventory.id；读不到返回 None。对等比缩放/JPEG 重压缩鲁棒。
 
     ``validate``：可选的 id 校验回调（存在性/账号范围），只接受 ``validate(iid)`` 为真的候选，
-    用于进一步压低误报。所有对齐候选里取三份副本一致度最高的那个。
+    用于进一步压低误报。同一角的所有对齐候选里取三份副本一致度最高的那个；
+    ``corners`` 按顺序逐角找，第一个读出的角为准。
     """
-    return _decode(path, validate, right=False, sync=_SYNC, max_value=_MAX_ID)
+    return _decode_corners(path, validate, corners, sync=_SYNC, max_value=_MAX_ID)
 
 
-def decode_listing_qty_from_file(path: str) -> int:
-    """读右下角件数码；读不到（含所有没嵌件数码的图）返回 1。"""
-    n = _decode(path, None, right=True, sync=_QTY_SYNC, max_value=_MAX_QTY)
+def decode_listing_qty_from_file(path: str, corners: Sequence[str] = _ALL_CORNERS) -> int:
+    """读件数码；读不到（含所有没嵌件数码的图）返回 1。"""
+    n = _decode_corners(path, None, corners, sync=_QTY_SYNC, max_value=_MAX_QTY)
     return n if n and n > 1 else 1
+
+
+def _decode_corners(path, validate, corners, *, sync, max_value) -> Optional[int]:
+    for corner in corners:
+        v = _decode(path, validate, corner=corner, sync=sync, max_value=max_value)
+        if v is not None:
+            return v
+    return None
 
 
 def _decode(
     path: str,
     validate: Optional[Callable[[int], bool]],
     *,
-    right: bool,
+    corner: str,
     sync: List[int],
     max_value: int,
 ) -> Optional[int]:
@@ -286,12 +305,10 @@ def _decode(
         a = np.asarray(im).astype(np.float32)
         ii = _integral(0.299 * a[..., 0] + 0.587 * a[..., 1] + 0.114 * a[..., 2])
 
-        rows = _cells_rows(_COLS)
         best: Optional[Tuple[int, int]] = None  # (agree, iid)
         rejected: set = set()
         for c, m in _cell_candidates(w, h):
-            bx = w - _COLS * c - m if right else m
-            by = h - rows * c - m
+            bx, by = _origin(w, h, c, m, corner)
             step = max(0.5, c / 6.0)
             n = int(c * 0.75 / step)
             offs = [i * step for i in range(-n, n + 1)]

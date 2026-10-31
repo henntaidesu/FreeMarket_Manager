@@ -134,6 +134,35 @@ def put_mgmt_cipher_mode(body: MgmtCipherModeUpdate):
     return MgmtCipherModeOut(mode=mode)
 
 
+class MgmtImageCodeItem(BaseModel):
+    """一个出品图暗码：enabled=有码 / 无码，corner = tl / tr / bl / br。"""
+
+    enabled: bool
+    corner: str
+
+
+class MgmtImageCodeSettings(BaseModel):
+    """出品图暗码设置：id = 管理番号码，qty = 件数码。"""
+
+    id: MgmtImageCodeItem
+    qty: MgmtImageCodeItem
+
+
+def get_mgmt_image_code():
+    from ....use_mercari.mgmt_image_code_settings import get_settings
+
+    return MgmtImageCodeSettings(**get_settings())
+
+
+def put_mgmt_image_code(body: MgmtImageCodeSettings):
+    from ....use_mercari.mgmt_image_code_settings import save_settings
+
+    try:
+        return MgmtImageCodeSettings(**save_settings(body.model_dump()))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
 class ProxyPublicBaseOut(BaseModel):
     """Cookie 注入引导地址的对外基址 + 挂载子路径。
 

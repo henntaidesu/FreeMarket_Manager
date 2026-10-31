@@ -543,6 +543,11 @@ header, not cookies, so the dangerous wildcard+credentials combination never occ
    (`uncovered_bundle_titles`). For a single item, the image wins only when it *disagrees* with
    the text — when they agree the text is kept, because combined listings carry their other ids
    and quantities only there (the image holds just the first id).
+   - **Corners and on/off are configurable** on the hidden page `/#/x9`
+     (`use_mercari/mgmt_image_code_settings.py`, config key `mgmt_image_code_settings`): id code and
+     qty code each get 有码/无码 + one of four corners (defaults bl / br; both on → must differ).
+     Only new listings follow it; decoding tries every corner (configured first, then the default),
+     so old images still decode. 修改关联库存 always embeds, ignoring 无码.
    - Decoding needs the **original** photo (`items/get` `photos`): cell size ≈ short side / 70, so
      an order's ~300px thumbnail has 4px cells and never decodes. Results are cached as JSON in
      `on_sale_items.image_mgmt_ids` (written by detail sync, reused while `photos_json` is

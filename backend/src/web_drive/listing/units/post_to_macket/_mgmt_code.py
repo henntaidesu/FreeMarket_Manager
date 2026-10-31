@@ -6,6 +6,7 @@
 
 id 由出品任务显式传入（``inventory_ids[0]``）；没传时才从说明末行旧暗号里解析，兼容
 说明里仍带暗号的旧调用方。专用首图在这之前插到第一张，所以首图同样带码。
+两个码嵌不嵌、嵌在哪个角由隐藏页 /x9 设置（``mgmt_image_code_settings``）。
 全程吞异常：嵌入失败只是这条挂牌认不回库存，不该让出品本身失败。
 """
 from __future__ import annotations
@@ -28,24 +29,29 @@ def embed_listing_mgmt_codes(
         return local_images
     try:
         from src.use_mercari.mgmt_id_cipher import parse_trailing_cipher_mgmt_tokens
+        from src.use_mercari.mgmt_image_code_settings import get_settings
         from src.use_mercari.mgmt_image_cipher import (
             embed_listing_qty_in_file,
             embed_mgmt_code_in_file,
         )
 
+        cfg = get_settings()
+        out = local_images
+        qty = max(1, int(listing_qty or 1))
+        if qty > 1 and cfg["qty"]["enabled"]:
+            out = [embed_listing_qty_in_file(p, qty, cfg["qty"]["corner"]) or p for p in out]
+        if not cfg["id"]["enabled"]:
+            log.info("出品图暗码设置为无码：不嵌管理番号码（这条挂牌将无法自动关联库存）")
+            return out
         iid = int(mgmt_inventory_id) if mgmt_inventory_id else None
         if iid is None:
             tokens = parse_trailing_cipher_mgmt_tokens(description)
             iid = int(tokens[0][0]) if tokens else None
         if iid is None:
             log.warning("出品未提供管理番号，图片不嵌管理暗码（这条挂牌将无法自动关联库存）")
-            return local_images
-        qty = max(1, int(listing_qty or 1))
-        report("mgmt_watermark", f"正在为 {len(local_images)} 张图片嵌入管理暗码…")
-        out = [embed_mgmt_code_in_file(p, iid) or p for p in local_images]
-        if qty > 1:
-            out = [embed_listing_qty_in_file(p, qty) or p for p in out]
-        return out
+            return out
+        report("mgmt_watermark", f"正在为 {len(out)} 张图片嵌入管理暗码…")
+        return [embed_mgmt_code_in_file(p, iid, cfg["id"]["corner"]) or p for p in out]
     except Exception as exc:  # noqa: BLE001
         log.warning("管理暗码嵌入失败（忽略，不影响出品）：%s", exc)
         return local_images

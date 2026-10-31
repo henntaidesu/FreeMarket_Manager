@@ -61,13 +61,17 @@ async def relink_after_revise(sync_coro: Awaitable[Dict[str, Any]], expected_id:
 
 
 def embed_mgmt_images(local_images: List[str], inventory_id: int) -> List[str]:
-    """左下角重嵌管理暗码（与出品同一个 ``embed_mgmt_code_in_file``）。嵌入后的是临时文件，
-    由 ``cleanup_temp_images`` 一并删掉。单张失败会回退原图——那张图就仍带旧暗码，所以失败直接抛。"""
+    """重嵌管理暗码（与出品同一个 ``embed_mgmt_code_in_file``，角取 /x9 设置）。嵌入后的是临时文件，
+    由 ``cleanup_temp_images`` 一并删掉。单张失败会回退原图——那张图就仍带旧暗码，所以失败直接抛。
+    这一步本来就是为了重新关联，所以不看 /x9 的「无码」开关，总是嵌。"""
     from ....use_mercari.mgmt_image_cipher import embed_mgmt_code_in_file
+    from ....use_mercari.mgmt_image_code_settings import get_settings
+
+    corner = get_settings()["id"]["corner"]
 
     out: List[str] = []
     for p in local_images:
-        q = embed_mgmt_code_in_file(p, int(inventory_id))
+        q = embed_mgmt_code_in_file(p, int(inventory_id), corner)
         if q == p:
             rf.cleanup_temp_images(out)
             raise ValueError(f"管理暗码嵌入失败（图片太小或无法读取）：{p}")

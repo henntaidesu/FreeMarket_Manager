@@ -13,6 +13,7 @@ import { useViewModeStore } from '@/stores/viewMode.js'
 import { useCardWindow } from '@/composables/useCardWindow.js'
 import { useReviseExtras } from './useReviseExtras.js'
 import { useReviseRelink } from './useReviseRelink.js'
+import { useReverseInbound } from './useReverseInbound.js'
 
 export default defineComponent({
   setup() {
@@ -1111,6 +1112,15 @@ export default defineComponent({
       }
     }
 
+    /** 反向入库：未关联库存的在售商品 → 新建库存 + 提交修改写入新管理番号 */
+    const reverseInboundApi = useReverseInbound(t, {
+      base: detailViewBase,
+      listingText: detailListingBodyText,
+      splitListingCipher,
+      resolveAccountKeyForRow,
+      onSubmitted: () => { detailViewVisible.value = false },
+    })
+
     function resolveAccountKeyForRow(row) {
       const sid = String(row?.seller_id || '').trim()
       if (!sid) return null
@@ -1549,6 +1559,7 @@ export default defineComponent({
       onDetailViewClosed,
       resolveAccountKeyForRow,
       deleteMercariItemFromDetail,
+      ...reverseInboundApi,
       resumeMercariItemFromDetail,
       suspendMercariItemFromDetail,
       detailViewRefreshFromMercari,

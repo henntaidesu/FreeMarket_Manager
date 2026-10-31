@@ -590,6 +590,12 @@
   justify-content: space-between;
   align-items: center;
 }
+
+.detail-footer__left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 .detail-footer__right {
   display: flex;
   align-items: center;

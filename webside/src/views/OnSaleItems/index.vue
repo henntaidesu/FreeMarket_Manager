@@ -647,6 +647,16 @@
                 </el-button>
               </span>
             </el-tooltip>
+            <!-- 反向入库：提交任务队列，不受全局同步锁阻挡 -->
+            <el-button
+              v-if="canReverseInbound"
+              type="success"
+              plain
+              :loading="reverseInboundLoading"
+              @click="startReverseInbound"
+            >
+              {{ t('onSaleItems.reverseInbound') }}
+            </el-button>
           </div>
           <div class="detail-footer__right">
             <el-tooltip v-if="detailViewBase && detailIsStopped" :disabled="!syncLockStore.locked" :content="syncLockStore.label" placement="top">

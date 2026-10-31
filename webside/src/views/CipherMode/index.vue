@@ -40,11 +40,60 @@
         </el-form-item>
       </el-form>
     </el-card>
+
+    <el-card class="cipher-card" shadow="never">
+      <template #header>
+        <div class="cipher-header">
+          <span>出品图暗码 · 有码 / 无码上架</span>
+        </div>
+      </template>
+
+      <el-alert
+        type="warning"
+        :closable="false"
+        show-icon
+        title="只影响之后的新出品。管理番号码选「无码上架」后，新挂牌在售 / 订单都无法自动关联库存；件数码选「无码」后，多件挂牌一律按 1 件计。解码会四个角都找，改位置不影响已上架的图片。"
+        style="margin-bottom: 16px"
+      />
+
+      <el-form label-width="96px" v-loading="imgLoading">
+        <template v-for="k in codeKinds" :key="k.key">
+          <el-form-item :label="k.label">
+            <div class="code-item">
+              <el-radio-group v-model="imgCode[k.key].enabled">
+                <el-radio-button :value="true">有码上架</el-radio-button>
+                <el-radio-button :value="false">无码上架</el-radio-button>
+              </el-radio-group>
+              <div class="corner-grid" :class="{ 'is-off': !imgCode[k.key].enabled }">
+                <button
+                  v-for="c in corners"
+                  :key="c.value"
+                  type="button"
+                  class="corner-cell"
+                  :class="{
+                    active: imgCode[k.key].corner === c.value,
+                    taken: isTaken(k.key, c.value)
+                  }"
+                  :disabled="!imgCode[k.key].enabled || isTaken(k.key, c.value)"
+                  @click="imgCode[k.key].corner = c.value"
+                >{{ c.label }}</button>
+              </div>
+              <div class="code-hint">{{ k.hint }}</div>
+            </div>
+          </el-form-item>
+        </template>
+
+        <el-form-item>
+          <el-button type="primary" :loading="imgSaving" @click="saveImgCode">保存</el-button>
+          <el-button @click="loadImgCode">重置</el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { configApi } from '@/api/index.js'
 import { encodeMgmtId, setCipherMode } from '@/utils/mgmtIdCipher.js'
@@ -89,14 +138,121 @@ async function save() {
   }
 }
 
-onMounted(load)
+const codeKinds = [
+  { key: 'id', label: '管理番号码', hint: '嵌 inventory.id，在售 / 订单靠它反查库存' },
+  { key: 'qty', label: '件数码', hint: '一条挂牌含多件（专用出品数量 > 1）时才嵌' }
+]
+const corners = [
+  { value: 'tl', label: '左上' },
+  { value: 'tr', label: '右上' },
+  { value: 'bl', label: '左下' },
+  { value: 'br', label: '右下' }
+]
+const imgCode = reactive({
+  id: { enabled: true, corner: 'bl' },
+  qty: { enabled: true, corner: 'br' }
+})
+const imgLoading = ref(false)
+const imgSaving = ref(false)
+
+/** 两个码都开时不能放同一个角（码区重叠，后嵌的会抹掉先嵌的） */
+function isTaken(key, corner) {
+  const other = imgCode[key === 'id' ? 'qty' : 'id']
+  return imgCode[key].enabled && other.enabled && other.corner === corner
+}
+
+function applyImgCode(res) {
+  for (const k of ['id', 'qty']) {
+    if (res?.[k]) {
+      imgCode[k].enabled = Boolean(res[k].enabled)
+      imgCode[k].corner = res[k].corner
+    }
+  }
+}
+
+async function loadImgCode() {
+  imgLoading.value = true
+  try {
+    applyImgCode(await configApi.getMgmtImageCode())
+  } catch {
+    ElMessage.error('读取出品图暗码设置失败')
+  } finally {
+    imgLoading.value = false
+  }
+}
+
+async function saveImgCode() {
+  if (isTaken('id', imgCode.id.corner)) {
+    ElMessage.warning('管理番号码与件数码不能放在同一个角')
+    return
+  }
+  imgSaving.value = true
+  try {
+    applyImgCode(await configApi.putMgmtImageCode({ id: { ...imgCode.id }, qty: { ...imgCode.qty } }))
+    ElMessage.success('已保存')
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.detail || '保存失败')
+  } finally {
+    imgSaving.value = false
+  }
+}
+
+onMounted(() => {
+  load()
+  loadImgCode()
+})
 </script>
 
 <style scoped>
 .cipher-mode-page {
   padding: 24px;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+.code-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+/* 2×2 方格对应图片四个角 */
+.corner-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 64px);
+  gap: 4px;
+  padding: 4px;
+  border: 1px dashed var(--el-border-color);
+  border-radius: 4px;
+}
+.corner-grid.is-off {
+  opacity: 0.4;
+}
+.corner-cell {
+  height: 32px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 3px;
+  background: var(--el-fill-color-blank);
+  color: var(--el-text-color-regular);
+  cursor: pointer;
+}
+.corner-cell.active {
+  border-color: var(--el-color-primary);
+  background: var(--el-color-primary);
+  color: #fff;
+}
+.corner-cell.taken,
+.corner-cell:disabled {
+  cursor: not-allowed;
+}
+.corner-cell.taken {
+  text-decoration: line-through;
+  color: var(--el-text-color-placeholder);
+}
+.code-hint {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 .cipher-card {
   width: 100%;

@@ -2,6 +2,7 @@
 """商品图左下角管理暗码 → 库存 id：listing / 订单反查库存的**主方法**，说明文本暗号为兜底。
 
 暗码由出品时 ``mgmt_image_cipher.embed_mgmt_code_in_file`` 写入每张上传图（与可见水印开关无关）。
+码区缺省在左下 / 右下，可在隐藏页 /x9 改到别的角；解码四个角都找（``decode_corners`` 定顺序）。
 
 - **单品只解首图**：同一 listing 的每张图嵌的都是同一个 id，多解无益；首图读不出时再试后面
   两张（说明里已不再写文本暗号，没有兜底了）。单品还读首图右下角的**件数码**（专用出品一条挂牌
@@ -76,6 +77,7 @@ def _decode_one(url: str, *, with_qty: bool = False) -> Tuple[Optional[int], int
     """→ (库存 id, 件数)。件数只在 ``with_qty`` 且读出 id 时才解，读不到为 1。"""
     from .get_order.description_mgmt_ids import _resolve_inventory_id
     from .mgmt_image_cipher import decode_listing_qty_from_file, decode_mgmt_code_from_file
+    from .mgmt_image_code_settings import decode_corners
 
     data = _download(url)
     if not data:
@@ -86,10 +88,12 @@ def _decode_one(url: str, *, with_qty: bool = False) -> Tuple[Optional[int], int
         with os.fdopen(fd, "wb") as f:
             f.write(data)
         raw = decode_mgmt_code_from_file(
-            path, validate=lambda i: _resolve_inventory_id(i) is not None
+            path,
+            validate=lambda i: _resolve_inventory_id(i) is not None,
+            corners=decode_corners("id"),
         )
         if raw is not None and with_qty:
-            qty = decode_listing_qty_from_file(path)
+            qty = decode_listing_qty_from_file(path, decode_corners("qty"))
     finally:
         try:
             os.remove(path)
