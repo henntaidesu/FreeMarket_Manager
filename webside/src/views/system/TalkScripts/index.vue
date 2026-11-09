@@ -60,15 +60,15 @@
                 :icon="copiedId === row.id ? Select : CopyDocument"
                 @click="copyScript(row)"
               >{{ copiedId === row.id ? t('talkScripts.copiedBtn') : t('talkScripts.copy') }}</el-button>
-              <el-button size="small" :icon="Edit" @click="openEdit(row)">{{ t('common.edit') }}</el-button>
-              <el-button size="small" type="danger" plain :icon="Delete" @click="removeScript(row)" />
+              <el-button v-if="$can('system/talk-scripts:edit')" size="small" :icon="Edit" @click="openEdit(row)">{{ t('common.edit') }}</el-button>
+              <el-button v-if="$can('system/talk-scripts:delete')" size="small" type="danger" plain :icon="Delete" @click="removeScript(row)" />
             </div>
           </el-card>
         </el-col>
 
         <!-- 添加占位卡片 -->
         <el-col :xs="24" :sm="12" :md="8" :lg="6" class="card-col">
-          <div class="add-card">
+          <div v-if="$can('system/talk-scripts:create')" class="add-card">
             <div class="add-card-main" @click="openCreate">
               <el-icon class="add-card-icon"><Plus /></el-icon>
               <span>{{ t('talkScripts.add') }}</span>

@@ -71,6 +71,8 @@ class InventoryBatchUpdate(PydanticModel):
 
 class InventoryBatchMerge(PydanticModel):
     batch_ids: List[int]
+    # 所选批次货架不同时必填：合并后归入哪个货架（null = 未分配）；不传 = 要求同一货架
+    warehouse_id: Optional[int] = None
 
 
 class InventoryBatchStockOut(PydanticModel):

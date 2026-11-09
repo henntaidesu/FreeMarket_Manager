@@ -150,7 +150,7 @@
       <div class="dialog-footer">
         <el-button @click="onVisibleChange(false)" :disabled="busy">{{ t('common.close') }}</el-button>
         <el-button
-          v-if="bundle"
+          v-if="bundle && $can('notifications:bundle')"
           type="danger"
           :loading="rejecting"
           :disabled="accepting || isDecided"
@@ -159,7 +159,7 @@
           {{ t('dialogs.bundlePurchase.rejectRequest') }}
         </el-button>
         <el-button
-          v-if="bundle"
+          v-if="bundle && $can('notifications:bundle')"
           type="success"
           :loading="accepting"
           :disabled="rejecting || isDecided || !formComplete"

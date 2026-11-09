@@ -139,7 +139,7 @@
           {{ t('common.refresh') }}
         </el-button>
         <el-button
-          v-if="detail"
+          v-if="detail && $can('notifications:price_offer')"
           type="danger"
           :loading="rejecting"
           :disabled="accepting || isDecided"
@@ -148,7 +148,7 @@
           {{ t('dialogs.desiredPrice.rejectOffer') }}
         </el-button>
         <el-button
-          v-if="detail"
+          v-if="detail && $can('notifications:price_offer')"
           type="success"
           :loading="accepting"
           :disabled="rejecting || isDecided"

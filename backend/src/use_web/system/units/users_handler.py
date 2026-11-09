@@ -8,7 +8,7 @@ import secrets
 from fastapi import HTTPException, Depends
 from pydantic import BaseModel as PydanticModel
 
-from ....auth import require_auth, require_admin
+from ....auth import require_auth
 from ....db_manage.database import DatabaseManager
 from ....page_access import load_user_profile
 
@@ -53,7 +53,7 @@ def _hash_password(password: str, salt_hex: str) -> str:
     return digest.hex()
 
 
-def list_users(_claims: dict = Depends(require_admin)):
+def list_users(_claims: dict = Depends(require_auth)):
     # last_active_at 为空的是本列上线前的老行，退回登录时间——那是当时能确知的最后一次活跃
     rows = db.execute_query(
         """
@@ -99,7 +99,14 @@ def _assert_role_exists(role_id: int) -> None:
         raise HTTPException(status_code=400, detail="角色不存在")
 
 
-def create_user(data: UserCreateRequest, _claims: dict = Depends(require_admin)):
+def _assert_admin_for_admin_change(claims: dict) -> None:
+    """账号管理已交给角色功能控制，但「管理员」身份本身仍只有管理员能授予 / 改动——
+    否则拥有账号管理功能的人就能把自己升成管理员、绕开所有角色限制。"""
+    if not claims.get("is_admin"):
+        raise HTTPException(status_code=403, detail="只有管理员可以设置或修改管理员账号")
+
+
+def create_user(data: UserCreateRequest, _claims: dict = Depends(require_auth)):
     username = (data.username or "").strip()
     password = data.password or ""
     display_name = (data.display_name or "").strip() or None
@@ -112,6 +119,8 @@ def create_user(data: UserCreateRequest, _claims: dict = Depends(require_admin))
         raise HTTPException(status_code=400, detail="用户名已存在")
 
     is_admin = 1 if data.is_admin else 0
+    if is_admin:
+        _assert_admin_for_admin_change(_claims)
     role_id = data.role_id or None
     if role_id is not None:
         _assert_role_exists(role_id)
@@ -134,7 +143,7 @@ def create_user(data: UserCreateRequest, _claims: dict = Depends(require_admin))
     }
 
 
-def update_user(user_id: int, data: UserUpdateRequest, claims: dict = Depends(require_admin)):
+def update_user(user_id: int, data: UserUpdateRequest, claims: dict = Depends(require_auth)):
     rows = db.execute_query(
         "SELECT id, username, is_active, is_admin FROM [users] WHERE id = ? LIMIT 1",
         (user_id,),
@@ -143,6 +152,8 @@ def update_user(user_id: int, data: UserUpdateRequest, claims: dict = Depends(re
         raise HTTPException(status_code=404, detail="用户不存在")
     _, username, cur_active, cur_admin = rows[0]
     is_self = int(claims.get("user_id") or 0) == int(user_id)
+    if cur_admin or data.is_admin:
+        _assert_admin_for_admin_change(claims)
 
     sets, params = [], []
     kick = False  # 禁用 / 重置密码：自增 token_version，旧令牌立即失效
@@ -153,7 +164,7 @@ def update_user(user_id: int, data: UserUpdateRequest, claims: dict = Depends(re
 
     new_active = cur_active if data.is_active is None else (1 if data.is_active else 0)
     new_admin = cur_admin if data.is_admin is None else (1 if data.is_admin else 0)
-    if is_self and (not new_active or not new_admin):
+    if is_self and (not new_active or (cur_admin and not new_admin)):
         # 自己把自己降级/禁用 = 当场失去进这个页面的资格，还可能让系统再无管理员
         raise HTTPException(status_code=400, detail="不能取消自己的管理员身份或禁用自己")
     if cur_active and cur_admin and not (new_active and new_admin):

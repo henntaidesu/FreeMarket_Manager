@@ -316,6 +316,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.shelf-no-card__name--link {
+  cursor: pointer;
+}
+.shelf-no-card__name--link:hover {
+  color: var(--el-color-primary);
+  text-decoration: underline;
+}
 .shelf-no-card__metrics {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

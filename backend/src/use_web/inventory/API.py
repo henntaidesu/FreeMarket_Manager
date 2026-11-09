@@ -7,7 +7,9 @@
 - 同时导出 public_router：用于无需认证的公开端点（如缩略图）
 - 聚合：库存 CRUD + OCR 识别 + 条形码扫描（均为 Inventory 页面专属辅助功能）
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from ...page_access import require_feature
 
 from .units.inventory_query import list_inventory, inventory_summary, find_by_barcode, get_inventory, list_inventory_pending_outbound_lines, list_inventory_used_in_combos, list_inventory_linked_items
 from .units.inventory_crud import create_inventory, update_inventory, delete_inventory
@@ -35,6 +37,12 @@ series_router = APIRouter()
 # 公开路由：缩略图等无需登录即可访问（图片本身已通过静态文件公开）
 public_router = APIRouter()
 
+
+def _f(*keys):
+    """按钮级功能权限（叠在路由组的页面权限之上），口径见 src/page_access.py。"""
+    return [Depends(require_feature(*keys))]
+
+
 public_router.add_api_route("/image-thumb", get_image_thumb, methods=["GET"])
 
 # 库存 CRUD
@@ -49,39 +57,57 @@ router.add_api_route("/find-by-image", find_by_image, methods=["POST"])
 router.add_api_route("/image-search", image_search, methods=["POST"])
 router.add_api_route("/image-search/status", image_search_status, methods=["GET"])
 router.add_api_route("/upload-image", upload_inventory_image, methods=["POST"])
-router.add_api_route("/combine", create_combined_inventory, methods=["POST"])
-router.add_api_route("/{pid}/copy", copy_inventory, methods=["POST"])
-router.add_api_route("/{pid}/combined-components/{component_id}", remove_combined_component, methods=["DELETE"])
-router.add_api_route("/{pid}/stock-in", stock_in_inventory, methods=["POST"])
-router.add_api_route("/{pid}/stock-out", stock_out_inventory, methods=["POST"])
-router.add_api_route("/{pid}/stock-in/undo", undo_stock_in_inventory, methods=["POST"])
+router.add_api_route("/combine", create_combined_inventory, methods=["POST"], dependencies=_f("inventory:combine"))
+router.add_api_route("/{pid}/copy", copy_inventory, methods=["POST"], dependencies=_f("inventory:inbound"))
+router.add_api_route(
+    "/{pid}/combined-components/{component_id}", remove_combined_component, methods=["DELETE"],
+    dependencies=_f("inventory:combine", "inventory:edit"),
+)
+router.add_api_route("/{pid}/stock-in", stock_in_inventory, methods=["POST"], dependencies=_f("inventory:inbound"))
+router.add_api_route("/{pid}/stock-out", stock_out_inventory, methods=["POST"], dependencies=_f("inventory:stock_out"))
+router.add_api_route("/{pid}/stock-in/undo", undo_stock_in_inventory, methods=["POST"], dependencies=_f("inventory:inbound"))
 # 批次（一个管理番号下按到货批次分仓位记数量）
 router.add_api_route("/{pid}/batches", list_inventory_batches, methods=["GET"])
-router.add_api_route("/{pid}/batches", create_inventory_batch, methods=["POST"])
-router.add_api_route("/{pid}/batches/merge", merge_inventory_batches, methods=["POST"])
-router.add_api_route("/{pid}/batches/{bid}/stock-out", stock_out_inventory_batch, methods=["POST"])
-router.add_api_route("/{pid}/batches/{bid}", update_inventory_batch, methods=["PUT"])
-router.add_api_route("/{pid}/batches/{bid}", delete_inventory_batch, methods=["DELETE"])
+router.add_api_route("/{pid}/batches", create_inventory_batch, methods=["POST"], dependencies=_f("inventory:batch"))
+router.add_api_route("/{pid}/batches/merge", merge_inventory_batches, methods=["POST"], dependencies=_f("inventory:batch"))
+router.add_api_route(
+    "/{pid}/batches/{bid}/stock-out", stock_out_inventory_batch, methods=["POST"],
+    dependencies=_f("inventory:stock_out"),
+)
+router.add_api_route("/{pid}/batches/{bid}", update_inventory_batch, methods=["PUT"], dependencies=_f("inventory:batch"))
+router.add_api_route("/{pid}/batches/{bid}", delete_inventory_batch, methods=["DELETE"], dependencies=_f("inventory:batch"))
 router.add_api_route("/{pid}/pending-outbound-lines", list_inventory_pending_outbound_lines, methods=["GET"])
 router.add_api_route("/{pid}/used-in-combos", list_inventory_used_in_combos, methods=["GET"])
 router.add_api_route("/{pid}/linked-items", list_inventory_linked_items, methods=["GET"])
 router.add_api_route("/{pid}", get_inventory, methods=["GET"])
-router.add_api_route("", create_inventory, methods=["POST"])
-router.add_api_route("/{pid}", update_inventory, methods=["PUT"])
-router.add_api_route("/{pid}", delete_inventory, methods=["DELETE"])
+router.add_api_route("", create_inventory, methods=["POST"], dependencies=_f("inventory:inbound"))
+# 只有改仓位权限时，update_inventory 内部再限定只能改 warehouse_id
+router.add_api_route(
+    "/{pid}", update_inventory, methods=["PUT"],
+    dependencies=_f("inventory:edit", "inventory:inbound", "inventory:warehouse"),
+)
+router.add_api_route("/{pid}", delete_inventory, methods=["DELETE"], dependencies=_f("inventory:delete"))
 
 # AI 生成出品标题 / 出品说明（DeepSeek，日语；以商品名为主题）
 router.add_api_route("/ai-generate-listing", generate_listing_ai, methods=["POST"])
 
 # 商品系列（series_router，前缀 /inventory/series）
 series_router.add_api_route("", list_series, methods=["GET"])
-series_router.add_api_route("", create_series, methods=["POST"])
-series_router.add_api_route("/assign", assign_series, methods=["POST"])
-series_router.add_api_route("/merge", merge_series, methods=["POST"])
-series_router.add_api_route("/item/{iid}", set_item_series, methods=["PUT"])
-series_router.add_api_route("/{sid}", rename_series, methods=["PUT"])
-series_router.add_api_route("/{sid}", delete_series, methods=["DELETE"])
-series_router.add_api_route("/{sid}/items", set_series_items, methods=["PUT"])
+series_router.add_api_route(
+    "", create_series, methods=["POST"], dependencies=_f("inventory:series", "system/series:create"),
+)
+series_router.add_api_route(
+    "/assign", assign_series, methods=["POST"], dependencies=_f("inventory:series", "system/series:edit"),
+)
+series_router.add_api_route("/merge", merge_series, methods=["POST"], dependencies=_f("system/series:merge"))
+series_router.add_api_route(
+    "/item/{iid}", set_item_series, methods=["PUT"], dependencies=_f("inventory:series", "system/series:edit"),
+)
+series_router.add_api_route("/{sid}", rename_series, methods=["PUT"], dependencies=_f("system/series:edit"))
+series_router.add_api_route(
+    "/{sid}", delete_series, methods=["DELETE"], dependencies=_f("inventory:series", "system/series:delete"),
+)
+series_router.add_api_route("/{sid}/items", set_series_items, methods=["PUT"], dependencies=_f("system/series:edit"))
 
 # OCR 识别（库存页面"OCR 识别商品名"）
 router.add_api_route("/ocr-region", ocr_region, methods=["POST"])

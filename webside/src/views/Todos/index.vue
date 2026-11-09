@@ -116,13 +116,13 @@
             <el-option v-for="p in platformFilterOptions" :key="p.value" :label="p.label" :value="p.value" />
           </el-select>
           <!-- 已改为提交任务队列：提交即返回，不再受全局同步锁阻挡 -->
-          <el-button type="primary" :loading="syncLoading" @click="runSync">
+          <el-button v-if="$can('todos:sync')" type="primary" :loading="syncLoading" @click="runSync">
             {{ t('todos.syncFromMercari') }}
           </el-button>
-          <el-button v-if="filters.packed_only" type="success" :loading="bulkConfirmShipLoading" :disabled="syncLoading || bulkReviewLoading" @click="runBulkConfirmShip">
+          <el-button v-if="filters.packed_only && $can('todos:ship')" type="success" :loading="bulkConfirmShipLoading" :disabled="syncLoading || bulkReviewLoading" @click="runBulkConfirmShip">
             {{ t('todos.bulkConfirmShip') }}
           </el-button>
-          <el-button v-if="filters.categories.includes('wait_review')" type="success" :loading="bulkReviewLoading" :disabled="syncLoading || bulkConfirmShipLoading" @click="runBulkReview">
+          <el-button v-if="filters.categories.includes('wait_review') && $can('todos:review')" type="success" :loading="bulkReviewLoading" :disabled="syncLoading || bulkConfirmShipLoading" @click="runBulkReview">
             {{ t('todos.bulkReview') }}
           </el-button>
         </div>
@@ -183,9 +183,10 @@
         </el-table-column>
 
         <!-- 扫码照片：仅「发货中 / 发货失败」期间存在（成功后已删除），
-             只在「已扫码」筛选下展示——待发货列表里绝大多数行没有这张图，白占一列。 -->
+             只在「已扫码」筛选下展示——待发货列表里绝大多数行没有这张图，白占一列。
+             虚拟发货的照片留到「已实际发货」才删，所以「虚拟发货」筛选下也显示，码只摆末 6 位供投函前核对。 -->
         <el-table-column
-          v-if="filters.scanned_only"
+          v-if="filters.scanned_only || filters.virtual_only"
           :label="t('todos.colShipQrPhoto')"
           width="150"
           align="center"
@@ -205,7 +206,12 @@
             <span v-else class="thumb-fallback">-</span>
             <!-- 成功后照片会被删掉，扫码结果不会：它是「这单发的是哪个码」的唯一本地记录 -->
             <div
-              v-if="row.ship_qr_text"
+              v-if="filters.virtual_only && row.ship_qr_text"
+              class="cell-ship-qr-tail"
+              :title="`${t('todos.shipQrText')}: ${row.ship_qr_text}`"
+            >{{ qrTail(row.ship_qr_text, 6) }}</div>
+            <div
+              v-else-if="row.ship_qr_text"
               class="cell-ship-qr-text"
               :title="`${t('todos.shipQrText')}: ${row.ship_qr_text}`"
             >{{ row.ship_qr_text }}</div>
@@ -286,6 +292,7 @@
               v-if="isCancellationReceiptRow(row)"
               type="danger"
               plain
+              :disabled="!$can('todos:cancel_receipt')"
               :loading="cancelReceiptBusyId === row.id"
               @click="onConfirmCancellationReceipt(row)"
             >
@@ -556,6 +563,7 @@
           </section>
 
           <section v-if="!isReviewedSeller && !isWaitReply && !isBuyerReceiptTodo" class="detail-section">
+            <el-form :disabled="!$can('todos:ship')" class="todos-perm-scope" @submit.prevent>
             <!-- 已发行二维码/条形码时：确认发送 + 修改发货方式 并排放到标题右上角 -->
             <div class="detail-section-head">
               <div class="detail-section-title">{{ t('todos.section.shipping') }}</div>
@@ -585,6 +593,13 @@
               <div class="detail-shipqr__head">
                 <span class="detail-label">{{ t('todos.shipQrPhotoTitle') }}</span>
                 <el-tag
+                  v-if="isVirtualShipped"
+                  type="warning"
+                  size="small"
+                  effect="light"
+                >{{ t('todos.kind.virtualShipped') }}</el-tag>
+                <el-tag
+                  v-else
                   :type="shipQrFailed ? 'danger' : 'success'"
                   size="small"
                   effect="light"
@@ -611,7 +626,7 @@
                 >
               </div>
               <div v-if="shipQrTail" class="detail-shipqr__tail">
-                <span class="detail-label">{{ t('todos.shipQrTail') }}</span>
+                <span class="detail-label">{{ t('todos.shipQrTail', { n: shipQrTail.length }) }}</span>
                 <span class="detail-shipqr__tail-value">{{ shipQrTail }}</span>
               </div>
               <!-- 雅虎重试要带品名：组合购买的交易页品名框是空的，上次失败常常就败在品名上，
@@ -625,7 +640,8 @@
                   :placeholder="t('todos.yahoo.itemNamePlaceholder')"
                 />
               </div>
-              <div class="detail-shipqr__actions">
+              <!-- 虚拟发货：平台侧已办完，重扫/重拍都不该再有（再发行会被平台拒绝） -->
+              <div v-if="!isVirtualShipped" class="detail-shipqr__actions">
                 <!-- 「重新扫码」用的还是这张照片与这段码：失败几乎都出在扫码之后
                      （开浏览器/进扫描页/发行配送码/发通知），重拍一张一样的没有意义。 -->
                 <el-button
@@ -974,6 +990,7 @@
               </div>
             </template>
             </template>
+            </el-form>
           </section>
         </div>
 
@@ -982,6 +999,7 @@
           <!-- 取引評価（仅 ReviewedSeller）：颗粒度对齐煤炉页面
                单选（良かった/残念だった）→ 模板 chip → 140 字评论 → 提交 -->
           <section v-if="isReviewedSeller" class="detail-section detail-section-grow">
+            <el-form :disabled="!$can('todos:review')" class="todos-perm-scope" @submit.prevent>
             <div class="detail-section-title">{{ t('todos.reviewTitle') }}</div>
             <el-radio-group v-model="detail.review_rating" class="review-rating-group">
               <el-radio value="good" border class="review-rating">
@@ -1019,11 +1037,13 @@
                 {{ t('todos.submitReviewFinish') }}
               </el-button>
             </div>
+            </el-form>
           </section>
 
           <!-- 确认收货（仅 isBuyerReceiptTodo：kind=Shipped 且 title=受取評価をしてください，
                本账号作为买家）：勾选已确认 → 单选评价 → 自选回复/自填文本 → 提交，无二次确认弹窗 -->
           <section v-else-if="isBuyerReceiptTodo" class="detail-section detail-section-grow">
+            <el-form :disabled="!$can('todos:buyer_receipt')" class="todos-perm-scope" @submit.prevent>
             <div class="detail-section-title">{{ t('todos.buyerReceiptTitle') }}</div>
             <el-checkbox
               v-model="detail.buyer_receipt_checked"
@@ -1068,6 +1088,7 @@
                 {{ t('todos.submitBuyerReceipt') }}
               </el-button>
             </div>
+            </el-form>
           </section>
 
           <!-- 消息 / 交流（默认） -->
@@ -1164,6 +1185,8 @@
             </div>
             <div v-else class="detail-empty">{{ t('todos.toFetch') }}</div>
 
+            <!-- 回复区跟着「交易留言」功能权限变灰 -->
+            <el-form :disabled="!$can('todos:message')" class="todos-perm-scope" @submit.prevent>
             <div class="detail-reply">
               <el-input
                 v-model="detail.reply_draft"
@@ -1198,6 +1221,7 @@
                 </el-button>
               </div>
             </div>
+            </el-form>
           </section>
         </div>
       </div>

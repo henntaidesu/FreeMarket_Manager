@@ -35,7 +35,7 @@
               :active-text="t('system.showHiddenShelves')"
               class="header-hidden-switch"
             />
-            <el-button type="primary" class="header-primary-btn" @click="openAddWarehouseNameDialog">
+            <el-button v-if="$can('system/warehouses:create')" type="primary" class="header-primary-btn" @click="openAddWarehouseNameDialog">
               <el-icon><Plus /></el-icon>
               {{ t('system.addWarehouse') }}
             </el-button>
@@ -79,17 +79,18 @@
                 <el-tooltip :content="t('system.transitTip')" placement="top">
                   <el-switch
                     :model-value="grp.isTransit"
+                    :disabled="!$can('system/warehouses:edit')"
                     size="small"
                     :active-text="t('system.transitWarehouse')"
                     :loading="transitSavingWh === grp.warehouse"
                     @change="(v) => toggleTransit(grp, v)"
                   />
                 </el-tooltip>
-                <el-button type="primary" size="small" @click.stop="openDialogAddShelf(grp.warehouse)">
+                <el-button v-if="$can('system/warehouses:create')" type="primary" size="small" @click.stop="openDialogAddShelf(grp.warehouse)">
                   <el-icon><Plus /></el-icon>
                   {{ t('system.addShelfSlot') }}
                 </el-button>
-                <el-button type="primary" size="small" plain @click.stop="openRenameWarehouseDialog(grp)">
+                <el-button v-if="$can('system/warehouses:edit')" type="primary" size="small" plain @click.stop="openRenameWarehouseDialog(grp)">
                   {{ t('system.renameAction') }}
                 </el-button>
               </div>
@@ -127,6 +128,7 @@
                   </div>
                   <div class="shelf-name-title-end shelf-name-title-actions" @click.stop>
                     <el-button
+                      v-if="$can('system/warehouses:create')"
                       type="primary"
                       size="small"
                       class="collapse-add-btn"
@@ -135,10 +137,11 @@
                       <el-icon><Plus /></el-icon>
                       {{ t('system.addShelfNumber') }}
                     </el-button>
-                    <el-button type="primary" size="small" plain @click.stop="openRenameShelfNameDialog(grp, sub)">
+                    <el-button v-if="$can('system/warehouses:edit')" type="primary" size="small" plain @click.stop="openRenameShelfNameDialog(grp, sub)">
                       {{ t('system.renameAction') }}
                     </el-button>
                     <el-button
+                      v-if="$can('system/warehouses:print')"
                       size="small"
                       plain
                       :disabled="!sub.shelves.length"
@@ -149,8 +152,8 @@
                   </div>
                 </div>
               </template>
-              <!-- 货架号卡片网格。空货架号（库存 0）置灰并给出「隐藏」入口；
-                   已隐藏的仅在勾选「显示已隐藏」时出现，用虚线边框区分。 -->
+              <!-- 货架号卡片网格。空货架号（库存 0）置灰；点标题跳库存页按该货架号筛选。
+                   已隐藏的仅在勾选「显示已隐藏」时出现，用虚线边框区分，可取消隐藏。 -->
               <div v-if="sub.shelves.length" class="shelf-no-grid">
                 <div
                   v-for="row in sub.shelves"
@@ -162,7 +165,7 @@
                   ]"
                 >
                   <div class="shelf-no-card__head">
-                    <span class="shelf-no-card__name" :title="row.name">{{ row.name || '—' }}</span>
+                    <a class="shelf-no-card__name shelf-no-card__name--link" :title="row.name" @click="goInventoryForShelf(row)">{{ row.name || '—' }}</a>
                     <el-tag v-if="isHiddenRow(row)" size="small" type="info" effect="plain">
                       {{ t('system.hiddenBadge') }}
                     </el-tag>
@@ -193,33 +196,15 @@
                   <div class="shelf-no-card__actions">
                     <span class="shelf-no-card__id">#{{ row.id }}</span>
                     <div class="shelf-no-card__btns">
-                      <!-- 隐藏只对空货架号开放：还有货就隐藏，这批库存在本页凭空消失，
-                           库存页却照样显示，两边对不上 -->
-                      <el-tooltip
-                        v-if="!isHiddenRow(row)"
-                        :disabled="Number(row.total_quantity || 0) === 0"
-                        :content="t('system.hideNeedsEmptyStock')"
-                        placement="top"
-                      >
-                        <span>
-                          <el-button
-                            size="small"
-                            link
-                            :disabled="Number(row.total_quantity || 0) !== 0"
-                            :loading="hidingId === row.id"
-                            @click="toggleShelfHidden(row)"
-                          >{{ t('system.hideShelf') }}</el-button>
-                        </span>
-                      </el-tooltip>
                       <el-button
-                        v-else
+                        v-if="isHiddenRow(row) && $can('system/warehouses:edit')"
                         size="small"
                         link
                         :loading="hidingId === row.id"
                         @click="toggleShelfHidden(row)"
                       >{{ t('system.unhideShelf') }}</el-button>
                       <el-popconfirm
-                        v-if="grp.isTransit"
+                        v-if="grp.isTransit && $can('system/warehouses:delete')"
                         :title="t('system.arrivedClearConfirm', { name: row.name || '—', qty: Number(row.total_quantity || 0), types: Number(row.product_types || 0) })"
                         width="300"
                         :confirm-button-text="t('system.arrivedClear')"
@@ -232,10 +217,10 @@
                           </el-button>
                         </template>
                       </el-popconfirm>
-                      <el-button size="small" link @click="openQrDialog([row])">
+                      <el-button v-if="$can('system/warehouses:print')" size="small" link @click="openQrDialog([row])">
                         {{ t('system.shelfQr') }}
                       </el-button>
-                      <el-button size="small" type="primary" link @click="openDialog(row)">
+                      <el-button v-if="$can('system/warehouses:edit')" size="small" type="primary" link @click="openDialog(row)">
                         {{ t('common.edit') }}
                       </el-button>
                     </div>
@@ -348,6 +333,7 @@
         <el-table-column :label="t('common.actions')" width="88" align="center" fixed="right">
           <template #default="{ row }">
             <el-popconfirm
+              v-if="$can('system/warehouses:delete')"
               :title="t(isTransitWarehouse(renameWarehouseGroupKey) ? 'system.transitShelfDeleteConfirm' : 'system.shelfDeleteConfirm')"
               width="260"
               @confirm="removeShelfFromRenameDialog(row.id)"
@@ -363,6 +349,7 @@
       <template #footer>
         <div class="rename-dialog-footer">
           <el-popconfirm
+            v-if="$can('system/warehouses:delete')"
             :title="warehouseDeleteConfirmTextForDialog()"
             width="320"
             :confirm-button-text="t('system.confirmDelete')"
@@ -406,6 +393,7 @@
       <template #footer>
         <div class="rename-dialog-footer">
           <el-popconfirm
+            v-if="$can('system/warehouses:delete')"
             :title="t(isTransitWarehouse(renameShelfWarehouse) ? 'system.transitShelfPartitionDeleteConfirm' : 'system.shelfPartitionDeleteConfirm')"
             width="300"
             :confirm-button-text="t('system.confirmDelete')"

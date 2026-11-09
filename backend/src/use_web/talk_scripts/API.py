@@ -12,7 +12,9 @@
     POST   /mercariV2/src/use_web/talk-scripts/{sid}/use
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from ...page_access import require_feature
 
 from .units.talk_scripts_handler import (
     create_script,
@@ -25,9 +27,14 @@ from .units.talk_scripts_handler import (
 
 router = APIRouter()
 
+
+def _f(*keys):
+    """按钮级功能权限（叠在路由组的页面权限之上），口径见 src/page_access.py。"""
+    return [Depends(require_feature(*keys))]
+
 router.add_api_route("", list_scripts, methods=["GET"])
 router.add_api_route("/categories", list_categories, methods=["GET"])
-router.add_api_route("", create_script, methods=["POST"])
-router.add_api_route("/{sid}", update_script, methods=["PUT"])
-router.add_api_route("/{sid}", delete_script, methods=["DELETE"])
+router.add_api_route("", create_script, methods=["POST"], dependencies=_f("system/talk-scripts:create"))
+router.add_api_route("/{sid}", update_script, methods=["PUT"], dependencies=_f("system/talk-scripts:edit"))
+router.add_api_route("/{sid}", delete_script, methods=["DELETE"], dependencies=_f("system/talk-scripts:delete"))
 router.add_api_route("/{sid}/use", mark_used, methods=["POST"])

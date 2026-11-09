@@ -26,7 +26,7 @@
           />
         </div>
         <div class="search-actions">
-          <el-button type="primary" @click="openCreate">{{ t('system.costExpenseAdd') }}</el-button>
+          <el-button v-if="$can('system/cost-expenses:create')" type="primary" @click="openCreate">{{ t('system.costExpenseAdd') }}</el-button>
         </div>
       </div>
     </el-card>
@@ -57,8 +57,8 @@
         </el-table-column>
         <el-table-column :label="t('common.actions')" width="150" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" @click="openEdit(row)">{{ t('common.edit') }}</el-button>
-            <el-popconfirm :title="t('system.costExpenseDeleteConfirm')" @confirm="remove(row.id)">
+            <el-button v-if="$can('system/cost-expenses:edit')" size="small" @click="openEdit(row)">{{ t('common.edit') }}</el-button>
+            <el-popconfirm v-if="$can('system/cost-expenses:delete')" :title="t('system.costExpenseDeleteConfirm')" @confirm="remove(row.id)">
               <template #reference>
                 <el-button size="small" type="danger">{{ t('common.delete') }}</el-button>
               </template>

@@ -107,7 +107,7 @@
           {{ t('dialogs.itemComment.refreshComments') }}
         </el-button>
         <el-button
-          v-if="item"
+          v-if="item && $can('notifications:comment')"
           type="primary"
           :loading="posting"
           :disabled="!canSubmit"

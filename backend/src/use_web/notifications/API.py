@@ -30,7 +30,9 @@
 import re
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+
+from ...page_access import require_feature
 
 from ...use_mercari.get_notifications.bundle_purchase.bundle_purchase_decide import (
     BundleAlreadyDecidedError,
@@ -352,12 +354,21 @@ def _item_comment_translate_endpoint(req: ItemCommentTranslateRequest) -> Dict[s
 router.add_api_route("", _list_notifications_endpoint, methods=["GET"])
 router.add_api_route("/kinds", _list_kinds_endpoint, methods=["GET"])
 router.add_api_route("/chip-counts", _chip_counts_endpoint, methods=["GET"])
-router.add_api_route("/sync", _sync_endpoint, methods=["POST"])
+
+
+def _f(*keys):
+    """按钮级功能权限（叠在路由组的页面权限之上），口径见 src/page_access.py。"""
+    return [Depends(require_feature(*keys))]
+
+
+router.add_api_route("/sync", _sync_endpoint, methods=["POST"], dependencies=_f("notifications:sync"))
 router.add_api_route(
     "/sync-progress/{job_id}", notifications_sync_progress, methods=["GET"]
 )
-router.add_api_route("/mark-read", _mark_read_endpoint, methods=["POST"])
-router.add_api_route("/mark-all-read", _mark_all_read_endpoint, methods=["POST"])
+router.add_api_route("/mark-read", _mark_read_endpoint, methods=["POST"], dependencies=_f("notifications:mark_read"))
+router.add_api_route(
+    "/mark-all-read", _mark_all_read_endpoint, methods=["POST"], dependencies=_f("notifications:mark_read")
+)
 
 router.add_api_route(
     "/bundle-purchase/sync", _bundle_purchase_sync_endpoint, methods=["POST"]
@@ -369,6 +380,7 @@ router.add_api_route(
     "/bundle-purchase/{bundle_id}/decide",
     _bundle_purchase_decide_endpoint,
     methods=["POST"],
+    dependencies=_f("notifications:bundle"),
 )
 
 router.add_api_route(
@@ -384,13 +396,15 @@ router.add_api_route(
     "/desired-price/{item_id}/decide",
     _desired_price_decide_endpoint,
     methods=["POST"],
+    dependencies=_f("notifications:price_offer"),
 )
 
 router.add_api_route(
     "/item-comment/sync", _item_comment_sync_endpoint, methods=["POST"]
 )
 router.add_api_route(
-    "/item-comment/post", _item_comment_post_endpoint, methods=["POST"]
+    "/item-comment/post", _item_comment_post_endpoint, methods=["POST"],
+    dependencies=_f("notifications:comment"),
 )
 router.add_api_route(
     "/item-comment/close", _item_comment_close_endpoint, methods=["POST"]

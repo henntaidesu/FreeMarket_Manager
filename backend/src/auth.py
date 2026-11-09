@@ -49,12 +49,12 @@ def _load_auth_user(user_id: int):
     """按 id 读取用户鉴权关键字段（延迟导入 DB，避免模块级循环依赖）。不存在返回 None。"""
     from src.db_manage.database import DatabaseManager
 
-    from src.page_access import allowed_pages
+    from src.page_access import allowed_features, allowed_pages
 
     # 角色每请求现读（不进 JWT）：改了用户的角色或角色的页面，下一个请求立即生效
     rows = DatabaseManager().execute_query(
         "SELECT u.id, u.username, u.is_active, u.token_version, u.is_admin, "
-        "u.role_id, r.id, r.pages_json "
+        "u.role_id, r.id, r.pages_json, r.features_json "
         "FROM [users] u LEFT JOIN [roles] r ON r.id = u.role_id "
         "WHERE u.id = ? LIMIT 1",
         (user_id,),
@@ -71,6 +71,7 @@ def _load_auth_user(user_id: int):
         "is_admin": is_admin,
         "role_id": r[5],
         "pages": allowed_pages(is_admin, r[5], r[6] is not None, r[7]),
+        "features": allowed_features(is_admin, r[5], r[8]),
     }
 
 
@@ -124,6 +125,7 @@ def require_auth(
     claims["is_admin"] = user["is_admin"]
     claims["role_id"] = user["role_id"]
     claims["pages"] = user["pages"]  # None = 不限制页面，见 page_access.allowed_pages
+    claims["features"] = user["features"]  # None = 不限制功能，见 page_access.allowed_features
     return claims
 
 

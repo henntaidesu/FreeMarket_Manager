@@ -125,22 +125,51 @@ export function useInventoryBatches({ form, warehouseTreeMeta, t, onItemUpdated,
     batchSelection.value = rows || []
   }
 
-  /** 合并勾选的批次：并入最早的那个。同一货架、同一所有人才可合并（后端同样校验） */
+  /** 勾选批次涉及的货架（去重，带各自件数）；多于一个时合并前要选归入哪个货架 */
+  const batchMergeShelves = computed(() => {
+    const map = new Map()
+    for (const r of batchSelection.value) {
+      const key = r.warehouse_id == null ? '' : String(r.warehouse_id)
+      if (!map.has(key)) map.set(key, { key, warehouse_id: r.warehouse_id ?? null, name: r.warehouse_name || '', quantity: 0 })
+      map.get(key).quantity += Number(r.quantity || 0)
+    }
+    return [...map.values()]
+  })
+  const mergeShelfVisible = ref(false)
+  const mergeShelfKey = ref(null)
+
+  /** 合并按钮：所选批次货架不同时先弹窗选目标货架，同一货架走气泡确认 */
+  function onMergeBatchesClick() {
+    if (batchSelection.value.length < 2 || batchMergeShelves.value.length < 2) return
+    if (new Set(batchSelection.value.map((r) => r.owner_user_id ?? null)).size > 1) {
+      ElMessage.warning(t('inventory.batchMergeOwnerMismatch'))
+      return
+    }
+    mergeShelfKey.value = null
+    mergeShelfVisible.value = true
+  }
+
+  /** 合并勾选的批次：并入最早的那个。同一所有人才可合并；货架不同时归入所选货架（后端同样校验） */
   async function mergeSelectedBatches() {
     const rows = batchSelection.value
     if (!batchesEnabled.value || rows.length < 2) return
-    if (new Set(rows.map((r) => r.warehouse_id ?? null)).size > 1) {
-      ElMessage.warning(t('inventory.batchMergeShelfMismatch'))
-      return
-    }
     if (new Set(rows.map((r) => r.owner_user_id ?? null)).size > 1) {
       ElMessage.warning(t('inventory.batchMergeOwnerMismatch'))
       return
     }
+    let target
+    if (batchMergeShelves.value.length > 1) {
+      target = batchMergeShelves.value.find((s) => s.key === mergeShelfKey.value)
+      if (!target) {
+        ElMessage.warning(t('inventory.batchMergeShelfRequired'))
+        return
+      }
+    }
     batchMerging.value = true
     try {
-      applyResult(await api.mergeBatches(Number(form.value.id), rows.map((r) => r.id)))
+      applyResult(await api.mergeBatches(Number(form.value.id), rows.map((r) => r.id), target?.warehouse_id))
       batchSelection.value = []
+      mergeShelfVisible.value = false
       ElMessage.success(t('inventory.batchMerged'))
     } catch {
       loadBatches(true)
@@ -250,6 +279,10 @@ export function useInventoryBatches({ form, warehouseTreeMeta, t, onItemUpdated,
     batchSelectable,
     onBatchSelectionChange,
     mergeSelectedBatches,
+    batchMergeShelves,
+    mergeShelfVisible,
+    mergeShelfKey,
+    onMergeBatchesClick,
     autoMergeGroups,
     autoMergeBatches
   }

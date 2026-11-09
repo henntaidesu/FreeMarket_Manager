@@ -37,7 +37,7 @@
           </div>
         </div>
         <div class="search-actions">
-          <el-button type="success" :loading="saving" :disabled="!loaded || !tableRows.length" @click="saveSettlement">{{ t('system.settlementSave') }}</el-button>
+          <el-button v-if="$can('system/settlement:save')" type="success" :loading="saving" :disabled="!loaded || !tableRows.length" @click="saveSettlement">{{ t('system.settlementSave') }}</el-button>
         </div>
       </div>
     </el-card>
@@ -85,7 +85,7 @@
         <div class="panel-head">
           <span class="panel-title">{{ t('system.settlementConsumableTable') }}</span>
           <span class="panel-tip">{{ t('system.settlementConsumableTableTip') }}</span>
-          <el-button size="small" type="primary" plain @click="addConsumable">{{ t('system.settlementRowAdd') }}</el-button>
+          <el-button v-if="$can('system/settlement:save')" size="small" type="primary" plain @click="addConsumable">{{ t('system.settlementRowAdd') }}</el-button>
         </div>
         <el-table :data="consumables" size="small" class="cost-table">
           <el-table-column :label="t('system.settlementConsumableName')" min-width="130">
@@ -167,7 +167,7 @@
             <el-option :label="t('system.settlementRateJpyUnit')" value="JPY" />
             <el-option :label="t('system.settlementCnyUnit')" value="CNY" />
           </el-select>
-          <el-button type="primary" size="small" :loading="pendingAdding" @click="addPendingItem">
+          <el-button v-if="$can('system/settlement:pending')" type="primary" size="small" :loading="pendingAdding" @click="addPendingItem">
             {{ t('system.settlementPendingAdd') }}
           </el-button>
         </div>
@@ -189,7 +189,7 @@
           </el-table-column>
           <el-table-column :label="t('common.actions')" width="60" align="center">
             <template #default="{ row }">
-              <el-button size="small" type="danger" link @click="removePendingItem(row)">{{ t('common.delete') }}</el-button>
+              <el-button v-if="$can('system/settlement:pending')" size="small" type="danger" link @click="removePendingItem(row)">{{ t('common.delete') }}</el-button>
             </template>
           </el-table-column>
           <template #empty>{{ t('system.settlementPendingEmpty') }}</template>
@@ -580,7 +580,7 @@
       <template #footer>
         <div class="detail-footer">
           <span class="detail-footer-tip">{{ t('system.settlementResettleHint') }}</span>
-          <el-button type="primary" :loading="resettling" @click="resettleRecord">
+          <el-button v-if="$can('system/settlement:resettle')" type="primary" :loading="resettling" @click="resettleRecord">
             {{ t('system.settlementResettle') }}
           </el-button>
         </div>

@@ -18,12 +18,12 @@
           >{{ chipCount(c.key) }}</span></div>
         </div>
         <div class="search-actions">
-          <el-button type="success" plain :loading="markAllReadLoading" :disabled="!list.length" @click="onMarkAllRead">
+          <el-button v-if="$can('notifications:mark_read')" type="success" plain :loading="markAllReadLoading" :disabled="!list.length" @click="onMarkAllRead">
             {{ t('notifications.markAllRead') }}
           </el-button>
           <el-tooltip :disabled="!syncLockStore.locked" :content="syncLockStore.label" placement="top">
             <span>
-              <el-button type="primary" :icon="Download" :loading="syncLoading || syncLockStore.locked" :disabled="syncLockStore.locked" @click="runSync">
+              <el-button v-if="$can('notifications:sync')" type="primary" :icon="Download" :loading="syncLoading || syncLockStore.locked" :disabled="syncLockStore.locked" @click="runSync">
                 {{ t('notifications.syncFromMercari') }}
               </el-button>
             </span>
@@ -129,6 +129,7 @@
             </el-button>
             <!-- 列表恒只含未读，标已读后该行即从视图移除，故没有「取消已读」的入口 -->
             <el-button
+              v-if="$can('notifications:mark_read')"
               type="success"
               plain
               :loading="markReadLoadingIds.has(row.id)"
@@ -204,6 +205,7 @@
                 {{ t('notifications.viewDetail') }}
               </el-button>
               <el-button
+                v-if="$can('notifications:mark_read')"
                 size="small"
                 type="success"
                 plain

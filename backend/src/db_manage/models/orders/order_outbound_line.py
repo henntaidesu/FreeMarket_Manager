@@ -148,6 +148,13 @@ class OrderOutboundLineModel(BaseModel):
                 "not_null": False,
                 "default": None,
             },
+            # 这件货出库/预扣时所在货架快照（warehouses.id）：扣减前按先进先出排队分到的批次仓位。
+            # 只对已扣库存的行有意义；显示口径见 use_mercari/line_shelves.py
+            "warehouse_id": {
+                "type": "INTEGER",
+                "not_null": False,
+                "default": None,
+            },
             # 1 = inventory_id 指向归档表 inventory_old（重新盘库前的商品），0 = 指向 inventory。
             # 由 save() 按 inventory_id 自动判定；归档行同时把所有人快照进 owner_user_id。
             "inventory_archived": {
@@ -314,9 +321,18 @@ class OrderOutboundLineModel(BaseModel):
         from ....use_web.inventory.units.inventory_helpers import (
             _inventory_paths_from_parsed_row,
         )
+        from ....use_mercari.line_shelves import effective_line_warehouses, warehouse_labels
 
         out = [dict(zip(keys, r)) for r in rows]
+        # 货架按「越早的订单分到越早的批次」，不直接用库存当前队首（见 line_shelves）
+        line_wh = effective_line_warehouses(db, [r["id"] for r in out])
+        labels = warehouse_labels(db, line_wh.values())
         for row in out:
+            wid = line_wh.get(int(row["id"]), row["inventory_warehouse_id"])
+            row["inventory_warehouse_id"] = wid
+            row["warehouse_name"], row["shelf_name"], row["shelf_code"] = labels.get(
+                int(wid) if wid is not None else -1, (None, None, None)
+            )
             # 与 order_goods_ratio / 列表筛选字段名兼容
             # 注意：original_price 在此保持为库存原价（p.price），作为 apply_bundle_title_ratio_pricing
             # 回退权重基准；「商品原价」列的展示替换（用 ratio_unit_price）在读取链路 list_order_outbound_lines 处理。

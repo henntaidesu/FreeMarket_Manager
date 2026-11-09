@@ -3,7 +3,7 @@
     <el-card shadow="never" class="search-card">
       <div class="search-row">
         <div class="search-actions">
-          <el-button type="primary" @click="openDialog()">
+          <el-button v-if="$can('system/categories:create')" type="primary" @click="openDialog()">
             <el-icon><Plus /></el-icon> {{ t('system.addCategory') }}
           </el-button>
         </div>
@@ -21,8 +21,8 @@
         <el-table-column :label="t('system.inventoryCount')" prop="inventory_count" width="100" align="center" />
         <el-table-column :label="t('common.actions')" width="140" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" @click="openDialog(row)">{{ t('common.edit') }}</el-button>
-            <el-popconfirm :title="t('system.deleteCategoryConfirm')" @confirm="remove(row.id)">
+            <el-button v-if="$can('system/categories:edit')" size="small" @click="openDialog(row)">{{ t('common.edit') }}</el-button>
+            <el-popconfirm v-if="$can('system/categories:delete')" :title="t('system.deleteCategoryConfirm')" @confirm="remove(row.id)">
               <template #reference>
                 <el-button size="small" type="danger">{{ t('common.delete') }}</el-button>
               </template>

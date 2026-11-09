@@ -49,7 +49,7 @@
           <span class="task-card__id">#{{ row.id }}</span>
           <span class="task-card__actions" @click.stop>
             <el-button
-              v-if="row.status === 'pending' || row.status === 'running'"
+              v-if="(row.status === 'pending' || row.status === 'running') && $can('tasks:cancel')"
               link
               type="danger"
               size="small"
@@ -58,7 +58,7 @@
               {{ t('tasks.cancel') }}
             </el-button>
             <el-button
-              v-if="row.status === 'failed' || row.status === 'canceled'"
+              v-if="(row.status === 'failed' || row.status === 'canceled') && $can('tasks:retry')"
               link
               type="primary"
               size="small"

@@ -4,7 +4,7 @@
       <div class="search-row">
         <div class="search-left-group" />
         <div class="search-actions">
-          <el-button type="primary" @click="openCreate">{{ t('system.costRecordCreate') }}</el-button>
+          <el-button v-if="$can('system/cost-records:create')" type="primary" @click="openCreate">{{ t('system.costRecordCreate') }}</el-button>
         </div>
       </div>
     </el-card>
@@ -42,8 +42,8 @@
         </el-table-column>
         <el-table-column :label="t('common.actions')" width="150" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" @click="openEdit(row)">{{ t('common.edit') }}</el-button>
-            <el-popconfirm :title="t('system.costRecordDeleteConfirm')" @confirm="remove(row.id)">
+            <el-button v-if="$can('system/cost-records:edit')" size="small" @click="openEdit(row)">{{ t('common.edit') }}</el-button>
+            <el-popconfirm v-if="$can('system/cost-records:delete')" :title="t('system.costRecordDeleteConfirm')" @confirm="remove(row.id)">
               <template #reference>
                 <el-button size="small" type="danger">{{ t('common.delete') }}</el-button>
               </template>

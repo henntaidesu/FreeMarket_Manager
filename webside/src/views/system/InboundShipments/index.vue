@@ -22,7 +22,7 @@
           />
         </div>
         <div class="search-actions">
-          <el-button type="primary" @click="createShipment">{{ t('inbound.create') }}</el-button>
+          <el-button v-if="$can('system/inbound-shipments:edit')" type="primary" @click="createShipment">{{ t('inbound.create') }}</el-button>
         </div>
       </div>
       <p class="inbound-tip">{{ t('inbound.pageTip') }}</p>
@@ -59,7 +59,7 @@
         <el-table-column width="110" align="center">
           <template #default="{ row }">
             <el-button
-              v-if="row.status === 'shipped' || row.status === 'arrived'"
+              v-if="(row.status === 'shipped' || row.status === 'arrived') && $can('system/inbound-shipments:receive')"
               type="primary"
               size="small"
               @click.stop="openScan(row.id)"
@@ -108,12 +108,12 @@
             <el-input v-model="header.remark" clearable />
           </el-form-item>
           <el-form-item>
-            <el-button size="small" @click="saveHeader">{{ t('inbound.saveHeader') }}</el-button>
+            <el-button v-if="$can('system/inbound-shipments:edit')" size="small" @click="saveHeader">{{ t('inbound.saveHeader') }}</el-button>
           </el-form-item>
         </el-form>
 
         <!-- 装箱中：添加商品（也可直接用扫码枪扫商品条码，每扫一下 +1） -->
-        <div v-if="detail.status === 'draft'" class="inbound-add">
+        <div v-if="detail.status === 'draft' && $can('system/inbound-shipments:edit')" class="inbound-add">
           <el-select
             v-model="addPickId"
             filterable
@@ -176,7 +176,7 @@
           </el-table-column>
           <el-table-column v-if="detail.status === 'draft'" width="64" align="center">
             <template #default="{ row }">
-              <el-button link type="danger" size="small" @click="setLineQty(row.inventory_id, 0)">{{ t('common.delete') }}</el-button>
+              <el-button v-if="$can('system/inbound-shipments:edit')" link type="danger" size="small" @click="setLineQty(row.inventory_id, 0)">{{ t('common.delete') }}</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -185,17 +185,17 @@
       <template #footer>
         <template v-if="detail">
           <template v-if="detail.status === 'draft'">
-            <el-button type="danger" plain :disabled="busy" @click="deleteShipment">{{ t('common.delete') }}</el-button>
-            <el-button type="primary" :loading="busy" :disabled="!totalShipped" @click="shipShipment">{{ t('inbound.ship') }}</el-button>
+            <el-button v-if="$can('system/inbound-shipments:delete')" type="danger" plain :disabled="busy" @click="deleteShipment">{{ t('common.delete') }}</el-button>
+            <el-button v-if="$can('system/inbound-shipments:ship')" type="primary" :loading="busy" :disabled="!totalShipped" @click="shipShipment">{{ t('inbound.ship') }}</el-button>
           </template>
           <template v-else-if="detail.status === 'shipped'">
-            <el-button :disabled="busy" @click="unshipShipment">{{ t('inbound.unship') }}</el-button>
-            <el-button :disabled="busy" @click="arriveShipment">{{ t('inbound.markArrived') }}</el-button>
-            <el-button type="primary" :disabled="busy" @click="openScan(detail.id)">{{ t('inbound.scanReceive') }}</el-button>
+            <el-button v-if="$can('system/inbound-shipments:ship')" :disabled="busy" @click="unshipShipment">{{ t('inbound.unship') }}</el-button>
+            <el-button v-if="$can('system/inbound-shipments:receive')" :disabled="busy" @click="arriveShipment">{{ t('inbound.markArrived') }}</el-button>
+            <el-button v-if="$can('system/inbound-shipments:receive')" type="primary" :disabled="busy" @click="openScan(detail.id)">{{ t('inbound.scanReceive') }}</el-button>
           </template>
           <template v-else-if="detail.status === 'arrived'">
-            <el-button type="warning" plain :disabled="busy" @click="closeShipment">{{ t('inbound.close') }}</el-button>
-            <el-button type="primary" :disabled="busy" @click="openScan(detail.id)">{{ t('inbound.scanReceive') }}</el-button>
+            <el-button v-if="$can('system/inbound-shipments:close')" type="warning" plain :disabled="busy" @click="closeShipment">{{ t('inbound.close') }}</el-button>
+            <el-button v-if="$can('system/inbound-shipments:receive')" type="primary" :disabled="busy" @click="openScan(detail.id)">{{ t('inbound.scanReceive') }}</el-button>
           </template>
         </template>
       </template>
@@ -300,7 +300,7 @@
 
       <template #footer>
         <el-button @click="scanVisible = false">{{ t('common.close') }}</el-button>
-        <el-button v-if="detail && detail.status === 'arrived'" type="warning" plain @click="closeShipment">{{ t('inbound.close') }}</el-button>
+        <el-button v-if="detail && detail.status === 'arrived' && $can('system/inbound-shipments:close')" type="warning" plain @click="closeShipment">{{ t('inbound.close') }}</el-button>
       </template>
     </el-dialog>
   </div>

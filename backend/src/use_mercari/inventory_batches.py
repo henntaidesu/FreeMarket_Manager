@@ -374,12 +374,16 @@ def update_batch(batch_id: int, fields: Dict[str, Any]) -> None:
     )
 
 
-def merge_batches(inv_id: int, batch_ids: Iterable[int]) -> int:
-    """把同一商品的几个在岸批次合并成一个：并入其中最早的那个（保留它的批次号与批次时间），
-    数量相加、备注拼接，其余删除。总数不变，不记出入库流水（货没有进出）。
+_UNSET = object()
 
-    只允许合并**同一货架、同一所有人**的批次：仓位与所有人建批后都不可改，合并不能顺手
-    改掉某件货在哪 / 算谁的。返回保留下来的批次 id。"""
+
+def merge_batches(inv_id: int, batch_ids: Iterable[int], warehouse_id: Any = _UNSET) -> int:
+    """把同一商品的几个在岸批次合并成一个：并入其中最早的那个（保留它的批次号与批次时间），
+    数量相加、备注拼接，其余删除。总数不变。
+
+    货架不同时必须由 `warehouse_id` 指定归入哪个货架（只能是所选批次之一的货架，None = 未分配），
+    合并后的批次落在那里，从别的货架搬过来的件数记一条 transfer 流水。所有人必须相同：
+    合并不能顺手改掉某件货算谁的。返回保留下来的批次 id。"""
     ids = sorted({int(b) for b in batch_ids})
     if len(ids) < 2:
         raise ValueError("至少选择两个批次才能合并")
@@ -394,10 +398,17 @@ def merge_batches(inv_id: int, batch_ids: Iterable[int]) -> int:
             raise LookupError("批次不存在")
         if any(r[4] == STAGE_TRANSIT for r in rows):
             raise ValueError("在途批次由快递单管理，不能合并")
-        if len({r[2] for r in rows}) > 1:
-            raise ValueError("只能合并同一货架上的批次")
         if len({r[3] for r in rows}) > 1:
             raise ValueError("只能合并同一所有人的批次")
+        shelves = {None if r[2] is None else int(r[2]) for r in rows}
+        if warehouse_id is _UNSET:
+            if len(shelves) > 1:
+                raise ValueError("所选批次不在同一货架，请选择合并到哪个货架")
+            target = next(iter(shelves))
+        else:
+            target = None if warehouse_id is None else int(warehouse_id)
+            if target not in shelves:
+                raise ValueError("目标货架必须是所选批次之一的货架")
         keep_id = int(rows[0][0])
         others = [int(r[0]) for r in rows[1:]]
         total = sum(int(r[5] or 0) for r in rows)
@@ -407,14 +418,24 @@ def merge_batches(inv_id: int, batch_ids: Iterable[int]) -> int:
             if s and s not in remarks:
                 remarks.append(s)
         db.execute_update(
-            "UPDATE [inventory_batches] SET [quantity] = ?, [remark] = ? WHERE [id] = ?",
-            (total, "；".join(remarks) or None, keep_id),
+            "UPDATE [inventory_batches] SET [quantity] = ?, [remark] = ?, [warehouse_id] = ? WHERE [id] = ?",
+            (total, "；".join(remarks) or None, target, keep_id),
         )
+        # 换了货架的件数记审计流水（transactions.warehouse_id NOT NULL，原本未分配的不记）
+        for r in rows:
+            src, qty = r[2], int(r[5] or 0)
+            if src is not None and int(src) != target and qty > 0:
+                db.execute_insert(
+                    "INSERT INTO [transactions] (type, inventory_id, warehouse_id, target_warehouse_id, "
+                    "quantity, remark, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    ("transfer", int(inv_id), int(src), target, qty, "合并批次换货架", int(time.time())),
+                )
         ph = ",".join("?" * len(others))
-        # 快递入库记录按批次 id 定位「改投」要搬的那几件，跟着指向保留下来的批次
+        # 快递入库记录按批次 id 定位「改投」要搬的那几件，跟着指向保留下来的批次与它现在的货架
         db.execute_update(
-            f"UPDATE [inbound_receipts] SET [batch_id] = ? WHERE [batch_id] IN ({ph})",
-            (keep_id, *others),
+            f"UPDATE [inbound_receipts] SET [batch_id] = ?, [warehouse_id] = COALESCE(?, [warehouse_id]) "
+            f"WHERE [batch_id] IN ({','.join('?' * len(ids))})",
+            (keep_id, target, *ids),
         )
         db.execute_update(f"DELETE FROM [inventory_batches] WHERE [id] IN ({ph})", tuple(others))
         _sync_head_warehouse(db, inv_id)

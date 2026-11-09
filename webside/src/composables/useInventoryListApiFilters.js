@@ -132,15 +132,18 @@ export function useInventoryListApiFilters(scheduleReload) {
         partRows.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'zh-CN'))
         const l2Val = `WHSN:${encodeURIComponent(whName)}::${encodeURIComponent(pk)}`
         const labelMid = shelfNamePartitionLabelFromKey(pk)
-        const leaves = partRows.map((w) => {
+        const leaves = []
+        for (const w of partRows) {
           const id = Number(w.id)
           const leafVal = `WHS:${w.id}`
           if (Number.isFinite(id)) idToPath.set(id, [l1Val, l2Val, leafVal])
-          return { value: leafVal, label: warehouseShelfLeafLabel(w), children: [] }
-        })
-        midNodes.push({ value: l2Val, label: labelMid, children: leaves })
+          // 已隐藏的货架号不进下拉；idToPath 仍保留，老数据照样能回显路径
+          if (Number(w.is_hidden)) continue
+          leaves.push({ value: leafVal, label: warehouseShelfLeafLabel(w), children: [] })
+        }
+        if (leaves.length) midNodes.push({ value: l2Val, label: labelMid, children: leaves })
       }
-      roots.push({ value: l1Val, label: whName, children: midNodes })
+      if (midNodes.length) roots.push({ value: l1Val, label: whName, children: midNodes })
     }
     return { roots, idToPath }
   })

@@ -3,6 +3,7 @@
 from fastapi import HTTPException, Depends
 
 from ....auth import require_auth
+from ....page_access import assert_feature
 from ....db_manage.database import DatabaseManager
 
 from .inventory_helpers import (
@@ -119,6 +120,9 @@ def update_inventory(pid: int, data: InventoryUpdate, _claims: dict = Depends(re
     if not _inventory_exists(pid):
         raise HTTPException(status_code=404, detail="商品不存在")
     update_data = data.model_dump(exclude_unset=True)
+    # 路由已要求 编辑 / 入库 / 改仓位 之一；只有「改仓位」的角色只能动 warehouse_id
+    if set(update_data) - {"warehouse_id"}:
+        assert_feature(_claims, "inventory:edit", "inventory:inbound")
     from ....inventory_barcode.variant import normalize_grade, normalize_variant, sync_barcode_mode, sync_base_mgmt_id
     if 'barcode' in update_data and not (update_data.get('barcode') or '').strip():
         raise HTTPException(status_code=400, detail="条形码不能为空")

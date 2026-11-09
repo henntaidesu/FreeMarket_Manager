@@ -17,7 +17,7 @@
           </span>
         </div>
         <div class="search-actions">
-          <el-button type="primary" @click="openDialog()">
+          <el-button v-if="$can('system/product-type-category-mappings:create')" type="primary" @click="openDialog()">
             <el-icon><Plus /></el-icon> {{ t('system.addMapping') }}
           </el-button>
         </div>
@@ -45,8 +45,8 @@
         </el-table-column>
         <el-table-column :label="t('common.actions')" width="140" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" @click="openDialog(row)">{{ t('common.edit') }}</el-button>
-            <el-popconfirm :title="t('system.mappingDeleteConfirm')" @confirm="remove(row.mapping_id)">
+            <el-button v-if="$can('system/product-type-category-mappings:edit')" size="small" @click="openDialog(row)">{{ t('common.edit') }}</el-button>
+            <el-popconfirm v-if="$can('system/product-type-category-mappings:delete')" :title="t('system.mappingDeleteConfirm')" @confirm="remove(row.mapping_id)">
               <template #reference>
                 <el-button size="small" type="danger">{{ t('common.delete') }}</el-button>
               </template>

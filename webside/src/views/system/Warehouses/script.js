@@ -3,6 +3,7 @@ import { ElMessage } from '@/utils/notify'
 import { ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { warehouseApi } from '@/api/index.js'
 import { warehouseShelfLabel, warehouseShelfLeafLabel } from '@/utils/warehouseLabel.js'
 import WarehouseQrDialog from './WarehouseQrDialog.vue'
@@ -11,6 +12,7 @@ export default defineComponent({
   components: { WarehouseQrDialog },
   setup() {
     const { t } = useI18n()
+    const router = useRouter()
 
     // 货架号二维码打印：单个货架号 / 整个货架分组
     const qrDialogVisible = ref(false)
@@ -397,6 +399,22 @@ export default defineComponent({
       }
     }
 
+    /** 点货架号标题：二次确认后跳库存页，按该货架号筛选 */
+    async function goInventoryForShelf(row) {
+      const id = row?.id
+      if (id == null) return
+      try {
+        await ElMessageBox.confirm(
+          t('system.goInventoryConfirm', { name: row.name || '—' }),
+          t('system.goInventoryTitle'),
+          { confirmButtonText: t('system.goInventoryBtn'), cancelButtonText: t('common.cancel'), type: 'info' }
+        )
+      } catch {
+        return
+      }
+      router.push({ path: '/inventory', query: { warehouse: String(id) } })
+    }
+
     function onAddWarehouseNameDialogClosed() {
       newWarehouseNameInput.value = ''
     }
@@ -741,6 +759,7 @@ export default defineComponent({
       hidingId,
       isHiddenRow,
       toggleShelfHidden,
+      goInventoryForShelf,
       activeCollapse,
       activeShelfNameByWh,
       dialogVisible,

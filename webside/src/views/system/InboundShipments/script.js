@@ -381,6 +381,7 @@ export default defineComponent({
     const shelfOptions = computed(() =>
       (warehouses.value || [])
         .filter((w) => (w.node_type ? w.node_type === 'shelf_no' : String(w.name || '').trim() !== ''))
+        .filter((w) => !Number(w.is_hidden))
         .map((w) => ({
           id: w.id,
           label: [w.warehouse, w.shelf_name, w.name].map((s) => String(s || '').trim()).filter(Boolean).join(' / ')

@@ -1,26 +1,28 @@
 # -*- coding: utf-8 -*-
 """系统角色处理器：一个角色 = 一组允许访问的页面。判定口径见 ``src/page_access.py``。"""
 import json
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from fastapi import HTTPException
 from pydantic import BaseModel as PydanticModel
 
 from .....db_manage.database import DatabaseManager
 from .....db_manage.models.system.role import RoleModel
-from .....page_access import normalize_pages, parse_pages
+from .....page_access import normalize_features, normalize_pages, parse_features, parse_pages
 
 
 class RoleCreate(PydanticModel):
     name: str
     description: Optional[str] = None
     pages: List[str] = []
+    features: Dict[str, List[str]] = {}
 
 
 class RoleUpdate(PydanticModel):
     name: Optional[str] = None
     description: Optional[str] = None
     pages: Optional[List[str]] = None
+    features: Optional[Dict[str, List[str]]] = None
 
 
 def _norm(value: Optional[str]) -> Optional[str]:
@@ -41,6 +43,7 @@ def _out(role: RoleModel, user_count: int) -> dict:
         "name": role.name,
         "description": role.description,
         "pages": parse_pages(role.pages_json),
+        "features": parse_features(role.features_json),
         "user_count": user_count,
     }
 
@@ -61,6 +64,7 @@ def create_role(data: RoleCreate):
         name=name,
         description=_norm(data.description),
         pages_json=json.dumps(normalize_pages(data.pages)),
+        features_json=json.dumps(normalize_features(data.features)),
     )
     if not role.save():
         raise HTTPException(status_code=500, detail="保存失败")
@@ -84,6 +88,8 @@ def update_role(rid: int, data: RoleUpdate):
         role.description = _norm(data.description)
     if data.pages is not None:
         role.pages_json = json.dumps(normalize_pages(data.pages))
+    if data.features is not None:
+        role.features_json = json.dumps(normalize_features(data.features))
     role.save()
     return _out(role, _user_counts().get(int(rid), 0))
 

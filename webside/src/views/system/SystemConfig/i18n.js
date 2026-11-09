@@ -262,6 +262,154 @@ export default {
       resetPasswordPlaceholder: '留空则不修改；修改后该用户需重新登录',
       userSaved: '用户已保存',
     },
+    // 角色编辑「可访问功能」的文案，清单见 constants/permissions.js（页面 key 的 / 换成 _）
+    roleFeatures: {
+      inventory: {
+        inbound: '入库 / 新建商品',
+        edit: '编辑商品',
+        delete: '删除商品',
+        listing: '出品',
+        batch: '批次管理',
+        stock_out: '手动出库',
+        warehouse: '改仓位',
+        series: '加入系列',
+        combine: '组合商品'
+      },
+      orders: {
+        sync: '同步 / 刷新订单',
+        stock_out: '出库',
+        bind: '关联库存 / 重新匹配',
+        manual_outbound: '手动添加出库',
+        packaging: '包材',
+        settlement_exclude: '不加入结算',
+        note: '订单备注',
+        message: '回复留言',
+        convert_owner: '归属转化',
+        force_stock_out: '强制出库'
+      },
+      'on-sale-items': {
+        sync: '同步 / 获取详情',
+        revise: '修改出品 / 批量改价',
+        relink: '修改关联库存',
+        suspend: '暂停出售',
+        resume: '恢复出售',
+        delist: '下架',
+        reverse_inbound: '反向入库'
+      },
+      todos: {
+        sync: '同步待办 / 获取商品说明',
+        ship: '发货（含出库 / 包材）',
+        review: '评价 / 一键好评',
+        buyer_receipt: '确认收货',
+        cancel_receipt: '确认取消收货',
+        message: '交易留言 / 表情回应'
+      },
+      notifications: {
+        sync: '同步通知',
+        mark_read: '标记已读',
+        bundle: '同意 / 拒绝まとめ買い',
+        price_offer: '同意 / 拒绝希望价格',
+        comment: '回复商品评论'
+      },
+      'shop-accounts': {
+        create: '新建账号',
+        edit: '编辑账号',
+        delete: '删除账号',
+        sync: '同步数据 / 暂停同步',
+        browser: '打开浏览器 / Cookie 注入',
+        app_token: '雅虎 App 登录'
+      },
+      tasks: {
+        cancel: '取消任务',
+        retry: '重试任务'
+      },
+      system_purchases: {
+        sync: '同步 / 获取详情',
+        edit: '修改结算状态 / 归属人'
+      },
+      'system_purchase-settlement': {
+        settle: '标记已结算'
+      },
+      system_settlement: {
+        save: '保存结算',
+        resettle: '重新结算',
+        pending: '待结算物品'
+      },
+      system_warehouses: {
+        create: '新增仓库 / 货架',
+        edit: '编辑 / 重命名 / 隐藏',
+        delete: '删除 / 到货清空',
+        print: '打印二维码'
+      },
+      'system_inbound-shipments': {
+        edit: '新建 / 编辑快递单',
+        delete: '删除快递单',
+        ship: '发出 / 撤回发出',
+        receive: '到岸 / 扫码入库',
+        close: '清点关单'
+      },
+      'system_cost-records': {
+        create: '新增',
+        edit: '编辑',
+        delete: '删除'
+      },
+      'system_cost-expenses': {
+        create: '新增',
+        edit: '编辑',
+        delete: '删除'
+      },
+      system_categories: {
+        create: '新增',
+        edit: '编辑',
+        delete: '删除'
+      },
+      system_series: {
+        create: '新增',
+        edit: '编辑',
+        delete: '删除',
+        merge: '合并系列'
+      },
+      'system_product-type-category-mappings': {
+        create: '新增',
+        edit: '编辑',
+        delete: '删除'
+      },
+      'system_talk-scripts': {
+        create: '新增',
+        edit: '编辑',
+        delete: '删除'
+      },
+      system_calendar: {
+        create: '新增',
+        edit: '编辑',
+        delete: '删除'
+      },
+      system_memos: {
+        compose: '写备忘录',
+        process: '标记处理',
+        delete: '删除'
+      },
+      'system_system-logs': {
+        clear: '清空日志'
+      },
+      system_config: {
+        accounts: '账号管理',
+        roles: '系统角色',
+        sso: '门户单点登录',
+        proxy_users: '代购用户',
+        ai: 'AI 配置',
+        listing: '出品默认值',
+        profile_hide: '确认后隐藏商品',
+        barcode: '条码识别',
+        shipping_duration: '一键修改发货时效',
+        database: '数据库 / 同步库',
+        image_hosting: '图床存储',
+        printer: '打印设置',
+        web_access: '网页访问方式',
+        proxy: 'Cookie 注入域名',
+        service: '重启服务 / MITM'
+      }
+    },
     system: {
       title: '账号管理',
       accountManagement: '账号管理',
@@ -597,6 +745,153 @@ export default {
       resetPasswordPlaceholder: '空欄なら変更しません。変更後は再ログインが必要です',
       userSaved: 'ユーザーを保存しました',
     },
+    roleFeatures: {
+      inventory: {
+        inbound: '入庫 / 新規商品',
+        edit: '商品を編集',
+        delete: '商品を削除',
+        listing: '出品',
+        batch: 'ロット管理',
+        stock_out: '手動出庫',
+        warehouse: '棚の変更',
+        series: 'シリーズに追加',
+        combine: 'セット商品'
+      },
+      orders: {
+        sync: '注文の同期 / 更新',
+        stock_out: '出庫',
+        bind: '在庫の紐付け / 再照合',
+        manual_outbound: '手動出庫を追加',
+        packaging: '梱包資材',
+        settlement_exclude: '精算から除外',
+        note: '注文メモ',
+        message: 'メッセージ返信',
+        convert_owner: '所有者の変更',
+        force_stock_out: '強制出庫'
+      },
+      'on-sale-items': {
+        sync: '同期 / 詳細取得',
+        revise: '出品の編集 / 一括価格変更',
+        relink: '紐付け在庫の変更',
+        suspend: '公開停止',
+        resume: '出品再開',
+        delist: '出品取り下げ',
+        reverse_inbound: '逆入庫'
+      },
+      todos: {
+        sync: 'やることの同期 / 商品説明取得',
+        ship: '発送（出庫 / 梱包資材を含む）',
+        review: '評価 / 一括評価',
+        buyer_receipt: '受取評価',
+        cancel_receipt: 'キャンセル時の受取確認',
+        message: '取引メッセージ / リアクション'
+      },
+      notifications: {
+        sync: 'お知らせの同期',
+        mark_read: '既読にする',
+        bundle: 'まとめ買いの承認 / 拒否',
+        price_offer: '希望価格の承認 / 拒否',
+        comment: '商品コメントへの返信'
+      },
+      'shop-accounts': {
+        create: 'アカウント作成',
+        edit: 'アカウント編集',
+        delete: 'アカウント削除',
+        sync: 'データ同期 / 同期停止',
+        browser: 'ブラウザを開く / Cookie 注入',
+        app_token: 'Yahoo アプリログイン'
+      },
+      tasks: {
+        cancel: 'タスクのキャンセル',
+        retry: 'タスクの再試行'
+      },
+      system_purchases: {
+        sync: '同期 / 詳細取得',
+        edit: '精算状態 / 所有者の変更'
+      },
+      'system_purchase-settlement': {
+        settle: '精算済みにする'
+      },
+      system_settlement: {
+        save: '精算を保存',
+        resettle: '再精算',
+        pending: '精算待ちの品目'
+      },
+      system_warehouses: {
+        create: '倉庫 / 棚の追加',
+        edit: '編集 / 名前変更 / 非表示',
+        delete: '削除 / 到着クリア',
+        print: 'QR コード印刷'
+      },
+      'system_inbound-shipments': {
+        edit: '配送伝票の作成 / 編集',
+        delete: '配送伝票の削除',
+        ship: '発送 / 発送取消',
+        receive: '到着 / スキャン入庫',
+        close: '棚卸しして完了'
+      },
+      'system_cost-records': {
+        create: '追加',
+        edit: '編集',
+        delete: '削除'
+      },
+      'system_cost-expenses': {
+        create: '追加',
+        edit: '編集',
+        delete: '削除'
+      },
+      system_categories: {
+        create: '追加',
+        edit: '編集',
+        delete: '削除'
+      },
+      system_series: {
+        create: '追加',
+        edit: '編集',
+        delete: '削除',
+        merge: 'シリーズを統合'
+      },
+      'system_product-type-category-mappings': {
+        create: '追加',
+        edit: '編集',
+        delete: '削除'
+      },
+      'system_talk-scripts': {
+        create: '追加',
+        edit: '編集',
+        delete: '削除'
+      },
+      system_calendar: {
+        create: '追加',
+        edit: '編集',
+        delete: '削除'
+      },
+      system_memos: {
+        compose: 'メモを書く',
+        process: '処理済みにする',
+        delete: '削除'
+      },
+      'system_system-logs': {
+        clear: 'ログを消去'
+      },
+      system_config: {
+        accounts: 'アカウント管理',
+        roles: 'システムロール',
+        sso: 'ポータル SSO',
+        proxy_users: '代理購入ユーザー',
+        ai: 'AI 設定',
+        listing: '出品デフォルト',
+        profile_hide: '取引後に非表示',
+        barcode: 'バーコード認識',
+        shipping_duration: '発送日数の一括変更',
+        database: 'データベース / 同期',
+        image_hosting: '画像ホスティング',
+        printer: '印刷設定',
+        web_access: 'Web アクセス方式',
+        proxy: 'Cookie 注入ドメイン',
+        service: '再起動 / MITM'
+      }
+    },
     system: {
       title: 'アカウント管理',
       accountManagement: 'アカウント管理',
@@ -931,6 +1226,153 @@ export default {
       resetPassword: 'Reset Password',
       resetPasswordPlaceholder: 'Leave blank to keep; the user must log in again after a change',
       userSaved: 'User saved',
+    },
+    roleFeatures: {
+      inventory: {
+        inbound: 'Inbound / new item',
+        edit: 'Edit item',
+        delete: 'Delete item',
+        listing: 'List for sale',
+        batch: 'Manage batches',
+        stock_out: 'Manual stock-out',
+        warehouse: 'Change shelf',
+        series: 'Add to series',
+        combine: 'Bundle items'
+      },
+      orders: {
+        sync: 'Sync / refresh orders',
+        stock_out: 'Stock out',
+        bind: 'Link inventory / rematch',
+        manual_outbound: 'Add manual outbound',
+        packaging: 'Packaging',
+        settlement_exclude: 'Exclude from settlement',
+        note: 'Order note',
+        message: 'Reply to messages',
+        convert_owner: 'Convert owner',
+        force_stock_out: 'Force stock-out'
+      },
+      'on-sale-items': {
+        sync: 'Sync / fetch detail',
+        revise: 'Revise listing / batch price',
+        relink: 'Change linked inventory',
+        suspend: 'Suspend',
+        resume: 'Resume',
+        delist: 'Delist',
+        reverse_inbound: 'Reverse inbound'
+      },
+      todos: {
+        sync: 'Sync todos / fetch item detail',
+        ship: 'Ship (incl. stock-out / packaging)',
+        review: 'Review / bulk review',
+        buyer_receipt: 'Confirm receipt',
+        cancel_receipt: 'Confirm cancellation return',
+        message: 'Trade messages / reactions'
+      },
+      notifications: {
+        sync: 'Sync notifications',
+        mark_read: 'Mark as read',
+        bundle: 'Accept / reject bundle requests',
+        price_offer: 'Accept / reject price offers',
+        comment: 'Reply to item comments'
+      },
+      'shop-accounts': {
+        create: 'Create account',
+        edit: 'Edit account',
+        delete: 'Delete account',
+        sync: 'Sync data / pause sync',
+        browser: 'Open browser / cookie inject',
+        app_token: 'Yahoo app login'
+      },
+      tasks: {
+        cancel: 'Cancel task',
+        retry: 'Retry task'
+      },
+      system_purchases: {
+        sync: 'Sync / fetch detail',
+        edit: 'Change settlement / owner'
+      },
+      'system_purchase-settlement': {
+        settle: 'Mark as settled'
+      },
+      system_settlement: {
+        save: 'Save settlement',
+        resettle: 'Re-settle',
+        pending: 'Pending items'
+      },
+      system_warehouses: {
+        create: 'Add warehouse / shelf',
+        edit: 'Edit / rename / hide',
+        delete: 'Delete / clear arrived',
+        print: 'Print QR codes'
+      },
+      'system_inbound-shipments': {
+        edit: 'Create / edit shipment',
+        delete: 'Delete shipment',
+        ship: 'Ship / unship',
+        receive: 'Arrive / scan receive',
+        close: 'Count and close'
+      },
+      'system_cost-records': {
+        create: 'Create',
+        edit: 'Edit',
+        delete: 'Delete'
+      },
+      'system_cost-expenses': {
+        create: 'Create',
+        edit: 'Edit',
+        delete: 'Delete'
+      },
+      system_categories: {
+        create: 'Create',
+        edit: 'Edit',
+        delete: 'Delete'
+      },
+      system_series: {
+        create: 'Create',
+        edit: 'Edit',
+        delete: 'Delete',
+        merge: 'Merge series'
+      },
+      'system_product-type-category-mappings': {
+        create: 'Create',
+        edit: 'Edit',
+        delete: 'Delete'
+      },
+      'system_talk-scripts': {
+        create: 'Create',
+        edit: 'Edit',
+        delete: 'Delete'
+      },
+      system_calendar: {
+        create: 'Create',
+        edit: 'Edit',
+        delete: 'Delete'
+      },
+      system_memos: {
+        compose: 'Compose memo',
+        process: 'Mark processed',
+        delete: 'Delete'
+      },
+      'system_system-logs': {
+        clear: 'Clear logs'
+      },
+      system_config: {
+        accounts: 'Accounts',
+        roles: 'System roles',
+        sso: 'Portal SSO',
+        proxy_users: 'Proxy users',
+        ai: 'AI config',
+        listing: 'Listing defaults',
+        profile_hide: 'Hide after completion',
+        barcode: 'Barcode recognition',
+        shipping_duration: 'Bulk shipping duration',
+        database: 'Database / sync',
+        image_hosting: 'Image hosting',
+        printer: 'Printing',
+        web_access: 'Web access mode',
+        proxy: 'Cookie inject domain',
+        service: 'Restart / MITM'
+      }
     },
     system: {
       title: 'Account Management',

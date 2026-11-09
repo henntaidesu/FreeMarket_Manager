@@ -79,20 +79,25 @@
         <div class="search-actions">
           <!-- 以下两项已改为提交任务队列：提交即返回，不再受全局同步锁阻挡 -->
           <template v-if="!batchMode">
-            <el-button type="primary" :icon="Download" :loading="syncLoading" @click="runSync">
+            <el-button v-if="$can('on-sale-items:sync')" type="primary" :icon="Download" :loading="syncLoading" @click="runSync">
               {{ t('onSaleItems.syncFromMercari') }}
             </el-button>
-            <el-button type="success" @click="enterBatchMode">
+            <el-button
+              v-if="['revise', 'suspend', 'resume', 'delist'].some((a) => $can('on-sale-items:' + a))"
+              type="success"
+              @click="enterBatchMode"
+            >
               {{ t('onSaleItems.batchRevisePrice') }}
             </el-button>
           </template>
           <template v-else>
             <span class="batch-pick-count">{{ t('onSaleItems.batchSelectedCount', { count: batchSelectedCount }) }}</span>
-            <el-button type="primary" :disabled="!batchSelectedCount" @click="openBatchPriceDialog">
+            <el-button v-if="$can('on-sale-items:revise')" type="primary" :disabled="!batchSelectedCount" @click="openBatchPriceDialog">
               {{ t('onSaleItems.batchConfirmPrice') }}
             </el-button>
             <!-- 暂停 / 恢复 / 下架同样每件排一条任务，状态不符的选中项会被跳过 -->
             <el-button
+              v-if="$can('on-sale-items:suspend')"
               type="warning"
               :disabled="!batchSelectedCount"
               :loading="batchActionLoading"
@@ -101,6 +106,7 @@
               {{ t('onSaleItems.batchSuspend') }}
             </el-button>
             <el-button
+              v-if="$can('on-sale-items:resume')"
               type="success"
               :disabled="!batchSelectedCount"
               :loading="batchActionLoading"
@@ -109,6 +115,7 @@
               {{ t('onSaleItems.batchResume') }}
             </el-button>
             <el-button
+              v-if="$can('on-sale-items:delist')"
               type="danger"
               plain
               :disabled="!batchSelectedCount"
@@ -337,7 +344,7 @@
                   :type="hasDetailViewable(row) ? 'success' : 'warning'"
                   plain
                   :loading="detailLoadingIds.has(String(row.item_id || '').trim())"
-                  :disabled="syncLockStore.locked && !hasDetailViewable(row)"
+                  :disabled="!hasDetailViewable(row) && (syncLockStore.locked || !$can('on-sale-items:sync'))"
                   @click="onDetailActionClick(row)"
                 >
                   {{ hasDetailViewable(row) ? t('onSaleItems.viewDetail') : t('onSaleItems.fetchDetail') }}
@@ -634,7 +641,7 @@
       <template #footer>
         <div class="detail-footer">
           <div class="detail-footer__left">
-            <el-tooltip v-if="detailViewBase" :disabled="!syncLockStore.locked" :content="syncLockStore.label" placement="top">
+            <el-tooltip v-if="detailViewBase && $can('on-sale-items:sync')" :disabled="!syncLockStore.locked" :content="syncLockStore.label" placement="top">
               <span>
                 <el-button
                   type="primary"
@@ -649,7 +656,7 @@
             </el-tooltip>
             <!-- 反向入库：提交任务队列，不受全局同步锁阻挡 -->
             <el-button
-              v-if="canReverseInbound"
+              v-if="canReverseInbound && $can('on-sale-items:reverse_inbound')"
               type="success"
               plain
               :loading="reverseInboundLoading"
@@ -659,7 +666,7 @@
             </el-button>
           </div>
           <div class="detail-footer__right">
-            <el-tooltip v-if="detailViewBase && detailIsStopped" :disabled="!syncLockStore.locked" :content="syncLockStore.label" placement="top">
+            <el-tooltip v-if="detailViewBase && detailIsStopped && $can('on-sale-items:resume')" :disabled="!syncLockStore.locked" :content="syncLockStore.label" placement="top">
               <span>
                 <el-button
                   type="success"
@@ -671,7 +678,7 @@
                 </el-button>
               </span>
             </el-tooltip>
-            <el-tooltip v-if="detailViewBase && detailIsOnSale" :disabled="!syncLockStore.locked" :content="syncLockStore.label" placement="top">
+            <el-tooltip v-if="detailViewBase && detailIsOnSale && $can('on-sale-items:suspend')" :disabled="!syncLockStore.locked" :content="syncLockStore.label" placement="top">
               <span>
                 <el-button
                   type="warning"
@@ -685,7 +692,7 @@
             </el-tooltip>
             <!-- 「修改」已改为提交任务队列，不受全局同步锁阻挡 -->
             <el-button
-              v-if="detailViewBase && !detailIsAuction"
+              v-if="detailViewBase && !detailIsAuction && $can('on-sale-items:revise')"
               type="primary"
               @click="openReviseDialog"
             >
@@ -693,7 +700,7 @@
             </el-button>
             <!-- 「下架」已改为提交任务队列，不受全局同步锁阻挡 -->
             <el-button
-              v-if="detailViewBase"
+              v-if="detailViewBase && $can('on-sale-items:delist')"
               type="danger"
               plain
               :loading="deleteItemLoading"
@@ -830,12 +837,14 @@
               <code class="osr-cipher__v">{{ reviseDescCipher }}</code>
               <span class="revise-cipher-hint">{{ t('onSaleItems.secretCodeHint') }}</span>
             </template>
-            <el-button class="osr-cipher__relink" size="small" :loading="relinkLoading" @click="startRelink">
-              {{ t('onSaleItems.relinkButton') }}
-            </el-button>
-            <el-button size="small" :disabled="relinkLoading" @click="startManualRelink">
-              {{ t('onSaleItems.relinkManualButton') }}
-            </el-button>
+            <template v-if="$can('on-sale-items:relink')">
+              <el-button class="osr-cipher__relink" size="small" :loading="relinkLoading" @click="startRelink">
+                {{ t('onSaleItems.relinkButton') }}
+              </el-button>
+              <el-button size="small" :disabled="relinkLoading" @click="startManualRelink">
+                {{ t('onSaleItems.relinkManualButton') }}
+              </el-button>
+            </template>
           </div>
           <!-- 迁移后的新库存有多件可选：由人挑一件 -->
           <div v-if="relinkCandidates.length" class="osr-relink">

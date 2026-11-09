@@ -34,7 +34,7 @@
           <div class="odt-chips">
             <el-tag :type="stateType" size="small" effect="dark">{{ stateText }}</el-tag>
 
-            <el-dropdown trigger="click" @command="(v) => $emit('set-settlement', v)">
+            <el-dropdown trigger="click" :disabled="!$can('system/purchases:edit')" @command="(v) => $emit('set-settlement', v)">
               <el-tag :type="settlementOption.tag" size="small" effect="dark" class="odt-chip-pick">
                 {{ settlementOption.label }}
                 <el-icon class="odt-chip-caret"><ArrowDown /></el-icon>
@@ -48,7 +48,7 @@
               </template>
             </el-dropdown>
 
-            <el-dropdown trigger="click" @command="onOwnerCommand">
+            <el-dropdown trigger="click" :disabled="!$can('system/purchases:edit')" @command="onOwnerCommand">
               <el-tag size="small" effect="plain" class="odt-chip-pick">
                 {{ t('purchases.owner') }}:
                 {{ row.owner_user_name || t('purchases.ownerUnassigned') }}
@@ -67,6 +67,7 @@
             </el-dropdown>
 
             <el-button
+              v-if="$can('system/purchases:sync')"
               class="odt-chips__action"
               size="small"
               @click="$emit('fetch-detail')"

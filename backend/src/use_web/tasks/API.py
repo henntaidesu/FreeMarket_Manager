@@ -8,7 +8,9 @@
     GET  /mercariV2/src/use_web/tasks/stats
     POST /mercariV2/src/use_web/tasks/submit
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from ...page_access import require_feature
 
 from .units.tasks_handler import (
     cancel_task,
@@ -27,5 +29,5 @@ router.add_api_route("/stats", task_stats, methods=["GET"])
 router.add_api_route("/types", list_task_types, methods=["GET"])
 router.add_api_route("/submit", submit_task_endpoint, methods=["POST"])
 router.add_api_route("/{task_id}", get_task_detail, methods=["GET"])
-router.add_api_route("/{task_id}/cancel", cancel_task, methods=["POST"])
-router.add_api_route("/{task_id}/retry", retry_task, methods=["POST"])
+router.add_api_route("/{task_id}/cancel", cancel_task, methods=["POST"], dependencies=[Depends(require_feature("tasks:cancel"))])
+router.add_api_route("/{task_id}/retry", retry_task, methods=["POST"], dependencies=[Depends(require_feature("tasks:retry"))])

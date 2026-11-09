@@ -5,7 +5,9 @@
 - 从 use_web/API.py 接收前缀 /mercariV2/src/use_web/shop-accounts
 - 完整 URL 示例: GET /mercariV2/src/use_web/shop-accounts/
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from ...page_access import require_feature
 
 from .units.shop_accounts_crud import (
     create_shop_account,
@@ -27,18 +29,33 @@ from .units.shop_accounts_yahoo_token import (
 
 router = APIRouter()
 
+
+def _f(*keys):
+    """按钮级功能权限（叠在路由组的页面权限之上），口径见 src/page_access.py。"""
+    return [Depends(require_feature(*keys))]
+
+
+_BASIC_INFO = _f("shop-accounts:create", "shop-accounts:edit")
+
 router.add_api_route("", list_shop_accounts, methods=["GET"])
-router.add_api_route("", create_shop_account, methods=["POST"])
-router.add_api_route("/{aid}", update_shop_account, methods=["PUT"])
+router.add_api_route("", create_shop_account, methods=["POST"], dependencies=_f("shop-accounts:create"))
+router.add_api_route("/{aid}", update_shop_account, methods=["PUT"], dependencies=_f("shop-accounts:edit"))
 # 一键暂停同步：关闭全部账号的自动数据获取
-router.add_api_route("/pause-auto-fetch", pause_all_auto_fetch, methods=["POST"])
-router.add_api_route("/fetch-seller-id-via-mitm", fetch_seller_id_via_mitm, methods=["POST"])
+router.add_api_route("/pause-auto-fetch", pause_all_auto_fetch, methods=["POST"], dependencies=_f("shop-accounts:sync"))
+router.add_api_route("/fetch-seller-id-via-mitm", fetch_seller_id_via_mitm, methods=["POST"], dependencies=_BASIC_INFO)
 # 雅虎的「获取基础信息」：卖家ID 在 /my 的 DOM 里，不需要 MITM，故与煤炉分开成独立端点
-router.add_api_route("/fetch-yahoo-basic-info", fetch_yahoo_basic_info_endpoint, methods=["POST"])
-router.add_api_route("/{aid}/sync-data", sync_account_all_data, methods=["POST"])
+router.add_api_route(
+    "/fetch-yahoo-basic-info", fetch_yahoo_basic_info_endpoint, methods=["POST"], dependencies=_BASIC_INFO,
+)
+router.add_api_route("/{aid}/sync-data", sync_account_all_data, methods=["POST"], dependencies=_f("shop-accounts:sync"))
 # 雅虎 App 令牌：ゆうパケットポスト / mini 只能走 App API 发货，凭证与账号请求头分开存放
 router.add_api_route("/{aid}/yahoo-app-token", get_yahoo_app_token_status, methods=["GET"])
 # 程序内登录：开独立 profile 走 App 的 YConnect 授权，与网页登录态互不相干
-router.add_api_route("/{aid}/yahoo-app-login", login_yahoo_app_account_endpoint, methods=["POST"])
-router.add_api_route("/{aid}/yahoo-app-token", delete_yahoo_app_token, methods=["DELETE"])
-router.add_api_route("/{aid}", delete_shop_account, methods=["DELETE"])
+router.add_api_route(
+    "/{aid}/yahoo-app-login", login_yahoo_app_account_endpoint, methods=["POST"],
+    dependencies=_f("shop-accounts:app_token"),
+)
+router.add_api_route(
+    "/{aid}/yahoo-app-token", delete_yahoo_app_token, methods=["DELETE"], dependencies=_f("shop-accounts:app_token"),
+)
+router.add_api_route("/{aid}", delete_shop_account, methods=["DELETE"], dependencies=_f("shop-accounts:delete"))

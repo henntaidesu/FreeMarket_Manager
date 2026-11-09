@@ -53,7 +53,11 @@ export const inventoryApi = {
   createBatch: (id, data) => http.post(`/use_web/inventory/${id}/batches`, data),
   updateBatch: (id, batchId, data) => http.put(`/use_web/inventory/${id}/batches/${batchId}`, data),
   deleteBatch: (id, batchId) => http.delete(`/use_web/inventory/${id}/batches/${batchId}`),
-  mergeBatches: (id, batchIds) => http.post(`/use_web/inventory/${id}/batches/merge`, { batch_ids: batchIds }),
+  // warehouseId：所选批次货架不同时归入的货架（null = 未分配）；undefined = 不传，要求同一货架
+  mergeBatches: (id, batchIds, warehouseId) => http.post(`/use_web/inventory/${id}/batches/merge`, {
+    batch_ids: batchIds,
+    ...(warehouseId !== undefined ? { warehouse_id: warehouseId } : {})
+  }),
   /** 手动出库：从指定批次扣减（不走先进先出），data = { quantity, remark } */
   stockOutBatch: (id, batchId, data) => http.post(`/use_web/inventory/${id}/batches/${batchId}/stock-out`, data),
   update: (id, data) => http.put(`/use_web/inventory/${id}`, data),

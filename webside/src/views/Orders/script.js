@@ -47,15 +47,6 @@ export default defineComponent({
     const lastExpandedRows = ref([])
     const ownerUsers = ref([])
 
-    /** 当前登录用户是否为 admin（仅 admin 可使用「归属转化」） */
-    const isAdminUser = computed(() => {
-      try {
-        const u = JSON.parse(localStorage.getItem('auth_user') || '{}')
-        return String(u?.username || '').trim() === 'admin'
-      } catch {
-        return false
-      }
-    })
 
     const loading = ref(false)
     const statsLoading = ref(false)
@@ -67,8 +58,9 @@ export default defineComponent({
     /** 二级列表：正在执行出库的明细键 order_no:line_id */
     const lineStockingKey = ref('')
     const authStore = useAuthStore()
-    /** 强制出库按 users.is_admin 判定（后端 require_admin 同口径），不是按用户名 */
-    const canForceStockOut = computed(() => authStore.isAdmin)
+    // 归属转化 / 强制出库原仅管理员，现由角色功能控制（后端 require_feature 同口径）
+    const canConvertOwner = computed(() => authStore.can('orders:convert_owner'))
+    const canForceStockOut = computed(() => authStore.can('orders:force_stock_out'))
     const manualOutboundDialogVisible = ref(false)
     const manualOutboundSaving = ref(false)
     const manualInventoryLoading = ref(false)
@@ -354,6 +346,7 @@ export default defineComponent({
     const replyDraft = ref('')
     const replySending = ref(false)
     const canReplyMessage = computed(() => {
+      if (!authStore.can('orders:message')) return false
       const st = String(form.value.status || '').trim()
       return st !== 'done' && st !== 'cancelled'
     })
@@ -1242,6 +1235,7 @@ export default defineComponent({
     /** 手动出库入口：仅在未锁定、非取消类订单上提供（是否已有明细由调用处的空状态保证） */
     function canOpenManualOutbound(row) {
       if (!row || isManualOutboundLocked(row)) return false
+      if (!authStore.can('orders:manual_outbound')) return false
       return !['cancelled', 'cancel_request'].includes(String(row.status || ''))
     }
 
@@ -2125,7 +2119,7 @@ export default defineComponent({
       orderTableRef,
       lastExpandedRows,
       ownerUsers,
-      isAdminUser,
+      canConvertOwner,
       loading,
       statsLoading,
       isMobile,

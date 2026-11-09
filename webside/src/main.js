@@ -9,6 +9,7 @@ import App from './App.vue'
 // 放在 App.vue 之后：要覆盖它给输入类控件写死的 180px
 import './styles/page-modules.css'
 import router from './router'
+import { useAuthStore } from './stores/auth.js'
 import i18n, { elementLocales, currentLocale } from './i18n'
 import { configApi } from './api/index.js'
 import { setCipherMode } from './utils/mgmtIdCipher.js'
@@ -29,6 +30,8 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
 }
 
 app.use(createPinia())
+// 模板里的按钮级权限：`v-if="$can('inventory:delete')"`（口径见 stores/auth.js::can）
+app.config.globalProperties.$can = (key) => useAuthStore().can(key)
 app.use(router)
 app.use(i18n)
 app.use(ElementPlus, { locale: elementLocales[currentLocale.value] || elementLocales['zh-CN'] })

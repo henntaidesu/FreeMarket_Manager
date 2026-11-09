@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""库存图片搜索（CLIP 特征向量检索）。
+"""库存图片搜索（DINOv2 特征向量检索）。
 
 公开 API：
 - image_search / image_search_status：FastAPI 端点（注册见 inventory/API.py）

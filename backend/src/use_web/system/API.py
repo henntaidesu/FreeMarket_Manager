@@ -15,12 +15,16 @@
 
 from fastapi import APIRouter, Depends
 
-from ...auth import require_admin
-from ...page_access import require_page
+from ...page_access import require_feature, require_page
 from .units.system_handler import RestartOut, restart_system
 
-# 仅管理员可调用的危险端点依赖（重启、数据库切换/迁移/备份、MITM 控制、清日志）
-_ADMIN = [Depends(require_admin)]
+
+
+def _cfg(feature):
+    """系统配置页按分区的功能权限（原仅管理员的数据库 / 图床 / 单点登录 / 账号管理等也在其中），
+    口径见 src/page_access.py。"""
+    return [Depends(require_feature(f"system/config:{feature}"))]
+
 
 
 def _page(*pages, reads_open=False):
@@ -28,7 +32,7 @@ def _page(*pages, reads_open=False):
     return [Depends(require_page(*pages, reads_open=reads_open))]
 
 
-# 系统配置页里的业务开关：读取全站都要（出品默认值、暗号模式……），改动只属于系统配置页
+# 隐藏页 /x9 的暗码设置：读取全站都要，改动要有系统配置页（系统配置各分区的写操作见下方 _cfg）
 _CONFIG_WRITE = _page("system/config")
 from .units.users_handler import (
     list_users,
@@ -164,51 +168,51 @@ router = APIRouter()
 
 # ===== 一级端点：系统主页 =====
 # 系统重启（仅管理员）
-router.add_api_route("/restart", restart_system, methods=["POST"], response_model=RestartOut, dependencies=_ADMIN)
+router.add_api_route("/restart", restart_system, methods=["POST"], response_model=RestartOut, dependencies=_cfg("service"))
 
 # 用户管理（System 页面"用户管理"区）
-router.add_api_route("/users", list_users, methods=["GET"])
-router.add_api_route("/users", create_user, methods=["POST"])
+router.add_api_route("/users", list_users, methods=["GET"], dependencies=_cfg("accounts"))
+router.add_api_route("/users", create_user, methods=["POST"], dependencies=_cfg("accounts"))
 # 注意顺序：/users/options 要在 /users/{user_id} 之前注册
 router.add_api_route("/users/options", list_user_options, methods=["GET"])
-router.add_api_route("/users/{user_id}", update_user, methods=["PUT"])
+router.add_api_route("/users/{user_id}", update_user, methods=["PUT"], dependencies=_cfg("accounts"))
 router.add_api_route("/change-password", change_password, methods=["POST"])
 # 当前用户（含角色与可访问页面），前端据此过滤菜单与路由
 router.add_api_route("/me", get_me, methods=["GET"])
 
 # 应用配置（出品默认值）
 router.add_api_route("/listing-defaults", get_listing_defaults, methods=["GET"], response_model=ListingDefaultsOut)
-router.add_api_route("/listing-defaults", put_listing_defaults, methods=["PUT"], response_model=ListingDefaultsOut, dependencies=_CONFIG_WRITE)
+router.add_api_route("/listing-defaults", put_listing_defaults, methods=["PUT"], response_model=ListingDefaultsOut, dependencies=_cfg("listing"))
 router.add_api_route("/printer-params", get_printer_params, methods=["GET"], response_model=PrinterParams)
-router.add_api_route("/printer-params", put_printer_params, methods=["PUT"], response_model=PrinterParams)
+router.add_api_route("/printer-params", put_printer_params, methods=["PUT"], response_model=PrinterParams, dependencies=_cfg("printer"))
 
 # 条码识别（历史数据）：开启即排一条任务，识别历史商品图片条码并合并同条码同归属人的商品
 router.add_api_route("/barcode-history", get_barcode_history, methods=["GET"], response_model=BarcodeHistoryStatusOut)
-router.add_api_route("/barcode-history", put_barcode_history, methods=["PUT"], response_model=BarcodeHistoryStatusOut, dependencies=_CONFIG_WRITE)
+router.add_api_route("/barcode-history", put_barcode_history, methods=["PUT"], response_model=BarcodeHistoryStatusOut, dependencies=_cfg("barcode"))
 # 条码冲突（多张图识别出不同条码）的人工处理：列表 + 逐个选定条码 / 标记无条码
 router.add_api_route("/barcode-history/conflicts", list_barcode_conflicts, methods=["GET"])
 router.add_api_route("/barcode-history/skipped", list_barcode_skipped, methods=["GET"])
-router.add_api_route("/barcode-history/conflicts/{inv_id}", resolve_barcode_conflict, methods=["POST"], response_model=BarcodeHistoryStatusOut, dependencies=_CONFIG_WRITE)
+router.add_api_route("/barcode-history/conflicts/{inv_id}", resolve_barcode_conflict, methods=["POST"], response_model=BarcodeHistoryStatusOut, dependencies=_cfg("barcode"))
 router.add_api_route("/barcode-history/merge-groups", list_barcode_merge_groups, methods=["GET"])
 router.add_api_route("/barcode-history/item/{inv_id}", get_barcode_merge_item, methods=["GET"])
-router.add_api_route("/barcode-history/classify", classify_barcode_group, methods=["POST"], dependencies=_CONFIG_WRITE)
-router.add_api_route("/barcode-history/item/{inv_id}/borrowed", mark_barcode_borrowed_endpoint, methods=["POST"], dependencies=_CONFIG_WRITE)
-router.add_api_route("/barcode-history/item/{inv_id}/confirm", confirm_barcode_endpoint, methods=["POST"], dependencies=_CONFIG_WRITE)
+router.add_api_route("/barcode-history/classify", classify_barcode_group, methods=["POST"], dependencies=_cfg("barcode"))
+router.add_api_route("/barcode-history/item/{inv_id}/borrowed", mark_barcode_borrowed_endpoint, methods=["POST"], dependencies=_cfg("barcode"))
+router.add_api_route("/barcode-history/item/{inv_id}/confirm", confirm_barcode_endpoint, methods=["POST"], dependencies=_cfg("barcode"))
 
 # 一键修改发货时效（把范围内在售商品的発送までの日数整批改成同一个值）
 router.add_api_route("/shipping-duration", get_shipping_duration, methods=["GET"], response_model=ShippingDurationPreviewOut)
-router.add_api_route("/shipping-duration", post_shipping_duration, methods=["POST"], response_model=ShippingDurationPreviewOut, dependencies=_CONFIG_WRITE)
+router.add_api_route("/shipping-duration", post_shipping_duration, methods=["POST"], response_model=ShippingDurationPreviewOut, dependencies=_cfg("shipping_duration"))
 
 # 确认后隐藏商品（煤炉订单完成满 24 小时后设为プロフィールから非表示）
 router.add_api_route("/profile-hide", get_profile_hide, methods=["GET"], response_model=ProfileHideStatusOut)
-router.add_api_route("/profile-hide", put_profile_hide, methods=["PUT"], response_model=ProfileHideStatusOut, dependencies=_CONFIG_WRITE)
-router.add_api_route("/profile-hide/history", post_profile_hide_history, methods=["POST"], response_model=ProfileHideStatusOut, dependencies=_CONFIG_WRITE)
-router.add_api_route("/profile-hide/retry-failed", post_profile_hide_retry_failed, methods=["POST"], response_model=ProfileHideStatusOut, dependencies=_CONFIG_WRITE)
+router.add_api_route("/profile-hide", put_profile_hide, methods=["PUT"], response_model=ProfileHideStatusOut, dependencies=_cfg("profile_hide"))
+router.add_api_route("/profile-hide/history", post_profile_hide_history, methods=["POST"], response_model=ProfileHideStatusOut, dependencies=_cfg("profile_hide"))
+router.add_api_route("/profile-hide/retry-failed", post_profile_hide_retry_failed, methods=["POST"], response_model=ProfileHideStatusOut, dependencies=_cfg("profile_hide"))
 
 # Cookie 注入域名（代理经 nginx 以独立域名发布时的对外基址）
 # PUT 限管理员：这个值决定用户点「Cookie 注入」会被送到哪个地址，等同于一次跳转目标的授权。
 router.add_api_route("/proxy-public-base", get_proxy_public_base, methods=["GET"], response_model=ProxyPublicBaseOut)
-router.add_api_route("/proxy-public-base", put_proxy_public_base, methods=["PUT"], response_model=ProxyPublicBaseOut, dependencies=_ADMIN)
+router.add_api_route("/proxy-public-base", put_proxy_public_base, methods=["PUT"], response_model=ProxyPublicBaseOut, dependencies=_cfg("proxy"))
 
 # 管理番号暗号编码模式（隐藏页 /x9 切换：二进制 ◇◆ / 五进制 -=~<>）
 router.add_api_route("/mgmt-cipher-mode", get_mgmt_cipher_mode, methods=["GET"], response_model=MgmtCipherModeOut)
@@ -218,51 +222,55 @@ router.add_api_route("/mgmt-image-code", put_mgmt_image_code, methods=["PUT"], r
 
 # 系统配置（DeepSeek AI：API Key / 模型 / API 地址）
 router.add_api_route("/deepseek-config", get_deepseek_config, methods=["GET"], response_model=DeepSeekConfigOut)
-router.add_api_route("/deepseek-config", put_deepseek_config, methods=["PUT"], response_model=DeepSeekConfigOut, dependencies=_CONFIG_WRITE)
+router.add_api_route("/deepseek-config", put_deepseek_config, methods=["PUT"], response_model=DeepSeekConfigOut, dependencies=_cfg("ai"))
 
 # 系统日志（自动上架 / 自动获取 / 操作日志）
 router.add_api_route("/system-logs", list_system_logs, methods=["GET"], dependencies=_page("system/system-logs"))
-router.add_api_route("/system-logs/clear", clear_system_logs, methods=["POST"], dependencies=_ADMIN)
+# 原仅管理员，现由角色功能控制
+router.add_api_route(
+    "/system-logs/clear", clear_system_logs, methods=["POST"],
+    dependencies=[Depends(require_feature("system/system-logs:clear"))],
+)
 # 操作日志上报（前端提示统一写入，记录登录用户）
 router.add_api_route("/operation-logs", create_operation_log, methods=["POST"])
 
 # 数据库管理（SQLite / MySQL 切换 + 数据迁移）——除只读 config 外均限管理员
 router.add_api_route("/database/config", get_database_config, methods=["GET"], response_model=DbConfigOut)
-router.add_api_route("/database/test-connection", test_mysql_connection, methods=["POST"], response_model=TestResult, dependencies=_ADMIN)
-router.add_api_route("/database/switch", switch_database, methods=["POST"], response_model=SwitchOut, dependencies=_ADMIN)
-router.add_api_route("/database/migrate", migrate_database, methods=["POST"], response_model=SwitchOut, dependencies=_ADMIN)
+router.add_api_route("/database/test-connection", test_mysql_connection, methods=["POST"], response_model=TestResult, dependencies=_cfg("database"))
+router.add_api_route("/database/switch", switch_database, methods=["POST"], response_model=SwitchOut, dependencies=_cfg("database"))
+router.add_api_route("/database/migrate", migrate_database, methods=["POST"], response_model=SwitchOut, dependencies=_cfg("database"))
 # MySQL 数据库热切换（同服务器切库：测试库 ⇄ 正式库，无需重启）
-router.add_api_route("/database/hot-switch", hot_switch_mysql_database, methods=["POST"], response_model=HotSwitchOut, dependencies=_ADMIN)
+router.add_api_route("/database/hot-switch", hot_switch_mysql_database, methods=["POST"], response_model=HotSwitchOut, dependencies=_cfg("database"))
 # 同步库 = 数据库备份（当前库整库覆盖到目标 MySQL；可定时自动，也可立即同步一次）
-router.add_api_route("/database/sync-settings", get_sync_settings, methods=["GET"], response_model=SyncStatusOut, dependencies=_ADMIN)
-router.add_api_route("/database/sync-target/test", test_sync_target, methods=["POST"], response_model=TestResult, dependencies=_ADMIN)
-router.add_api_route("/database/sync-settings", put_sync_settings, methods=["PUT"], response_model=SyncStatusOut, dependencies=_ADMIN)
-router.add_api_route("/database/sync-now", post_sync_now, methods=["POST"], response_model=SyncNowOut, dependencies=_ADMIN)
+router.add_api_route("/database/sync-settings", get_sync_settings, methods=["GET"], response_model=SyncStatusOut, dependencies=_cfg("database"))
+router.add_api_route("/database/sync-target/test", test_sync_target, methods=["POST"], response_model=TestResult, dependencies=_cfg("database"))
+router.add_api_route("/database/sync-settings", put_sync_settings, methods=["PUT"], response_model=SyncStatusOut, dependencies=_cfg("database"))
+router.add_api_route("/database/sync-now", post_sync_now, methods=["POST"], response_model=SyncNowOut, dependencies=_cfg("database"))
 
 # ===== 图床存储（商品图存本地盘还是存图床） =====
 # 写操作全部限管理员：这几个端点能改「图片往哪存」，并能把几千张历史图片整体搬走。
 router.add_api_route("/image-hosting/config", get_image_hosting_config, methods=["GET"], response_model=ImageHostingConfigOut)
-router.add_api_route("/image-hosting/config", put_image_hosting_config, methods=["PUT"], response_model=ImageHostingConfigOut, dependencies=_ADMIN)
-router.add_api_route("/image-hosting/test", test_image_hosting, methods=["POST"], response_model=ImageHostingTestOut, dependencies=_ADMIN)
+router.add_api_route("/image-hosting/config", put_image_hosting_config, methods=["PUT"], response_model=ImageHostingConfigOut, dependencies=_cfg("image_hosting"))
+router.add_api_route("/image-hosting/test", test_image_hosting, methods=["POST"], response_model=ImageHostingTestOut, dependencies=_cfg("image_hosting"))
 # 只切后端、不搬图：立即生效，不重启（历史图片仍从本地读，直到搬运跑完）
-router.add_api_route("/image-hosting/backend", put_image_hosting_backend, methods=["PUT"], response_model=ImageHostingConfigOut, dependencies=_ADMIN)
+router.add_api_route("/image-hosting/backend", put_image_hosting_backend, methods=["PUT"], response_model=ImageHostingConfigOut, dependencies=_cfg("image_hosting"))
 # 搬运作业：立刻返回，进度轮询 GET /image-hosting/migration
-router.add_api_route("/image-hosting/migrate", post_image_hosting_migrate, methods=["POST"], response_model=MigrationStatusOut, dependencies=_ADMIN)
-router.add_api_route("/image-hosting/rollback", post_image_hosting_rollback, methods=["POST"], response_model=MigrationStatusOut, dependencies=_ADMIN)
+router.add_api_route("/image-hosting/migrate", post_image_hosting_migrate, methods=["POST"], response_model=MigrationStatusOut, dependencies=_cfg("image_hosting"))
+router.add_api_route("/image-hosting/rollback", post_image_hosting_rollback, methods=["POST"], response_model=MigrationStatusOut, dependencies=_cfg("image_hosting"))
 router.add_api_route("/image-hosting/migration", get_image_hosting_migration, methods=["GET"], response_model=MigrationStatusOut)
-router.add_api_route("/image-hosting/migration/cancel", post_image_hosting_migration_cancel, methods=["POST"], response_model=MigrationStatusOut, dependencies=_ADMIN)
+router.add_api_route("/image-hosting/migration/cancel", post_image_hosting_migration_cancel, methods=["POST"], response_model=MigrationStatusOut, dependencies=_cfg("image_hosting"))
 
 # ===== 系统关联 · 门户单点登录（整组限管理员：能决定「谁能不用密码登进来」） =====
-router.add_api_route("/sso/config", get_portal_sso_config, methods=["GET"], response_model=PortalSsoConfigOut, dependencies=_ADMIN)
-router.add_api_route("/sso/config", put_portal_sso_config, methods=["PUT"], response_model=PortalSsoConfigOut, dependencies=_ADMIN)
-router.add_api_route("/sso/test", test_portal_sso, methods=["POST"], dependencies=_ADMIN)
-router.add_api_route("/sso/bindings", list_portal_sso_bindings, methods=["GET"], dependencies=_ADMIN)
-router.add_api_route("/sso/bindings/{binding_id}", delete_portal_sso_binding, methods=["DELETE"], dependencies=_ADMIN)
+router.add_api_route("/sso/config", get_portal_sso_config, methods=["GET"], response_model=PortalSsoConfigOut, dependencies=_cfg("sso"))
+router.add_api_route("/sso/config", put_portal_sso_config, methods=["PUT"], response_model=PortalSsoConfigOut, dependencies=_cfg("sso"))
+router.add_api_route("/sso/test", test_portal_sso, methods=["POST"], dependencies=_cfg("sso"))
+router.add_api_route("/sso/bindings", list_portal_sso_bindings, methods=["GET"], dependencies=_cfg("sso"))
+router.add_api_route("/sso/bindings/{binding_id}", delete_portal_sso_binding, methods=["DELETE"], dependencies=_cfg("sso"))
 
 # 网页访问方式：nginx 反代 HTTP / 直连端口自签 HTTPS（改动需重启，限管理员）
 router.add_api_route("/web-access", get_web_access, methods=["GET"], response_model=WebAccessOut)
-router.add_api_route("/web-access", put_web_access, methods=["PUT"], response_model=WebAccessOut, dependencies=_ADMIN)
-router.add_api_route("/web-access/regenerate-cert", post_regenerate_cert, methods=["POST"], response_model=WebAccessOut, dependencies=_ADMIN)
+router.add_api_route("/web-access", put_web_access, methods=["PUT"], response_model=WebAccessOut, dependencies=_cfg("web_access"))
+router.add_api_route("/web-access/regenerate-cert", post_regenerate_cert, methods=["POST"], response_model=WebAccessOut, dependencies=_cfg("web_access"))
 
 # 公开：自签证书下载（手机要用浏览器直接打开这个地址才能装证书，带不了 Bearer 头）
 public_router = APIRouter()
@@ -270,8 +278,8 @@ public_router.add_api_route("/web-access/cert", download_web_cert, methods=["GET
 
 # SSL MITM 代理控制（start/stop 限管理员）
 router.add_api_route("/ssl-mitm/status", get_status, methods=["GET"])
-router.add_api_route("/ssl-mitm/start", post_start, methods=["POST"], dependencies=_ADMIN)
-router.add_api_route("/ssl-mitm/stop", post_stop, methods=["POST"], dependencies=_ADMIN)
+router.add_api_route("/ssl-mitm/start", post_start, methods=["POST"], dependencies=_cfg("service"))
+router.add_api_route("/ssl-mitm/stop", post_stop, methods=["POST"], dependencies=_cfg("service"))
 router.add_api_route("/ssl-mitm/ca-cert", download_ca_cert, methods=["GET"])
 router.add_api_route("/ssl-mitm/last-capture", get_last_capture, methods=["GET"])
 
@@ -330,4 +338,8 @@ router.include_router(
     dependencies=_page("system/purchases", "system/purchase-settlement", "system/config"),
 )
 # 系统角色（页面访问权限）：仅管理员
-router.include_router(roles_router, prefix="/roles", tags=["roles"], dependencies=_ADMIN)
+# 角色列表：账号管理 / 单点登录的「角色」下拉也要读；增删改在 roles/API.py 里要求 roles 功能
+router.include_router(
+    roles_router, prefix="/roles", tags=["roles"],
+    dependencies=[Depends(require_feature("system/config:roles", "system/config:accounts", "system/config:sso"))],
+)

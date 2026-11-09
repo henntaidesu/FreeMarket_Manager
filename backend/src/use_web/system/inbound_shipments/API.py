@@ -5,7 +5,9 @@
 - 从 use_web/system/API.py 接收前缀 /mercariV2/src/use_web/system/inbound-shipments
 - 完整 URL 示例: GET /mercariV2/src/use_web/system/inbound-shipments
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from ....page_access import require_feature
 
 from .units.inbound_shipments_handler import (
     arrive_shipment,
@@ -27,19 +29,24 @@ from .units.inbound_shipments_handler import (
 
 router = APIRouter()
 
+
+def _f(*keys):
+    """按钮级功能权限（叠在路由组的页面权限之上），口径见 src/page_access.py。"""
+    return [Depends(require_feature(*keys))]
+
 router.add_api_route("", list_shipments, methods=["GET"])
-router.add_api_route("", create_shipment, methods=["POST"])
+router.add_api_route("", create_shipment, methods=["POST"], dependencies=_f("system/inbound-shipments:edit"))
 # 注意顺序：固定路径要在 /{sid} 之前注册
 router.add_api_route("/lookup", lookup_by_tracking, methods=["GET"])
-router.add_api_route("/receipts/{rid}/relocate", relocate_receipt, methods=["POST"])
+router.add_api_route("/receipts/{rid}/relocate", relocate_receipt, methods=["POST"], dependencies=_f("system/inbound-shipments:receive"))
 router.add_api_route("/{sid}", get_shipment, methods=["GET"])
-router.add_api_route("/{sid}", update_shipment, methods=["PUT"])
-router.add_api_route("/{sid}", delete_shipment, methods=["DELETE"])
-router.add_api_route("/{sid}/lines/{inv_id}", set_line, methods=["PUT"])
-router.add_api_route("/{sid}/ship", ship_shipment, methods=["POST"])
-router.add_api_route("/{sid}/unship", unship_shipment, methods=["POST"])
-router.add_api_route("/{sid}/arrive", arrive_shipment, methods=["POST"])
-router.add_api_route("/{sid}/close", close_shipment, methods=["POST"])
+router.add_api_route("/{sid}", update_shipment, methods=["PUT"], dependencies=_f("system/inbound-shipments:edit"))
+router.add_api_route("/{sid}", delete_shipment, methods=["DELETE"], dependencies=_f("system/inbound-shipments:delete"))
+router.add_api_route("/{sid}/lines/{inv_id}", set_line, methods=["PUT"], dependencies=_f("system/inbound-shipments:edit"))
+router.add_api_route("/{sid}/ship", ship_shipment, methods=["POST"], dependencies=_f("system/inbound-shipments:ship"))
+router.add_api_route("/{sid}/unship", unship_shipment, methods=["POST"], dependencies=_f("system/inbound-shipments:ship"))
+router.add_api_route("/{sid}/arrive", arrive_shipment, methods=["POST"], dependencies=_f("system/inbound-shipments:receive"))
+router.add_api_route("/{sid}/close", close_shipment, methods=["POST"], dependencies=_f("system/inbound-shipments:close"))
 router.add_api_route("/{sid}/match", match_code, methods=["GET"])
-router.add_api_route("/{sid}/receive", receive_item, methods=["POST"])
+router.add_api_route("/{sid}/receive", receive_item, methods=["POST"], dependencies=_f("system/inbound-shipments:receive"))
 router.add_api_route("/{sid}/receipts", list_receipts, methods=["GET"])

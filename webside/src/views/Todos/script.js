@@ -7,6 +7,7 @@ import { todosApi, costRecordApi, costExpenseApi, orderApi, TASK_TYPES, newClien
 import { submitTask } from '@/utils/taskSubmit.js'
 import { useMercariAccountStore } from '@/stores/mercariAccount.js'
 import { useViewModeStore } from '@/stores/viewMode.js'
+import { useAuthStore } from '@/stores/auth.js'
 import { useCardWindow } from '@/composables/useCardWindow.js'
 import { useSyncOverlay } from '@/composables/useSyncOverlay'
 import SyncOverlay from '@/components/SyncOverlay.vue'
@@ -22,6 +23,7 @@ export default defineComponent({
   },
   setup() {
     const { t } = useI18n()
+    const authStore = useAuthStore()
     const router = useRouter()
 
     // 交易详情类「浏览器自动化」操作的等待覆盖
@@ -960,6 +962,7 @@ export default defineComponent({
     // 仅煤炉的「待回复」(IncomingMessage) 允许给对方消息加 emoji 反应——
     // 雅虎交易页没有反应功能，故不含 YahooIncomingMessage
     const canReactToMessages = computed(() => {
+      if (!authStore.can('todos:message')) return false
       return (currentRow.value?.kind || '').trim() === 'IncomingMessage'
     })
 
@@ -1262,7 +1265,9 @@ export default defineComponent({
     /** 卡片上的发货码 / 扫码照片：与表格的条件列同口径，只在对应筛选下出现 */
     function cardQrSrc(row) {
       if (filters.value.packed_only && row?.qr_image_path) return mercariImageUrl(row.qr_image_path)
-      if (filters.value.scanned_only && row?.ship_qr_photo_path) return mercariImageUrl(row.ship_qr_photo_path)
+      if ((filters.value.scanned_only || filters.value.virtual_only) && row?.ship_qr_photo_path) {
+        return mercariImageUrl(row.ship_qr_photo_path)
+      }
       return ''
     }
 
@@ -1582,10 +1587,12 @@ export default defineComponent({
     /** 扫码结果末 5 位：跟实物贴纸核对时眼睛只看这几位（与订单号末 4 位同一套做法）。
      *  原文形如 PYP:01/JN2604CAAAAAA00385917175NS96JB; —— 末尾那个分隔符不是码的一部分，
      *  不剔掉的话「末 5 位」会算成 96JB;，跟贴纸上印的对不上。 */
-    const shipQrTail = computed(() => {
-      const s = shipQrText.value.replace(/[^0-9A-Za-z]+$/, '')
-      return s.length > 5 ? s.slice(-5) : s
-    })
+    function qrTail(text, n) {
+      const s = String(text || '').trim().replace(/[^0-9A-Za-z]+$/, '')
+      return s.length > n ? s.slice(-n) : s
+    }
+    /** 虚拟发货看 6 位：投函前要拿它对着手上那只箱子 / シール 认，多一位少撞号 */
+    const shipQrTail = computed(() => qrTail(shipQrText.value, isVirtualShipped.value ? 6 : 5))
     /** 原文按末 5 位切成三段，行内也把这 5 位标出来——单独那一块是给核对用的，
      *  但原文仍要一字不差地摆在那儿，两处指的必须是同一段字符。 */
     const shipQrTextParts = computed(() => {
@@ -1954,6 +1961,7 @@ export default defineComponent({
     // 「待发货」下出库明细没绑上库存的行（inventory_linked 由列表接口按 match-inventory 同口径算）：
     // 「获取商品说明」重读商品页说明、按暗号重建出库明细，绑上后处理弹窗才能走 关联库存 → 发货
     function showFetchItemDetail(row) {
+      if (!authStore.can('todos:sync')) return false
       return filters.value.categories.includes('wait_shipping') && Number(row?.inventory_linked) === 0
     }
     const hasFetchItemDetailRows = computed(() => (list.value || []).some(showFetchItemDetail))
@@ -3260,6 +3268,7 @@ export default defineComponent({
       onPrintDetailQr,
       openPrinterSettings,
       shipQrPhotoUrl,
+      qrTail,
       shipQrFailed,
       shipQrCanRetry,
       yahooItemNameMax,

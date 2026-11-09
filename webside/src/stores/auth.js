@@ -25,12 +25,26 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAdmin = computed(() => Boolean(user.value?.is_admin))
   const pages = computed(() => (Array.isArray(user.value?.pages) ? user.value.pages : null))
+  const features = computed(() => (user.value?.features && typeof user.value.features === 'object' ? user.value.features : {}))
 
   /** path 或页面 key 均可；不在页面清单里的路由（隐藏页等）不受角色控制 */
   function canAccess(pathOrKey) {
     const key = pageKeyOf(pathOrKey)
     if (!PAGE_KEYS.has(key)) return true
     return pages.value === null || pages.value.includes(key)
+  }
+
+  /**
+   * 功能（按钮）权限：`inventory:delete`；也可传页面 key。拥有该页面且角色没有逐项限制该页 = 全部功能。
+   * 与后端 `page_access.has_feature` 同一口径；这里只决定显示，强制在后端。
+   */
+  function can(key) {
+    if (pages.value === null) return true
+    const [page, action] = String(key || '').split(':')
+    if (!canAccess(page)) return false
+    if (!action) return true
+    const restricted = features.value[page]
+    return !Array.isArray(restricted) || restricted.includes(action)
   }
 
   /** 按菜单顺序第一个有权限的页面；一个都没有时去 /no-access */
@@ -62,5 +76,5 @@ export const useAuthStore = defineStore('auth', () => {
     verified.value = false
   }
 
-  return { user, verified, isAdmin, pages, canAccess, firstAllowedPath, setUser, refresh, clear }
+  return { user, verified, isAdmin, pages, features, can, canAccess, firstAllowedPath, setUser, refresh, clear }
 })

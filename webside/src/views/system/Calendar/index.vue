@@ -15,7 +15,7 @@
         <el-radio-button value="week">{{ t('calendar.viewWeek') }}</el-radio-button>
         <el-radio-button value="day">{{ t('calendar.viewDay') }}</el-radio-button>
       </el-radio-group>
-      <el-button type="primary" :icon="Plus" @click="openCreate({ all_day: true, start_at: fmtDate(cursor), end_at: fmtDate(cursor) })">
+      <el-button v-if="$can('system/calendar:create')" type="primary" :icon="Plus" @click="openCreate({ all_day: true, start_at: fmtDate(cursor), end_at: fmtDate(cursor) })">
         {{ t('calendar.create') }}
       </el-button>
     </div>
@@ -249,15 +249,25 @@
       </div>
       <template #footer>
         <div class="cal-dialog-footer">
-          <el-button v-if="editingId" type="danger" plain :icon="Delete" @click="remove">
+          <el-button v-if="editingId && $can('system/calendar:delete')" type="danger" plain :icon="Delete" @click="remove">
             {{ t('common.delete') }}
           </el-button>
           <div class="cal-toolbar-spacer" />
-          <el-button :type="form.is_done ? 'info' : 'success'" plain @click="toggleDone">
+          <el-button
+            v-if="$can(editingId ? 'system/calendar:edit' : 'system/calendar:create')"
+            :type="form.is_done ? 'info' : 'success'"
+            plain
+            @click="toggleDone"
+          >
             {{ form.is_done ? t('calendar.markUndone') : t('calendar.markDone') }}
           </el-button>
           <el-button @click="dialogVisible = false">{{ t('common.cancel') }}</el-button>
-          <el-button type="primary" :loading="saving" @click="submit">{{ t('common.save') }}</el-button>
+          <el-button
+            v-if="$can(editingId ? 'system/calendar:edit' : 'system/calendar:create')"
+            type="primary"
+            :loading="saving"
+            @click="submit"
+          >{{ t('common.save') }}</el-button>
         </div>
       </template>
     </el-dialog>

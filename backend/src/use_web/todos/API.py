@@ -13,6 +13,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends
 
+from ...page_access import require_feature
+
 from ...auth import require_auth
 from .units.todos_models import (
     ShippingQrPhotoRequest,
@@ -61,6 +63,11 @@ from .units.todos_sync import (
 )
 
 router = APIRouter()
+
+
+def _f(*keys):
+    """按钮级功能权限（叠在路由组的页面权限之上），口径见 src/page_access.py。"""
+    return [Depends(require_feature(*keys))]
 
 
 def _list_todos_endpoint(
@@ -151,42 +158,42 @@ router.add_api_route("/kinds", _list_kinds_endpoint, methods=["GET"])
 router.add_api_route("/chip-counts", _chip_counts_endpoint, methods=["GET"])
 router.add_api_route("/inventory-match", _inventory_match_endpoint, methods=["GET"])
 router.add_api_route("/translate-message", translate_message_endpoint, methods=["POST"])
-router.add_api_route("/sync", sync_todos, methods=["POST"])
+router.add_api_route("/sync", sync_todos, methods=["POST"], dependencies=_f("todos:sync"))
 router.add_api_route("/sync-progress/{job_id}", todos_sync_progress, methods=["GET"])
 router.add_api_route("/{todo_id}/transaction-detail", fetch_todo_transaction_detail, methods=["POST"])
 router.add_api_route("/{todo_id}/transaction-detail-cache", get_cached_todo_transaction_detail, methods=["GET"])
-router.add_api_route("/{todo_id}/send-message", send_transaction_message_endpoint, methods=["POST"])
-router.add_api_route("/{todo_id}/send-reaction", send_message_reaction_endpoint, methods=["POST"])
-router.add_api_route("/{todo_id}/submit-review", submit_transaction_review_endpoint, methods=["POST"])
+router.add_api_route("/{todo_id}/send-message", send_transaction_message_endpoint, methods=["POST"], dependencies=_f("todos:message"))
+router.add_api_route("/{todo_id}/send-reaction", send_message_reaction_endpoint, methods=["POST"], dependencies=_f("todos:message"))
+router.add_api_route("/{todo_id}/submit-review", submit_transaction_review_endpoint, methods=["POST"], dependencies=_f("todos:review"))
 # 买家侧「确认收货」（受取評価）：勾选已确认收到 + 选评价 + 填评价文本 → 点「評価を投稿する」，无二次确认
-router.add_api_route("/{todo_id}/confirm-receipt", confirm_buyer_receipt_endpoint, methods=["POST"])
+router.add_api_route("/{todo_id}/confirm-receipt", confirm_buyer_receipt_endpoint, methods=["POST"], dependencies=_f("todos:buyer_receipt"))
 # 退货「确认签收」：点「返送された商品を受け取った」+ 二次确认「キャンセルを完了する」
-router.add_api_route("/{todo_id}/confirm-cancellation-receipt", confirm_cancellation_receipt_endpoint, methods=["POST"])
-router.add_api_route("/bulk-review", bulk_submit_reviews_endpoint, methods=["POST"])
-router.add_api_route("/bulk-confirm-ship", bulk_finalize_post_shipping_endpoint, methods=["POST"])
-router.add_api_route("/{todo_id}/shipping/start", start_shipping_class_endpoint, methods=["POST"])
-router.add_api_route("/{todo_id}/shipping/confirm", confirm_shipping_selection_endpoint, methods=["POST"])
-router.add_api_route("/{todo_id}/shipping/change-method", change_shipping_method_endpoint, methods=["POST"])
-router.add_api_route("/{todo_id}/shipping/confirm-change-method", confirm_change_shipping_method_endpoint, methods=["POST"])
-router.add_api_route("/{todo_id}/shipping/revise-after-qr", revise_shipping_after_qr_endpoint, methods=["POST"])
+router.add_api_route("/{todo_id}/confirm-cancellation-receipt", confirm_cancellation_receipt_endpoint, methods=["POST"], dependencies=_f("todos:cancel_receipt"))
+router.add_api_route("/bulk-review", bulk_submit_reviews_endpoint, methods=["POST"], dependencies=_f("todos:review"))
+router.add_api_route("/bulk-confirm-ship", bulk_finalize_post_shipping_endpoint, methods=["POST"], dependencies=_f("todos:ship"))
+router.add_api_route("/{todo_id}/shipping/start", start_shipping_class_endpoint, methods=["POST"], dependencies=_f("todos:ship"))
+router.add_api_route("/{todo_id}/shipping/confirm", confirm_shipping_selection_endpoint, methods=["POST"], dependencies=_f("todos:ship"))
+router.add_api_route("/{todo_id}/shipping/change-method", change_shipping_method_endpoint, methods=["POST"], dependencies=_f("todos:ship"))
+router.add_api_route("/{todo_id}/shipping/confirm-change-method", confirm_change_shipping_method_endpoint, methods=["POST"], dependencies=_f("todos:ship"))
+router.add_api_route("/{todo_id}/shipping/revise-after-qr", revise_shipping_after_qr_endpoint, methods=["POST"], dependencies=_f("todos:ship"))
 router.add_api_route("/{todo_id}/qr-scanner-frame", qr_scanner_frame_endpoint, methods=["GET"])
-router.add_api_route("/{todo_id}/camera-frame", camera_frame_endpoint, methods=["POST"])
+router.add_api_route("/{todo_id}/camera-frame", camera_frame_endpoint, methods=["POST"], dependencies=_f("todos:ship"))
 # ゆうパケットポスト系 发货扫码：提交一张含二维码的照片 → 校验 → 入队后台执行
-router.add_api_route("/{todo_id}/scan-qr-photo", _scan_qr_photo_endpoint, methods=["POST"])
+router.add_api_route("/{todo_id}/scan-qr-photo", _scan_qr_photo_endpoint, methods=["POST"], dependencies=_f("todos:ship"))
 # 扫码失败后重试：照片与解出的码都还在库里，直接重新入队，不用再拍一张一模一样的
-router.add_api_route("/{todo_id}/retry-ship-qr", _retry_ship_qr_endpoint, methods=["POST"])
+router.add_api_route("/{todo_id}/retry-ship-qr", _retry_ship_qr_endpoint, methods=["POST"], dependencies=_f("todos:ship"))
 # 虚拟发货收尾：平台侧早已发完，这里只是确认实物真的投进邮筒了 → 本单结束（纯本地写）
-router.add_api_route("/{todo_id}/confirm-actual-shipped", confirm_actual_shipped, methods=["POST"])
+router.add_api_route("/{todo_id}/confirm-actual-shipped", confirm_actual_shipped, methods=["POST"], dependencies=_f("todos:ship"))
 router.add_api_route("/{todo_id}/post-shipping-info", post_shipping_info_endpoint, methods=["GET"])
-router.add_api_route("/{todo_id}/finalize-post-shipping", finalize_post_shipping_endpoint, methods=["POST"])
+router.add_api_route("/{todo_id}/finalize-post-shipping", finalize_post_shipping_endpoint, methods=["POST"], dependencies=_f("todos:ship"))
 router.add_api_route("/close-detail-browser/{account_id}", close_detail_browser, methods=["POST"])
 # 雅虎待办的处理：交易页是一张三项发货表单 + 留言框，与煤炉的多步流程无法共用端点
 router.add_api_route("/{todo_id}/yahoo/trade-detail", yahoo_trade_detail_endpoint, methods=["POST"])
 router.add_api_route("/{todo_id}/yahoo/trade-detail-cache", yahoo_trade_detail_cache_endpoint, methods=["GET"])
-router.add_api_route("/{todo_id}/yahoo/ship", yahoo_ship_endpoint, methods=["POST"])
+router.add_api_route("/{todo_id}/yahoo/ship", yahoo_ship_endpoint, methods=["POST"], dependencies=_f("todos:ship"))
 # ゆうパケットポスト / mini：拍一张二维码照片 → 校验 → 入队（发行配送コード + 発送通知 + 软删待办）
-router.add_api_route("/{todo_id}/yahoo/ship-qr", _yahoo_ship_qr_endpoint, methods=["POST"])
+router.add_api_route("/{todo_id}/yahoo/ship-qr", _yahoo_ship_qr_endpoint, methods=["POST"], dependencies=_f("todos:ship"))
 # 発送通知失败时的手动补发口（正常路径下发货任务已经通知过了）
-router.add_api_route("/{todo_id}/yahoo/notify-shipped", yahoo_notify_shipped_endpoint, methods=["POST"])
-router.add_api_route("/{todo_id}/yahoo/send-message", yahoo_trade_message_endpoint, methods=["POST"])
-router.add_api_route("/{todo_id}/yahoo/finish-reply", yahoo_finish_reply_endpoint, methods=["POST"])
+router.add_api_route("/{todo_id}/yahoo/notify-shipped", yahoo_notify_shipped_endpoint, methods=["POST"], dependencies=_f("todos:ship"))
+router.add_api_route("/{todo_id}/yahoo/send-message", yahoo_trade_message_endpoint, methods=["POST"], dependencies=_f("todos:message"))
+router.add_api_route("/{todo_id}/yahoo/finish-reply", yahoo_finish_reply_endpoint, methods=["POST"], dependencies=_f("todos:message"))

@@ -919,7 +919,18 @@ class DBManager:
             return False
         self._migrate_inventory_variant_codes()
         self._backfill_archived_outbound_lines()
+        self._backfill_outbound_line_warehouses()
         return True
+
+    def _backfill_outbound_line_warehouses(self) -> None:
+        """历史已出库明细补货架快照（取自出库流水）。幂等；失败只告警。"""
+        try:
+            from ..use_mercari.line_shelves import backfill_line_warehouses
+            n = backfill_line_warehouses(DatabaseManager())
+            if n:
+                print(f"[OK] 出库明细补货架快照: {n} 行")
+        except Exception as e:  # noqa: BLE001
+            print(f"[WARN] 出库明细补货架快照失败: {e}")
 
     def _backfill_archived_outbound_lines(self) -> None:
         """出库明细指向归档库存（inventory_old）的行打标 + 补所有人快照。幂等；失败只告警。"""

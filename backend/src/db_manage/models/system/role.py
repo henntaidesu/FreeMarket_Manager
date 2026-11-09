@@ -44,6 +44,13 @@ class RoleModel(BaseModel):
                 'not_null': False,
                 'default': None,
             },
+            # 功能（按钮）白名单 JSON 对象 {页面: [动作]}；页面不在其中 = 该页全部功能，
+            # 口径见 src/page_access.py
+            'features_json': {
+                'type': 'TEXT',
+                'not_null': False,
+                'default': None,
+            },
             'created_at': {
                 'type': 'DATETIME',
                 'not_null': False,

@@ -102,6 +102,8 @@ def create_manual_outbound_lines(data: ManualOutboundLinesBatchCreateBody):
                 stock_deducted=1,
                 # 扣减前记下这件货是谁的（先进先出队首批次）
                 owner_user_id=head_owner(db, inv_id),
+                # 扣减前的队首货架：预扣后队首可能后移，订单仍应显示这件货原来所在的货架
+                warehouse_id=warehouse_id,
             )
             if not line.save():
                 raise HTTPException(status_code=500, detail="保存手动出库明细失败")

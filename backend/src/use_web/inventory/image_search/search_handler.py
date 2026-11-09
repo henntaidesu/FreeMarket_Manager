@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""图片搜索端点：上传一张照片，按 CLIP 余弦相似度返回最匹配的库存商品。"""
+"""图片搜索端点：上传一张照片，按 DINOv2 特征余弦相似度返回最匹配的库存商品。"""
 
 from __future__ import annotations
 
@@ -19,13 +19,15 @@ from ..units.inventory_helpers import _query_inventory_with_joins
 from . import index_store, indexer
 from .embedder import embed_image
 
-# 余弦相似度阈值：低于该值视为不匹配（CLIP 同款商品照通常 0.85+；同品类外观相近的商品也可能到 0.8+，
-# 故绝对阈值只做粗过滤，排序与「显著领先」规则负责精确性）
-_DEFAULT_MIN_SCORE = 0.6
+# 三个阈值按 DINOv2-small 的分数分布标定（换模型必须重标，CLIP 时代是 0.6 / 0.06 / 0.75）：
+# 用库存主图模拟实拍当查询，正确商品得分 p10≈0.82、中位≈0.88；最像的错误商品中位≈0.75、p90≈0.85。
+# 这组取值下模拟查询 85% 直接锁定唯一商品、0 例锁错，其余平均返回 3~4 条且都含正确商品。
+# 余弦相似度阈值：低于该值视为不匹配（只做粗过滤，排序与「显著领先」规则负责精确性）
+_DEFAULT_MIN_SCORE = 0.5
 # 显著领先：榜首比第二名高出该值时视为唯一匹配，只返回榜首（前端据此直接打开详情表单）
-_DEFAULT_DOMINANT_MARGIN = 0.06
+_DEFAULT_DOMINANT_MARGIN = 0.05
 # 必显阈值：相似度达到该值的商品**全部**返回，不受 top_k 截断，也不会被「显著领先」规则收成一条
-_DEFAULT_SHOW_ALL_SCORE = 0.75
+_DEFAULT_SHOW_ALL_SCORE = 0.85
 
 
 def _env_float(name: str, default: float) -> float:
@@ -82,7 +84,7 @@ async def image_search(file: UploadFile = File(...), top_k: int = Query(20, ge=1
     if not ranked:
         return {"results": [], "min_score": threshold, "index": status}
 
-    # 榜首显著领先时视为唯一匹配（同品类商品 CLIP 分数普遍偏高，绝对阈值区分不开，用相对差距判定）；
+    # 榜首显著领先时视为唯一匹配（同系列商品分数普遍偏高，绝对阈值区分不开，用相对差距判定）；
     # 第二名已过必显阈值时不收，免得把同样很像的商品藏起来
     margin = _env_float("IMAGE_SEARCH_DOMINANT_MARGIN", _DEFAULT_DOMINANT_MARGIN)
     if len(ranked) >= 2 and ranked[1][1] < show_all and ranked[0][1] - ranked[1][1] >= margin:

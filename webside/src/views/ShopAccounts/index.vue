@@ -3,6 +3,7 @@
     <el-card shadow="never" class="list-card" v-loading="loading">
       <div class="list-toolbar">
         <el-button
+          v-if="$can('shop-accounts:sync')"
           type="warning"
           plain
           :loading="pausingAll"
@@ -50,6 +51,7 @@
               <div class="card-item"><span>{{ t('mercariAccounts.remarkLabel') }}</span>{{ row.remark || '-' }}</div>
               <div class="card-actions">
                 <el-button
+                  v-if="$can('shop-accounts:browser')"
                   size="small"
                   type="primary"
                   plain
@@ -66,7 +68,7 @@
                     <el-button
                       size="small"
                       type="success"
-                      :disabled="row.status !== 'active'"
+                      :disabled="row.status !== 'active' || !$can('shop-accounts:sync')"
                       @click="openSyncDataDialog(row)"
                     >{{ t('mercariAccounts.syncData') }}</el-button>
                   </span>
@@ -76,7 +78,7 @@
             </el-card>
           </el-col>
           <el-col :xs="24" :sm="12" :md="8" :lg="6" class="card-col">
-            <div class="add-card">
+            <div v-if="$can('shop-accounts:create')" class="add-card">
               <div class="add-card-main" @click="openCreate(section.value)">
                 <el-icon class="add-card-icon"><Plus /></el-icon>
                 <span>{{ t('mercariAccounts.addAccountFor', { platform: t(section.labelKey) }) }}</span>
@@ -98,7 +100,15 @@
       <p v-if="!form.id && form.platform === 'mercari'" class="form-intro-tip">
         {{ t('mercariAccounts.formIntroTip') }}
       </p>
-      <el-form :model="form" :rules="formRules" ref="formRef" label-width="120px" class="mercari-form">
+      <!-- 没有「编辑账号」时已有账号的表单只读（新建走「新建账号」权限） -->
+      <el-form
+        :model="form"
+        :rules="formRules"
+        ref="formRef"
+        label-width="120px"
+        class="mercari-form"
+        :disabled="!!form.id && !$can('shop-accounts:edit')"
+      >
         <el-divider content-position="left">{{ t('mercariAccounts.sectionBasicInfo') }}</el-divider>
         <div class="basic-info-row">
           <div class="basic-info-fields">
@@ -161,7 +171,7 @@
                 {{ t('mercariAccounts.appTokenExpiresAt', { at: appTokenExpiresText }) }}
               </span>
               <el-button
-                v-if="appTokenStatus?.configured"
+                v-if="appTokenStatus?.configured && $can('shop-accounts:app_token')"
                 link
                 type="danger"
                 @click="clearYahooAppToken"
@@ -170,7 +180,7 @@
           </el-form-item>
           <!-- 取得令牌只有这一条路：雅虎没有账密接口，登录页只能由雅虎自己渲染，
                所以开一个独立 profile 的浏览器窗口让用户登录一次，之后靠 refresh_token 续期。 -->
-          <el-form-item label-width="120px">
+          <el-form-item v-if="$can('shop-accounts:app_token')" label-width="120px">
             <el-button
               type="primary"
               :loading="appLoginLoading"
@@ -233,7 +243,7 @@
       </el-form>
       <template #footer>
         <div class="mercari-dialog-footer">
-          <el-popconfirm v-if="form.id" :title="t('mercariAccounts.deleteConfirm')" @confirm="removeFromDialog">
+          <el-popconfirm v-if="form.id && $can('shop-accounts:delete')" :title="t('mercariAccounts.deleteConfirm')" @confirm="removeFromDialog">
             <template #reference>
               <el-button type="danger" plain>{{ t('common.delete') }}</el-button>
             </template>
@@ -254,14 +264,14 @@
             >{{ t('mercariAccounts.openYahooLoginBrowser') }}</el-button>
             <el-button v-if="!form.id && form.platform === 'mercari'" plain @click="onFetchUserInfoPlaceholder">{{ t('mercariAccounts.fetchUserInfo') }}</el-button>
             <el-button
-              v-if="form.id && form.platform === 'mercari'"
+              v-if="form.id && form.platform === 'mercari' && $can('shop-accounts:sync')"
               type="success"
               plain
               :loading="syncingIds.has(form.id)"
               @click="fetchHistoryFromForm"
             >{{ t('mercariAccounts.fetchHistory') }}</el-button>
             <el-button
-              v-if="form.id"
+              v-if="form.id && $can('shop-accounts:browser')"
               type="warning"
               plain
               :loading="cookieInjectKeys.has(browserKeyFor(form.id))"

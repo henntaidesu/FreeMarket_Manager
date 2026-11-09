@@ -9,6 +9,7 @@ from .....auth import require_auth
 from .....db_manage.models.orders.order_outbound_line import OrderOutboundLineModel
 from .....use_mercari.get_order.description_mgmt_ids import refresh_inventory_pending_outbound_qty
 from .....use_mercari.inventory_batches import head_owner
+from .....use_mercari.line_shelves import line_warehouse_for_deduction
 from .....use_mercari.inventory_counters import (
     cascade_combined_child_deduction,
     cascade_combined_child_restock,
@@ -58,7 +59,8 @@ def _restock_holding_lines_impl(ono: str, *, reason: str) -> None:
         # 防止同一行被回吐两次；也替代 line.save()（对已删行会重插旧行）。
         claimed = db.execute_update(
             "UPDATE [order_outbound_lines] "
-            "SET [is_stocked_out] = 0, [stocked_out_at] = NULL, [stock_deducted] = 0, [owner_user_id] = NULL "
+            "SET [is_stocked_out] = 0, [stocked_out_at] = NULL, [stock_deducted] = 0, [owner_user_id] = NULL, "
+            "[warehouse_id] = NULL "
             "WHERE [id] = ? AND (COALESCE([is_stocked_out], 0) = 1 OR COALESCE([stock_deducted], 0) = 1)",
             (int(line.id),),
         )
@@ -178,9 +180,10 @@ def bind_outbound_line_inventory(line_id: int, data: OutboundLineBindInventoryBo
                 )
 
             cur.execute(
-                "UPDATE [order_outbound_lines] SET [inventory_id] = ?, [quantity] = ?, [owner_user_id] = ?, [inventory_archived] = 0 "
+                "UPDATE [order_outbound_lines] SET [inventory_id] = ?, [quantity] = ?, [owner_user_id] = ?, "
+                "[warehouse_id] = ?, [inventory_archived] = 0 "
                 "WHERE [id] = ?",
-                (inv_id, new_qty, new_owner, int(line.id)),
+                (inv_id, new_qty, new_owner, new_inv_warehouse_id, int(line.id)),
             )
             db.dialect.commit(conn)
     else:
@@ -188,6 +191,7 @@ def bind_outbound_line_inventory(line_id: int, data: OutboundLineBindInventoryBo
         line.quantity = new_qty
         # 还没出库：所有人等出库时再按新库存的队首批次定，旧快照作废
         line.owner_user_id = None
+        line.warehouse_id = None
         if not line.save():
             raise HTTPException(status_code=500, detail="保存失败")
         if old_inv_id is not None and old_inv_id != inv_id:
@@ -375,14 +379,20 @@ def stock_out_order_outbound_line(line_id: int, data: OutboundStockOutBody):
         raise HTTPException(status_code=404, detail="库存商品不存在")
     current_qty = int(inv_rows[0][0] or 0)
     warehouse_id = inv_rows[0][1]
+    # 货架快照：预扣过的行已有；否则取它此刻显示的货架（按订单先后分到的批次），须在认领前算
+    line_wh = (
+        line.warehouse_id
+        if int(line.stock_deducted or 0) == 1 and line.warehouse_id is not None
+        else line_warehouse_for_deduction(db, int(line.id), inv_id)
+    )
 
     # 原子认领本行（0→1）：并发重复请求（双击/超时重试/订单页与待办页同时出库）只有一个
     # 能命中，其余在此失败——顶部的内存快照检查挡不住 check-then-act 双扣。
     # 也不再用 line.save() 写状态：save 对已被同步重建删除的行会按新行重插（复活旧行）。
     claimed = db.execute_update(
-        "UPDATE [order_outbound_lines] SET [is_stocked_out] = 1, [stocked_out_at] = ? "
+        "UPDATE [order_outbound_lines] SET [is_stocked_out] = 1, [stocked_out_at] = ?, [warehouse_id] = ? "
         "WHERE [id] = ? AND COALESCE([is_stocked_out], 0) = 0",
-        (int(time.time()), int(line.id)),
+        (int(time.time()), line_wh, int(line.id)),
     )
     if claimed <= 0:
         raise HTTPException(status_code=400, detail="该明细已出库，不能重复出库")

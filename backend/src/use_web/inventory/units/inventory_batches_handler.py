@@ -76,7 +76,8 @@ def update_inventory_batch(pid: int, bid: int, data: InventoryBatchUpdate):
 def merge_inventory_batches(pid: int, data: InventoryBatchMerge):
     _check_item(pid)
     try:
-        ib.merge_batches(pid, data.batch_ids)
+        kw = {"warehouse_id": data.warehouse_id} if "warehouse_id" in data.model_fields_set else {}
+        ib.merge_batches(pid, data.batch_ids, **kw)
     except (ValueError, LookupError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     recompute_listable_quantity([pid])

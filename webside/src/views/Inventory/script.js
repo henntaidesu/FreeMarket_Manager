@@ -25,6 +25,7 @@ import { encodeMgmtId, stripTrailingMgmtBlock } from '@/utils/mgmtIdCipher.js'
 import { warehouseShelfLeafLabel } from '@/utils/warehouseLabel.js'
 import { mercariImageUrl } from '@/utils/mercariImage.js'
 import { useSyncLockStore } from '@/stores/syncLock.js'
+import { useAuthStore } from '@/stores/auth.js'
 import { useViewModeStore } from '@/stores/viewMode.js'
 import { useCardWindow } from '@/composables/useCardWindow.js'
 import {
@@ -213,6 +214,10 @@ export default defineComponent({
     let formAutosaveInitializing = false
     /** 本次打开弹窗期间由实时保存新建出来的商品 id：查重跳转「放弃新建」时要把它删掉 */
     let formCreatedInSession = null
+    const auth = useAuthStore()
+    // 打开的是已有商品（不是本次新建的）：没有「编辑商品」权限时整张表单只读、不自动保存
+    const editingExisting = ref(false)
+    const formReadonly = computed(() => !archive && editingExisting.value && !auth.can('inventory:edit'))
     const formRef = ref()
     const fileInputInventoryPick = ref()
     const fileInputInventoryCapture = ref()
@@ -1547,6 +1552,7 @@ export default defineComponent({
     function startInlineEdit(row, field) {
       if (archive) return
       if (listingPickMode.value) return
+      if (!auth.can('inventory:edit')) return
       editingCell.value = getCellKey(row, field)
       const currentValue = row[field]
       editingValue.value = currentValue === null || currentValue === undefined ? '' : String(currentValue)
@@ -1588,11 +1594,13 @@ export default defineComponent({
 
     function openProductTypeInline(row) {
       if (listingPickMode.value) return
+      if (!auth.can('inventory:edit')) return
       editingProductTypeRowId.value = row.id
     }
 
     function openOwnerInline(row) {
       if (listingPickMode.value) return
+      if (!auth.can('inventory:edit')) return
       editingOwnerRowId.value = row.id
       openSelectMenuByMap(inlineOwnerSelectMap, row.id)
     }
@@ -2025,15 +2033,18 @@ export default defineComponent({
           partRows.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'zh-CN'))
           const l2Val = `WHSN:${encodeURIComponent(whName)}::${encodeURIComponent(pk)}`
           const labelMid = shelfNamePartitionLabelFromKey(pk)
-          const leaves = partRows.map((w) => {
+          const leaves = []
+          for (const w of partRows) {
             const id = Number(w.id)
             const leafVal = `WHS:${w.id}`
             if (Number.isFinite(id)) idToPath.set(id, [l1Val, l2Val, leafVal])
-            return { value: leafVal, label: warehouseShelfLeafLabel(w), children: [] }
-          })
-          midNodes.push({ value: l2Val, label: labelMid, children: leaves })
+            // 已隐藏的货架号（库存已归零）不再出现在任何下拉里；idToPath 仍保留，老数据照样能回显路径
+            if (Number(w.is_hidden)) continue
+            leaves.push({ value: leafVal, label: warehouseShelfLeafLabel(w), children: [] })
+          }
+          if (leaves.length) midNodes.push({ value: l2Val, label: labelMid, children: leaves })
         }
-        roots.push({ value: l1Val, label: whName, children: midNodes })
+        if (midNodes.length) roots.push({ value: l1Val, label: whName, children: midNodes })
       }
       return { roots, idToPath }
     })
@@ -2087,6 +2098,21 @@ export default defineComponent({
     // 已在库存页时再从系列管理页跳过来，onMounted 不会再跑
     watch(() => route.query.series, (v) => {
       if (v && applySeriesFromRouteQuery()) load()
+    })
+
+    /** /inventory?warehouse=ID（仓库页点货架号标题）：按该货架号筛选，读完即从地址栏去掉 */
+    function applyWarehouseFromRouteQuery() {
+      const wid = Number(route.query.warehouse)
+      if (!Number.isInteger(wid) || wid <= 0) return false
+      filterWarehouseUnassigned.value = false
+      filterWarehouse.value = wid
+      syncFilterWarehousePathByWarehouseId(wid)
+      const { warehouse: _warehouse, ...rest } = route.query
+      router.replace({ query: rest })
+      return true
+    }
+    watch(() => route.query.warehouse, (v) => {
+      if (v && applyWarehouseFromRouteQuery()) load()
     })
 
     /** 点列表里的系列标签：按该系列筛选 */
@@ -3157,6 +3183,7 @@ export default defineComponent({
       // 每次打开都回到默认模块，免得上次停在「关联商品」页
       editActiveTab.value = 'listing'
       formCreatedInSession = null
+      editingExisting.value = !!row?.id
       inventoryBatches.resetBatches()
       linkedListings.value = []
       linkedSold.value = []
@@ -4240,7 +4267,8 @@ export default defineComponent({
       }
       const draftId = formCreatedInSession
       formCreatedInSession = null
-      if (draftId && Number(draftId) !== Number(id)) {
+      // 没有删除权限时草稿留着（后端会 403），比卡在这一步强
+      if (draftId && Number(draftId) !== Number(id) && auth.can('inventory:delete')) {
         try { await invApi.remove(draftId) } catch { /* 拦截器已提示 */ }
       }
       let row
@@ -4324,6 +4352,62 @@ export default defineComponent({
         return false
       }
       return false
+    }
+
+    /** 表单里能否录入条码：普通商品、非历史库存页 */
+    const canEditFormBarcode = computed(() => !archive && Number(form.value.is_combined || 0) !== 1)
+
+    /**
+     * 表单内录入条码（扫码枪 / 手动输入）。已有条码且与新码不同 → 先确认是否替换；
+     * 相同 → 只提示。写入仍走 assignBarcode（一码多品查重），由实时保存落库。
+     */
+    let formBarcodeBusy = false
+    async function handleFormBarcodeInput(rawCode) {
+      const code = String(rawCode || '').trim()
+      if (!code || !canEditFormBarcode.value || formBarcodeBusy) return
+      formBarcodeBusy = true
+      try {
+        const cur = String(form.value.product_barcode || '').trim()
+        if (cur && (code === cur || code === editFormBarcodeCode.value)) {
+          ElMessage.info(t('inventory.barcodeSame', { code: cur }))
+          return
+        }
+        if (cur) {
+          try {
+            await ElMessageBox.confirm(
+              t('inventory.barcodeReplaceConfirm', { old: editFormBarcodeCode.value || cur, code }),
+              t('inventory.barcodeReplaceTitle'),
+              { type: 'warning', confirmButtonText: t('inventory.barcodeReplace'), cancelButtonText: t('common.cancel') }
+            )
+          } catch {
+            return
+          }
+        }
+        await assignBarcode(code)
+      } finally {
+        formBarcodeBusy = false
+      }
+    }
+
+    /** 「录入条码 / 修改条码」按钮：手动输入（也可在输入框里用扫码枪扫） */
+    async function promptFormBarcode() {
+      if (!canEditFormBarcode.value) return
+      let value
+      try {
+        ({ value } = await ElMessageBox.prompt(
+          t('inventory.barcodeInputTip'),
+          t('inventory.barcodeInputTitle'),
+          {
+            inputValue: String(form.value.product_barcode || ''),
+            inputPlaceholder: t('inventory.barcodeInputPlaceholder'),
+            confirmButtonText: t('common.confirm'),
+            cancelButtonText: t('common.cancel')
+          }
+        ))
+      } catch {
+        return
+      }
+      await handleFormBarcodeInput(value)
     }
 
     /** 上传接口顺带识别出的条码：还没有条码的普通商品才处理。返回 true = 已跳转，图片不再写入当前表单 */
@@ -4490,7 +4574,7 @@ export default defineComponent({
 
     /** 表单任意字段变化后，节流调度一次后台实时保存 */
     function scheduleFormAutosave() {
-      if (archive) return
+      if (archive || formReadonly.value) return
       if (formAutosaveInitializing) return
       if (!dialogVisible.value) return
       cancelFormAutosave()
@@ -5127,9 +5211,11 @@ export default defineComponent({
       const code = String(rawCode || '').trim()
       if (!code) return
       if (dialogVisible.value) {
-        // 详情表单开着（包括从扫码结果点开、盖在扫码弹窗上的）：只认货架码，其余不进入库流程
+        // 详情表单开着（包括从扫码结果点开、盖在扫码弹窗上的）：货架码 → 选批次货架；
+        // 其余当作本商品的产品条码录入（不进入库流程）
         focusedEl?.blur()
-        handleFormShelfScan(code)
+        if (parseWarehouseQr(code) != null) handleFormShelfScan(code)
+        else handleFormBarcodeInput(code)
         return
       }
       if (noCodeInboundVisible.value) {
@@ -5499,6 +5585,7 @@ export default defineComponent({
       listingCategoryMappings.value = mappings
       inventorySeries.loadSeries()
       applySeriesFromRouteQuery()
+      applyWarehouseFromRouteQuery()
       await Promise.all([load(), loadInventoryStats()])
       await setupCardObserver()
       openFromRouteQuery()
@@ -5533,6 +5620,7 @@ export default defineComponent({
 
     return {
       archive,
+      formReadonly,
       ref,
       computed,
       watch,
@@ -5814,6 +5902,8 @@ export default defineComponent({
       removeCombinedComponentRow,
       inventoryDeleting,
       deleteCurrentInventory,
+      canEditFormBarcode,
+      promptFormBarcode,
       combinedLinkImageDialogVisible,
       showCombinedEditDetail,
       usedInCombosLoading,

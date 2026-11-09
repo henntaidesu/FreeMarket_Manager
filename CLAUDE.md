@@ -51,7 +51,7 @@ you have to follow, not something the code will stop you from breaking.
 | Image Storage | Local filesystem (default) / Image Hosting | `backend/imges/`; switchable to a remote image host at runtime — see 图床存储 below |
 | Browser Automation | Playwright | Edge/Chromium; drives both Mercari and Yahoo |
 | Request Inspection | mitmproxy | SSL/TLS interception (Windows) |
-| ML/Vision | EasyOCR, OpenCV, CLIP (ONNX Runtime) | Barcode/text recognition + image search |
+| ML/Vision | EasyOCR, OpenCV, DINOv2 (ONNX Runtime) | Barcode/text recognition + image search |
 | AI | DeepSeek (OpenAI-compatible) | Generates Japanese listing title/description |
 | i18n | vue-i18n | zh-CN / ja / en — all three locales must stay in sync |
 | Packaging | PyInstaller + pystray | Windows .exe with tray icon & log window |
@@ -130,7 +130,7 @@ backend/
 │                                    #   FastAPI app, CORS, /imges route, router + lifecycle
 ├── mercariDB.db                     # SQLite business data (WAL); system.db = bootstrap config
 ├── imges/                           # Product image storage (local backend; also thumb/CDN caches)
-├── models/                          # Downloaded ML weights (CLIP ONNX) — not DB models
+├── models/                          # Downloaded ML weights (DINOv2 / OCR ONNX) — not DB models
 ├── tools/                           # sqlite_to_mysql.py, clone_mysql_to_test.py (run via -m)
 └── src/
     ├── API.py                       # /mercariV2 root router + /mercariV2/health
@@ -148,7 +148,7 @@ backend/
     ├── use_web/                     # ==> THE REST API LAYER (one package per frontend page)
     │   ├── API.py                   #   aggregates all page routers under /use_web
     │   ├── <page>/API.py            #   router; <page>/units/*.py holds the handlers
-    │   ├── inventory/image_search/  #   CLIP-ONNX image similarity search
+    │   ├── inventory/image_search/  #   DINOv2-ONNX image similarity search
     │   └── web_drive/               #   browser-automation endpoints (incl. listing dispatch)
     ├── use_mercari/                 # Mercari business orchestration
     │   ├── API.py  auto_relist.py  inventory_counters.py   # 计数模型的权威实现
@@ -211,13 +211,17 @@ Key tables in `backend/src/db_manage/models/`:
 - **inventory**: Products with barcode, SKU, price, quantity, images (filesystem paths in `images_json`; images saved under `backend/imges/`)
 - **inventory_batches**: 批次（批次号 / 批次时间 `arrived_at` / 仓位 / 数量 / 备注），一个管理番号下多批。
   批次号按商品自动编号 1、2、3…（不手填、删掉的号不复用）；**批次建好后只有备注可手改**（批次时间、仓位、数量都不行），
-  只能新增/删除批次、合并同一货架 + 同一所有人的批次（`merge_batches`，并入最早那批，总数不变），
+  只能新增/删除批次、合并同一所有人的批次（`merge_batches`，并入最早那批，总数不变；货架不同时须选归入所选批次中的哪个货架，
+换了货架的件数记 `transfer` 流水，`inbound_receipts` 跟着改指），
   或随售出/出库自动扣减；批次行上的「出库」按钮（`stock_out_batch`）从**该批次**扣减（不走先进先出），总数同步减、记 `transactions` 并写一行 `inventory_manual_outbounds`（编辑弹窗「关联商品」页的「手动出库」列表读它）；仓位只随整件换仓位 / 快递入库改投变动。**已分批商品 `inventory.quantity == Σ批次数量`**，总数在表单上只读。其余直接改
   `quantity` 的路径（售出/出库/回吐/组合级联/拆分）不用管批次：`recompute_listable_quantity`
   先调 `use_mercari/inventory_batches.reconcile_batches`，把差额按到货时间**先进先出**落到批次上，
   所以新增改 `quantity` 的路径事后必须调 `recompute_listable_quantity`。没有批次行的历史商品不迁移，
   首次打开批次页 / 扫码入库时才把当时数量原样转成一个批次。`inventory.warehouse_id` 对已分批商品
-  = 先进先出队首批次的仓位；仓位统计与按仓位筛选走 `stock_locations_sql()`。组合商品不分批。
+  = 先进先出队首批次的仓位；仓位统计与按仓位筛选走 `stock_locations_sql()`。
+  **订单 / 待办显示的货架不读它**（队首会随扣减后移）：走 `use_mercari/line_shelves.py`——已扣库存的明细读
+  `order_outbound_lines.warehouse_id` 快照（出库 / 预扣 / 改绑时写，重建时由 `line_owners` 带回），未扣的按订单购入时间
+  排队依次占用在岸批次（越早的订单分到越早的批次）。组合商品不分批。
   **一个管理番号下可以有多个所有人的货**：`inventory_batches.owner_user_id`（NULL = 随商品）。出库 / 手动预扣
   **扣减前**取先进先出队首批次的所有人（`inventory_batches.head_owner`）写进 `order_outbound_lines.owner_user_id`
   快照；凡是「这一行出库明细算谁的」（订单按归属筛选 / 金额拆分 / 出售结算 / 包材分摊）都用
@@ -299,7 +303,7 @@ Key tables in `backend/src/db_manage/models/`:
   `(order_id, item_id)`，不是 `order_id` —— まとめ買い 一笔订单带多件。见 購入した商品 below。
   `settlement_status` / `owner_user_id` 是**代购结算**，与出售结算是两套账，见 代购结算 below。
 - **orders**: Orders synced from Mercari/Yahoo
-- **image_embeddings**: CLIP vectors for inventory image search (see Auxiliary Subsystems)
+- **image_embeddings**: DINOv2 vectors for inventory image search (see Auxiliary Subsystems)
 - **image_assets**: `/imges/<file>` → where that image actually lives. Only images that were moved
   to the image host get a row; no row = still a local file. See 图床存储 below.
 - **proxy_users**: 代购用户 —— `purchase_items.owner_user_id` 指向它，**不是** `users`。
@@ -356,7 +360,7 @@ src/use_web/image_storage.py  # the facade; THE ONLY module that knows which bac
 - **Upload failure degrades to local**: `_persist()` always writes to disk first, then tries to push
   to the host. If the host is down, the image stays local and the next migration run picks it up —
   a flaky image host must never fail a "save product".
-- **Anything needing real pixels** (CLIP indexing, AI listing, watermarking, Playwright
+- **Anything needing real pixels** (image-search indexing, AI listing, watermarking, Playwright
   `set_input_files`) must go through `image_storage.read_image_bytes()`, and existence checks
   through `image_storage.image_exists()`. `os.path.exists` on an `/imges/` path is a bug once the
   image host is active.
@@ -500,8 +504,10 @@ is the single lookup used by the listing dispatcher.
 `page_access.PAGE_KEYS` 与前端 `webside/src/constants/menu.js`（侧边栏与角色编辑共用这一份）。
 
 - **判定**：管理员不受限；**未分配角色的非管理员也不受限**（上线时不把老账号锁在门外）；
-  有角色则只能进勾选的页面；角色行不存在按「什么都不能进」处理。账号管理 / 系统角色只看
-  `is_admin`，不走角色。
+  有角色则只能进勾选的页面；角色行不存在按「什么都不能进」处理。**原先只看 `is_admin` 的功能
+  （账号管理、系统角色、单点登录、数据库、图床、网页访问、重启 / MITM、清空日志、归属转化、强制出库）
+  都已改成角色功能**——唯一保留的管理员限制是「设置 / 修改管理员账号」（`users_handler._assert_admin_for_admin_change`），
+  否则拥有账号管理功能的人能把自己升成管理员。注意拥有「系统角色」功能的人可以改自己角色的权限。
 - **后端强制**：`require_page(*pages)` 挂在 `use_web/API.py` 与 `system/API.py` 的各路由组上，
   拥有**任一**页面即放行。列的是「哪些页面会调用这组接口」——订单页读库存、待办页写订单出库与包材，
   所以那几组列了多个页面。**给某页面新增对别组接口的调用时，要把该页加进那组的列表**，否则拥有
@@ -511,7 +517,19 @@ is the single lookup used by the listing dispatcher.
 - **即时生效**：`require_auth` 每请求 LEFT JOIN 现读角色（不进 JWT）；前端 Layout 每 30 秒
   `GET /system/me` 重拉，当前页被收回权限即跳到第一个有权限的页面（一个都没有 → `/no-access`）。
   禁用 / 重置密码自增 `token_version` 踢下线；改角色不需要。
-- 归属人下拉用 `GET /system/users/options`（任何登录用户），`GET /system/users` 仍是管理员接口。
+- **功能（按钮）权限**是页面下面一层：`page_access.PAGE_FEATURES` ↔ 前端 `constants/permissions.js`
+  （两份同步），key = `页面:动作`（`inventory:delete`）。`roles.features_json` = `{页面: [已授权动作]}`，
+  **页面不在其中 = 该页全部功能**（勾满保存时也省略，所以给页面新增功能对「全开」的角色自动可用）。
+  后端强制：单个接口挂 `require_feature(*keys)`（任一即放行，可混写页面 key 表示「别的页面也调它」），
+  任务队列按 `TASK_FEATURES[task_type]` 在 `submit` 里判定；handler 内细分用 `assert_feature`
+  （例：只有「改仓位」时 `PUT /inventory/{pid}` 只许改 `warehouse_id`）。前端模板用全局 `$can('inventory:delete')`
+  （`stores/auth.js::can`）。没有「编辑商品」时库存弹窗整张表单只读，操作按钮包在一层只管 disabled 的
+  `el-form.pef-actions-scope` 里，按各自功能显示（待办处理弹窗同理用 `todos-perm-scope`）。
+  文案在 SystemConfig i18n 的 `roleFeatures.<页面key，/ 换成 _>.<动作>`。全部菜单页都已细化；
+  系统配置页是「一个分区一个功能」（`SECTIONS[].feature`），分区没权限就不显示。
+  `TASK_PAYLOAD_FEATURES` 管「同一任务类型带某字段时多要一个功能」（在售修改带 `relink_inventory_id`）；
+  任务重试同样按 `TASK_FEATURES` 判定。
+- 归属人下拉用 `GET /system/users/options`（任何登录用户），`GET /system/users` 要 `system/config:accounts`。
 - 被用户引用的角色拒绝删除；不能取消自己的管理员 / 禁用自己；至少保留一个启用中的管理员。
 
 CORS defaults to `allow_origins=["*"]` with **credentials disabled** — auth rides on the Bearer
@@ -1296,8 +1314,13 @@ the message instead of `404: …`.
 
 Three self-contained features that are easy to miss because nothing else depends on them:
 
-- **Image search** (`use_web/inventory/image_search/`) — CLIP ViT-B/32 vision encoder, int8-quantized
-  ONNX, CPU-only. The ~88MB weight file is **not in the repo**: it is downloaded on first use into
+- **Image search** (`use_web/inventory/image_search/`) — DINOv2-small, **fp32** ONNX, CPU-only, CLS
+  token as the 384-d vector. Replaced CLIP ViT-B/32 int8: this is instance retrieval ("the same item"),
+  not semantics, and on simulated re-shot photos of the real inventory Top-1 went 84.7% → 96.7%.
+  Don't swap in a quantized DINOv2 — dinov2-base int8 measured back down at 85%. The three thresholds in
+  `search_handler.py` are calibrated to this model's score distribution; re-calibrate on any model change.
+  `_preprocess` applies `ImageOps.exif_transpose` first — ~half of the inventory photos carry EXIF
+  orientation 6/8, and without it they were embedded lying on their side. The ~88MB weight file is **not in the repo**: it is downloaded on first use into
   `backend/models/` (HuggingFace, with an hf-mirror fallback for CN networks). The model is a lazy
   singleton, so not using image search costs nothing. `MODEL_NAME` is stored on each row in
   `image_embeddings` — changing the model automatically invalidates and rebuilds old vectors. A
@@ -1426,7 +1449,7 @@ Each run writes a `system_logs` row (category `database`).
   session ticket, i.e. the longest a browser can hold a usable door into a marketplace login.
   Absolute — never renewed or slid forward — so the user re-clicks Cookie 注入 when it lapses.
   A larger value is clamped down rather than honoured.
-- `IMAGE_SEARCH_AUTO_INDEX` / `IMAGE_SEARCH_MODEL_URL` / `IMAGE_SEARCH_THREADS`: CLIP image-search indexing.
+- `IMAGE_SEARCH_AUTO_INDEX` / `IMAGE_SEARCH_MODEL_URL` / `IMAGE_SEARCH_THREADS`: image-search model download and indexing.
 - `OCR_MODEL_AUTO_DOWNLOAD` (默认开) / `OCR_REC_MODEL_URL` / `OCR_DET_MODEL_URL`: 本地 OCR
   （`src/onnx_ocr/`，PP-OCRv5 mobile 识别 16.6MB + 检测 4.8MB，ONNX，从 ModelScope 下载到 `backend/models/`），
   框选识别条码的数字兜底与框选识别商品名称（中/日/英）共用。启动后后台下载，没下成则首次用到时再下。

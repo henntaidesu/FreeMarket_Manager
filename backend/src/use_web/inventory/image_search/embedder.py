@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
-"""CLIP 图片特征提取器（ONNX Runtime，纯 CPU 友好）。
+"""图片特征提取器（ONNX Runtime，纯 CPU 友好）。
 
-- 模型：CLIP ViT-B/32 视觉编码器，int8 量化 ONNX（约 88MB），弱 CPU 单图推理几十毫秒级
+- 模型：DINOv2-small，fp32 ONNX（约 88MB），2 线程单图推理约 45ms；取 CLS token 作为特征
+- 为什么不是 CLIP：CLIP 学的是图文语义（"这是一枚吧唧"），以图搜库存要的是"同一件商品"的实例检索。
+  用库存图模拟实拍（裁剪/旋转/调色/模糊/重压缩）离线对比，Top-1 由 CLIP B/32 int8 的 84.7% 升到 96.7%，
+  正确与最像的错误商品之间的分差也拉开一倍多。dinov2-base 不更准、慢 4 倍；它的 int8 版精度崩到 85%，
+  所以这里也不用量化版
 - 懒加载单例：不使用图片搜索时不加载模型、不占内存
 - 模型文件不存在时自动下载到 backend/models/（支持 hf-mirror 镜像兜底）
 """
@@ -14,24 +18,25 @@ import threading
 from typing import List, Optional
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 from ....app_paths import backend_root
 
 logger = logging.getLogger(__name__)
 
 # 模型标识：写入 image_embeddings.model_name，换模型时旧向量自动重建
-MODEL_NAME = "clip-vit-b32-onnx-q8"
-_MODEL_FILENAME = "clip_vit_b32_vision_quantized.onnx"
+MODEL_NAME = "dinov2-small-onnx-fp32"
+_MODEL_FILENAME = "dinov2_small.onnx"
 _MODEL_URLS = [
-    "https://huggingface.co/Xenova/clip-vit-base-patch32/resolve/main/onnx/vision_model_quantized.onnx",
+    "https://huggingface.co/onnx-community/dinov2-small/resolve/main/onnx/model.onnx",
     # 国内网络访问 huggingface 失败时的镜像兜底
-    "https://hf-mirror.com/Xenova/clip-vit-base-patch32/resolve/main/onnx/vision_model_quantized.onnx",
+    "https://hf-mirror.com/onnx-community/dinov2-small/resolve/main/onnx/model.onnx",
 ]
 
 _IMAGE_SIZE = 224
-_CLIP_MEAN = np.array([0.48145466, 0.4578275, 0.40821073], dtype=np.float32)
-_CLIP_STD = np.array([0.26862954, 0.26130258, 0.27577711], dtype=np.float32)
+# DINOv2 用 ImageNet 归一化参数（不是 CLIP 那套）
+_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 _lock = threading.Lock()
 _session = None
@@ -63,7 +68,7 @@ def _download_model(dest: str) -> None:
     for url in urls:
         tmp = dest + ".part"
         try:
-            logger.info("[image_search] 正在下载 CLIP 模型: %s", url)
+            logger.info("[image_search] 正在下载图片搜索模型: %s", url)
             with requests.get(url, stream=True, timeout=(15, 600)) as resp:
                 resp.raise_for_status()
                 with open(tmp, "wb") as f:
@@ -71,7 +76,7 @@ def _download_model(dest: str) -> None:
                         if chunk:
                             f.write(chunk)
             os.replace(tmp, dest)
-            logger.info("[image_search] CLIP 模型下载完成: %s", dest)
+            logger.info("[image_search] 图片搜索模型下载完成: %s", dest)
             return
         except Exception as exc:
             last_err = exc
@@ -81,11 +86,12 @@ def _download_model(dest: str) -> None:
                     os.remove(tmp)
             except OSError:
                 pass
-    raise RuntimeError(f"CLIP 模型下载失败，请检查网络或手动放置模型文件到 {dest}：{last_err}")
+    raise RuntimeError(f"图片搜索模型下载失败，请检查网络或手动放置模型文件到 {dest}：{last_err}")
 
 
 def _pick_output_name(session) -> str:
-    """优先取投影后的 image_embeds（512 维）；不同导出版本输出名可能不同。"""
+    """优先取 image_embeds / pooler_output；DINOv2 的导出只有 last_hidden_state，落到 names[0]，
+    由 embed_image 取其中的 CLS token。"""
     names = [o.name for o in session.get_outputs()]
     for preferred in ("image_embeds", "pooler_output"):
         if preferred in names:
@@ -122,14 +128,14 @@ def _ensure_session():
             opts.inter_op_num_threads = 1
             sess = ort.InferenceSession(path, sess_options=opts, providers=["CPUExecutionProvider"])
         except Exception as exc:
-            _load_error = f"CLIP 模型加载失败: {exc}"
+            _load_error = f"图片搜索模型加载失败: {exc}"
             raise RuntimeError(_load_error) from exc
 
         _input_name = sess.get_inputs()[0].name
         _output_name = _pick_output_name(sess)
         _session = sess
         _load_error = None
-        logger.info("[image_search] CLIP 模型已加载（输出: %s）", _output_name)
+        logger.info("[image_search] 图片搜索模型已加载（输出: %s）", _output_name)
         return _session
 
 
@@ -142,8 +148,12 @@ def is_loaded() -> bool:
 
 
 def _preprocess(img: Image.Image) -> np.ndarray:
-    """CLIP 标准预处理：短边缩放 224 → 中心裁剪 → 归一化 → CHW。"""
-    img = img.convert("RGB")
+    """短边缩放 224 → 中心裁剪 → 归一化 → CHW。
+
+    先按 EXIF 方向转正：手机照片的方向只写在 EXIF 里，浏览器会自动转正显示，PIL 读到的却是横躺的像素。
+    （补白成正方形代替中心裁剪也比较过，略差，没采用。）
+    """
+    img = ImageOps.exif_transpose(img).convert("RGB")
     w, h = img.size
     scale = _IMAGE_SIZE / min(w, h)
     img = img.resize((max(_IMAGE_SIZE, round(w * scale)), max(_IMAGE_SIZE, round(h * scale))), Image.Resampling.BICUBIC)
@@ -152,7 +162,7 @@ def _preprocess(img: Image.Image) -> np.ndarray:
     top = (h - _IMAGE_SIZE) // 2
     img = img.crop((left, top, left + _IMAGE_SIZE, top + _IMAGE_SIZE))
     arr = np.asarray(img, dtype=np.float32) / 255.0
-    arr = (arr - _CLIP_MEAN) / _CLIP_STD
+    arr = (arr - _MEAN) / _STD
     return arr.transpose(2, 0, 1)[np.newaxis, :]  # [1, 3, 224, 224]
 
 

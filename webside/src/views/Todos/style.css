@@ -1324,6 +1324,16 @@
   color: var(--el-color-danger);
 }
 /* 扫码结果原文：列只有 150px，截断显示，完整值在 title 上 */
+/* 虚拟发货列表：码只摆末 6 位，放大到能隔着一臂距离对贴纸 */
+.cell-ship-qr-tail {
+  margin-top: 2px;
+  font-family: var(--el-font-family-mono, monospace);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--el-color-danger);
+}
+
 .cell-ship-qr-text {
   margin-top: 2px;
   font-family: var(--el-font-family-mono, monospace);
@@ -1621,4 +1631,9 @@
 .todo-card-fetch-detail {
   width: 100%;
   margin: 0;
+}
+
+/* 按功能权限变灰而包的一层 el-form（只管 disabled），不参与布局 */
+.todos-perm-scope {
+  display: contents;
 }

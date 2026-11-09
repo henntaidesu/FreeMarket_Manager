@@ -32,13 +32,13 @@
         </div>
         <div class="search-actions">
           <el-button
-            v-if="tab === 'inbox'"
+            v-if="tab === 'inbox' && $can('system/memos:process')"
             :disabled="unread === 0"
             @click="markAllRead"
           >
             <el-icon><Check /></el-icon> {{ t('memos.markAllProcessed') }}
           </el-button>
-          <el-button type="primary" @click="openComposeDialog">
+          <el-button v-if="$can('system/memos:compose')" type="primary" @click="openComposeDialog">
             <el-icon><EditPen /></el-icon> {{ t('memos.compose') }}
           </el-button>
         </div>
@@ -114,7 +114,7 @@
               {{ t('memos.view') }}
             </el-button>
             <el-button
-              v-if="tab === 'inbox'"
+              v-if="tab === 'inbox' && $can('system/memos:process')"
               size="small"
               type="primary"
               @click.stop="setRead(row, true)"
@@ -122,13 +122,14 @@
               {{ t('memos.markProcessed') }}
             </el-button>
             <el-button
-              v-else-if="tab === 'processed'"
+              v-else-if="tab === 'processed' && $can('system/memos:process')"
               size="small"
               @click.stop="setRead(row, false)"
             >
               {{ t('memos.markUnprocessed') }}
             </el-button>
             <el-popconfirm
+              v-if="$can('system/memos:delete')"
               :title="t('memos.deleteConfirm')"
               @confirm="remove(row.id)"
             >

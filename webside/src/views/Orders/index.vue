@@ -65,8 +65,10 @@
         </div>
         <div class="search-actions">
           <!-- 提交到任务队列即返回，不再受全局同步锁阻挡（排队执行由后端 worker 保证） -->
+          <template v-if="$can('orders:sync')">
           <el-button type="success" :icon="RefreshRight" :loading="syncLoading && syncMode === 'newData'" :disabled="syncLoading" @click="runSync('newData')">{{ t('orders.updateList') }}</el-button>
           <el-button type="primary" :icon="Refresh" :loading="syncLoading && syncMode === 'statusRefresh'" :disabled="syncLoading" @click="runSync('statusRefresh')">{{ t('orders.updateStatus') }}</el-button>
+          </template>
         </div>
       </div>
     </el-card>
@@ -204,10 +206,11 @@
                       </el-tag>
                     </template>
                   </el-table-column>
-                  <el-table-column :label="t('common.operate')" :width="(isAdminUser ? 232 : 168) + (canForceStockOut ? 84 : 0)" align="center" fixed="right">
+                  <el-table-column :label="t('common.operate')" :width="(canConvertOwner ? 232 : 168) + (canForceStockOut ? 84 : 0)" align="center" fixed="right">
                     <template #default="{ row: line }">
                       <div class="order-outbound-actions">
                         <el-button
+                          v-if="$can('orders:bind')"
                           size="small"
                           type="warning"
                           plain
@@ -217,7 +220,7 @@
                           {{ t('common.edit') }}
                         </el-button>
                         <el-button
-                          v-if="isAdminUser"
+                          v-if="canConvertOwner"
                           size="small"
                           type="primary"
                           plain
@@ -227,6 +230,7 @@
                           {{ t('orders.convertOwner') }}
                         </el-button>
                         <el-popconfirm
+                          v-if="$can('orders:stock_out')"
                           :title="t('orders.confirmStockOut')"
                           :confirm-button-text="t('common.confirm')"
                           :cancel-button-text="t('common.cancel')"
@@ -344,7 +348,7 @@
                             />
                           </el-select>
                           <el-button
-                            v-else
+                            v-else-if="$can('orders:packaging')"
                             size="small"
                             type="primary"
                             :disabled="packagingState[row.order_no]?.submitting"
@@ -429,19 +433,21 @@
             <div class="order-row-actions">
               <el-button size="small" @click="openDetail(row)">{{ t('common.detail') }}</el-button>
               <el-button
+                v-if="$can('orders:sync')"
                 size="small"
                 :loading="refreshingId === row.id"
                 @click="refreshOrder(row)"
               >{{ t('common.refresh') }}</el-button>
               <!-- 重读商品页说明并按暗号重建出库明细：没关联上库存的订单靠它补绑 -->
               <el-button
+                v-if="$can('orders:sync')"
                 size="small"
                 :loading="fetchingItemDetailId === row.id"
                 @click="fetchItemDetail(row)"
               >{{ t('orders.fetchItemDetail') }}</el-button>
               <!-- 已发货却还有未出库的明细：一键补出库 -->
               <el-button
-                v-if="hasUnstockedOutbound(row)"
+                v-if="hasUnstockedOutbound(row) && $can('orders:stock_out')"
                 size="small"
                 type="danger"
                 plain
@@ -595,7 +601,7 @@
                   {{ t('orders.settlementExcluded') }}
                 </el-tag>
                 <el-button
-                  v-else
+                  v-else-if="$can('orders:settlement_exclude')"
                   class="odt-chips__action"
                   size="small"
                   type="warning"
@@ -608,6 +614,7 @@
                   {{ t('orders.manualOutboundLocked') }}
                 </el-tag>
                 <el-button
+                  v-if="$can('orders:bind')"
                   class="odt-chips__action"
                   size="small"
                   :icon="RefreshRight"
@@ -617,6 +624,7 @@
                 >{{ t('orders.rematchProducts') }}</el-button>
                 <!-- 访问平台重读说明 + 原图管理暗码再整单重建；「重新匹配」只用库里现有数据 -->
                 <el-button
+                  v-if="$can('orders:sync')"
                   class="odt-chips__action"
                   size="small"
                   type="primary"
@@ -627,7 +635,7 @@
                   @click="refetchDetailInDialog"
                 >{{ t('orders.refetchDetail') }}</el-button>
                 <el-button
-                  v-if="hasUnstockedOutbound(detailRow)"
+                  v-if="hasUnstockedOutbound(detailRow) && $can('orders:stock_out')"
                   class="odt-chips__action"
                   size="small"
                   type="danger"
@@ -659,6 +667,7 @@
                 </div>
                 <el-input
                   v-model="orderNoteText"
+                  :disabled="!$can('orders:note')"
                   type="textarea"
                   :rows="2"
                   :maxlength="500"
@@ -753,7 +762,7 @@
                       </el-tag>
                       <span class="odt-line__mid">{{ formatOutboundManagementId(ln) }}</span>
                       <el-popconfirm
-                        v-if="Number(ln.is_stocked_out || 0) !== 1"
+                        v-if="Number(ln.is_stocked_out || 0) !== 1 && $can('orders:stock_out')"
                         :title="t('orders.confirmStockOut')"
                         :confirm-button-text="t('common.confirm')"
                         :cancel-button-text="t('common.cancel')"
@@ -877,6 +886,7 @@
                   <!-- 虚线卡片跟在列表末尾（与店铺账号页的新增卡一致）：
                        列表为空时它就是空状态本身，不再另给 el-empty -->
                   <button
+                    v-if="$can('orders:packaging')"
                     type="button"
                     class="odt-pkg-add-card"
                     :disabled="packagingState[form.order_no]?.submitting"

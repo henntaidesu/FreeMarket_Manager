@@ -11,7 +11,9 @@ import logging
 import re
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from ..page_access import require_feature
 from pydantic import BaseModel as PydanticModel
 
 from ..web_drive.core.account_serial_queue import (
@@ -272,7 +274,8 @@ def api_history_sync_precheck(account_id: Optional[int] = Query(None)):
     return {"success": True, "data": data}
 
 
-@router.post("/sync-orders")
+# 店铺账号页「获取历史数据」
+@router.post("/sync-orders", dependencies=[Depends(require_feature("shop-accounts:sync"))])
 async def sync_orders(data: SyncOrdersRequest):
     """
     触发 Mercari 订单同步（出售中 trading + 已售完 sold_out 历史），写入同一订单表。

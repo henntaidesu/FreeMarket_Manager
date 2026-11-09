@@ -212,16 +212,24 @@ def mark_scanned_and_cleanup(todo_id: int, photo_path: str) -> None:
     本地记录，照片删掉之后就只剩它了，事后对账要靠它。
     DB 更新失败（重试一次后）则**保留照片文件**：此时行仍处于 ``shipping`` 且
     ``ship_qr_photo_path`` 还指向照片，先删文件会留下悬空路径 + 永远卡在发货中的行。
+
+    **虚拟发货例外**（``virtual_ship_state='pending'``）：实物还在手上，照片要留到「已实际
+    发货」才删（见 ``virtual_ship.confirm_actual_shipped``）——投函前对着照片与码末几位
+    核对手上那只箱子 / シール，正是虚拟发货那段空窗里唯一要做的事。
     """
     import time
 
+    from . import virtual_ship
+
+    keep_photo = virtual_ship.is_pending(todo_id)
     updated = False
     for attempt in (1, 2):
         try:
             _update_todo(
                 todo_id,
-                "[ship_qr_scanned_at] = ?, [ship_qr_photo_path] = NULL, "
-                "[ship_qr_state] = NULL, [ship_qr_class_text] = NULL",
+                "[ship_qr_scanned_at] = ?, "
+                + ("" if keep_photo else "[ship_qr_photo_path] = NULL, ")
+                + "[ship_qr_state] = NULL, [ship_qr_class_text] = NULL",
                 (int(time.time()),),
             )
             updated = True
@@ -231,8 +239,21 @@ def mark_scanned_and_cleanup(todo_id: int, photo_path: str) -> None:
     if not updated:
         log.warning("[qrphoto] 待办 %s 状态未能更新，照片保留不删除", todo_id)
         return
+    if keep_photo:
+        log.info("[qrphoto] 待办 %s 虚拟发货完成，照片保留至实际发货", todo_id)
+        return
     cleanup_photo(photo_path)
     log.info("[qrphoto] 待办 %s 发货完成，照片已删除", todo_id)
+
+
+#: 收尾时照片要不要留着：虚拟发货的照片留到「已实际发货」才删（见 mark_scanned_and_cleanup）。
+#: 已 'shipped' 的必留；'pending' 只在任务还在跑（shipping）时留——跑成功会转 'shipped'。
+#: 'pending' + failed 被平台撤下，说明这单已经走别的路发掉了，照片照常删，免得没人再来删它。
+_KEEP_VIRTUAL_PHOTO_SQL = (
+    "(CASE WHEN IFNULL([virtual_ship_state], '') = 'shipped' "
+    "OR (IFNULL([virtual_ship_state], '') = 'pending' AND IFNULL([ship_qr_state], '') = 'shipping') "
+    "THEN 1 ELSE 0 END)"
+)
 
 
 def finalize_absent_shipping_rows(
@@ -303,7 +324,8 @@ def finalize_absent_shipping_rows(
     db = DatabaseManager()
     try:
         rows = db.execute_query(
-            f"SELECT [id], [ship_qr_photo_path] FROM [todo_items] WHERE {where_sql}",
+            f"SELECT [id], [ship_qr_photo_path], {_KEEP_VIRTUAL_PHOTO_SQL} FROM [todo_items] "
+            f"WHERE {where_sql}",
             tuple(params),
         ) or []
     except Exception:
@@ -313,13 +335,15 @@ def finalize_absent_shipping_rows(
         return 0
 
     todo_ids = [int(r[0]) for r in rows if r and r[0] is not None]
-    photo_paths = [str(r[1] or "").strip() for r in rows if r and r[1]]
+    photo_paths = [str(r[1] or "").strip() for r in rows if r and r[1] and not r[2]]
 
     # 先写库再删文件：写库失败时照片还留着，行也仍指向它——不会留下悬空路径
     # （与 mark_scanned_and_cleanup 同一原则）。
     try:
         updated = db.execute_update(
-            "UPDATE [todo_items] SET [ship_qr_state] = NULL, [ship_qr_photo_path] = NULL, "
+            "UPDATE [todo_items] SET [ship_qr_state] = NULL, "
+            f"[ship_qr_photo_path] = CASE WHEN {_KEEP_VIRTUAL_PHOTO_SQL} "
+            "THEN [ship_qr_photo_path] ELSE NULL END, "
             "[ship_qr_class_text] = NULL, [is_delete] = 1, [shipped_finalized] = 1 "
             f"WHERE {where_sql}",
             tuple(params),

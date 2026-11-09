@@ -12,10 +12,10 @@
           />
         </div>
         <div class="search-actions">
-          <el-button :disabled="selected.length < 2" @click="openMerge">
+          <el-button v-if="$can('system/series:merge')" :disabled="selected.length < 2" @click="openMerge">
             {{ t('series.merge') }}<template v-if="selected.length">（{{ selected.length }}）</template>
           </el-button>
-          <el-button type="primary" @click="openDialog()">
+          <el-button v-if="$can('system/series:create')" type="primary" @click="openDialog()">
             <el-icon><Plus /></el-icon> {{ t('series.add') }}
           </el-button>
         </div>
@@ -42,8 +42,8 @@
             <el-button size="small" link type="primary" :disabled="!row.item_count" @click="viewItems(row)">
               {{ t('series.viewItems') }}
             </el-button>
-            <el-button size="small" @click="openDialog(row)">{{ t('common.edit') }}</el-button>
-            <el-popconfirm :title="t('series.deleteConfirm', { count: row.item_count })" @confirm="remove(row)">
+            <el-button v-if="$can('system/series:edit')" size="small" @click="openDialog(row)">{{ t('common.edit') }}</el-button>
+            <el-popconfirm v-if="$can('system/series:delete')" :title="t('series.deleteConfirm', { count: row.item_count })" @confirm="remove(row)">
               <template #reference>
                 <el-button size="small" type="danger">{{ t('common.delete') }}</el-button>
               </template>

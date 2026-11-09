@@ -14,7 +14,9 @@
 ``/{item_id}/tracking`` 同理走普通 HTTP：它直连黑猫 / 邮局的**公开**查询页，
 一次 ``requests`` 就完事，既不需要登录态也不需要浏览器（见 ``src/delivery_tracking``）。
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from ...page_access import require_feature
 
 from .units.purchases_query import (
     get_purchase_messages,
@@ -35,10 +37,15 @@ router.add_api_route("", list_purchase_items, methods=["GET"])
 router.add_api_route("/stats", purchase_stats, methods=["GET"])
 router.add_api_route("/states", list_purchase_states, methods=["GET"])
 # 代购结算：批量（含单条）标记结算状态 / 归属人
-router.add_api_route("/settlement", update_purchase_settlement, methods=["POST"])
+# 按钮级功能权限，口径见 src/page_access.py
+router.add_api_route(
+    "/settlement", update_purchase_settlement, methods=["POST"],
+    dependencies=[Depends(require_feature("system/purchases:edit"))],
+)
 # 同一件事的另一种选行方式：按筛选条件整批改（购入结算页的「标记已结算」）
 router.add_api_route(
-    "/settlement/by-filter", update_purchase_settlement_by_filter, methods=["POST"]
+    "/settlement/by-filter", update_purchase_settlement_by_filter, methods=["POST"],
+    dependencies=[Depends(require_feature("system/purchase-settlement:settle"))],
 )
 router.add_api_route("/{item_id}/messages", get_purchase_messages, methods=["GET"])
 # 配送履历：直连黑猫 / 邮局的公开查询页，不开浏览器也不入队，所以走普通 HTTP

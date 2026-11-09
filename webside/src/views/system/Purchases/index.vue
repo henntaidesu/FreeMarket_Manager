@@ -69,11 +69,11 @@
           <!-- 先点「多选」进入选择模式，再点行 / 卡片勾选——与在售商品页同一套交互。
                没有常驻的勾选框：表格里多一列、卡片上压一个框，平时都是白占地方。 -->
           <template v-if="!batchMode">
-            <el-button type="primary" :loading="syncLoading" @click="runSync">
+            <el-button v-if="$can('system/purchases:sync')" type="primary" :loading="syncLoading" @click="runSync">
               {{ t('purchases.sync') }}
             </el-button>
             <el-button @click="onFilterChange">{{ t('purchases.search') }}</el-button>
-            <el-button type="success" @click="enterBatchMode">{{ t('purchases.multiSelect') }}</el-button>
+            <el-button v-if="$can('system/purchases:edit')" type="success" @click="enterBatchMode">{{ t('purchases.multiSelect') }}</el-button>
           </template>
           <template v-else>
             <span class="batch-pick-count">
@@ -164,7 +164,12 @@
             <span v-if="batchMode" class="editable-cell is-static" :class="{ 'is-empty': !ownerName(row) }">
               {{ ownerName(row) || t('purchases.ownerUnassigned') }}
             </span>
-            <el-dropdown v-else trigger="click" @command="(uid) => setRowOwner(row, uid)">
+            <el-dropdown
+              v-else
+              trigger="click"
+              :disabled="!$can('system/purchases:edit')"
+              @command="(uid) => setRowOwner(row, uid)"
+            >
               <span class="editable-cell" :class="{ 'is-empty': !ownerName(row) }">
                 {{ ownerName(row) || t('purchases.ownerUnassigned') }}
                 <el-icon class="editable-caret"><ArrowDown /></el-icon>
@@ -185,7 +190,12 @@
             <el-tag v-if="batchMode" :type="settlementTag(settlementOf(row))" size="small" effect="light">
               {{ settlementLabel(settlementOf(row)) }}
             </el-tag>
-            <el-dropdown v-else trigger="click" @command="(st) => setRowSettlement(row, st)">
+            <el-dropdown
+              v-else
+              trigger="click"
+              :disabled="!$can('system/purchases:edit')"
+              @command="(st) => setRowSettlement(row, st)"
+            >
               <el-tag :type="settlementTag(settlementOf(row))" size="small" effect="light" class="settlement-tag">
                 {{ settlementLabel(settlementOf(row)) }}
                 <el-icon class="editable-caret"><ArrowDown /></el-icon>
@@ -243,7 +253,7 @@
           <template #default="{ row }">
             <div class="row-actions">
               <el-button size="small" @click="openDetail(row)">{{ t('purchases.detail') }}</el-button>
-              <el-button size="small" @click="refreshDetail(row)">
+              <el-button v-if="$can('system/purchases:sync')" size="small" @click="refreshDetail(row)">
                 {{ t('purchases.fetchDetail') }}
               </el-button>
             </div>

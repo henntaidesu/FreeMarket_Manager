@@ -15,6 +15,7 @@ from fastapi import Depends, HTTPException
 from pydantic import BaseModel as PydanticModel, Field
 
 from ....auth import require_auth
+from ....page_access import TASK_FEATURES, TASK_PAYLOAD_FEATURES, assert_feature
 from ....task_queue import (
     TaskDuplicateError,
     cancel_pending,
@@ -43,6 +44,12 @@ def submit_task_endpoint(body: SubmitTaskBody, claims: dict = Depends(require_au
     返回 ``{success, data: {task, created}}``；``created=False`` 表示同一 ``client_token``
     的任务已存在（双击/重发），前端应按「已提交」处理而不是再提示一次。
     """
+    # 按钮级功能权限：任务队列是很多按钮的共同出口，所以按 task_type 判定
+    if body.task_type in TASK_FEATURES:
+        assert_feature(claims, *TASK_FEATURES[body.task_type])
+    for (task_type, field), keys in TASK_PAYLOAD_FEATURES.items():
+        if body.task_type == task_type and (body.payload or {}).get(field) not in (None, ""):
+            assert_feature(claims, *keys)
     try:
         task, created = submit_task(
             task_type=body.task_type,
@@ -157,6 +164,10 @@ def retry_task(task_id: int, claims: dict = Depends(require_auth)):
     payload = task.get("payload")
     if isinstance(payload, str):
         raise HTTPException(status_code=400, detail="任务参数已损坏，无法重试")
+    # 重试 = 再提交一次：同样要有这个任务类型对应的功能
+    task_type = str(task.get("task_type") or "")
+    if task_type in TASK_FEATURES:
+        assert_feature(claims, *TASK_FEATURES[task_type])
     try:
         new_task, _created = submit_task(
             task_type=str(task.get("task_type")),

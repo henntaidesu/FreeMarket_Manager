@@ -6,7 +6,9 @@
 - 完整 URL 示例: GET /mercariV2/src/use_web/cost_expenses/
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from ....page_access import require_feature
 
 from .units.cost_expenses_crud import (
     create_cost_expense,
@@ -18,6 +20,16 @@ from .units.cost_expenses_crud import (
 router = APIRouter()
 
 router.add_api_route("", list_cost_expenses, methods=["GET"])
-router.add_api_route("", create_cost_expense, methods=["POST"])
-router.add_api_route("/{cid}", update_cost_expense, methods=["PUT"])
-router.add_api_route("/{cid}", delete_cost_expense, methods=["DELETE"])
+# 订单 / 待办页记包材也走这里：订单页要有「包材」功能（口径见 src/page_access.py）
+router.add_api_route(
+    "", create_cost_expense, methods=["POST"],
+    dependencies=[Depends(require_feature("orders:packaging", "todos:ship", "system/cost-expenses:create"))],
+)
+router.add_api_route(
+    "/{cid}", update_cost_expense, methods=["PUT"],
+    dependencies=[Depends(require_feature("system/cost-expenses:edit"))],
+)
+router.add_api_route(
+    "/{cid}", delete_cost_expense, methods=["DELETE"],
+    dependencies=[Depends(require_feature("system/cost-expenses:delete"))],
+)

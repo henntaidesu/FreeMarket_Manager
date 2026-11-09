@@ -91,21 +91,27 @@
         </div>
         <div class="search-actions">
           <template v-if="!listingPickMode">
-            <el-button type="success" :disabled="archive" @click="openBarcodeInbound">{{ t('inventory.barcodeInbound') }}</el-button>
-            <el-button type="success" plain :disabled="archive" @click="openNoCodeInbound">{{ t('inventory.noCodeInbound') }}</el-button>
+            <template v-if="$can('inventory:inbound')">
+              <el-button type="success" :disabled="archive" @click="openBarcodeInbound">{{ t('inventory.barcodeInbound') }}</el-button>
+              <el-button type="success" plain :disabled="archive" @click="openNoCodeInbound">{{ t('inventory.noCodeInbound') }}</el-button>
+            </template>
             <el-button type="primary" plain @click="openBarcodeSearch">{{ t('inventory.barcodeSearch') }}</el-button>
             <el-button type="primary" plain :disabled="archive" @click="openImageSearch">{{ t('inventory.imageSearch') }}</el-button>
-            <el-button :disabled="archive" @click="enterListingPickMode()">{{ t('inventory.multiSelect') }}</el-button>
+            <el-button
+              v-if="$can('inventory:warehouse') || $can('inventory:series') || $can('inventory:combine')"
+              :disabled="archive"
+              @click="enterListingPickMode()"
+            >{{ t('inventory.multiSelect') }}</el-button>
           </template>
           <template v-else>
             <span class="listing-pick-count">{{ t('inventory.selectedCount', { count: listingPickIds.size }) }}</span>
-            <el-button type="primary" :disabled="!listingPickIds.size" @click="openBatchWarehouseDialog">
+            <el-button v-if="$can('inventory:warehouse')" type="primary" :disabled="!listingPickIds.size" @click="openBatchWarehouseDialog">
               {{ t('inventory.batchChangeWarehouse') }}
             </el-button>
-            <el-button type="primary" :disabled="!listingPickIds.size" @click="openSeriesDialog">
+            <el-button v-if="$can('inventory:series')" type="primary" :disabled="!listingPickIds.size" @click="openSeriesDialog">
               {{ t('inventory.seriesAdd') }}
             </el-button>
-            <el-button type="primary" :disabled="!listingPickIds.size" @click="confirmListingPick">
+            <el-button v-if="$can('inventory:combine')" type="primary" :disabled="!listingPickIds.size" @click="confirmListingPick">
               {{ t('inventory.combinedProduct') }}
             </el-button>
             <el-button @click="exitListingPickMode">{{ t('inventory.cancelSelection') }}</el-button>
@@ -307,7 +313,7 @@
             <el-popover
               :visible="editingCategoryRowId === row.id"
               trigger="click"
-              :disabled="listingPickMode || archive"
+              :disabled="listingPickMode || archive || !$can('inventory:edit')"
               placement="bottom-start"
               width="auto"
               popper-class="inline-edit-popover inline-edit-popover--cascader"
@@ -393,7 +399,7 @@
               v-else
               :visible="editingWarehouseRowId === row.id"
               trigger="click"
-              :disabled="listingPickMode || archive"
+              :disabled="listingPickMode || archive || !$can('inventory:warehouse')"
               placement="bottom-start"
               width="auto"
               popper-class="inline-edit-popover inline-edit-popover--cascader"
@@ -582,7 +588,7 @@
         ref="formRef"
         label-position="top"
         size="small"
-        :disabled="archive"
+        :disabled="archive || formReadonly"
         class="product-edit-form"
       >
       <div
@@ -605,10 +611,22 @@
               @click="copyMgmtIdCipher"
             >{{ t('inventory.mgmtCipher') }} {{ editFormMgmtIdCipher }}</span>
             <!-- 从商品图片识别出的产品条码（上传图片时识别 / 系统配置里的历史数据处理） -->
+            <!-- 可点击修改；表单开着时扫码枪扫商品条码也会录入（不同则先确认替换） -->
             <span
               v-if="form.product_barcode"
               class="pef-section__badge"
+              :class="{ 'pef-section__badge--copy': canEditFormBarcode }"
+              :title="canEditFormBarcode ? t('inventory.barcodeEditTip') : ''"
+              @click="promptFormBarcode"
             >{{ t('inventory.productBarcode') }} {{ editFormBarcodeCode }}</span>
+            <el-button
+              v-else-if="canEditFormBarcode"
+              size="small"
+              type="warning"
+              plain
+              :title="t('inventory.barcodeEditTip')"
+              @click="promptFormBarcode"
+            >{{ t('inventory.barcodeInputBtn') }}</el-button>
             <!-- 从历史库存按管理番号带入名称 / 分类 / 类型 / 单价 / 出品设置 -->
             <el-button
               v-if="!archive"
@@ -1061,11 +1079,13 @@
           </div>
           <!-- 表单没有保存按钮：所有字段输入即实时保存（见 script.js 的 runFormAutosave），
                操作按钮统一收在出品参数下方 -->
+          <!-- 操作按钮不跟着「只读表单」变灰：它们各有自己的功能权限（嵌一层只管 disabled 的 el-form） -->
+          <el-form :disabled="archive" class="pef-actions-scope" @submit.prevent>
           <div class="pef-actions">
             <!-- size=default：这几个是弹窗的主操作，不跟着 el-form 的 size=small 缩水 -->
             <!-- 新增批次：新到的货记成本商品的一个批次（原「复制」会再开一个管理番号） -->
             <el-button
-              v-if="batchesEnabled"
+              v-if="batchesEnabled && $can('inventory:batch')"
               type="primary"
               plain
               size="default"
@@ -1073,7 +1093,7 @@
             >{{ t('inventory.addBatch') }}</el-button>
             <!-- 删除：假删除（is_delete=1），管理员可在数据库恢复 -->
             <el-button
-              v-if="form.id && !archive"
+              v-if="form.id && !archive && $can('inventory:delete')"
               type="danger"
               plain
               size="default"
@@ -1082,7 +1102,7 @@
             >{{ t('inventory.deleteInventory') }}</el-button>
             <!-- 出品已改为提交任务队列：不受全局同步锁阻挡；可上架为 0 时仍禁用（后端亦会二次把关） -->
             <el-tooltip
-              v-if="form.id"
+              v-if="form.id && $can('inventory:listing')"
               :disabled="!currentEditRowIsAlert"
               :content="currentEditRowAlertReason"
               placement="top"
@@ -1121,6 +1141,7 @@
               </span>
             </el-tooltip>
           </div>
+          </el-form>
         </section>
         </div>
         </el-tab-pane>
@@ -1150,12 +1171,14 @@
               </div>
             </template>
             <template v-else>
-              <div v-if="!archive && batchRows.length > 1" class="pef-batch-summary">
-                <!-- 合并：勾选同一货架、同一所有人的批次，并入其中最早的那个 -->
+              <!-- 批次操作各按功能权限显示，不跟着「只读表单」变灰 -->
+              <el-form :disabled="archive" size="small" class="pef-actions-scope" @submit.prevent>
+              <div v-if="!archive && batchRows.length > 1 && $can('inventory:batch')" class="pef-batch-summary">
+                <!-- 合并：勾选同一所有人的批次，并入其中最早的那个；货架不同时弹窗选归入哪个货架 -->
                 <el-popconfirm
                   v-if="!archive && batchRows.length > 1"
                   :title="t('inventory.batchMergeConfirm', { count: batchSelection.length })"
-                  :disabled="batchSelection.length < 2"
+                  :disabled="batchSelection.length < 2 || batchMergeShelves.length > 1"
                   @confirm="mergeSelectedBatches"
                 >
                   <template #reference>
@@ -1164,6 +1187,7 @@
                       class="pef-batch-merge"
                       :disabled="batchSelection.length < 2"
                       :loading="batchMerging"
+                      @click="onMergeBatchesClick"
                     >{{ t('inventory.batchMerge', { count: batchSelection.length }) }}</el-button>
                   </template>
                 </el-popconfirm>
@@ -1194,7 +1218,7 @@
                 @selection-change="onBatchSelectionChange"
               >
                 <el-table-column
-                  v-if="!archive && batchRows.length > 1"
+                  v-if="!archive && batchRows.length > 1 && $can('inventory:batch')"
                   type="selection"
                   width="40"
                   align="center"
@@ -1249,6 +1273,7 @@
                       v-else
                       v-model="row.remark"
                       size="small"
+                      :disabled="!$can('inventory:batch')"
                       @change="(v) => saveBatchField(row, 'remark', v)"
                     />
                   </template>
@@ -1256,7 +1281,7 @@
                 <el-table-column width="104" align="center">
                   <template #default="{ row }">
                     <el-button
-                      v-if="!archive && row.stage !== 'transit'"
+                      v-if="!archive && row.stage !== 'transit' && $can('inventory:stock_out')"
                       link
                       type="primary"
                       size="small"
@@ -1264,7 +1289,7 @@
                       @click="openStockOut(row)"
                     >{{ t('inventory.batchStockOut') }}</el-button>
                     <el-popconfirm
-                      v-if="row.stage !== 'transit'"
+                      v-if="row.stage !== 'transit' && $can('inventory:batch')"
                       :title="t('inventory.batchDeleteConfirm', { qty: Number(row.quantity || 0) })"
                       @confirm="removeBatch(row)"
                     >
@@ -1275,6 +1300,30 @@
                   </template>
                 </el-table-column>
               </el-table>
+              <!-- 合并不同货架的批次：选合并后归入哪个货架（只能是所选批次之一的货架） -->
+              <el-dialog
+                v-model="mergeShelfVisible"
+                :title="t('inventory.batchMergeShelfTitle', { count: batchSelection.length })"
+                width="400px"
+                append-to-body
+              >
+                <p class="cell-muted">{{ t('inventory.batchMergeShelfHint') }}</p>
+                <el-radio-group v-model="mergeShelfKey" style="display: flex; flex-direction: column; align-items: flex-start; gap: 8px">
+                  <el-radio v-for="s in batchMergeShelves" :key="s.key" :value="s.key">
+                    {{ s.name || t('inventory.defaultWarehouse') }}
+                    <span class="cell-muted">（{{ t('inventory.batchMergeShelfQty', { qty: s.quantity }) }}）</span>
+                  </el-radio>
+                </el-radio-group>
+                <template #footer>
+                  <el-button @click="mergeShelfVisible = false">{{ t('common.cancel') }}</el-button>
+                  <el-button
+                    type="primary"
+                    :disabled="mergeShelfKey == null"
+                    :loading="batchMerging"
+                    @click="mergeSelectedBatches"
+                  >{{ t('inventory.batchMerge', { count: batchSelection.length }) }}</el-button>
+                </template>
+              </el-dialog>
               <!-- 手动出库：从选中批次扣减（不走先进先出），总数同步减少 -->
               <el-dialog
                 v-model="stockOutVisible"
@@ -1315,7 +1364,7 @@
               </el-dialog>
               <!-- 新增一行：批次号自动编号，到货时间默认此刻，数量下拉选（建好后不可改）。
                    扫码枪扫货架码 = 货架切到该货架；货架 / 数量下拉带 data-scanner-capture，焦点停在上面时扫码也收 -->
-              <div class="pef-batch-add">
+              <div v-if="$can('inventory:batch')" class="pef-batch-add">
                 <el-date-picker
                   v-model="newBatch.arrived_at"
                   type="datetime"
@@ -1349,6 +1398,7 @@
                   {{ t('inventory.addBatch') }}
                 </el-button>
               </div>
+              </el-form>
             </template>
           </div>
         </el-tab-pane>

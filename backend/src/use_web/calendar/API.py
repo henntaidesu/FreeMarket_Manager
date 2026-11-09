@@ -11,7 +11,9 @@
     DELETE /mercariV2/src/use_web/calendar/events/{eid}
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from ...page_access import require_feature
 
 from .units.calendar_handler import (
     create_event,
@@ -23,8 +25,13 @@ from .units.calendar_handler import (
 
 router = APIRouter()
 
+
+def _f(*keys):
+    """按钮级功能权限（叠在路由组的页面权限之上），口径见 src/page_access.py。"""
+    return [Depends(require_feature(*keys))]
+
 router.add_api_route("/events", list_events, methods=["GET"])
 router.add_api_route("/pending-count", pending_count, methods=["GET"])
-router.add_api_route("/events", create_event, methods=["POST"])
-router.add_api_route("/events/{eid}", update_event, methods=["PUT"])
-router.add_api_route("/events/{eid}", delete_event, methods=["DELETE"])
+router.add_api_route("/events", create_event, methods=["POST"], dependencies=_f("system/calendar:create"))
+router.add_api_route("/events/{eid}", update_event, methods=["PUT"], dependencies=_f("system/calendar:edit"))
+router.add_api_route("/events/{eid}", delete_event, methods=["DELETE"], dependencies=_f("system/calendar:delete"))

@@ -101,6 +101,7 @@
           <div class="foot-actions">
             <el-button size="small" @click="openDetail(row)">{{ t('purchaseSettlement.detail') }}</el-button>
             <el-button
+              v-if="$can('system/purchase-settlement:settle')"
               size="small"
               type="success"
               :disabled="!row.unsettled_count"

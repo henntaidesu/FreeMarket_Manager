@@ -18,12 +18,14 @@
     提交（虚拟）  → 'pending'   意图。任务失败退回待发货时**保住它**，
                                否则「重新扫码」重跑一遍就悄悄变成普通发货了
     任务成功      → 'shipped'   平台已办完 → 进「虚拟发货」筛选，等实物投函
-    点「已实际发货」→ 'done'     软删收尾，与普通发货成功后的下场一致
+    点「已实际发货」→ 'done'     软删收尾，与普通发货成功后的下场一致；
+                               扫码照片也到这一步才删（普通发货是任务成功即删）
     提交（普通）  → NULL        同一行改走普通发货时要把旧意图清掉
 """
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any, Dict, Optional
 
@@ -82,6 +84,27 @@ def set_intent(todo_id: int, virtual: bool) -> None:
         log.exception("[virtualship] 记录虚拟发货意图失败 todo_id=%s", todo_id)
 
 
+def is_pending(todo_id: int) -> bool:
+    """这一单是不是正在走虚拟发货（意图已记、平台侧还没办完）。
+
+    给发货任务的收尾用：虚拟发货成功后照片要留到「已实际发货」，而 ``mark_shipped``
+    在照片清理**之后**才跑，那时只能看意图。查询失败按「不是」处理——照片照常删，
+    最坏是少一张核对用的图，不会留下永远没人删的文件。
+    """
+    from .....db_manage.database import DatabaseManager
+
+    try:
+        rows = DatabaseManager().execute_query(
+            "SELECT 1 FROM [todo_items] WHERE [id] = ? "
+            "AND IFNULL([virtual_ship_state], '') = 'pending'",
+            (int(todo_id),),
+        )
+    except Exception:
+        log.exception("[virtualship] 查询虚拟发货意图失败 todo_id=%s", todo_id)
+        return False
+    return bool(rows)
+
+
 def mark_shipped(todo_id: int) -> bool:
     """平台侧发货流程跑完 → ``'pending'`` 转 ``'shipped'``，返回是否命中。
 
@@ -110,6 +133,9 @@ def confirm_actual_shipped(todo_id: int) -> Dict[str, Any]:
     收尾口径与普通发货成功后一致（``is_delete=1`` + ``shipped_finalized=1``），
     行随即从「虚拟发货」筛选消失；``virtual_shipped_at`` **不清**——「虚拟了多久才真发出去」
     只能靠它算。
+
+    扫码照片到这一步才删（虚拟发货期间留着给投函前核对），口径同 ``mark_scanned_and_cleanup``：
+    先写库清字段再删文件；``ship_qr_text`` 照旧保留作「发了哪个码」的记录。
     """
     from .....db_manage.models.todos.todo_item import TodoItemModel
 
@@ -123,11 +149,20 @@ def confirm_actual_shipped(todo_id: int) -> Dict[str, Any]:
     if state != "shipped":
         raise HTTPException(status_code=400, detail="该待办不处于虚拟发货状态")
 
+    photo = str(getattr(todo, "ship_qr_photo_path", "") or "").strip()
     n = _update(
         int(todo_id),
-        "[virtual_ship_state] = ?, [is_delete] = 1, [shipped_finalized] = 1",
+        "[virtual_ship_state] = ?, [is_delete] = 1, [shipped_finalized] = 1, "
+        "[ship_qr_photo_path] = NULL",
         ("done",),
         extra_where="AND IFNULL([virtual_ship_state], '') = 'shipped'",
     )
+    if n and photo:
+        from ....image_storage import get_image_root
+        from .qr_photo import cleanup_photo
+
+        name = os.path.basename(photo)
+        if name:
+            cleanup_photo(os.path.join(get_image_root(), name))
     log.info("[virtualship] 待办 %s 已实际发货，收尾（更新 %s 行）", todo_id, n)
     return {"success": True, "data": {"changed": bool(n)}}

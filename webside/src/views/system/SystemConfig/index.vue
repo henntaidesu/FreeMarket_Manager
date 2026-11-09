@@ -80,7 +80,7 @@
         </section>
 
         <!-- 账号管理（仅管理员：后端 /users 是管理员接口） -->
-        <section v-if="auth.isAdmin" v-show="sectionShown('account')" id="sc-account" class="sc-panel">
+        <section v-if="sectionAllowed('account')" v-show="sectionShown('account')" id="sc-account" class="sc-panel">
           <div class="sc-panel-head">
             <span class="sc-ic"><el-icon :size="16"><User /></el-icon></span>
             <div class="sc-head-text">
@@ -117,7 +117,7 @@
               <el-table-column prop="created_at" :label="t('common.createdAt')" min-width="160" />
               <el-table-column :label="t('common.operate')" width="90" align="center">
                 <template #default="{ row }">
-                  <el-button link type="primary" size="small" @click="openUserDialog(row)">
+                  <el-button v-if="auth.isAdmin || !row.is_admin" link type="primary" size="small" @click="openUserDialog(row)">
                     {{ t('common.edit') }}
                   </el-button>
                 </template>
@@ -128,7 +128,7 @@
 
         <!-- 系统角色：一个角色 = 一组允许访问的页面（仅管理员）。
              改动即时生效：后端每请求现读角色，前端每 30 秒重拉一次当前用户 -->
-        <section v-if="auth.isAdmin" v-show="sectionShown('roles')" id="sc-roles" class="sc-panel">
+        <section v-if="sectionAllowed('roles')" v-show="sectionShown('roles')" id="sc-roles" class="sc-panel">
           <div class="sc-panel-head">
             <span class="sc-ic"><el-icon :size="16"><Key /></el-icon></span>
             <div class="sc-head-text">
@@ -172,7 +172,7 @@
 
         <!-- 系统关联 · 门户单点登录：本系统这边打开且配齐才生效（登录页才出现「门户登录」），
              门户那边还要在 conf.json 的 idp.clients 里登记本系统。两边都同意才能用。 -->
-        <section v-if="auth.isAdmin" v-show="sectionShown('sso')" id="sc-sso" class="sc-panel">
+        <section v-if="sectionAllowed('sso')" v-show="sectionShown('sso')" id="sc-sso" class="sc-panel">
           <div class="sc-panel-head">
             <span class="sc-ic"><el-icon :size="16"><Share /></el-icon></span>
             <div class="sc-head-text">
@@ -719,7 +719,7 @@
         </section>
 
         <!-- 同步库（= 数据库备份）：把当前库整库覆盖到另一个 MySQL；可定时自动，也可立即同步一次 -->
-        <section v-if="auth.isAdmin" v-show="sectionShown('db-sync')" id="sc-db-sync" class="sc-panel">
+        <section v-if="sectionAllowed('db-sync')" v-show="sectionShown('db-sync')" id="sc-db-sync" class="sc-panel">
           <div class="sc-panel-head">
             <span class="sc-ic"><el-icon :size="16"><CopyDocument /></el-icon></span>
             <div class="sc-head-text">
@@ -1178,7 +1178,7 @@
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-checkbox v-model="userForm.is_admin" :disabled="isSelfUser">{{ t('roles.admin') }}</el-checkbox>
+          <el-checkbox v-model="userForm.is_admin" :disabled="isSelfUser || !auth.isAdmin">{{ t('roles.admin') }}</el-checkbox>
           <el-checkbox v-if="userForm.id" v-model="userForm.is_active" :disabled="isSelfUser">
             {{ t('common.enabled') }}
           </el-checkbox>
@@ -1195,7 +1195,7 @@
     <el-dialog
       v-model="roleDialogVisible"
       :title="roleForm.id ? t('roles.edit') : t('roles.add')"
-      width="560px"
+      width="720px"
       class="sc-dialog"
       destroy-on-close
     >
@@ -1221,6 +1221,17 @@
               <el-checkbox-group v-model="roleForm.pages" class="sc-role-group-items">
                 <el-checkbox v-for="p in g.items" :key="p.key" :value="p.key">{{ t(p.titleKey) }}</el-checkbox>
               </el-checkbox-group>
+              <!-- 可访问功能：勾了页面才出现；全勾 = 该页全部功能（以后新增的也含在内） -->
+              <template v-for="p in g.items" :key="'f-' + p.key">
+                <div v-if="PAGE_FEATURES[p.key] && roleForm.pages.includes(p.key)" class="sc-role-features">
+                  <span class="sc-role-features-title">{{ t(p.titleKey) }}</span>
+                  <el-checkbox-group v-model="roleForm.features[p.key]" class="sc-role-group-items">
+                    <el-checkbox v-for="a in PAGE_FEATURES[p.key]" :key="a" :value="a">
+                      {{ t(featureTitleKey(p.key, a)) }}
+                    </el-checkbox>
+                  </el-checkbox-group>
+                </div>
+              </template>
             </div>
           </div>
         </el-form-item>
@@ -1274,6 +1285,7 @@ import { setLocale, SUPPORTED_LOCALES } from '@/i18n'
 import { authApi, roleApi, configApi, proxyUserApi, shopAccountApi, ssoApi } from '@/api/index.js'
 import { useAuthStore } from '@/stores/auth.js'
 import { MENU_ITEMS, pageKeyOf } from '@/constants/menu.js'
+import { PAGE_FEATURES, featureTitleKey } from '@/constants/permissions.js'
 import { databaseApi } from '@/api/database'
 import { imageHostingApi } from '@/api/image_hosting'
 import BarcodeConflictDialog from './BarcodeConflictDialog.vue'
@@ -1309,31 +1321,36 @@ const CATEGORIES = [
 ]
 const SECTIONS = [
   { id: 'language', cat: 'basic', icon: 'Compass', labelKey: 'systemConfig.languageSection' },
-  { id: 'account', cat: 'basic', icon: 'User', labelKey: 'system.accountManagement', adminOnly: true },
-  { id: 'roles', cat: 'basic', icon: 'Key', labelKey: 'roles.section', adminOnly: true },
-  { id: 'sso', cat: 'basic', icon: 'Share', labelKey: 'systemConfig.ssoSection', adminOnly: true },
-  { id: 'proxy-users', cat: 'basic', icon: 'UserFilled', labelKey: 'proxyUsers.section' },
+  { id: 'account', cat: 'basic', icon: 'User', labelKey: 'system.accountManagement', feature: 'accounts' },
+  { id: 'roles', cat: 'basic', icon: 'Key', labelKey: 'roles.section', feature: 'roles' },
+  { id: 'sso', cat: 'basic', icon: 'Share', labelKey: 'systemConfig.ssoSection', feature: 'sso' },
+  { id: 'proxy-users', cat: 'basic', icon: 'UserFilled', labelKey: 'proxyUsers.section', feature: 'proxy_users' },
   { id: 'password', cat: 'basic', icon: 'Lock', labelKey: 'system.changeMyPassword' },
-  { id: 'ai', cat: 'business', icon: 'MagicStick', labelKey: 'systemConfig.deepseekSection' },
-  { id: 'listing', cat: 'business', icon: 'Sell', labelKey: 'system.listingDefaults' },
-  { id: 'profile-hide', cat: 'business', icon: 'Hide', labelKey: 'profileHide.section' },
-  { id: 'barcode-history', cat: 'business', icon: 'Search', labelKey: 'barcodeHistory.section' },
-  { id: 'shipping-duration', cat: 'business', icon: 'Timer', labelKey: 'shippingDurationBatch.section' },
-  { id: 'database', cat: 'data', icon: 'Coin', labelKey: 'systemConfig.databaseSection' },
-  { id: 'db-sync', cat: 'data', icon: 'CopyDocument', labelKey: 'systemConfig.dbSyncSection', adminOnly: true },
-  { id: 'image-hosting', cat: 'data', icon: 'Picture', labelKey: 'systemConfig.imageHostingSection' },
-  { id: 'qrparams', cat: 'device', icon: 'Tickets', labelKey: 'qrPrint.paramsSection' },
-  { id: 'printer', cat: 'device', icon: 'Printer', labelKey: 'qrPrint.connSection' },
-  { id: 'web-access', cat: 'device', icon: 'Connection', labelKey: 'webAccess.section' },
-  { id: 'proxy', cat: 'device', icon: 'Link', labelKey: 'systemConfig.proxySection' },
+  { id: 'ai', cat: 'business', icon: 'MagicStick', labelKey: 'systemConfig.deepseekSection', feature: 'ai' },
+  { id: 'listing', cat: 'business', icon: 'Sell', labelKey: 'system.listingDefaults', feature: 'listing' },
+  { id: 'profile-hide', cat: 'business', icon: 'Hide', labelKey: 'profileHide.section', feature: 'profile_hide' },
+  { id: 'barcode-history', cat: 'business', icon: 'Search', labelKey: 'barcodeHistory.section', feature: 'barcode' },
+  { id: 'shipping-duration', cat: 'business', icon: 'Timer', labelKey: 'shippingDurationBatch.section', feature: 'shipping_duration' },
+  { id: 'database', cat: 'data', icon: 'Coin', labelKey: 'systemConfig.databaseSection', feature: 'database' },
+  { id: 'db-sync', cat: 'data', icon: 'CopyDocument', labelKey: 'systemConfig.dbSyncSection', feature: 'database' },
+  { id: 'image-hosting', cat: 'data', icon: 'Picture', labelKey: 'systemConfig.imageHostingSection', feature: 'image_hosting' },
+  { id: 'qrparams', cat: 'device', icon: 'Tickets', labelKey: 'qrPrint.paramsSection', feature: 'printer' },
+  { id: 'printer', cat: 'device', icon: 'Printer', labelKey: 'qrPrint.connSection', feature: 'printer' },
+  { id: 'web-access', cat: 'device', icon: 'Connection', labelKey: 'webAccess.section', feature: 'web_access' },
+  { id: 'proxy', cat: 'device', icon: 'Link', labelKey: 'systemConfig.proxySection', feature: 'proxy' },
 ]
 const SECTION_CAT = Object.fromEntries(SECTIONS.map((s) => [s.id, s.cat]))
 
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
-/** 账号 / 角色两块只给管理员看：对应接口是管理员专用，非管理员进来只会弹 403 */
-const visibleSections = computed(() => SECTIONS.filter((s) => !s.adminOnly || auth.isAdmin))
+/** 分区按角色功能显示（原仅管理员的账号 / 角色 / 数据库等也在其中）；没有 feature 的分区人人可见 */
+const SECTION_FEATURE = Object.fromEntries(SECTIONS.map((s) => [s.id, s.feature]))
+function sectionAllowed(id) {
+  const f = SECTION_FEATURE[id]
+  return !f || auth.can(`system/config:${f}`)
+}
+const visibleSections = computed(() => SECTIONS.filter((s) => sectionAllowed(s.id)))
 const navGroups = computed(() =>
   CATEGORIES.map((c) => ({ ...c, sections: visibleSections.value.filter((s) => s.cat === c.id) }))
     .filter((g) => g.sections.length)
@@ -1347,7 +1364,7 @@ const currentGroupSections = computed(
   () => navGroups.value.find((g) => g.id === activeCategory.value)?.sections || []
 )
 function sectionShown(id) {
-  return SECTION_CAT[id] === activeCategory.value
+  return SECTION_CAT[id] === activeCategory.value && sectionAllowed(id)
 }
 
 const pageRef = ref(null)
@@ -1429,7 +1446,8 @@ const rolesLoading = ref(false)
 const roleDialogVisible = ref(false)
 const roleSubmitting = ref(false)
 const roleFormRef = ref()
-const roleForm = reactive({ id: null, name: '', description: '', pages: [] })
+// features：{页面: [动作]}，只放有功能清单的页面；打开时缺省的页面按「全部功能」勾满
+const roleForm = reactive({ id: null, name: '', description: '', pages: [], features: {} })
 const roleRules = {
   name: [{ required: true, message: t('roles.nameRequired'), trigger: 'blur' }]
 }
@@ -1491,7 +1509,7 @@ function applySso(cfg) {
 }
 
 async function loadSso() {
-  if (!auth.isAdmin) return
+  if (!auth.can('system/config:sso')) return
   applySso(await ssoApi.getConfig())
   loadSsoBindings()
 }
@@ -1560,6 +1578,10 @@ function openRoleDialog(row) {
   roleForm.name = row?.name || ''
   roleForm.description = row?.description || ''
   roleForm.pages = [...(row?.pages || [])]
+  const saved = row?.features || {}
+  roleForm.features = Object.fromEntries(
+    Object.entries(PAGE_FEATURES).map(([page, acts]) => [page, Array.isArray(saved[page]) ? [...saved[page]] : [...acts]])
+  )
   roleDialogVisible.value = true
 }
 
@@ -1567,7 +1589,11 @@ async function submitRole() {
   await roleFormRef.value.validate()
   roleSubmitting.value = true
   try {
-    const payload = { name: roleForm.name, description: roleForm.description, pages: roleForm.pages }
+    // 只提交已勾选页面的功能；后端会把勾满的页面省略成「全部功能」
+    const features = Object.fromEntries(
+      Object.entries(roleForm.features).filter(([page]) => roleForm.pages.includes(page))
+    )
+    const payload = { name: roleForm.name, description: roleForm.description, pages: roleForm.pages, features }
     if (roleForm.id) await roleApi.update(roleForm.id, payload)
     else await roleApi.create(payload)
     ElMessage.success(t('roles.saved'))
@@ -2482,8 +2508,8 @@ async function loadDbConfig() {
     host: cfg.mysql.host, port: cfg.mysql.port,
     user: cfg.mysql.user, database: cfg.mysql.database, password: ''
   })
-  // 同步库接口仅管理员可用
-  if (auth.isAdmin) applySyncStatus(await databaseApi.getSyncSettings(), cfg.mysql)
+  // 同步库接口要有「数据库」功能
+  if (auth.can('system/config:database')) applySyncStatus(await databaseApi.getSyncSettings(), cfg.mysql)
 }
 
 /** 用服务端状态刷新同步库表单；从未保存过同步库时预填当前 MySQL 服务器（库名留空，避免误覆盖当前库） */
@@ -2737,10 +2763,8 @@ async function onForget() {
 }
 
 onMounted(() => {
-  if (auth.isAdmin) {
-    loadUsers()
-    loadRoles()
-  }
+  if (auth.can('system/config:accounts')) loadUsers()
+  if (['roles', 'accounts', 'sso'].some((f) => auth.can(`system/config:${f}`))) loadRoles()
   loadProxyUsers()
   load()
   loadListingDefaults()
@@ -2972,6 +2996,19 @@ onUnmounted(() => {
   flex-wrap: wrap;
   column-gap: 4px;
   padding-left: 22px;
+}
+.sc-role-features {
+  margin: 6px 0 0 22px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--el-fill-color-light);
+}
+.sc-role-features-title {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.sc-role-features .sc-role-group-items {
+  padding-left: 0;
 }
 .sc-wa-mono {
   font-family: ui-monospace, Consolas, monospace;

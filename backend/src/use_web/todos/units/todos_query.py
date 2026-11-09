@@ -529,9 +529,20 @@ def match_inventory_for_item(item_id: str) -> Dict[str, Any]:
         "is_combined", "combined_items",
         "sort_index", "line_id",
     ]
+    from ....use_mercari.line_shelves import effective_line_warehouses, warehouse_labels
+
+    # 货架按「越早的订单分到越早的批次」，不直接用库存当前队首（见 line_shelves）
+    line_wh = effective_line_warehouses(db, [r[keys.index("line_id")] for r in inv_rows])
+    labels = warehouse_labels(db, line_wh.values())
     inventory: List[Dict[str, Any]] = []
     for row in inv_rows:
         d = dict(zip(keys, row))
+        lid = int(d["line_id"])
+        if lid in line_wh:
+            wid = line_wh[lid]
+            d["warehouse_name"], d["shelf_name"], d["shelf_code"] = labels.get(
+                int(wid) if wid is not None else -1, (None, None, None)
+            )
         is_combined = bool(int(d.get("is_combined") or 0))
         # 组合（捆绑）库存：展开其来源商品，逐个回显仓库位置（组合本身的位置往往为空）
         components = (
