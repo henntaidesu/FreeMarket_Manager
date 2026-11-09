@@ -15,6 +15,9 @@ export const warehouseApi = {
   /** 隐藏 / 取消隐藏货架号（仅库存归零的货架号可隐藏，后端会再校验一次） */
   setHidden: (id, isHidden) =>
     http.put(`/use_web/system/warehouses/${id}/hidden`, { is_hidden: !!isHidden }),
+  /** 在途仓开关（按仓库名）：在途仓的货架号删除时，上面的库存一并清零 */
+  setTransit: (warehouse, isTransit) =>
+    http.put('/use_web/system/warehouses/transit', { warehouse, is_transit: !!isTransit }),
   /** 货架号二维码：{ id, code: 'WH<id>', data_url }（扫码入库时扫它归类仓位） */
   qr: (id) => http.get(`/use_web/system/warehouses/${id}/qr`)
 }

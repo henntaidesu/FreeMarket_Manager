@@ -36,6 +36,7 @@ import {
 import { MERCARI_UNDECIDED_AREA_ID } from '@/composables/useListingPlatform.js'
 import { useBarcodeScanner } from '@/composables/useBarcodeScanner.js'
 import { buildShelfNoLabel, parseWarehouseQr } from '@/utils/warehouseQr.js'
+import { barcodeImageUrl } from '@/utils/barcodeImage.js'
 import { useInventoryBatches } from './useInventoryBatches.js'
 import { useInventorySeries } from './useInventorySeries.js'
 import RegionRecognizeDialog from './RegionRecognizeDialog.vue'
@@ -3039,6 +3040,39 @@ export default defineComponent({
       }
     }
 
+    /** 删除商品（假删除：后端只置 is_delete=1，管理员可在数据库恢复） */
+    const inventoryDeleting = ref(false)
+    async function deleteCurrentInventory() {
+      const id = form.value?.id
+      if (!id) return
+      try {
+        await ElMessageBox.confirm(
+          t('inventory.deleteInventoryConfirm', { name: form.value.name || id }),
+          t('inventory.deleteInventoryTitle'),
+          { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') }
+        )
+      } catch {
+        return
+      }
+      cancelFormAutosave()
+      if (autosaveInFlight) {
+        try { await autosaveInFlight } catch { /* ignore */ }
+      }
+      inventoryDeleting.value = true
+      try {
+        await invApi.remove(id)
+      } catch {
+        return // 拦截器已提示（如出品任务排队中 409）
+      } finally {
+        inventoryDeleting.value = false
+      }
+      formCreatedInSession = null
+      dialogVisible.value = false
+      ElMessage.success(t('inventory.deleteInventorySuccess'))
+      await load({ resetPage: false })
+      loadInventoryStats()
+    }
+
     /** 加载「所属组合」：该商品被哪些组合商品引用（仅普通商品时有意义） */
     async function loadUsedInCombosForRow(row) {
       usedInCombosRows.value = []
@@ -4759,6 +4793,7 @@ export default defineComponent({
       }
       contInventory.value = await invApi.get(id)
       contQuantity.value = 1
+      loadContShelves(contInventory.value)
       if (contScanMode.value !== 'gun') {
         contState.value = 'found'
         return
@@ -4798,6 +4833,65 @@ export default defineComponent({
         ElMessage.warning(t('inventory.cannotLoadInventoryItem'))
       }
     }
+
+    /** 弹窗标题右侧的条码图：只在扫到条码后、显示该条码结果的几个状态里出现 */
+    const contHeaderBarcode = computed(() =>
+      ['pick', 'found', 'notfound', 'need-warehouse'].includes(contState.value) ? contBarcode.value : '')
+
+    /** 弹窗标题里条码右边的商品名：已经定位到某件商品的两个状态才有 */
+    const contHeaderName = computed(() =>
+      ['found', 'need-warehouse'].includes(contState.value) && contInventory.value
+        ? (contInventory.value.name || t('inventory.unnamed'))
+        : '')
+
+    /** 点扫码弹窗里当前商品的「查看商品」：打开它的详情表单（扫码弹窗留在下面） */
+    function openContInventoryDetail() {
+      if (contInventory.value) openDialog(contInventory.value)
+    }
+
+    /** 当前扫到的商品分散在哪些货架：按批次汇总在岸、有货的仓位（先进先出顺序）。
+     *  只在已分批时拉批次——未分批时列批次接口会顺手把历史数量转成批次（写库），没必要为了看一眼去触发 */
+    const contShelves = ref([])
+    async function loadContShelves(inv) {
+      contShelves.value = []
+      const id = inv?.id
+      if (!id || !Number(inv.batch_count || 0)) return
+      try {
+        const res = await invApi.listBatches(id)
+        if (contInventory.value?.id !== id) return
+        const byWh = new Map()
+        for (const b of res?.batches || []) {
+          if (b.stage === 'transit' || Number(b.quantity || 0) <= 0) continue
+          const key = b.warehouse_id ?? 0
+          const cur = byWh.get(key) || { warehouseId: b.warehouse_id, name: b.warehouse_name || b.warehouse_store || t('inventory.notSet'), quantity: 0 }
+          cur.quantity += Number(b.quantity || 0)
+          byWh.set(key, cur)
+        }
+        contShelves.value = [...byWh.values()]
+      } catch {
+        // 拉不到批次时退回只显示队首仓位
+      }
+    }
+
+    /** 右栏货架卡片：有批次按批次所在货架各一张（件数为该货架的在岸库存），没有批次退回商品自身的货架 */
+    const contShelfCards = computed(() => {
+      const inv = contInventory.value
+      if (!inv) return []
+      const card = (wid, fallbackStore, quantity) => {
+        const w = wid ? shelfById(wid) : null
+        return {
+          key: wid ?? 0,
+          no: w ? (w.name || `#${w.id}`) : '',
+          shelfName: String(w?.shelf_name || '').trim(),
+          store: String(w?.warehouse || '').trim() || fallbackStore || t('inventory.notSet'),
+          quantity,
+        }
+      }
+      if (contShelves.value.length) {
+        return contShelves.value.map((s) => card(s.warehouseId, s.name, s.quantity))
+      }
+      return [card(inv.warehouse_id, inv.inv_wh_name, Number(inv.quantity || 0))]
+    })
 
     function shelfById(wid) {
       return (warehouses.value || []).find((w) => Number(w.id) === Number(wid)) || null
@@ -5686,6 +5780,12 @@ export default defineComponent({
       contGunInput,
       contGunLast,
       openGunLastDetail,
+      openContInventoryDetail,
+      contHeaderBarcode,
+      contHeaderName,
+      barcodeImageUrl,
+      contShelves,
+      contShelfCards,
       shelfLabelImage,
       inboundFlash,
       contCaptureUseA,
@@ -5712,6 +5812,8 @@ export default defineComponent({
       combinedEditDetailRows,
       combinedComponentRemoving,
       removeCombinedComponentRow,
+      inventoryDeleting,
+      deleteCurrentInventory,
       combinedLinkImageDialogVisible,
       showCombinedEditDetail,
       usedInCombosLoading,

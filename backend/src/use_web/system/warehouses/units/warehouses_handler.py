@@ -7,6 +7,7 @@ from pydantic import BaseModel as PydanticModel
 
 from .....db_manage.database import DatabaseManager
 from .....db_manage.models.system.warehouse import WarehouseModel
+from .warehouse_transit import clear_shelf_stock, is_transit_warehouse
 
 
 db = DatabaseManager()
@@ -304,6 +305,12 @@ def delete_warehouse(wid: int):
     wh = WarehouseModel.find_by_id(id=wid)
     if not wh:
         raise HTTPException(status_code=404, detail="仓库不存在")
+    # 在途仓：货已到目的仓、要在那边重新扫码入库，所以这个货架号上的库存一并清零
+    if is_transit_warehouse(_row_wh_key(wh)):
+        label = " / ".join(s for s in (_row_wh_key(wh), wh.shelf_name, wh.name) if s)
+        res = clear_shelf_stock(wid, label)
+        wh.delete()
+        return {"message": "删除成功（在途库存已清零）", **res}
     # 仅删除货架本身；业务数据不删除
     # 库存中的关联置空，避免仍指向已删除货架
     db.execute_update("UPDATE [inventory] SET warehouse_id = NULL WHERE warehouse_id = ?", (wid,))

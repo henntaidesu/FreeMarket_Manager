@@ -63,6 +63,14 @@ class WarehouseModel(BaseModel):
                 'not_null': False,
                 'default': 0,
             },
+            # 在途仓标记：只记在 node_type=warehouse 那一行上，按仓库名作用于其下全部货架号。
+            # 在途仓（如「已发出」）放的是路上的货：货到后删除其货架号 = 该货架号上的库存全部清零，
+            # 再在目的仓逐件扫码重新入库（见 use_web/system/warehouses/units/warehouse_transit.py）。
+            'is_transit': {
+                'type': 'INTEGER',
+                'not_null': False,
+                'default': 0,
+            },
             'created_at': {
                 'type': 'DATETIME',
                 'not_null': False,

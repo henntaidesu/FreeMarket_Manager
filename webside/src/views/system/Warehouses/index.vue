@@ -52,6 +52,7 @@
             <div class="collapse-title">
               <div class="collapse-title-start">
                 <span class="collapse-wh-name" :title="grp.warehouse">{{ grp.warehouse }}</span>
+                <el-tag v-if="grp.isTransit" size="small" type="warning" effect="dark">{{ t('system.transitWarehouse') }}</el-tag>
               </div>
               <div class="collapse-title-stats">
                 <div class="collapse-stat-grid collapse-stat-grid--primary">
@@ -74,6 +75,16 @@
                 </div>
               </div>
               <div class="collapse-title-end collapse-title-actions" @click.stop>
+                <!-- 在途仓：放路上的货；货到后删货架号即清零库存，再到目的仓扫码重新入库 -->
+                <el-tooltip :content="t('system.transitTip')" placement="top">
+                  <el-switch
+                    :model-value="grp.isTransit"
+                    size="small"
+                    :active-text="t('system.transitWarehouse')"
+                    :loading="transitSavingWh === grp.warehouse"
+                    @change="(v) => toggleTransit(grp, v)"
+                  />
+                </el-tooltip>
                 <el-button type="primary" size="small" @click.stop="openDialogAddShelf(grp.warehouse)">
                   <el-icon><Plus /></el-icon>
                   {{ t('system.addShelfSlot') }}
@@ -207,6 +218,20 @@
                         :loading="hidingId === row.id"
                         @click="toggleShelfHidden(row)"
                       >{{ t('system.unhideShelf') }}</el-button>
+                      <el-popconfirm
+                        v-if="grp.isTransit"
+                        :title="t('system.arrivedClearConfirm', { name: row.name || '—', qty: Number(row.total_quantity || 0), types: Number(row.product_types || 0) })"
+                        width="300"
+                        :confirm-button-text="t('system.arrivedClear')"
+                        :cancel-button-text="t('common.cancel')"
+                        @confirm="clearArrivedShelf(row)"
+                      >
+                        <template #reference>
+                          <el-button size="small" type="danger" link :loading="clearingId === row.id">
+                            {{ t('system.arrivedClear') }}
+                          </el-button>
+                        </template>
+                      </el-popconfirm>
                       <el-button size="small" link @click="openQrDialog([row])">
                         {{ t('system.shelfQr') }}
                       </el-button>
@@ -323,7 +348,7 @@
         <el-table-column :label="t('common.actions')" width="88" align="center" fixed="right">
           <template #default="{ row }">
             <el-popconfirm
-              :title="t('system.shelfDeleteConfirm')"
+              :title="t(isTransitWarehouse(renameWarehouseGroupKey) ? 'system.transitShelfDeleteConfirm' : 'system.shelfDeleteConfirm')"
               width="260"
               @confirm="removeShelfFromRenameDialog(row.id)"
             >
@@ -381,7 +406,7 @@
       <template #footer>
         <div class="rename-dialog-footer">
           <el-popconfirm
-            :title="t('system.shelfPartitionDeleteConfirm')"
+            :title="t(isTransitWarehouse(renameShelfWarehouse) ? 'system.transitShelfPartitionDeleteConfirm' : 'system.shelfPartitionDeleteConfirm')"
             width="300"
             :confirm-button-text="t('system.confirmDelete')"
             :cancel-button-text="t('common.cancel')"

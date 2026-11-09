@@ -1,5 +1,6 @@
 import { defineComponent, computed, ref, onMounted } from 'vue'
 import { ElMessage } from '@/utils/notify'
+import { ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { warehouseApi } from '@/api/index.js'
@@ -201,6 +202,8 @@ export default defineComponent({
         const totalQuantity = leafRows.reduce((s, i) => s + Number(i.total_quantity || 0), 0)
         return {
           warehouse: name,
+          // 在途仓标记只记在 warehouse 节点行上
+          isTransit: shelves.some((r) => rowType(r) === 'warehouse' && Number(r.is_transit || 0) === 1),
           shelves, // 含仓库/货架占位行，整仓删除时一并清除
           shelfNameGroups,
           shelfCount: leafRows.length,
@@ -530,9 +533,55 @@ export default defineComponent({
       }
     }
 
+    function isTransitWarehouse(name) {
+      const key = normalizeWarehouseName(name)
+      return groupedByWarehouse.value.some((g) => g.warehouse === key && g.isTransit)
+    }
+
+    /** 开 / 关在途仓。开启前确认：之后删这个仓库的货架号会清零库存 */
+    const transitSavingWh = ref('')
+    async function toggleTransit(grp, next) {
+      if (next) {
+        try {
+          await ElMessageBox.confirm(t('system.transitOnConfirm', { wh: grp.warehouse }), t('system.transitWarehouse'), {
+            type: 'warning',
+          })
+        } catch {
+          return
+        }
+      }
+      transitSavingWh.value = grp.warehouse
+      try {
+        await warehouseApi.setTransit(grp.warehouse, next)
+        ElMessage.success(t(next ? 'system.transitOn' : 'system.transitOff'))
+        await load()
+      } catch (e) {
+        ElMessage.error(apiErrorMessage(e))
+      } finally {
+        transitSavingWh.value = ''
+      }
+    }
+
+    /** 在途仓的货架号「到货清零」：删除货架号，上面的库存全部清零（货到后在目的仓重新扫码入库） */
+    const clearingId = ref(null)
+    async function clearArrivedShelf(row) {
+      if (row?.id == null || clearingId.value != null) return
+      clearingId.value = row.id
+      try {
+        const res = await warehouseApi.remove(row.id)
+        ElMessage.success(t('system.arrivedCleared', { qty: res?.cleared_quantity ?? 0 }))
+        await load()
+      } catch (e) {
+        ElMessage.error(apiErrorMessage(e))
+      } finally {
+        clearingId.value = null
+      }
+    }
+
     function warehouseDeleteConfirmTextForDialog() {
       const n = renameDialogShelves.value.length
       const wh = renameWarehouseGroupKey.value || ''
+      if (isTransitWarehouse(wh)) return t('system.transitWarehouseDeleteConfirm', { n, wh })
       const base = t('system.warehouseDeleteConfirmBase', { n, wh })
       if (wh === DEFAULT_WAREHOUSE) return t('system.warehouseDeleteConfirmDefault', { base })
       return base
@@ -753,6 +802,11 @@ export default defineComponent({
       qrDialogVisible,
       qrRows,
       openQrDialog,
+      isTransitWarehouse,
+      transitSavingWh,
+      toggleTransit,
+      clearingId,
+      clearArrivedShelf,
     }
   },
 })

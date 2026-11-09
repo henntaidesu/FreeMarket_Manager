@@ -1071,6 +1071,15 @@
               size="default"
               @click="openAddBatch"
             >{{ t('inventory.addBatch') }}</el-button>
+            <!-- 删除：假删除（is_delete=1），管理员可在数据库恢复 -->
+            <el-button
+              v-if="form.id && !archive"
+              type="danger"
+              plain
+              size="default"
+              :loading="inventoryDeleting"
+              @click="deleteCurrentInventory"
+            >{{ t('inventory.deleteInventory') }}</el-button>
             <!-- 出品已改为提交任务队列：不受全局同步锁阻挡；可上架为 0 时仍禁用（后端亦会二次把关） -->
             <el-tooltip
               v-if="form.id"
@@ -2186,12 +2195,35 @@
     <!-- ===== 连续扫码对话框 ===== -->
     <el-dialog
       v-model="contScanVisible"
-      :title="t('inventory.barcodeInbound')"
       :width="isMobile ? '94vw' : '580px'"
       class="scan-dialog"
       @opened="contState === 'gun-waiting' && focusContGunInput()"
       @closed="stopContScan"
     >
+      <!-- 标题处只显示当前扫到的条码图（数字肉眼不好辨认，对着实物条码看图形更快）；还没扫到时显示标题文字。
+           深色主题下用浅色线条 + 透明底的版本 -->
+      <template #header="{ titleId, titleClass }">
+        <div class="cont-dialog-header">
+          <img
+            v-if="contHeaderBarcode && barcodeImageUrl(contHeaderBarcode, { dark: true })"
+            :id="titleId"
+            :src="barcodeImageUrl(contHeaderBarcode, { dark: true })"
+            :alt="contHeaderBarcode"
+            class="cont-header-barcode"
+          />
+          <span v-else :id="titleId" :class="titleClass">{{ t('inventory.barcodeInbound') }}</span>
+          <!-- 扫到的商品名放在条码右边，点它打开该商品 -->
+          <a
+            v-if="contHeaderName"
+            class="cont-header-name"
+            role="button"
+            tabindex="0"
+            :title="t('inventory.scannerViewItem', { code: contInventory?.mgmt_code || contInventory?.id })"
+            @click="openContInventoryDetail"
+            @keydown.enter.prevent="openContInventoryDetail"
+          >{{ contHeaderName }}</a>
+        </div>
+      </template>
       <!-- 扫码枪：等扫码（键盘输入，见 useBarcodeScanner）；输入框也可手动输入条码回车 -->
       <div v-if="contState === 'gun-waiting'" class="gun-waiting-box" data-scanner-capture>
         <!-- 上一件扫码枪入库的结果：左商品图、右货架号贴纸 -->
@@ -2225,10 +2257,6 @@
 
       <!-- 一个条码对应多件商品：选要入库的那一件 -->
       <div v-if="contState === 'pick'" class="cont-result">
-        <div class="barcode-tag">
-          <el-icon><Tickets /></el-icon>
-          <span>{{ contBarcode }}</span>
-        </div>
         <p class="gun-waiting-tip">{{ t(contCandidates.length > 1 ? 'inventory.scannerPickItem' : 'inventory.scannerPickItemMulti') }}</p>
         <div class="cont-pick-list">
           <div
@@ -2321,10 +2349,6 @@
 
       <!-- 找到商品（须同时有 contInventory，避免二次入库时 contState 仍为 found 但 product 已清空导致渲染报错、弹窗空白） -->
       <div v-if="contState === 'found' && contInventory" class="cont-result" data-scanner-capture>
-        <div class="barcode-tag">
-          <el-icon><Tickets /></el-icon>
-          <span>{{ contBarcode }}</span>
-        </div>
         <div class="product-images-row">
           <template v-if="inventoryRowImages(contInventory).length">
             <div
@@ -2333,7 +2357,15 @@
               class="result-img-wrap"
             >
               <span class="img-side-label">{{ ci === 0 ? t('inventory.primaryImage') : t('inventory.imageShortN', { n: ci + 1 }) }}</span>
-              <img :src="u" class="result-img" />
+              <el-image
+                :src="u"
+                :preview-src-list="inventoryRowImages(contInventory)"
+                :initial-index="ci"
+                :preview-teleported="true"
+                :hide-on-click-modal="true"
+                fit="cover"
+                class="result-img gun-result-link"
+              />
             </div>
           </template>
           <div v-else class="no-image-placeholder">
@@ -2342,9 +2374,10 @@
           </div>
         </div>
         <div class="product-meta">
-          <span class="product-meta-name">{{ contInventory.name || t('inventory.unnamed') }}</span>
-          <el-tag type="info" size="small">{{ t('inventory.currentStockPieces', { qty: contInventory.quantity ?? 0 }) }}</el-tag>
-          <el-tag size="small" effect="plain">{{ t('inventory.warehouseLabel', { name: contInventory.warehouse_name || t('inventory.notSet') }) }}</el-tag>
+          <el-tag v-if="contShelves.length <= 1" size="small" effect="plain">{{ t('inventory.warehouseLabel', { name: contInventory.warehouse_name || t('inventory.notSet') }) }}</el-tag>
+          <el-tag v-for="s in (contShelves.length > 1 ? contShelves : [])" :key="s.warehouseId ?? 0" size="small" effect="plain">
+            {{ s.name }} × {{ s.quantity }}
+          </el-tag>
         </div>
         <div class="cont-quantity-row">
           <span class="cont-quantity-label">{{ t('inventory.thisTimeQuantity') }}</span>
@@ -2360,10 +2393,6 @@
 
       <!-- 未找到商品 -->
       <div v-if="contState === 'notfound'" class="cont-result">
-        <div class="barcode-tag">
-          <el-icon><Tickets /></el-icon>
-          <span>{{ contBarcode }}</span>
-        </div>
         <div class="notfound-box">
           <el-icon size="44" color="#e6a23c"><Warning /></el-icon>
           <p>{{ t('inventory.barcodeNotRegistered') }}</p>
@@ -2377,39 +2406,43 @@
 
       <!-- 扫码枪：选好数量，等扫货架码入库到该货架（默认仓库里的商品同时归类） -->
       <div v-if="contState === 'need-warehouse' && contInventory" class="cont-result" data-scanner-capture>
-        <div class="barcode-tag">
-          <el-icon><Tickets /></el-icon>
-          <span>{{ contBarcode }}</span>
-        </div>
-        <!-- 与入库结果同一版式：左商品图、右当前货架号贴纸（默认仓库没有货架号，显示待扫占位） -->
-        <div class="gun-result">
-          <div class="gun-result-imgs">
-            <img v-if="inventoryRowImages(contInventory)[0]" :src="inventoryRowImages(contInventory)[0]" class="gun-result-img" />
-            <div v-else class="gun-result-img cont-pick-img--empty"><el-icon size="32"><Picture /></el-icon></div>
-            <img
-              v-if="contInventory.warehouse_id && shelfLabelImage(contInventory.warehouse_id)"
-              :src="shelfLabelImage(contInventory.warehouse_id)"
-              class="gun-result-img gun-result-shelf"
-            />
-            <div v-else class="gun-result-img cont-pick-img--empty"><el-icon size="32"><Box /></el-icon></div>
+        <!-- 左右分栏：左 1/3 商品图（可点开放大），右 2/3 所属货架的列表卡片 -->
+        <div class="gun-split">
+          <el-image
+            v-if="inventoryRowImages(contInventory)[0]"
+            :src="inventoryRowImages(contInventory)[0]"
+            :preview-src-list="inventoryRowImages(contInventory)"
+            :preview-teleported="true"
+            :hide-on-click-modal="true"
+            fit="cover"
+            class="gun-split-img gun-result-link"
+          />
+          <div v-else class="gun-split-img cont-pick-img--empty"><el-icon size="28"><Picture /></el-icon></div>
+          <!-- 一个货架一张（先进先出顺序）。层级：第一行仓库，第二行货架名 › 货架号（货架号最醒目）；默认仓库没有货架 -->
+          <div class="gun-shelf-cards">
+            <div v-for="s in contShelfCards" :key="s.key" class="gun-shelf-card">
+              <div class="gun-shelf-card-meta">
+                <span class="gun-shelf-card-store"><el-icon><Box /></el-icon>{{ s.store }}</span>
+                <span v-if="s.no" class="gun-shelf-card-path">
+                  <template v-if="s.shelfName"><span class="gun-shelf-card-name">{{ s.shelfName }}</span><span class="gun-shelf-card-sep">›</span></template>
+                  <span class="gun-shelf-card-no">{{ s.no }}</span>
+                </span>
+                <span v-else class="gun-shelf-card-path gun-shelf-card-none">—</span>
+              </div>
+              <span class="gun-shelf-card-qty">× {{ s.quantity }}</span>
+            </div>
           </div>
-          <span class="product-meta-name">{{ contInventory.name || t('inventory.unnamed') }}</span>
-          <span class="cont-pick-sub">
-            {{ t('inventory.currentStockPieces', { qty: contInventory.quantity ?? 0 }) }}
-            <template v-if="!contMoveExisting"> · {{ t('inventory.warehouseLabel', { name: contInventory.warehouse_name || t('inventory.notSet') }) }}</template>
-          </span>
         </div>
-        <div class="cont-quantity-row">
-          <span class="cont-quantity-label">{{ t('inventory.thisTimeQuantity') }}</span>
-          <el-select v-model="contQuantity" :disabled="contConfirming" style="width: 120px">
-            <el-option v-for="n in GUN_QTY_OPTIONS" :key="n" :label="n" :value="n" />
-          </el-select>
-        </div>
-        <p class="gun-need-shelf">{{ t(contMoveExisting ? 'inventory.scannerNeedShelfHint' : 'inventory.scannerPickShelfHint', { n: contQuantity }) }}</p>
-        <p v-if="contMoveExisting" class="gun-waiting-tip">{{ t('inventory.scannerNeedShelfMoveNote', { n: contQuantity }) }}</p>
-        <div class="cont-actions">
+        <div class="gun-split-foot">
+          <div class="cont-quantity-row">
+            <span class="cont-quantity-label">{{ t('inventory.thisTimeQuantity') }}</span>
+            <el-select v-model="contQuantity" :disabled="contConfirming" style="width: 100px">
+              <el-option v-for="n in GUN_QTY_OPTIONS" :key="n" :label="n" :value="n" />
+            </el-select>
+          </div>
           <el-button :disabled="contConfirming" @click="resumeContScan">{{ t('inventory.continueScan') }}</el-button>
         </div>
+        <p v-if="!contMoveExisting" class="gun-need-shelf">{{ t('inventory.scannerPickShelfHint', { n: contQuantity }) }}</p>
       </div>
 
       <template #footer>
