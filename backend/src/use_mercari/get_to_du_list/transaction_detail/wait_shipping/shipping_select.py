@@ -19,12 +19,16 @@ log = logging.getLogger(__name__)
 # 选择商品尺寸与发送地
 # ====================================================================
 
-_SIZE_SELECT_BUTTON_TEXT = "商品サイズと発送場所を選択する"
+# 旧版「商品サイズと発送場所を選択する」；另有一版（带「おすすめの発送設定」）去掉了「商品」
+# （m76364161679 实测）。role name / has-text 都是子串匹配，用短文案两版都认。
+_SIZE_SELECT_BUTTON_TEXT = "サイズと発送場所を選択する"
 
 # 改版后的交易页先给一张「おすすめの発送設定」卡（最近用过的尺寸+发货地，一键发货），
 # 原入口换成这个按钮。推荐卡一律无视——尺寸/发货地必须由我们自己选，不能沿用上次的。
 # 新旧两版并存（按交易不同），所以两个文言都认。
 _MANUAL_SELECT_BUTTON_TEXT = "サイズと発送場所を手動で選択する"
+
+_ENTRY_BUTTON_TIMEOUT_MS = 30000
 
 _SELECT_NEXT_BUTTON_TEXT = "選択して次へ"
 
@@ -38,33 +42,60 @@ _GENERATE_SHIP_CODE_TEXTS = (
     "発送用バーコードを発行",
 )
 
+_VISIBLE_BUTTONS_JS = """
+() => {
+  const out = [];
+  for (const el of document.querySelectorAll('button, a, [role=button]')) {
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) continue;
+    const t = (el.innerText || el.getAttribute('aria-label') || '').trim().split('\\n')[0];
+    if (t && !out.includes(t)) out.push(t);
+  }
+  return out.slice(0, 40);
+}
+"""
+
+
+async def _visible_button_texts(page: Any) -> str:
+    try:
+        texts = await page.evaluate(_VISIBLE_BUTTONS_JS)
+        return " / ".join(texts) if texts else "（无）"
+    except Exception as exc:
+        return f"（读取失败：{exc}）"
+
+
 async def _click_size_select_entry(page: Any, *, aid: int, report) -> None:
     """点交易页的尺寸/发货地选择入口 → 等浏览器跳到 /shipping_class。
 
     旧版页面：「商品サイズと発送場所を選択する」；
-    改版页面（带「おすすめの発送設定」）：「サイズと発送場所を手動で選択する」。
+    改版页面（带「おすすめの発送設定」）：「サイズと発送場所を手動で選択する」或「サイズと発送場所を選択する」。
     """
     report("locate_button", "正在定位「サイズと発送場所」选择按钮…")
     manual = page.get_by_role("button", name=_MANUAL_SELECT_BUTTON_TEXT).or_(
         page.get_by_role("link", name=_MANUAL_SELECT_BUTTON_TEXT)
     )
-    legacy = page.get_by_role("button", name=_SIZE_SELECT_BUTTON_TEXT)
-    btn = manual.or_(legacy)
-    try:
-        await btn.first.wait_for(state="visible", timeout=8000)
-    except Exception:
-        btn = page.locator(
+    legacy = page.get_by_role("button", name=_SIZE_SELECT_BUTTON_TEXT).or_(
+        page.get_by_role("link", name=_SIZE_SELECT_BUTTON_TEXT)
+    )
+    # role 定位与 has-text 兜底合成一个 locator 同时等，总时长 _ENTRY_BUTTON_TIMEOUT_MS：
+    # 浏览器刚冷启动时交易页渲染可能远超原先的 8s+4s。
+    btn = manual.or_(legacy).or_(
+        page.locator(
             f'button:has-text("{_MANUAL_SELECT_BUTTON_TEXT}"), '
             f'a:has-text("{_MANUAL_SELECT_BUTTON_TEXT}"), '
-            f'button:has-text("{_SIZE_SELECT_BUTTON_TEXT}")'
+            f'button:has-text("{_SIZE_SELECT_BUTTON_TEXT}"), '
+            f'a:has-text("{_SIZE_SELECT_BUTTON_TEXT}")'
         )
-        try:
-            await btn.first.wait_for(state="visible", timeout=4000)
-        except Exception as exc:
-            raise RuntimeError(
-                f"未找到「{_MANUAL_SELECT_BUTTON_TEXT}」或「{_SIZE_SELECT_BUTTON_TEXT}」按钮"
-                f"（当前 URL: {page.url}）"
-            ) from exc
+    )
+    try:
+        await btn.first.wait_for(state="visible", timeout=_ENTRY_BUTTON_TIMEOUT_MS)
+    except Exception as exc:
+        # 把页面上实际可见的按钮/链接文案带进报错：煤炉改版或交易状态变化（如发货逾期）时，
+        # 光看任务行就能知道入口变成了什么，不用再去现场复现。
+        raise RuntimeError(
+            f"未找到「{_MANUAL_SELECT_BUTTON_TEXT}」或「{_SIZE_SELECT_BUTTON_TEXT}」按钮"
+            f"（当前 URL: {page.url}）；页面可见按钮：{await _visible_button_texts(page)}"
+        ) from exc
     # 两者理论上不会同时出现；万一同时在，优先手动入口
     target = manual.first if await manual.count() > 0 else btn.first
     label = (await target.inner_text()).strip()
