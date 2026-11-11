@@ -21,6 +21,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
+from fastapi import HTTPException
+
 from .. import progress, store
 from ..registry import INVENTORY_LISTING, ON_SALE_SYNC
 
@@ -193,14 +195,19 @@ async def handle_listing(task: Dict[str, Any]) -> Dict[str, Any]:
             progress_job_id=jid,
         )
         # wait_for_lock=True：出品锁被自动补挂占用时排队等待，而不是像 HTTP 入口那样 409
-        res = await post_to_market(body, background_caller=False, wait_for_lock=True)
+        try:
+            res = await post_to_market(body, background_caller=False, wait_for_lock=True)
+        except HTTPException as exc:
+            # 入口校验（如商品类型未配置分类位置、账号无效）在任何浏览器动作之前抛出，确未挂牌
+            raise ListingNotSubmittedError(str(exc.detail)) from exc
 
     data = (res or {}).get("data") if isinstance(res, dict) else None
     data = data if isinstance(data, dict) else {}
 
     submitted = data.get("submitted") is True
-    # 已点过「出品する」但结果未确认：挂牌可能已生成，绝不能当失败重来
-    uncertain = bool(data.get("submit_clicked") or data.get("submit_uncertain") or data.get("submit_error"))
+    # 已点过「出品する」但结果未确认：挂牌可能已生成，绝不能当失败重来。
+    # submit_error 不在此列：它只在「出品する」点击本身抛错时写入，即按钮未被点到
+    uncertain = bool(data.get("submit_clicked") or data.get("submit_uncertain"))
     failures = _collect_failures(data)
     url_trail = [str(x) for x in (data.get("url_trail") or [])]
 
