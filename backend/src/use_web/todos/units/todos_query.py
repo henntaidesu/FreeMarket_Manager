@@ -126,6 +126,24 @@ _LIST_COLS = (
 
 _DIGITS_RE = re.compile(r"\d+")
 
+#: 雅虎待办正文「「＜まとめ買い＞ 原神 アリョー…」が購入されました。…」里引号中的商品名
+_YAHOO_CONTENT_NAME_RE = re.compile(r"「(.+)」が")
+#: 组合单商品名开头的出品标签，显示时去掉
+_YAHOO_BUNDLE_TAG_RE = re.compile(r"[＜<]\s*まとめ買い\s*[＞>]")
+
+
+def _yahoo_item_name(item: Dict[str, Any]) -> Optional[str]:
+    """雅虎待办的商品名：标题只是「発送依頼」，商品名在标题下面那行正文里。
+
+    正文里的商品名是截断的（「…」结尾），订单已同步时优先用订单里的完整标题
+    （``orders.remark``，组合单的「計N点」在后半截，截断了就认不出件数）。
+    """
+    name = str(item.get("order_title") or "").strip()
+    if not name:
+        m = _YAHOO_CONTENT_NAME_RE.search(str(item.get("message") or ""))
+        name = m.group(1) if m else ""
+    return _YAHOO_BUNDLE_TAG_RE.sub("", name).strip() or None
+
 
 _DAY_MS = 24 * 3600 * 1000
 
@@ -391,6 +409,10 @@ def list_todos(
         f" {LINE_INVENTORY_JOINS}"
         f" WHERE l.order_no = t.[item_id] AND COALESCE({inv_col('is_delete')}, 1) = 0)"
         " THEN 1 ELSE 0 END AS inventory_linked"
+        # 这一单要发几件：出库明细数量之和（まとめ一单多件时提醒装箱别漏发）
+        + ", (SELECT SUM(COALESCE(l2.[quantity], 1)) FROM [order_outbound_lines] l2"
+        " WHERE l2.[order_no] = t.[item_id]) AS ship_qty"
+        + ", o.[remark] AS order_title"
     )
     # 按「发货期限剩余时间」升序（越紧急越前）排序。截止时刻要由 shipping_duration
     # 文本（「4~7日で発送」）解析天数再与购入时间相加，SQLite / MySQL 的字符串函数不通用，
@@ -409,8 +431,13 @@ def list_todos(
         """,
         tuple(params),
     )
-    keys = list(_LIST_COLS) + ["account_name", "purchase_time", "order_note", "inventory_linked"]
+    keys = list(_LIST_COLS) + [
+        "account_name", "purchase_time", "order_note", "inventory_linked", "ship_qty", "order_title",
+    ]
     items = [dict(zip(keys, row)) for row in rows]
+    for it in items:
+        if not it.get("item_name") and str(it.get("platform") or "").strip() == "yahoo":
+            it["item_name"] = _yahoo_item_name(it)
     # 稳定排序：推算不出发货期限的行保持原有 id 升序垫底
     items.sort(key=_ship_deadline_sort_key)
     offset = (page - 1) * page_size

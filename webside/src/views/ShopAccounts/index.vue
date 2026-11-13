@@ -109,188 +109,198 @@
         class="mercari-form"
         :disabled="!!form.id && !$can('shop-accounts:edit')"
       >
-        <el-divider content-position="left">{{ t('mercariAccounts.sectionBasicInfo') }}</el-divider>
-        <div class="basic-info-row">
-          <div class="basic-info-fields">
-            <el-form-item :label="t('mercariAccounts.accountNameLabel')" prop="account_name">
-              <el-input v-model="form.account_name" maxlength="60" clearable />
-            </el-form-item>
-            <el-form-item :label="t('mercariAccounts.sellerId')" prop="seller_id">
-              <el-input
-                v-model="form.seller_id"
-                maxlength="30"
-                clearable
-                :placeholder="sellerIdPlaceholder"
-              />
-            </el-form-item>
-            <el-form-item :label="t('mercariAccounts.accountStatus')" prop="status">
-              <el-select v-model="form.status" style="width: 100%">
-                <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
-              </el-select>
-            </el-form-item>
-          </div>
-          <div class="basic-info-avatar">
-            <el-image
-              v-if="form.avatar"
-              :src="mercariImageUrl(form.avatar)"
-              fit="cover"
-              class="avatar-preview"
-              :preview-src-list="[mercariImageUrl(form.avatar)]"
-              :preview-teleported="true"
-              hide-on-click-modal
-            />
-            <div v-else class="avatar-placeholder">{{ t('mercariAccounts.avatarPlaceholder') }}</div>
-          </div>
-        </div>
-        <!-- 两个平台都有：煤炉经 MITM 截包取 seller_id，雅虎读「マイページ」DOM -->
-        <el-form-item label-width="120px">
-          <el-button
-            type="primary"
-            plain
-            :loading="fetchSellerIdLoading"
-            @click="fetchBasicInfo"
-          >{{ t('mercariAccounts.fetchBasicInfo') }}</el-button>
-        </el-form-item>
-        <!-- 雅虎 App 令牌：ゆうパケットポスト / mini 网页端不下发，只能走 App 的 sparkle 接口。
-             令牌从手机 App 抓包得到；填了 refresh_token 之后由后端自动续期，不用再管。
-             只写不读——后端不回传明文，输入框始终是空的。 -->
-        <template v-if="form.id && form.platform === 'yahoo'">
-          <el-divider content-position="left">{{ t('mercariAccounts.sectionYahooAppToken') }}</el-divider>
-          <el-form-item :label="t('mercariAccounts.appTokenStatus')">
-            <div class="app-token-status">
-              <el-tag :type="appTokenStatus?.configured ? 'success' : 'info'" size="small" effect="light">
-                {{ appTokenStatus?.configured ? t('mercariAccounts.appTokenSet') : t('mercariAccounts.appTokenUnset') }}
-              </el-tag>
-              <el-tag
-                v-if="appTokenStatus?.configured && !appTokenStatus?.has_refresh_token"
-                type="warning"
-                size="small"
-                effect="light"
-              >{{ t('mercariAccounts.appTokenNoRefresh') }}</el-tag>
-              <span v-if="appTokenExpiresText" class="app-token-expires">
-                {{ t('mercariAccounts.appTokenExpiresAt', { at: appTokenExpiresText }) }}
-              </span>
-              <el-button
-                v-if="appTokenStatus?.configured && $can('shop-accounts:app_token')"
-                link
-                type="danger"
-                @click="clearYahooAppToken"
-              >{{ t('mercariAccounts.appTokenClear') }}</el-button>
-            </div>
-          </el-form-item>
-          <!-- 取得令牌只有这一条路：雅虎没有账密接口，登录页只能由雅虎自己渲染，
-               所以开一个独立 profile 的浏览器窗口让用户登录一次，之后靠 refresh_token 续期。 -->
-          <el-form-item v-if="$can('shop-accounts:app_token')" label-width="120px">
-            <el-button
-              type="primary"
-              :loading="appLoginLoading"
-              @click="loginYahooApp"
-            >{{ t('mercariAccounts.appLogin') }}</el-button>
-          </el-form-item>
-        </template>
-        <!-- 煤炉退货的返品先住所：取消申请被同意后，待办「填写返品先住所」把它填进 返品くん。
-             独立接口、独立实时保存，不走上面账号字段的保存。 -->
-        <template v-if="form.id && form.platform === 'mercari'">
-          <el-divider content-position="left">{{ t('mercariAccounts.sectionReturnAddress') }}</el-divider>
-          <p class="return-address-tip">{{ t('mercariAccounts.raTip') }}</p>
-          <el-form-item :label="t('mercariAccounts.raName')">
-            <div class="ra-pair">
-              <el-input v-model="returnAddress.last_name" :placeholder="t('mercariAccounts.raLastName')" maxlength="30" />
-              <el-input v-model="returnAddress.first_name" :placeholder="t('mercariAccounts.raFirstName')" maxlength="30" />
-            </div>
-          </el-form-item>
-          <el-form-item :label="t('mercariAccounts.raKana')">
-            <div class="ra-pair">
-              <el-input v-model="returnAddress.last_name_kana" :placeholder="t('mercariAccounts.raLastKana')" maxlength="30" />
-              <el-input v-model="returnAddress.first_name_kana" :placeholder="t('mercariAccounts.raFirstKana')" maxlength="30" />
-            </div>
-          </el-form-item>
-          <el-form-item :label="t('mercariAccounts.raTel')">
-            <el-input v-model="returnAddress.tel" placeholder="0312345678" maxlength="20" />
-          </el-form-item>
-          <el-form-item :label="t('mercariAccounts.raEmail')">
-            <el-input v-model="returnAddress.email" placeholder="email@example.com" maxlength="100" />
-          </el-form-item>
-          <el-form-item :label="t('mercariAccounts.raZipcode')">
-            <el-input v-model="returnAddress.zipcode" placeholder="1234567" maxlength="10" />
-          </el-form-item>
-          <el-form-item :label="t('mercariAccounts.raPrefecture')">
-            <el-select v-model="returnAddress.prefecture" filterable clearable style="width: 100%">
-              <el-option v-for="p in prefectureOptions" :key="p" :label="p" :value="p" />
-            </el-select>
-          </el-form-item>
-          <el-form-item :label="t('mercariAccounts.raCity')">
-            <el-input v-model="returnAddress.city" :placeholder="t('mercariAccounts.raCityPh')" maxlength="60" />
-          </el-form-item>
-          <el-form-item :label="t('mercariAccounts.raAddress1')">
-            <el-input v-model="returnAddress.address1" placeholder="1-1-1" maxlength="60" />
-          </el-form-item>
-          <el-form-item :label="t('mercariAccounts.raAddress2')">
-            <el-input v-model="returnAddress.address2" :placeholder="t('mercariAccounts.raAddress2Ph')" maxlength="60" />
-          </el-form-item>
-          <el-form-item label-width="120px">
-            <el-alert
-              v-if="returnAddressProblems.length"
-              type="warning"
-              :closable="false"
-              show-icon
-              :title="t('mercariAccounts.raIncomplete', { list: returnAddressProblems.join('；') })"
-            />
-            <el-alert v-else type="success" :closable="false" show-icon :title="t('mercariAccounts.raReady')" />
-          </el-form-item>
-        </template>
-        <el-divider content-position="left">{{ t('mercariAccounts.sectionAutoFetch') }}</el-divider>
-        <el-form-item :label="t('mercariAccounts.syncItems')">
-          <div class="af-task-list">
-            <div class="af-task-row" v-for="def in visibleFetchTasks" :key="def.key">
-              <span class="af-task-name">{{ taskLabel(def) }}</span>
-              <el-select
-                v-model="form.tasks[def.key].sel"
-                class="af-task-select"
-                :placeholder="t('mercariAccounts.intervalPlaceholder')"
-              >
-                <el-option v-for="opt in fetchIntervalOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-              </el-select>
-              <template v-if="form.tasks[def.key].sel === CUSTOM_INTERVAL">
-                <el-input-number
-                  v-model="form.tasks[def.key].num"
-                  :min="1"
-                  :max="1440"
-                  :step="1"
-                  :controls="false"
-                  class="af-task-num"
+        <!-- 各模块统一为折叠面板：默认展开基础信息 / 雅虎 App 令牌 / 自动数据获取，退货地址默认收起 -->
+        <el-collapse v-model="openSections" class="account-sections">
+          <el-collapse-item :title="t('mercariAccounts.sectionBasicInfo')" name="basic">
+            <div class="basic-info-row">
+              <div class="basic-info-fields">
+                <el-form-item :label="t('mercariAccounts.accountNameLabel')" prop="account_name">
+                  <el-input v-model="form.account_name" maxlength="60" clearable />
+                </el-form-item>
+                <el-form-item :label="t('mercariAccounts.sellerId')" prop="seller_id">
+                  <el-input
+                    v-model="form.seller_id"
+                    maxlength="30"
+                    clearable
+                    :placeholder="sellerIdPlaceholder"
+                  />
+                </el-form-item>
+                <el-form-item :label="t('mercariAccounts.accountStatus')" prop="status">
+                  <el-select v-model="form.status" style="width: 100%">
+                    <el-option v-for="item in statusOptions" :key="item.value" :label="item.label" :value="item.value" />
+                  </el-select>
+                </el-form-item>
+              </div>
+              <div class="basic-info-avatar">
+                <el-image
+                  v-if="form.avatar"
+                  :src="mercariImageUrl(form.avatar)"
+                  fit="cover"
+                  class="avatar-preview"
+                  :preview-src-list="[mercariImageUrl(form.avatar)]"
+                  :preview-teleported="true"
+                  hide-on-click-modal
                 />
-                <el-select v-model="form.tasks[def.key].unit" class="af-task-unit">
-                  <el-option v-for="u in intervalUnitOptions" :key="u.value" :label="u.label" :value="u.value" />
-                </el-select>
-              </template>
+                <div v-else class="avatar-placeholder">{{ t('mercariAccounts.avatarPlaceholder') }}</div>
+              </div>
             </div>
-          </div>
-        </el-form-item>
-        <el-form-item :label="t('mercariAccounts.taskRelist')">
-          <el-switch v-model="form.auto_fetch_relist" :active-value="1" :inactive-value="0" />
-        </el-form-item>
-        <el-form-item :label="t('mercariAccounts.pauseRange')" prop="pause_window">
-          <div class="af-pause-row">
-            <el-time-picker
-              v-model="form.pause_start_time"
-              :placeholder="t('mercariAccounts.pauseStartPlaceholder')"
-              format="HH:mm"
-              value-format="HH:mm"
-              :clearable="true"
-              class="af-pause-picker"
-            />
-            <span class="af-pause-sep">{{ t('common.to') }}</span>
-            <el-time-picker
-              v-model="form.pause_end_time"
-              :placeholder="t('mercariAccounts.pauseEndPlaceholder')"
-              format="HH:mm"
-              value-format="HH:mm"
-              :clearable="true"
-              class="af-pause-picker"
-            />
-          </div>
-        </el-form-item>
+            <!-- 两个平台都有：煤炉经 MITM 截包取 seller_id，雅虎读「マイページ」DOM -->
+            <el-form-item label-width="120px">
+              <el-button
+                type="primary"
+                plain
+                :loading="fetchSellerIdLoading"
+                @click="fetchBasicInfo"
+              >{{ t('mercariAccounts.fetchBasicInfo') }}</el-button>
+            </el-form-item>
+          </el-collapse-item>
+          <!-- 雅虎 App 令牌：ゆうパケットポスト / mini 网页端不下发，只能走 App 的 sparkle 接口。
+               令牌从手机 App 抓包得到；填了 refresh_token 之后由后端自动续期，不用再管。
+               只写不读——后端不回传明文，输入框始终是空的。 -->
+          <el-collapse-item
+            v-if="form.id && form.platform === 'yahoo'"
+            :title="t('mercariAccounts.sectionYahooAppToken')"
+            name="yahoo-token"
+          >
+            <el-form-item :label="t('mercariAccounts.appTokenStatus')">
+              <div class="app-token-status">
+                <el-tag :type="appTokenStatus?.configured ? 'success' : 'info'" size="small" effect="light">
+                  {{ appTokenStatus?.configured ? t('mercariAccounts.appTokenSet') : t('mercariAccounts.appTokenUnset') }}
+                </el-tag>
+                <el-tag
+                  v-if="appTokenStatus?.configured && !appTokenStatus?.has_refresh_token"
+                  type="warning"
+                  size="small"
+                  effect="light"
+                >{{ t('mercariAccounts.appTokenNoRefresh') }}</el-tag>
+                <span v-if="appTokenExpiresText" class="app-token-expires">
+                  {{ t('mercariAccounts.appTokenExpiresAt', { at: appTokenExpiresText }) }}
+                </span>
+                <el-button
+                  v-if="appTokenStatus?.configured && $can('shop-accounts:app_token')"
+                  link
+                  type="danger"
+                  @click="clearYahooAppToken"
+                >{{ t('mercariAccounts.appTokenClear') }}</el-button>
+              </div>
+            </el-form-item>
+            <!-- 取得令牌只有这一条路：雅虎没有账密接口，登录页只能由雅虎自己渲染，
+                 所以开一个独立 profile 的浏览器窗口让用户登录一次，之后靠 refresh_token 续期。 -->
+            <el-form-item v-if="$can('shop-accounts:app_token')" label-width="120px">
+              <el-button
+                type="primary"
+                :loading="appLoginLoading"
+                @click="loginYahooApp"
+              >{{ t('mercariAccounts.appLogin') }}</el-button>
+            </el-form-item>
+          </el-collapse-item>
+          <el-collapse-item :title="t('mercariAccounts.sectionAutoFetch')" name="auto-fetch">
+            <el-form-item :label="t('mercariAccounts.syncItems')">
+              <div class="af-task-list">
+                <div class="af-task-row" v-for="def in visibleFetchTasks" :key="def.key">
+                  <span class="af-task-name">{{ taskLabel(def) }}</span>
+                  <el-select
+                    v-model="form.tasks[def.key].sel"
+                    class="af-task-select"
+                    :placeholder="t('mercariAccounts.intervalPlaceholder')"
+                  >
+                    <el-option v-for="opt in fetchIntervalOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+                  </el-select>
+                  <template v-if="form.tasks[def.key].sel === CUSTOM_INTERVAL">
+                    <el-input-number
+                      v-model="form.tasks[def.key].num"
+                      :min="1"
+                      :max="1440"
+                      :step="1"
+                      :controls="false"
+                      class="af-task-num"
+                    />
+                    <el-select v-model="form.tasks[def.key].unit" class="af-task-unit">
+                      <el-option v-for="u in intervalUnitOptions" :key="u.value" :label="u.label" :value="u.value" />
+                    </el-select>
+                  </template>
+                </div>
+              </div>
+            </el-form-item>
+            <el-form-item :label="t('mercariAccounts.taskRelist')">
+              <el-switch v-model="form.auto_fetch_relist" :active-value="1" :inactive-value="0" />
+            </el-form-item>
+            <el-form-item :label="t('mercariAccounts.pauseRange')" prop="pause_window">
+              <div class="af-pause-row">
+                <el-time-picker
+                  v-model="form.pause_start_time"
+                  :placeholder="t('mercariAccounts.pauseStartPlaceholder')"
+                  format="HH:mm"
+                  value-format="HH:mm"
+                  :clearable="true"
+                  class="af-pause-picker"
+                />
+                <span class="af-pause-sep">{{ t('common.to') }}</span>
+                <el-time-picker
+                  v-model="form.pause_end_time"
+                  :placeholder="t('mercariAccounts.pauseEndPlaceholder')"
+                  format="HH:mm"
+                  value-format="HH:mm"
+                  :clearable="true"
+                  class="af-pause-picker"
+                />
+              </div>
+            </el-form-item>
+          </el-collapse-item>
+          <!-- 煤炉退货的返品先住所（默认折叠）：取消申请被同意后，待办「填写返品先住所」把它填进 返品くん。
+               独立接口、独立实时保存，不走上面账号字段的保存。 -->
+          <el-collapse-item
+            v-if="form.id && form.platform === 'mercari'"
+            :title="t('mercariAccounts.sectionReturnAddress')"
+            name="return-address"
+          >
+            <el-form-item :label="t('mercariAccounts.raName')">
+              <div class="ra-pair">
+                <el-input v-model="returnAddress.last_name" :placeholder="t('mercariAccounts.raLastName')" maxlength="30" />
+                <el-input v-model="returnAddress.first_name" :placeholder="t('mercariAccounts.raFirstName')" maxlength="30" />
+              </div>
+            </el-form-item>
+            <el-form-item :label="t('mercariAccounts.raKana')">
+              <div class="ra-pair">
+                <el-input v-model="returnAddress.last_name_kana" :placeholder="t('mercariAccounts.raLastKana')" maxlength="30" />
+                <el-input v-model="returnAddress.first_name_kana" :placeholder="t('mercariAccounts.raFirstKana')" maxlength="30" />
+              </div>
+            </el-form-item>
+            <el-form-item :label="t('mercariAccounts.raTel')">
+              <el-input v-model="returnAddress.tel" placeholder="0312345678" maxlength="20" />
+            </el-form-item>
+            <el-form-item :label="t('mercariAccounts.raEmail')">
+              <el-input v-model="returnAddress.email" placeholder="email@example.com" maxlength="100" />
+            </el-form-item>
+            <el-form-item :label="t('mercariAccounts.raZipcode')">
+              <el-input v-model="returnAddress.zipcode" placeholder="1234567" maxlength="10" />
+            </el-form-item>
+            <el-form-item :label="t('mercariAccounts.raPrefecture')">
+              <el-select v-model="returnAddress.prefecture" filterable clearable style="width: 100%">
+                <el-option v-for="p in prefectureOptions" :key="p" :label="p" :value="p" />
+              </el-select>
+            </el-form-item>
+            <el-form-item :label="t('mercariAccounts.raCity')">
+              <el-input v-model="returnAddress.city" :placeholder="t('mercariAccounts.raCityPh')" maxlength="60" />
+            </el-form-item>
+            <el-form-item :label="t('mercariAccounts.raAddress1')">
+              <el-input v-model="returnAddress.address1" placeholder="1-1-1" maxlength="60" />
+            </el-form-item>
+            <el-form-item :label="t('mercariAccounts.raAddress2')">
+              <el-input v-model="returnAddress.address2" :placeholder="t('mercariAccounts.raAddress2Ph')" maxlength="60" />
+            </el-form-item>
+            <el-form-item label-width="120px">
+              <el-alert
+                v-if="returnAddressProblems.length"
+                type="warning"
+                :closable="false"
+                show-icon
+                :title="t('mercariAccounts.raIncomplete', { list: returnAddressProblems.join('；') })"
+              />
+              <el-alert v-else type="success" :closable="false" show-icon :title="t('mercariAccounts.raReady')" />
+            </el-form-item>
+          </el-collapse-item>
+        </el-collapse>
       </el-form>
       <template #footer>
         <div class="mercari-dialog-footer">

@@ -6,13 +6,10 @@ import { ElMessage } from '@/utils/notify'
 import { shopAccountApi, mercariApi, webDriveApi, TASK_TYPES } from '@/api/index.js'
 import { submitTask } from '@/utils/taskSubmit.js'
 import { mercariImageUrl } from '@/utils/mercariImage.js'
-import { useRoute, useRouter } from 'vue-router'
 
 export default defineComponent({
   setup() {
     const { t } = useI18n()
-    const route = useRoute()
-    const router = useRouter()
 
     const MERCARI_HOME = 'https://jp.mercari.com/'
 
@@ -150,6 +147,10 @@ export default defineComponent({
     })
 
     const form = ref(createDefaultForm())
+
+    // 编辑弹窗的折叠面板：每次打开都回到默认（退货地址收起，其余展开）
+    const DEFAULT_OPEN_SECTIONS = ['basic', 'yahoo-token', 'auto-fetch']
+    const openSections = ref([...DEFAULT_OPEN_SECTIONS])
 
     // 同步项文案里的平台名跟着账号平台走：雅虎账号上写「从煤炉同步」「煤炉通知」
     // 是指向一个该账号根本没有的东西。
@@ -358,6 +359,7 @@ export default defineComponent({
     // 每个平台模块各有自己的「添加账号」卡片，平台由所在模块决定，无需再弹框选平台
     function openCreate(platform) {
       form.value = createDefaultForm()
+      openSections.value = [...DEFAULT_OPEN_SECTIONS]
       form.value.platform = platform
       dialogVisible.value = true
       // 煤炉：沿用原「新增前登录」自动打开预登录浏览器；雅虎：由弹框内「打开雅虎登录浏览器」按钮触发
@@ -477,6 +479,7 @@ export default defineComponent({
           return acc
         }, {}),
       }
+      openSections.value = [...DEFAULT_OPEN_SECTIONS]
       dialogVisible.value = true
       if ((row.platform || 'mercari') === 'yahoo') {
         loadYahooAppToken(row.id)
@@ -851,15 +854,8 @@ export default defineComponent({
       }
     }
 
-    onMounted(async () => {
-      await load()
-      // 待办「退货处理」的「编辑地址」带 ?edit=账号ID 过来：直接打开该账号的编辑弹窗
-      const editId = Number(route.query.edit || 0)
-      if (editId) {
-        const row = list.value.find((r) => Number(r.id) === editId)
-        if (row) openEdit(row)
-        router.replace({ query: { ...route.query, edit: undefined } })
-      }
+    onMounted(() => {
+      load()
     })
 
     return {
@@ -903,6 +899,7 @@ export default defineComponent({
       mercariImageUrl,
       createDefaultForm,
       form,
+      openSections,
       sellerIdRules,
       formRules,
       load,

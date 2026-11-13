@@ -461,7 +461,7 @@
         </div>
       </template>
 
-      <div v-loading="detailLoading" class="detail-body">
+      <div v-loading="detailLoading" :class="['detail-body', { 'detail-body--compact': isReturnAddressTodo }]">
         <!-- 左栏：商品 / 发送元 / 买家 / 发货 -->
         <div class="detail-col detail-col-left">
           <section class="detail-section">
@@ -1010,9 +1010,6 @@
               <div class="return-step-head">
                 <span :class="['return-step-no', { 'is-done': returnAddressSubmittedText }]">{{ returnAddressSubmittedText ? '✓' : '1' }}</span>
                 <span class="return-step-name">{{ t('todos.returnAddressTitle') }}</span>
-                <el-button link type="primary" size="small" @click="goEditReturnAddress">
-                  {{ t('todos.returnAddressEdit') }}
-                </el-button>
               </div>
               <div v-if="returnAddressInfo.loading" class="detail-empty">{{ t('todos.matching') }}</div>
               <div v-else-if="returnAddressView" class="return-addr-card">

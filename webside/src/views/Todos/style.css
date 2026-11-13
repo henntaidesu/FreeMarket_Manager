@@ -373,6 +373,11 @@
   max-height: calc(70 * var(--app-vh));
   overflow: hidden;
 }
+/* 退货处理：左栏只有地址 + 两个按钮，按 70vh 撑开会空出大半截；收矮，消息在右栏内滚动 */
+.detail-body--compact {
+  min-height: 0;
+  height: min(620px, calc(70 * var(--app-vh)));
+}
 .detail-col {
   display: flex;
   flex-direction: column;
@@ -1613,6 +1618,9 @@
     min-height: 0;
     max-height: none;
     overflow: visible;
+  }
+  .detail-body--compact {
+    height: auto;
   }
   .detail-col-left {
     overflow: visible;

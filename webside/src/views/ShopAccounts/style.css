@@ -304,11 +304,23 @@
   width: 100%;
 }
 
-.return-address-tip {
-  margin: 0 0 12px;
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-  line-height: 1.6;
+/* 编辑弹窗各模块：统一的折叠面板。标题加粗、去掉 Element 默认的上下大边线，内容与标题对齐 */
+.account-sections {
+  border-top: none;
+  border-bottom: none;
+}
+.account-sections :deep(.el-collapse-item__header) {
+  height: 40px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+.account-sections :deep(.el-collapse-item__wrap) {
+  border-bottom: none;
+}
+.account-sections :deep(.el-collapse-item__content) {
+  padding: 16px 0 4px;
 }
 
 /* ── 手机端（iOS / Android）─────────────────────────────────────
