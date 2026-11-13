@@ -240,6 +240,14 @@ class TodoItemModel(BaseModel):
                 "not_null": False,
                 "default": None,
             },
+            # return_address_submitted_at: 退货「返品先住所」已在 返品くん 提交完成的时刻，unix 秒。
+            # 返品くん 提交后不能改，处理弹窗据此屏蔽「填写返品先住所」。同一条待办还包含之后的
+            # 确认签收，所以不软删。不在 ``todolist_sync._UPSERT_COLS`` 里，同步不会重置它。
+            "return_address_submitted_at": {
+                "type": "INTEGER",
+                "not_null": False,
+                "default": None,
+            },
         }
 
     @classmethod

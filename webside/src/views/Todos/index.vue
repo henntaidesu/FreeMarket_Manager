@@ -993,35 +993,77 @@
             </el-form>
           </section>
 
-          <!-- 退货「返品に必要な情報の入力」：展示该账号的返品先住所，确认后入队填进 返品くん -->
+          <!-- 退货处理（CancellationRequestApprovedSeller）：同一条待办的两步——
+               ① 24 小时内在 返品くん 填返品先住所（入队自动填写）② 退回商品到手后确认签收 -->
           <section v-if="isReturnAddressTodo" class="detail-section">
-            <div class="detail-section-title">{{ t('todos.returnAddressTitle') }}</div>
-            <div class="detail-empty-hint">{{ t('todos.returnAddressHint') }}</div>
-            <div v-if="returnAddressInfo.loading" class="detail-empty">{{ t('todos.matching') }}</div>
-            <template v-else>
-              <div v-for="line in returnAddressLines" :key="line.label" class="detail-row">
-                <span class="detail-label">{{ line.label }}</span>
-                <span class="detail-value">{{ line.value || '-' }}</span>
+            <div class="detail-section-title return-flow-title">
+              <span>{{ t('todos.returnFlowTitle') }}</span>
+              <el-tag
+                v-if="returnAddressDeadline && !returnAddressSubmittedText"
+                :type="returnAddressDeadline.type"
+                size="small"
+                effect="light"
+              >{{ returnAddressDeadline.text }}</el-tag>
+            </div>
+
+            <div class="return-step">
+              <div class="return-step-head">
+                <span :class="['return-step-no', { 'is-done': returnAddressSubmittedText }]">{{ returnAddressSubmittedText ? '✓' : '1' }}</span>
+                <span class="return-step-name">{{ t('todos.returnAddressTitle') }}</span>
+                <el-button link type="primary" size="small" @click="goEditReturnAddress">
+                  {{ t('todos.returnAddressEdit') }}
+                </el-button>
+              </div>
+              <div v-if="returnAddressInfo.loading" class="detail-empty">{{ t('todos.matching') }}</div>
+              <div v-else-if="returnAddressView" class="return-addr-card">
+                <div class="return-addr-name">
+                  {{ returnAddressView.name || '-' }}
+                  <span v-if="returnAddressView.kana" class="return-addr-sub">{{ returnAddressView.kana }}</span>
+                </div>
+                <div class="return-addr-line">{{ returnAddressView.address || '-' }}</div>
+                <div class="return-addr-sub">{{ returnAddressView.contact || '-' }}</div>
               </div>
               <el-alert
-                v-if="returnAddressInfo.problems.length"
+                v-if="!returnAddressInfo.loading && returnAddressInfo.problems.length"
                 type="warning"
                 :closable="false"
                 show-icon
                 class="return-address-alert"
                 :title="t('todos.returnAddressIncomplete', { list: returnAddressInfo.problems.join('；') })"
               />
-            </template>
-            <div class="detail-reply-actions">
-              <el-button
-                size="small"
-                type="primary"
-                :loading="returnAddressBusy"
-                :disabled="!$can('todos:return_address') || returnAddressInfo.loading || returnAddressInfo.problems.length > 0"
-                @click="onSubmitReturnAddress"
-              >
-                {{ t('todos.returnAddressSubmit') }}
-              </el-button>
+              <div v-if="returnAddressSubmittedText" class="return-step-actions">
+                <el-tag type="success" effect="light">
+                  {{ t('todos.returnAddressSubmitted', { at: returnAddressSubmittedText }) }}
+                </el-tag>
+              </div>
+              <div v-else class="return-step-actions">
+                <el-button
+                  size="small"
+                  type="primary"
+                  :loading="returnAddressBusy"
+                  :disabled="!$can('todos:return_address') || returnAddressInfo.loading || returnAddressInfo.problems.length > 0"
+                  @click="onSubmitReturnAddress"
+                >
+                  {{ t('todos.returnAddressSubmit') }}
+                </el-button>
+              </div>
+            </div>
+
+            <div class="return-step">
+              <div class="return-step-head">
+                <span class="return-step-no">2</span>
+                <span class="return-step-name">{{ t('todos.confirmReceiptTitle') }}</span>
+                <el-button
+                  size="small"
+                  type="danger"
+                  plain
+                  :loading="cancelReceiptBusyId === currentRow?.id"
+                  :disabled="!$can('todos:cancel_receipt')"
+                  @click="onConfirmCancellationReceipt(currentRow)"
+                >
+                  {{ t('todos.confirmReceipt') }}
+                </el-button>
+              </div>
             </div>
           </section>
         </div>

@@ -72,6 +72,14 @@ def _normalize_todo_row(account_id: int, item: Dict[str, Any], synced_at_ms: int
     args_raw = item.get("args")
     intent_raw = item.get("intent")
     args_obj = _safe_json_loads_dict(args_raw if isinstance(args_raw, str) else "")
+    # 退货类待办（CancellationRequested / CancellationRequestApprovedSeller）的 args 是空对象，
+    # 商品 ID 只在 intent.extra.item_id 里；不回落的话这两类行 item_id 恒为 NULL，
+    # 处理弹窗拿不到商品 ID，详情 / 消息也就抓不到。
+    item_id = str(args_obj.get("item_id") or "").strip()
+    if not item_id:
+        intent_extra = _safe_json_loads_dict(intent_raw if isinstance(intent_raw, str) else "").get("extra")
+        if isinstance(intent_extra, dict):
+            item_id = str(intent_extra.get("item_id") or "").strip()
     return {
         "account_id": int(account_id),
         "platform": "mercari",
@@ -84,7 +92,7 @@ def _normalize_todo_row(account_id: int, item: Dict[str, Any], synced_at_ms: int
         "status": (str(item.get("status") or "").strip() or None),
         "args_json": (args_raw if isinstance(args_raw, str) and args_raw.strip() else None),
         "intent_json": (intent_raw if isinstance(intent_raw, str) and intent_raw.strip() else None),
-        "item_id": (str(args_obj.get("item_id") or "").strip() or None),
+        "item_id": (item_id or None),
         "item_name": (str(args_obj.get("item_name") or "").strip() or None),
         "sender_id": (str(args_obj.get("sender_id") or "").strip() or None),
         "mercari_created": _parse_rfc3339_to_ms(item.get("created")),

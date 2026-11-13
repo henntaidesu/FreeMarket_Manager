@@ -6,10 +6,13 @@ import { ElMessage } from '@/utils/notify'
 import { shopAccountApi, mercariApi, webDriveApi, TASK_TYPES } from '@/api/index.js'
 import { submitTask } from '@/utils/taskSubmit.js'
 import { mercariImageUrl } from '@/utils/mercariImage.js'
+import { useRoute, useRouter } from 'vue-router'
 
 export default defineComponent({
   setup() {
     const { t } = useI18n()
+    const route = useRoute()
+    const router = useRouter()
 
     const MERCARI_HOME = 'https://jp.mercari.com/'
 
@@ -848,8 +851,15 @@ export default defineComponent({
       }
     }
 
-    onMounted(() => {
-      load()
+    onMounted(async () => {
+      await load()
+      // 待办「退货处理」的「编辑地址」带 ?edit=账号ID 过来：直接打开该账号的编辑弹窗
+      const editId = Number(route.query.edit || 0)
+      if (editId) {
+        const row = list.value.find((r) => Number(r.id) === editId)
+        if (row) openEdit(row)
+        router.replace({ query: { ...route.query, edit: undefined } })
+      }
     })
 
     return {

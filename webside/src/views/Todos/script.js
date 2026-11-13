@@ -2037,22 +2037,44 @@ export default defineComponent({
       }
     }
 
-    // 预览用的几行文字：姓名 / フリガナ / 电话 / 邮箱 / 〒邮编 + 地址
-    const returnAddressLines = computed(() => {
+    // 地址卡片：姓名（カナ）/ 〒邮编 + 地址 / 电话 · 邮箱
+    const returnAddressView = computed(() => {
       const a = returnAddressInfo.address
-      if (!a) return []
-      const join = (...xs) => xs.filter(Boolean).join(' ')
-      return [
-        { label: t('todos.returnAddressName'), value: join(a.last_name, a.first_name) },
-        { label: t('todos.returnAddressKana'), value: join(a.last_name_kana, a.first_name_kana) },
-        { label: t('todos.returnAddressTel'), value: a.tel },
-        { label: t('todos.returnAddressEmail'), value: a.email },
-        {
-          label: t('todos.returnAddressAddr'),
-          value: join(a.zipcode ? `〒${a.zipcode}` : '', `${a.prefecture || ''}${a.city || ''}${a.address1 || ''}`, a.address2),
-        },
-      ]
+      if (!a) return null
+      const join = (sep, ...xs) => xs.filter(Boolean).join(sep)
+      const zip = a.zipcode && a.zipcode.length === 7 ? `${a.zipcode.slice(0, 3)}-${a.zipcode.slice(3)}` : a.zipcode
+      return {
+        name: join(' ', a.last_name, a.first_name),
+        kana: join(' ', a.last_name_kana, a.first_name_kana),
+        address: join(' ', zip ? `〒${zip}` : '', `${a.prefecture || ''}${a.city || ''}${a.address1 || ''}`, a.address2),
+        contact: join(' · ', a.tel, a.email),
+      }
     })
+
+    // 返品先住所的期限：通知写「この通知から24時間以内」，按待办创建时刻 + 24h 估算
+    const returnAddressDeadline = computed(() => {
+      const base = Number(currentRow.value?.mercari_created || 0)
+      if (!isReturnAddressTodo.value || !base) return null
+      const left = base + DAY_MS - nowTs.value
+      if (left <= 0) return { type: 'danger', text: t('todos.returnAddressOverdue') }
+      const h = Math.floor(left / 3600000)
+      const m = Math.floor((left % 3600000) / 60000)
+      return { type: h < 6 ? 'danger' : 'warning', text: t('todos.returnAddressRemain', { h, m }) }
+    })
+
+    // 返品先住所已在 返品くん 提交完成（后端成功后写 return_address_submitted_at，unix 秒）。
+    // 提交后不能改，第一步换成「已提交」并屏蔽按钮；列表刷新后才会带上新值。
+    const returnAddressSubmittedText = computed(() => {
+      const sec = Number(currentRow.value?.return_address_submitted_at || 0)
+      return sec ? displayTs(sec * 1000) : ''
+    })
+
+    // 跳到店铺账号页并直接打开该账号的编辑弹窗（返品先住所在里面）
+    function goEditReturnAddress() {
+      const aid = Number(currentRow.value?.account_id || 0)
+      detailDialogVisible.value = false
+      router.push({ path: '/shop-accounts', query: aid ? { edit: String(aid) } : {} })
+    }
 
     async function onSubmitReturnAddress() {
       const row = currentRow.value
@@ -3362,7 +3384,10 @@ export default defineComponent({
       isReturnAddressTodo,
       returnAddressInfo,
       returnAddressBusy,
-      returnAddressLines,
+      returnAddressView,
+      returnAddressDeadline,
+      returnAddressSubmittedText,
+      goEditReturnAddress,
       onSubmitReturnAddress,
       onProcess,
       onDetailRefresh,

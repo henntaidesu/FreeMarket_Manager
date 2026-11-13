@@ -1237,8 +1237,11 @@ then the address form → 返品手続きを完了する. Its checkboxes are `bu
 `select`. The address comes from `shop_account_return_addresses` (one row per account, edited in the
 account dialog; saving normalizes but never rejects, `return_address_settings.validate` gates execution).
 Every field is read back before submitting and any mismatch aborts — 返品くん says an anonymous return
-can't be re-sent. Verified live up to the submit button (`dry_run=True`); **the submit itself and what
-follows are unverified** — success is judged by a 2xx POST to 返品くん's `/api/` after the click.
+can't be re-sent. Success = a 2xx POST to 返品くん's `/api/` **and** the page showing
+「返品手続きが完了しました」 (verified live, m97029923903). It then sets
+`todo_items.return_address_submitted_at` (not in the sync upsert columns, so sync never clears it); the
+todo is not soft-deleted because the same row still owes the 確認签收 step, and a second fill is refused.
+The popup opens blank first — wait for its URL to reach `henpin.co`, not just for `domcontentloaded`.
 
 **Anything that runs inside the todo 处理 dialog's `__todo` browser session must be registered
 in `_BROWSER_HOLDING_TASKS`** (`todos_sync/actions.py::close_detail_browser`) — the frontend

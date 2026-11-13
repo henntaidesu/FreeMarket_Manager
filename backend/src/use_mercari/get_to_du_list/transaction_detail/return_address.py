@@ -19,14 +19,15 @@
 - 页面写明「匿名返品は再発送ができません」——提交后无法改地址，所以提交前逐项回读核对，
   对不上就中止，绝不带着半截表单提交。
 
-**最后一步（提交后的页面 / 接口）未经实测**：开发时只跑到提交前（``dry_run``）。提交成功
-以「点击后 返品くん 的 ``/api/`` 有一次 2xx 的 POST」为准，没等到就失败并带上页面文字，
-让任务行能看出卡在哪。
+提交成功 = 点击后 返品くん 的 ``/api/`` 有一次 2xx 的 POST，且页面出现「返品手続きが完了しました」
+（实测 m97029923903）。两者缺一都算失败并带上页面文字。成功后在待办行记
+``return_address_submitted_at``，处理弹窗据此屏蔽第一步。
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any, Callable, Dict, Optional
 
 from ....db_manage.models.todos.todo_item import TodoItemModel
@@ -49,6 +50,7 @@ _START_BUTTON = "開始する"
 _CONFIRM_TITLE = "返品商品の確認"
 _NEXT_BUTTON = "次へ"
 _SUBMIT_BUTTON = "返品手続きを完了する"
+_DONE_TEXT = "返品手続きが完了しました"
 
 #: 本地字段 → 返品くん 表单 input 的 name（邮箱确认栏另填同一个值）
 _INPUT_NAMES = {
@@ -157,9 +159,13 @@ async def _open_henpin_page(page: Any, report: Callable[[str, str], None]) -> An
         if _HENPIN_HOST not in (page.url or ""):
             raise RuntimeError(f"点击「{_MOVE_BUTTON_TEXT}」后没有打开 返品くん（当前 URL: {page.url}）")
         target = page
-    await target.wait_for_load_state("domcontentloaded")
-    if _HENPIN_HOST not in (target.url or ""):
-        raise RuntimeError(f"打开的不是 返品くん 页面（URL: {target.url}）")
+    # 新标签刚创建时 URL 还是空 / about:blank，load_state 可能在跳转前就返回了
+    # （经 MITM 代理时尤其慢）——必须等 URL 真正落到 返品くん
+    try:
+        await target.wait_for_url(lambda u: _HENPIN_HOST in (u or ""), timeout=30000)
+        await target.wait_for_load_state("domcontentloaded")
+    except Exception as exc:
+        raise RuntimeError(f"30 秒内没有打开 返品くん 页面（当前 URL: {target.url or '空'}）") from exc
     return target
 
 
@@ -285,7 +291,14 @@ async def drive_return_address_on_page(
             pass
         raise RuntimeError(f"返品くん 提交失败 HTTP {resp.status}：{body}")
 
-    await asyncio.sleep(2.0)
+    # 提交后页面换成「返品手続きが完了しました … 返品商品のお届け先」（实测）
+    try:
+        await target.get_by_text(_DONE_TEXT).first.wait_for(state="visible", timeout=15000)
+    except Exception as exc:
+        raise RuntimeError(
+            f"提交请求已返回 HTTP {resp.status}，但 15 秒内没有出现「{_DONE_TEXT}」，"
+            f"请到煤炉取引画面核对：{await _body_excerpt(target)}"
+        ) from exc
     result_text = await _body_excerpt(target)
     log.info("[return_address] 已提交 item_id=%s status=%s 页面：%s", item_id, resp.status, result_text)
     _r("done_submit", "返品先住所已提交")
@@ -313,6 +326,8 @@ async def fill_return_address(
     kind = (getattr(todo, "kind", "") or "").strip()
     if kind != RETURN_ADDRESS_KIND:
         raise ValueError(f"该待办不是「返品に必要な情報の入力」（kind={kind or '空'}）")
+    if getattr(todo, "return_address_submitted_at", None) and not dry_run:
+        raise ValueError("该待办的返品先住所已经提交过（返品くん 提交后不能修改）")
     aid = int(getattr(todo, "account_id", 0) or 0)
     if not aid:
         raise ValueError("该待办缺少 account_id")
@@ -348,5 +363,12 @@ async def fill_return_address(
             except Exception as exc:
                 log.warning("[return_address] 关浏览器失败: %s", exc)
 
+    if result.get("submitted"):
+        try:
+            todo.return_address_submitted_at = int(time.time())
+            todo.save()
+        except Exception as exc:
+            # 地址已经提交且不可撤回，记账失败不该把任务判成失败
+            log.warning("[return_address] 记录提交时间失败 todo_id=%s: %s", todo_id, exc)
     report("done", "返品先住所已提交" if result.get("submitted") else "返品先住所已填写（未提交）")
     return {"todo_id": int(todo_id), "account_id": aid, "item_id": item_id, **result}

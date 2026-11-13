@@ -120,6 +120,7 @@ _LIST_COLS = (
     "ship_qr_text",
     "virtual_ship_state",
     "virtual_shipped_at",
+    "return_address_submitted_at",
 )
 
 

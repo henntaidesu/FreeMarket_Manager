@@ -444,6 +444,78 @@
   margin-top: 8px;
 }
 
+/* 退货处理：两步（填返品先住所 → 确认签收），标题右侧是 24h 剩余时间 */
+.return-flow-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.return-step + .return-step {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--el-border-color-lighter);
+}
+.return-step-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.return-step + .return-step .return-step-head {
+  margin-bottom: 0;
+}
+.return-step-no {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--el-color-primary);
+  color: #fff;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.return-step-no.is-done {
+  background: var(--el-color-success);
+}
+.return-step-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+.return-addr-card {
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: var(--el-fill-color-light);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.return-addr-name {
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+.return-addr-line {
+  color: var(--el-text-color-primary);
+  word-break: break-all;
+}
+.return-addr-sub {
+  margin-left: 6px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  font-weight: normal;
+  word-break: break-all;
+}
+.return-addr-card > .return-addr-sub {
+  margin-left: 0;
+}
+.return-step-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
 .detail-empty-hint {
   color: var(--el-text-color-placeholder);
   font-size: 11px;
