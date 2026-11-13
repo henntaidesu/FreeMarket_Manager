@@ -145,9 +145,8 @@
                 v-if="row.photo_url"
                 class="todo-thumb"
                 :src="mercariImageUrl(row.photo_url)"
-                :preview-src-list="[mercariImageUrl(row.photo_url)]"
-                :preview-teleported="true"
                 fit="cover"
+                @click.stop="openRowImages(row)"
                 referrerpolicy="no-referrer"
                 lazy
               >
@@ -341,12 +340,10 @@
               <el-image
                 v-if="row.photo_url"
                 :src="mercariImageUrl(row.photo_url)"
-                :preview-src-list="[mercariImageUrl(row.photo_url)]"
-                :preview-teleported="true"
                 fit="cover"
                 lazy
                 referrerpolicy="no-referrer"
-                @click.stop
+                @click.stop="openRowImages(row)"
               >
                 <template #error><span class="thumb-fallback">-</span></template>
               </el-image>
@@ -448,7 +445,6 @@
       width="1080px"
       class="todo-detail-dialog"
       align-center
-      :close-on-click-modal="false"
       destroy-on-close
       @close="onDetailDialogClose"
     >
@@ -509,8 +505,8 @@
                       <el-image
                         v-else
                         :src="inventoryThumbUrl(img)"
-                        :preview-src-list="inv.images"
-                        :initial-index="ii"
+                        :preview-src-list="allInvImages"
+                        :initial-index="invImageOffset(inv) + ii"
                         :preview-teleported="true"
                         fit="cover"
                         class="detail-inv-thumb"
@@ -1302,7 +1298,6 @@
       width="820px"
       :class="['todo-ship-dialog', { 'todo-ship-dialog--camera': shippingStep === 'yqr' || shippingStep === 'qrscan' }]"
       align-center
-      :close-on-click-modal="false"
       destroy-on-close
       @close="onShipFlowClose"
     >
@@ -1616,7 +1611,6 @@
       v-model="shipConfirmVisible"
       :title="t('todos.shipConfirmTitle')"
       width="460px"
-      :close-on-click-modal="false"
       destroy-on-close
     >
       <div v-loading="shipConfirmLoading">
@@ -1644,7 +1638,6 @@
       v-model="changeMethodVisible"
       :title="t('todos.changeMethodTitle')"
       width="460px"
-      :close-on-click-modal="false"
       destroy-on-close
     >
       <div v-loading="changeMethodLoading">
@@ -1677,13 +1670,21 @@
     </el-dialog>
 
     <!-- 发货码大图：点击列表缩略图后弹出，二维码上方显示订单号（末 4 位高亮） -->
+    <el-image-viewer
+      v-if="rowImageViewer.visible"
+      :url-list="rowImageViewer.urls"
+      :teleported="true"
+      :z-index="4000"
+      @close="rowImageViewer.visible = false"
+    />
+
     <teleport to="body">
       <div
         v-if="qrViewer.visible"
         class="qr-viewer-mask"
-        @click="qrViewer.visible = false"
+        @click.self="qrViewer.visible = false"
       >
-        <div class="qr-viewer-body" @click.stop>
+        <div class="qr-viewer-body" @click.self="qrViewer.visible = false">
           <div v-if="qrViewer.orderNo" class="qr-viewer-orderno">
             <span class="cell-order-no-head">{{ orderNoHead(qrViewer.orderNo) }}</span><span class="cell-order-no-tail">{{ orderNoTail(qrViewer.orderNo) }}</span>
           </div>

@@ -138,7 +138,7 @@
         <el-table :data="detail.lines" size="small" border :empty-text="t('inbound.noLines')">
           <el-table-column width="64" align="center">
             <template #default="{ row }">
-              <img v-if="row.image" :src="thumbUrl(row.image)" class="inbound-thumb" />
+              <img v-if="row.image" v-seq-src="thumbUrl(row.image)" class="inbound-thumb" />
             </template>
           </el-table-column>
           <el-table-column :label="t('inbound.item')" min-width="200">
@@ -227,7 +227,7 @@
         <div v-else-if="scanState === 'pick'" class="scan-pick">
           <p>{{ t('inbound.pickVariant') }}</p>
           <div v-for="c in scanCandidates" :key="c.inventory_id" class="scan-pick__row" @click="pickLine(c)">
-            <img v-if="c.image" :src="thumbUrl(c.image)" class="inbound-thumb" />
+            <img v-if="c.image" v-seq-src="thumbUrl(c.image)" class="inbound-thumb" />
             <div>
               <div>{{ c.name }}</div>
               <div class="cell-muted">{{ c.mgmt_code }} · {{ t('inbound.qtyPending') }} {{ c.qty_pending }}</div>

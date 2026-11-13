@@ -1430,6 +1430,26 @@ a.pef-lcard:hover {
   border-radius: 4px;
   pointer-events: none;
 }
+.inventory-image-cell__remove {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: #fff;
+  background: rgba(15, 23, 42, 0.72);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.inventory-image-cell__remove:hover {
+  background: #f56c6c;
+}
 .image-upload-area--compact {
   width: 100%;
   aspect-ratio: 1 / 1;

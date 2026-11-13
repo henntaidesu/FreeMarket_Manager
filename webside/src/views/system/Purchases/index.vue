@@ -131,7 +131,7 @@
             <img
               v-if="row.thumbnail"
               class="thumb"
-              :src="mercariImageUrl(row.thumbnail)"
+              v-seq-src="mercariImageUrl(row.thumbnail)"
               referrerpolicy="no-referrer"
             />
             <span v-else>-</span>

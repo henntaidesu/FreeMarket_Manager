@@ -1,7 +1,7 @@
 import './resumeGuard.js'
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import ElementPlus, { ElDialog } from 'element-plus'
+import ElementPlus, { ElDialog, ElImage, ElImageViewer } from 'element-plus'
 import 'element-plus/dist/index.css'
 import 'element-plus/theme-chalk/dark/css-vars.css'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
@@ -13,6 +13,8 @@ import { useAuthStore } from './stores/auth.js'
 import i18n, { elementLocales, currentLocale } from './i18n'
 import { configApi } from './api/index.js'
 import { setCipherMode } from './utils/mgmtIdCipher.js'
+import QueuedImage from './components/QueuedImage.js'
+import { seqSrcDirective } from './utils/imageQueue.js'
 
 document.documentElement.classList.add('dark')
 
@@ -22,6 +24,12 @@ document.documentElement.classList.add('dark')
 // 必须在 mount 前改：Vue 首次实例化时才规范化并缓存 props。
 // 副作用：scoped 的 `:deep(.x.el-dialog)` 从此匹配不到，弹窗外框规则要写在各页 style.global.css。
 ElDialog.props.appendToBody = { type: Boolean, default: true }
+// 图片放大预览：点遮罩空白处即关闭，不必找右上角的关闭按钮
+ElImage.props.hideOnClickModal = { type: Boolean, default: true }
+ElImageViewer.props.hideOnClickModal = { type: Boolean, default: true }
+// 翻到最后一张就停，不绕回第一张
+ElImage.props.infinite = { type: Boolean, default: false }
+ElImageViewer.props.infinite = { type: Boolean, default: false }
 
 const app = createApp(App)
 
@@ -35,6 +43,10 @@ app.config.globalProperties.$can = (key) => useAuthStore().can(key)
 app.use(router)
 app.use(i18n)
 app.use(ElementPlus, { locale: elementLocales[currentLocale.value] || elementLocales['zh-CN'] })
+// 全站 <el-image> 换成排队加载的版本（utils/imageQueue.js）；先删掉 ElementPlus 注册的那份，免得 Vue 警告重复注册
+delete app._context.components.ElImage
+app.component('ElImage', QueuedImage)
+app.directive('seq-src', seqSrcDirective)
 app.mount('#app')
 
 // 启动时拉取管理番号暗号编码模式（需登录态；隐藏页 /x9 可切换）。默认 base5，失败静默。

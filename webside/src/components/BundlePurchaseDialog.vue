@@ -6,7 +6,6 @@
     width="720px"
     align-center
     destroy-on-close
-    :close-on-click-modal="false"
     class="bundle-purchase-dialog"
   >
     <div v-loading="loading" :element-loading-text="t('dialogs.bundlePurchase.loadingText')">

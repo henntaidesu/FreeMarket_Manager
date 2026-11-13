@@ -685,8 +685,9 @@ const handleLogout = async () => {
   padding: 20px;
   min-width: 0;
   /* 滚到顶端还继续下拉时不要把滚动传给页面：安卓 Chrome 会当成下拉刷新，
-     把这个单页应用整页重载 */
-  overscroll-behavior-y: contain;
+     把这个单页应用整页重载。用 none 而不是 contain：contain 只断链式滚动，
+     iOS / iPadOS 上这块容器自己仍会橡皮筋回弹，到顶 / 到底还能一直往外拖 */
+  overscroll-behavior-y: none;
   -webkit-overflow-scrolling: touch;
 }
 

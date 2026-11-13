@@ -581,8 +581,6 @@ export default defineComponent({
     const noCodeInboundQty = ref(1)
     const NO_CODE_INBOUND_QTY_OPTIONS = Array.from({ length: 100 }, (_, i) => i + 1)
     const noCodeInboundQtyRef = ref()
-    /** 本次表单来自无码入库：商品本来就没有条码，上传图片时不做条码识别 */
-    const noCodeInboundActive = ref(false)
     const listingCategoryMappings = ref([])
     const noBarcodeEntryMode = ref(false)
     /** 无码入库且新建：选图后立即上传服务器，保存时只提交 /imges/ 路径 */
@@ -2681,6 +2679,63 @@ export default defineComponent({
       openProductImageSource(idx)
     }
 
+    /** 正在旋转的图片下标（-1 = 无），防连点 */
+    const inventoryImageRotatingIndex = ref(-1)
+
+    /**
+     * 顺时针旋转 90°：在浏览器里画到 canvas 上，再当作新文件写回该槽位
+     *（与「更换」同一条路径：编辑态即时上传换新路径，新建态存 data URL）。
+     * /imges/ 走 ?inline=1，否则图床 302 跨域会污染 canvas。
+     */
+    async function rotateInventoryFormImageAt(idx) {
+      const raw = form.value.images?.[idx]
+      if (!raw || inventoryImageRotatingIndex.value >= 0) return
+      inventoryImageRotatingIndex.value = idx
+      try {
+        const src = typeof raw === 'string' && raw.startsWith('/imges/') ? `${raw}?inline=1` : raw
+        const resp = await fetch(src)
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+        const blob = await resp.blob()
+        const objUrl = URL.createObjectURL(blob)
+        let img
+        try {
+          img = await new Promise((resolve, reject) => {
+            const el = new Image()
+            el.onload = () => resolve(el)
+            el.onerror = () => reject(new Error('decode'))
+            el.src = objUrl
+          })
+        } finally {
+          URL.revokeObjectURL(objUrl)
+        }
+        const w = img.naturalWidth
+        const h = img.naturalHeight
+        const canvas = document.createElement('canvas')
+        canvas.width = h
+        canvas.height = w
+        const ctx = canvas.getContext('2d')
+        ctx.translate(h, 0)
+        ctx.rotate(Math.PI / 2)
+        ctx.drawImage(img, 0, 0)
+        const type = blob.type === 'image/png' ? 'image/png' : 'image/jpeg'
+        const out = await new Promise((resolve) => canvas.toBlob(resolve, type, 0.95))
+        if (!out) throw new Error('encode')
+        const file = new File([out], `rotated.${type === 'image/png' ? 'png' : 'jpg'}`, { type })
+        if (form.value.images?.[idx] !== raw) return
+        await applyInventoryImageFile(file, idx)
+        // 已建档商品：立即落库，后端更新时会删掉被换下的旧图；不等防抖，
+        // 否则连点几次旋转，中间那几张新图从没写进库，就成了删不掉的孤儿文件
+        if (form.value.id) {
+          await nextTick()
+          await flushFormAutosave()
+        }
+      } catch (err) {
+        ElMessage.error(t('inventory.rotateFailed'))
+      } finally {
+        inventoryImageRotatingIndex.value = -1
+      }
+    }
+
     function abortNoBarcodeIndexUpload(idx) {
       const c = noBarcodeUploadAbortByIndex[idx]
       if (c) {
@@ -3193,7 +3248,6 @@ export default defineComponent({
       linkedItemsLoadedFor = null
       resetNoBarcodeImageUploadState()
       noBarcodeEntryMode.value = false
-      noCodeInboundActive.value = false
       categoryCreateMode.value = false
       newCategoryName.value = ''
       combinedEditDetailRows.value = []
@@ -3317,7 +3371,6 @@ export default defineComponent({
         }
         resetNoBarcodeImageUploadState()
         noBarcodeEntryMode.value = false
-        noCodeInboundActive.value = false
         categoryCreateMode.value = false
         newCategoryName.value = ''
         combinedEditDetailRows.value = []
@@ -3388,7 +3441,6 @@ export default defineComponent({
       }
       noCodeInboundVisible.value = false
       openNoBarcodeEntry()
-      noCodeInboundActive.value = true
       form.value.warehouse_id = wid
       syncWarehouseCascaderPathByWarehouseId(wid)
       form.value.quantity = noCodeInboundQty.value
@@ -4257,7 +4309,6 @@ export default defineComponent({
     // ---- 上传图片识别条码 → 查重 ----
     /** 还没有产品条码的普通商品，上传图片时顺带识别 */
     function shouldDetectBarcode() {
-      if (noCodeInboundActive.value) return false
       return Number(form.value.is_combined || 0) !== 1 && !String(form.value.product_barcode || '').trim()
     }
 
@@ -5383,8 +5434,6 @@ export default defineComponent({
       if (!nv) return
       contScanVisible.value = false
       openNoBarcodeEntry()
-      // 条码已定好，拍照时不再识别条码（否则又会弹一次「一码多品」）
-      noCodeInboundActive.value = true
       form.value.product_barcode = nv.code
       form.value.variant_no = nv.variant
       if (shelfId) {
@@ -6016,6 +6065,8 @@ export default defineComponent({
       inventoryFormImagePreviewList,
       combinedAsideImagePreviewList,
       replaceInventoryFormImageAt,
+      inventoryImageRotatingIndex,
+      rotateInventoryFormImageAt,
       abortNoBarcodeIndexUpload,
       abortAllNoBarcodeInventoryUploads,
       resetNoBarcodeImageUploadState,

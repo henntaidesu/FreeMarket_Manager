@@ -274,7 +274,7 @@
           <el-table :data="recentOrders" size="small" stripe class="num-table" @row-click="() => go('/orders')">
             <el-table-column width="52">
               <template #default="{ row }">
-                <img v-if="row.thumb" :src="row.thumb" class="row-thumb" alt="" />
+                <img v-if="row.thumb" v-seq-src="row.thumb" class="row-thumb" alt="" />
               </template>
             </el-table-column>
             <el-table-column :label="t('dashboard.orderNo')" min-width="130" prop="order_no" />

@@ -509,7 +509,7 @@
                   :class="{ 'is-active': idx === gallerySafeIndex }"
                   @click="detailImageIndex = idx"
                 >
-                  <img :src="img.thumb" alt="" referrerpolicy="no-referrer" />
+                  <img v-seq-src="img.thumb" alt="" referrerpolicy="no-referrer" />
                 </button>
               </div>
             </div>
@@ -918,7 +918,7 @@
                 <div v-if="reviseExtrasPhotosUnknown" class="osr-hint">{{ t('onSaleItems.reviseImagesUnknown') }}</div>
                 <div class="osr-images__list">
                   <div v-for="(url, idx) in reviseExtras.images" :key="url + '#' + idx" class="osr-images__item">
-                    <img :src="url" alt="" referrerpolicy="no-referrer" />
+                    <img v-seq-src="url" alt="" referrerpolicy="no-referrer" />
                     <span class="osr-images__idx">{{ idx + 1 }}</span>
                     <div class="osr-images__ops">
                       <el-button link size="small" :disabled="idx === 0" @click="moveReviseImage(idx, -1)">←</el-button>
@@ -943,7 +943,7 @@
                   <img
                     v-for="u in reviseInventoryImages(detailViewBase)"
                     :key="u"
-                    :src="u"
+                    v-seq-src="u"
                     alt=""
                     class="osr-images__inv-thumb"
                     @click="addReviseImage(u)"

@@ -1423,7 +1423,7 @@
                   :rel="marketItemUrl(it.item_id, it.platform) ? 'noopener' : undefined"
                 >
                   <div class="pef-lcard__thumb">
-                    <img v-if="it.thumbnail" :src="mercariImageUrl(it.thumbnail)" referrerpolicy="no-referrer" />
+                    <img v-if="it.thumbnail" v-seq-src="mercariImageUrl(it.thumbnail)" referrerpolicy="no-referrer" />
                     <span v-else class="pef-lcard__noimg">{{ t('inventory.noImage') }}</span>
                   </div>
                   <div class="pef-lcard__body">
@@ -1466,7 +1466,7 @@
                   :rel="marketItemUrl(o.order_no, o.platform) ? 'noopener' : undefined"
                 >
                   <div class="pef-lcard__thumb">
-                    <img v-if="o.thumbnail" :src="mercariImageUrl(o.thumbnail)" referrerpolicy="no-referrer" />
+                    <img v-if="o.thumbnail" v-seq-src="mercariImageUrl(o.thumbnail)" referrerpolicy="no-referrer" />
                     <span v-else class="pef-lcard__noimg">{{ t('inventory.noImage') }}</span>
                   </div>
                   <div class="pef-lcard__body">
@@ -1623,6 +1623,14 @@
                         <el-icon size="32" color="#4a5a72"><Camera /></el-icon>
                       </div>
                     </div>
+                    <button
+                      type="button"
+                      class="inventory-image-cell__remove"
+                      :title="t('inventory.remove')"
+                      @click.stop="removeInventoryFormImageAt(imgIdx)"
+                    >
+                      <el-icon :size="14"><Delete /></el-icon>
+                    </button>
                   </div>
                   <div
                     v-if="inventoryFormImmediateImageUpload && noBarcodeImgUpload[imgIdx]?.uploading"
@@ -1631,7 +1639,6 @@
                     <el-progress :percentage="noBarcodeImgUpload[imgIdx].percent" :stroke-width="10" />
                   </div>
                   <div class="img-actions img-actions--inline">
-                    <el-button size="small" type="danger" text @click.stop="removeInventoryFormImageAt(imgIdx)">{{ t('inventory.remove') }}</el-button>
                     <el-button
                       v-if="imgUrl"
                       size="small"
@@ -1640,6 +1647,17 @@
                       @click.stop="replaceInventoryFormImageAt(imgIdx)"
                     >
                       {{ t('inventory.replace') }}
+                    </el-button>
+                    <el-button
+                      v-if="imgUrl"
+                      size="small"
+                      type="primary"
+                      text
+                      :loading="inventoryImageRotatingIndex === imgIdx"
+                      :disabled="inventoryImageRotatingIndex >= 0 || !!noBarcodeImgUpload[imgIdx]?.uploading"
+                      @click.stop="rotateInventoryFormImageAt(imgIdx)"
+                    >
+                      {{ t('inventory.rotate') }}
                     </el-button>
                   </div>
                 </div>
@@ -2627,7 +2645,6 @@
       v-model="imageSearchVisible"
       :title="t('inventory.imageSearch')"
       :width="isMobile ? '92vw' : '420px'"
-      :close-on-click-modal="!imageSearchLoading"
     >
       <div
         class="image-search-dropzone"

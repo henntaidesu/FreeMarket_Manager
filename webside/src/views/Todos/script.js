@@ -483,6 +483,40 @@ export default defineComponent({
       return `/mercariV2/src/use_web/inventory/image-thumb?path=${encodeURIComponent(s)}&size=${size}`
     }
 
+    /** 全部关联商品的原图首尾相接：预览里翻到一个商品的最后一张，接着翻进下一个商品 */
+    const allInvImages = computed(() =>
+      (invMatch.inventory || []).flatMap((inv) => (Array.isArray(inv?.images) ? inv.images : [])),
+    )
+    /** 该商品第一张图在 allInvImages 里的下标 */
+    function invImageOffset(inv) {
+      let n = 0
+      for (const x of invMatch.inventory || []) {
+        if (x === inv) return n
+        n += Array.isArray(x?.images) ? x.images.length : 0
+      }
+      return 0
+    }
+
+    // 列表 / 卡片点图：看关联商品的原图（全部关联商品连在一起），没有关联商品才退回平台缩略图
+    const rowImageViewer = reactive({ visible: false, urls: [] })
+    let rowImageSeq = 0
+    async function openRowImages(row) {
+      const seq = ++rowImageSeq
+      let urls = []
+      try {
+        const res = await todosApi.matchInventory(row?.item_id)
+        const invs = Array.isArray(res?.inventory) ? res.inventory : []
+        urls = [...new Set(invs.flatMap((inv) => (Array.isArray(inv?.images) ? inv.images : [])))]
+      } catch (e) {
+        console.error('[库存反查]', e?.message || e)
+      }
+      if (seq !== rowImageSeq) return
+      if (!urls.length && row?.photo_url) urls = [mercariImageUrl(row.photo_url)]
+      if (!urls.length) return
+      rowImageViewer.urls = urls
+      rowImageViewer.visible = true
+    }
+
     // 关联商品图片：单个商品默认最多展示 6 张；超过时最后一格叠加「+N」遮罩，点击展开全部
     const MAX_INV_IMAGES = 6
     const expandedInvImages = reactive(new Set())
@@ -3248,6 +3282,10 @@ export default defineComponent({
       fetchItemDetailBusyId,
       onFetchItemDetail,
       inventoryThumbUrl,
+      allInvImages,
+      invImageOffset,
+      rowImageViewer,
+      openRowImages,
       visibleInvImages,
       invMoreCount,
       expandInvImages,

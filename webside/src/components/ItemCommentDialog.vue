@@ -6,7 +6,6 @@
     width="640px"
     align-center
     destroy-on-close
-    :close-on-click-modal="false"
     class="item-comment-dialog"
   >
     <div v-loading="loading" :element-loading-text="t('dialogs.itemComment.loadingCapture')">

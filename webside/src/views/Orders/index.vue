@@ -583,7 +583,7 @@
                   :class="{ 'is-active': idx === gallerySafeIndex }"
                   @click="detailImageIndex = idx"
                 >
-                  <img :src="img.thumb" alt="" referrerpolicy="no-referrer" />
+                  <img v-seq-src="img.thumb" alt="" referrerpolicy="no-referrer" />
                 </button>
               </div>
             </div>

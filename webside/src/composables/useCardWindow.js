@@ -1,6 +1,8 @@
 import { nextTick, ref } from 'vue'
 
 const MAX_BATCHES = 5
+/** 哨兵离滚动容器可见区多近就开始取数(px) */
+const PRELOAD_MARGIN = 300
 /** 首批渲染前量不到卡片，按桌面卡片高度 + 间距估一行 */
 const ROW_ESTIMATE = 300
 
@@ -48,6 +50,32 @@ export function useCardWindow({ fetchPage, isCardView, isPaused = () => false, o
     return document.scrollingElement || document.documentElement
   }
 
+  /**
+   * 哨兵是否落在滚动容器可见区上下 PRELOAD_MARGIN 以内。
+   * 观察器的 rootMargin 只放大视口，中间那层滚动容器照样按自身边框裁剪，所以这里按容器自己量。
+   */
+  function nearViewport(sentinel) {
+    if (!sentinel) return false
+    const el = scrollContainer()
+    const isDoc = el === document.scrollingElement || el === document.documentElement
+    const box = isDoc ? { top: 0, bottom: window.innerHeight || 0 } : el.getBoundingClientRect()
+    const r = sentinel.getBoundingClientRect()
+    return r.bottom >= box.top - PRELOAD_MARGIN && r.top <= box.bottom + PRELOAD_MARGIN
+  }
+
+  /** 第 i 张卡片顶边的视口坐标；用小数精度，offsetTop 取整后多批累计会漂 */
+  function cardTop(i) {
+    return cardGridRef.value?.children[i]?.getBoundingClientRect().top
+  }
+
+  /** 第 i 张卡片应当回到 before 的位置：只补舍入残差，正常情况下不写 scrollTop */
+  function restoreAnchor(i, before) {
+    const now = cardTop(i)
+    if (before == null || now == null) return
+    const diff = now - before
+    if (Math.abs(diff) >= 1) scrollContainer().scrollTop += diff
+  }
+
   /** 网格当前的列数（auto-fill 解析后的轨道数） */
   function measureCols() {
     const grid = cardGridRef.value
@@ -90,28 +118,28 @@ export function useCardWindow({ fetchPage, isCardView, isPaused = () => false, o
     } finally {
       cardLoading.value = false
     }
-    await fillCardsUntilScrollable()
+    await pump()
   }
 
   /**
-   * IntersectionObserver 只在「相交状态变化」时回调：一次加载后底部哨兵仍留在视口内
-   * 就不会再触发，屏幕高、卡片少时会停在半屏且再也滚不动。这里主动补几轮。
+   * IntersectionObserver 只在「相交状态变化」时回调：一次加载后哨兵仍留在可见区内就不会再触发。
+   * 手机上一甩到底 / 到顶，惯性滚动常常越过整批占位，或者撞上另一轮正在取数——
+   * 哨兵一直露着却再没有回调，只能停在空白处来回拉。所以每轮取完都回头看两个哨兵，还露着就接着取。
    */
-  let filling = false
-  async function fillCardsUntilScrollable() {
-    if (filling || !active()) return
-    filling = true
+  let pumping = false
+  async function pump() {
+    if (pumping || !active()) return
+    pumping = true
     try {
       for (let i = 0; i < 6; i += 1) {
-        if (cardExhausted.value) return
-        const el = cardBottomSentinel.value
-        if (!el) return
-        if (el.getBoundingClientRect().top > (window.innerHeight || 0) + 300) return
-        await loadMoreCards()
+        if (cardLoading.value) return
+        if (!cardExhausted.value && nearViewport(cardBottomSentinel.value)) await loadMoreCards()
+        else if (cardFirstPage.value > 1 && nearViewport(cardTopSentinel.value)) await loadPrevCards()
+        else return
         await nextTick()
       }
     } finally {
-      filling = false
+      pumping = false
     }
   }
 
@@ -164,21 +192,16 @@ export function useCardWindow({ fetchPage, isCardView, isPaused = () => false, o
       const prev = cardFirstPage.value - 1
       const rows = await fetchPage(prev, size)
       if (!rows.length) return
-      const el = scrollContainer()
-      const beforeHeight = el.scrollHeight
-      const beforeTop = el.scrollTop
+      // 前插的卡片与缩小的占位在同一轮渲染里落地，总高度不变，视口内容不动，不用改 scrollTop。
+      // 先插卡片再改 scrollTop 的做法在 iOS 惯性滚动中会被吞掉（滚动位置被惯性改回），页面连跳
+      const before = cardTop(0)
+      const pitch = cardTop(cols) != null ? cardTop(cols) - before : measureRowPitch()
+      const grow = Math.ceil(rows.length / cols) * pitch
+      cardTopSpacer.value = prev === 1 ? 0 : Math.max(0, cardTopSpacer.value - grow)
       cardRows.value = [...rows, ...cardRows.value]
       cardFirstPage.value = prev
       await nextTick()
-      // 先把滚动位置锚回原处，再拿占位去抵消新增高度，全程视口内容不动
-      const grow = el.scrollHeight - beforeHeight
-      el.scrollTop = beforeTop + grow
-      const take = Math.min(cardTopSpacer.value, grow)
-      if (take > 0) {
-        cardTopSpacer.value -= take
-        await nextTick()
-        el.scrollTop = beforeTop + grow - take
-      }
+      restoreAnchor(rows.length, before)
       if (cardRows.value.length > size * MAX_BATCHES) {
         // 末批可能不满（数据到底了），按实际末页条数切，别切进倒数第二批
         const lastCount = cardRows.value.length - (cardLastPage.value - cardFirstPage.value) * size
@@ -191,15 +214,18 @@ export function useCardWindow({ fetchPage, isCardView, isPaused = () => false, o
     }
   }
 
-  /** 丢掉窗口最上面一批：量出它占的高度补进占位块，滚动条位置不变 */
+  /**
+   * 丢掉窗口最上面一批：删之前先量出它占的高度，与占位块在同一轮渲染里一减一加，总高度不变。
+   * 先删后补的话，删完那一刻内容变矮，停在底部时滚动位置被浏览器夹到新底部，补回占位后页面往上跳一截。
+   */
   async function recycleOldestBatch() {
-    const el = scrollContainer()
-    const beforeHeight = el.scrollHeight
+    const before = cardTop(pageSize)
+    if (before == null) return
+    cardTopSpacer.value += before - cardTop(0)
     cardRows.value = cardRows.value.slice(pageSize)
     cardFirstPage.value += 1
     await nextTick()
-    const shrink = beforeHeight - el.scrollHeight
-    if (shrink > 0) cardTopSpacer.value += shrink
+    restoreAnchor(0, before)
   }
 
   /**
@@ -242,7 +268,7 @@ export function useCardWindow({ fetchPage, isCardView, isPaused = () => false, o
     }
     // 数据在此期间变少到锚点之后：没法原地对回，回到顶部重来
     if (!rows.length) await loadCardsFromStart()
-    else await fillCardsUntilScrollable()
+    else await pump()
   }
 
   let observer = null
@@ -269,13 +295,9 @@ export function useCardWindow({ fetchPage, isCardView, isPaused = () => false, o
     // root 留空 = 视口；中间的滚动祖先会自动参与裁剪，无需知道它是谁
     observer = new IntersectionObserver(
       (entries) => {
-        for (const e of entries) {
-          if (!e.isIntersecting) continue
-          if (e.target === cardBottomSentinel.value) void fillCardsUntilScrollable()
-          else if (e.target === cardTopSentinel.value) void loadPrevCards()
-        }
+        if (entries.some((e) => e.isIntersecting)) void pump()
       },
-      { rootMargin: '300px 0px' }
+      { rootMargin: `${PRELOAD_MARGIN}px 0px` }
     )
     if (bottom) observer.observe(bottom)
     if (top) observer.observe(top)

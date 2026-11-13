@@ -58,7 +58,7 @@
         <el-table v-if="listings.length" :data="listings" size="small" border>
           <el-table-column width="52" align="center">
             <template #default="{ row }">
-              <img v-if="row.thumbnail" :src="row.thumbnail" class="bd-thumb" referrerpolicy="no-referrer" alt="" />
+              <img v-if="row.thumbnail" v-seq-src="row.thumbnail" class="bd-thumb" referrerpolicy="no-referrer" alt="" />
             </template>
           </el-table-column>
           <el-table-column :label="t('barcodeHistory.itemId')" width="140" prop="item_id" class-name="bd-mono" />
@@ -73,7 +73,7 @@
         <el-table v-if="sold.length" :data="sold" size="small" border>
           <el-table-column width="52" align="center">
             <template #default="{ row }">
-              <img v-if="row.thumbnail" :src="row.thumbnail" class="bd-thumb" referrerpolicy="no-referrer" alt="" />
+              <img v-if="row.thumbnail" v-seq-src="row.thumbnail" class="bd-thumb" referrerpolicy="no-referrer" alt="" />
             </template>
           </el-table-column>
           <el-table-column :label="t('barcodeHistory.orderNo')" width="140" prop="order_no" class-name="bd-mono" />

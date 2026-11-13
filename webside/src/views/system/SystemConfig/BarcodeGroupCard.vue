@@ -169,7 +169,7 @@
               @click="toggleImage(b.key, img)"
               @keydown.enter.prevent="toggleImage(b.key, img)"
             >
-              <img :src="thumb(img)" alt="" />
+              <img v-seq-src="thumb(img)" alt="" />
               <span v-if="bucketState[b.key].images.includes(img)" class="bg-pick-no">
                 {{ bucketState[b.key].images.indexOf(img) === 0 ? t('barcodeHistory.mainImage') : bucketState[b.key].images.indexOf(img) + 1 }}
               </span>

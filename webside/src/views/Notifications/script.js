@@ -284,8 +284,8 @@ export default defineComponent({
             total: d.total ?? 0,
           }),
           t('notifications.syncResultTitle'),
-          { type: 'success', confirmButtonText: t('dialog.confirmBtn') },
-        )
+          { type: 'success', confirmButtonText: t('dialog.confirmBtn'), closeOnClickModal: true },
+        ).catch(() => {})
         await load()
       } catch (e) {
         syncHadError = true
