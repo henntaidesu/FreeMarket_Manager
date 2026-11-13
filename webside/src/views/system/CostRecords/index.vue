@@ -74,7 +74,7 @@
     >
       <el-form :model="form" :rules="rules" ref="formRef" label-width="96px">
         <el-form-item :label="t('system.costRecordItemName')" prop="item_name">
-          <el-input v-model="form.item_name" :placeholder="t('system.costRecordInputItemName')" maxlength="60" clearable />
+          <el-input v-model="form.item_name" maxlength="60" clearable />
         </el-form-item>
         <el-form-item :label="t('system.costRecordItemImage')">
           <div class="image-row">
@@ -95,7 +95,6 @@
             :min="1"
             :precision="0"
             :controls="false"
-            :placeholder="t('system.costRecordInputUnitPrice')"
             style="width: 100%"
           />
         </el-form-item>

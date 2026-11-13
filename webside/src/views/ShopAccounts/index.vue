@@ -122,7 +122,6 @@
                     v-model="form.seller_id"
                     maxlength="30"
                     clearable
-                    :placeholder="sellerIdPlaceholder"
                   />
                 </el-form-item>
                 <el-form-item :label="t('mercariAccounts.accountStatus')" prop="status">
@@ -295,38 +294,38 @@
           >
             <el-form-item :label="t('mercariAccounts.raName')">
               <div class="ra-pair">
-                <el-input v-model="returnAddress.last_name" :placeholder="t('mercariAccounts.raLastName')" maxlength="30" />
-                <el-input v-model="returnAddress.first_name" :placeholder="t('mercariAccounts.raFirstName')" maxlength="30" />
+                <el-input v-model="returnAddress.last_name" maxlength="30" />
+                <el-input v-model="returnAddress.first_name" maxlength="30" />
               </div>
             </el-form-item>
             <el-form-item :label="t('mercariAccounts.raKana')">
               <div class="ra-pair">
-                <el-input v-model="returnAddress.last_name_kana" :placeholder="t('mercariAccounts.raLastKana')" maxlength="30" />
-                <el-input v-model="returnAddress.first_name_kana" :placeholder="t('mercariAccounts.raFirstKana')" maxlength="30" />
+                <el-input v-model="returnAddress.last_name_kana" maxlength="30" />
+                <el-input v-model="returnAddress.first_name_kana" maxlength="30" />
               </div>
             </el-form-item>
             <el-form-item :label="t('mercariAccounts.raTel')">
-              <el-input v-model="returnAddress.tel" placeholder="0312345678" maxlength="20" />
+              <el-input v-model="returnAddress.tel" maxlength="20" />
             </el-form-item>
             <el-form-item :label="t('mercariAccounts.raEmail')">
-              <el-input v-model="returnAddress.email" placeholder="email@example.com" maxlength="100" />
+              <el-input v-model="returnAddress.email" maxlength="100" />
             </el-form-item>
             <el-form-item :label="t('mercariAccounts.raZipcode')">
-              <el-input v-model="returnAddress.zipcode" placeholder="1234567" maxlength="10" />
+              <el-input v-model="returnAddress.zipcode" maxlength="10" />
             </el-form-item>
             <el-form-item :label="t('mercariAccounts.raPrefecture')">
-              <el-select v-model="returnAddress.prefecture" filterable clearable style="width: 100%">
+              <el-select v-model="returnAddress.prefecture" clearable style="width: 100%">
                 <el-option v-for="p in prefectureOptions" :key="p" :label="p" :value="p" />
               </el-select>
             </el-form-item>
             <el-form-item :label="t('mercariAccounts.raCity')">
-              <el-input v-model="returnAddress.city" :placeholder="t('mercariAccounts.raCityPh')" maxlength="60" />
+              <el-input v-model="returnAddress.city" maxlength="60" />
             </el-form-item>
             <el-form-item :label="t('mercariAccounts.raAddress1')">
-              <el-input v-model="returnAddress.address1" placeholder="1-1-1" maxlength="60" />
+              <el-input v-model="returnAddress.address1" maxlength="60" />
             </el-form-item>
             <el-form-item :label="t('mercariAccounts.raAddress2')">
-              <el-input v-model="returnAddress.address2" :placeholder="t('mercariAccounts.raAddress2Ph')" maxlength="60" />
+              <el-input v-model="returnAddress.address2" maxlength="60" />
             </el-form-item>
             <el-form-item label-width="120px">
               <el-alert

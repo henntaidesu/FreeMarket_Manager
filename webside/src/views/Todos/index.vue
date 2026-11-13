@@ -637,7 +637,6 @@
                   v-model="yahooForm.item_name"
                   :maxlength="yahooItemNameMax"
                   show-word-limit
-                  :placeholder="t('todos.yahoo.itemNamePlaceholder')"
                 />
               </div>
               <!-- 虚拟发货：平台侧已办完，重扫/重拍都不该再有（再发行会被平台拒绝） -->
@@ -1093,7 +1092,6 @@
               v-model="detail.review_draft"
               type="textarea"
               :autosize="{ minRows: 5, maxRows: 10 }"
-              :placeholder="t('todos.reviewPlaceholder')"
               maxlength="140"
               show-word-limit
             />
@@ -1144,7 +1142,6 @@
               v-model="detail.review_draft"
               type="textarea"
               :autosize="{ minRows: 5, maxRows: 10 }"
-              :placeholder="t('todos.buyerReceiptPlaceholder')"
               maxlength="140"
               show-word-limit
             />
@@ -1264,7 +1261,6 @@
                 type="textarea"
                 :autosize="{ minRows: 4, maxRows: 8 }"
                 :maxlength="isYahoo ? 1024 : undefined"
-                :placeholder="replyPlaceholder"
                 :disabled="isYahoo && !detail.yahoo_can_send_message"
               />
               <div class="detail-reply-actions">
@@ -1437,7 +1433,6 @@
               v-model="yahooForm.item_name"
               :maxlength="yahooItemNameMax"
               show-word-limit
-              :placeholder="t('todos.yahoo.itemNamePlaceholder')"
             />
           </div>
           <el-radio-group v-if="yahooSizeCards.length" v-model="yahooForm.size" class="ship-radio-group">

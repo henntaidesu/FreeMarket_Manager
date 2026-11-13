@@ -161,9 +161,6 @@ export default defineComponent({
     // 卖家ID的格式按平台走：煤炉是纯数字（452042823），
     // 雅虎是 /user/{id} 里的 p + 数字（p76073178），拿纯数字规则校验会把正确值判成错的。
     const isYahooForm = computed(() => (form.value.platform || 'mercari') === 'yahoo')
-    const sellerIdPlaceholder = computed(() =>
-      t(isYahooForm.value ? 'mercariAccounts.sellerIdPlaceholderYahoo' : 'mercariAccounts.sellerIdPlaceholder')
-    )
 
     //: 弹窗里实际渲染的同步项（雅虎账号隐去煤炉专有项）
     const visibleFetchTasks = computed(() =>
@@ -938,7 +935,6 @@ export default defineComponent({
       PLATFORM_OPTIONS,
       platformName,
       platformSections,
-      sellerIdPlaceholder,
       taskLabel,
       syncTaskLabel,
       dialogTitle,

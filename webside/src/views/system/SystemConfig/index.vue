@@ -190,11 +190,11 @@
             <div class="sc-grid sc-grid--tight">
               <div class="sc-field">
                 <div class="sc-label">{{ t('systemConfig.ssoPortalUrl') }}</div>
-                <el-input v-model="ssoForm.portal_url" placeholder="https://portal.example.com" />
+                <el-input v-model="ssoForm.portal_url" />
               </div>
               <div class="sc-field">
                 <div class="sc-label">{{ t('systemConfig.ssoInternalUrl') }}</div>
-                <el-input v-model="ssoForm.internal_url" :placeholder="t('systemConfig.ssoInternalUrlPlaceholder')" />
+                <el-input v-model="ssoForm.internal_url" />
               </div>
               <div class="sc-field">
                 <div class="sc-label">Client ID</div>
@@ -202,8 +202,7 @@
               </div>
               <div class="sc-field">
                 <div class="sc-label">Client Secret</div>
-                <el-input v-model="ssoForm.client_secret" type="password" show-password
-                          :placeholder="sso.secret_set ? t('systemConfig.ssoSecretKeep') : ''" />
+                <el-input v-model="ssoForm.client_secret" type="password" show-password />
               </div>
               <div class="sc-field">
                 <div class="sc-label">{{ t('systemConfig.ssoAutoCreate') }}</div>
@@ -380,7 +379,6 @@
                   :options="shippingFromCascaderOptions"
                   :props="shippingFromCascaderProps"
                   :show-all-levels="false"
-                  filterable
                   clearable
                   placeholder=""
                   popper-class="product-type-cascader-popper"
@@ -437,7 +435,6 @@
                   :rows="6"
                   :maxlength="900"
                   show-word-limit
-                  :placeholder="t('system.defaultDescriptionPlaceholder')"
                   @change="saveListingDefaults"
                 />
               </div>
@@ -606,7 +603,6 @@
                   v-model="dbForm.mysql.password"
                   type="password"
                   show-password
-                  :placeholder="passwordSet ? '••••••••' : ''"
                 />
               </div>
               <div class="sc-field">
@@ -698,7 +694,7 @@
               </div>
               <div class="sc-field">
                 <div class="sc-label">密码</div>
-                <el-input v-model="syncForm.target.password" type="password" show-password :placeholder="syncStatus.target?.password_set ? '••••••••（留空沿用）' : ''" />
+                <el-input v-model="syncForm.target.password" type="password" show-password />
               </div>
               <div class="sc-field">
                 <div class="sc-label">同步库</div>
@@ -1002,7 +998,7 @@
             </div>
             <div v-if="webAccess.mode === 'direct'" class="sc-field sc-field--stack">
               <div class="sc-label">{{ t('webAccess.hosts') }}</div>
-              <el-input v-model="webAccess.hosts" clearable :placeholder="t('webAccess.hostsPlaceholder')" />
+              <el-input v-model="webAccess.hosts" clearable />
             </div>
             <div class="sc-field">
               <div class="sc-label">{{ t('webAccess.running') }}</div>
@@ -1062,7 +1058,6 @@
               <el-input
                 v-model="proxyPublicBase"
                 clearable
-                :placeholder="t('systemConfig.proxyPublicBasePlaceholder')"
               />
             </div>
             <div class="sc-field">
@@ -1070,7 +1065,6 @@
               <el-input
                 v-model="proxyBasePath"
                 clearable
-                :placeholder="t('systemConfig.proxyBasePathPlaceholder')"
               />
             </div>
             <el-alert
@@ -1118,7 +1112,6 @@
             v-model="userForm.password"
             type="password"
             show-password
-            :placeholder="userForm.id ? t('roles.resetPasswordPlaceholder') : ''"
           />
         </el-form-item>
         <el-form-item :label="t('system.role')">

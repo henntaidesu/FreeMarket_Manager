@@ -65,7 +65,7 @@
     >
       <el-form :model="form" :rules="rules" ref="formRef" label-position="top">
         <el-form-item :label="t('system.productType')" prop="product_type" class="product-type-item">
-          <el-input v-model="form.product_type" :placeholder="t('system.productTypePlaceholder')" />
+          <el-input v-model="form.product_type" />
         </el-form-item>
 
         <!-- 每个平台一条点选路径：数组多长就在该平台的分类弹层里点几级 -->

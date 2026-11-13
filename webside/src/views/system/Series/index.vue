@@ -8,7 +8,6 @@
             class="search-keyword"
             clearable
             prefix-icon="Search"
-            :placeholder="t('series.keywordPlaceholder')"
           />
         </div>
         <div class="search-actions">
@@ -61,14 +60,13 @@
     >
       <el-form :model="form" label-position="top" @submit.prevent>
         <el-form-item :label="t('series.name')" required>
-          <el-input v-model="form.name" maxlength="60" :placeholder="t('series.nameRequired')" />
+          <el-input v-model="form.name" maxlength="60" />
         </el-form-item>
         <el-form-item :label="t('series.membersInput')">
           <el-input
             v-model="form.members"
             type="textarea"
             :rows="3"
-            :placeholder="t('series.membersPlaceholder')"
           />
           <div class="cell-muted series-hint">{{ t('series.membersHint') }}</div>
         </el-form-item>
@@ -94,7 +92,7 @@
           </div>
         </el-form-item>
         <el-form-item :label="t('series.mergeName')" required>
-          <el-input v-model="mergeName" maxlength="60" :placeholder="t('series.nameRequired')" />
+          <el-input v-model="mergeName" maxlength="60" />
           <div class="cell-muted series-hint">{{ t('series.mergeHint', { count: mergeItemCount }) }}</div>
         </el-form-item>
       </el-form>

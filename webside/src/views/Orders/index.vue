@@ -960,7 +960,6 @@
             v-model="replyDraft"
             type="textarea"
             :rows="3"
-            :placeholder="t('orders.replyPlaceholder')"
             maxlength="1000"
             resize="none"
             class="order-conversation-reply-input"
@@ -1054,7 +1053,6 @@
             <div class="manual-ob-filter-cell">
               <el-input
                 v-model="manualInvFilters.keyword"
-                :placeholder="t('orders.searchProductPlaceholder')"
                 clearable
                 prefix-icon="Search"
                 @change="reloadManualInventoryList"
@@ -1089,7 +1087,6 @@
                 v-model="manualInvFilters.filterProductType"
                 style="width: 100%"
                 :placeholder="t('orders.productType')"
-                filterable
                 clearable
                 @change="manualInvFilters.handleFilterProductTypeChange"
               >
@@ -1233,7 +1230,6 @@
             <div class="manual-ob-filter-cell">
               <el-input
                 v-model="bindInvFilters.keyword"
-                :placeholder="t('orders.searchProductPlaceholder')"
                 clearable
                 prefix-icon="Search"
                 @change="reloadBindInventoryList"
@@ -1268,7 +1264,6 @@
                 v-model="bindInvFilters.filterProductType"
                 style="width: 100%"
                 :placeholder="t('orders.productType')"
-                filterable
                 clearable
                 @change="bindInvFilters.handleFilterProductTypeChange"
               >

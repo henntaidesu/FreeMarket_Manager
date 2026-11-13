@@ -6,7 +6,6 @@
         <div class="search-left-group">
           <el-input
             v-model="keyword"
-            :placeholder="t('talkScripts.searchPlaceholder')"
             clearable
             class="search-keyword"
             @keyup.enter="load"
@@ -93,7 +92,6 @@
           <el-input
             v-model="form.title"
             clearable
-            :placeholder="t('talkScripts.titlePlaceholder')"
           />
         </el-form-item>
         <el-form-item :label="t('talkScripts.fieldCategory')" prop="category">
@@ -116,7 +114,6 @@
             :rows="6"
             maxlength="2000"
             show-word-limit
-            :placeholder="t('talkScripts.contentPlaceholder')"
           />
         </el-form-item>
       </el-form>

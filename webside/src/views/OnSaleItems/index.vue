@@ -6,7 +6,6 @@
           <el-input
             v-model="filters.keyword"
             class="search-keyword"
-            :placeholder="t('onSaleItems.searchPlaceholderFull')"
             clearable
             @change="onFilterChange"
           />
@@ -959,7 +958,6 @@
                   v-model="reviseExtras.product_type_id"
                   :placeholder="reviseCurrentCategoryPath(detailViewBase) || t('onSaleItems.keepUnchanged')"
                   clearable
-                  filterable
                 >
                   <el-option v-for="o in reviseProductTypeOptions" :key="o.value" :label="o.label" :value="o.value" />
                 </el-select>
@@ -982,7 +980,7 @@
             </div>
           </template>
           <el-form-item :label="t('onSaleItems.shippingFromAreaLabel')">
-            <el-select v-model="reviseForm.shipping_from_area_id" :placeholder="t('onSaleItems.keepUnchanged')" clearable filterable>
+            <el-select v-model="reviseForm.shipping_from_area_id" :placeholder="t('onSaleItems.keepUnchanged')" clearable>
               <el-option v-for="o in shippingFromAreaOptions" :key="o.value" :label="o.label" :value="o.value" />
             </el-select>
           </el-form-item>
@@ -1013,12 +1011,11 @@
             :precision="0"
             :controls="false"
             :value-on-clear="null"
-            :placeholder="t('onSaleItems.keepUnchanged')"
             style="width: 100%"
           />
         </el-form-item>
         <el-form-item :label="t('onSaleItems.shippingFromAreaLabel')">
-          <el-select v-model="batchForm.shipping_from_area_id" :placeholder="t('onSaleItems.keepUnchanged')" clearable filterable style="width: 100%">
+          <el-select v-model="batchForm.shipping_from_area_id" :placeholder="t('onSaleItems.keepUnchanged')" clearable style="width: 100%">
             <el-option v-for="o in shippingFromAreaOptions" :key="o.value" :label="o.label" :value="o.value" />
           </el-select>
         </el-form-item>

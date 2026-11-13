@@ -15,7 +15,6 @@
           <el-input
             v-model="filters.keyword"
             class="search-keyword"
-            :placeholder="t('inbound.keywordPlaceholder')"
             clearable
             @keyup.enter="search"
             @clear="search"
@@ -99,7 +98,7 @@
         </div>
         <el-form :model="header" label-width="80px" class="inbound-form">
           <el-form-item :label="t('inbound.trackingNo')">
-            <el-input v-model="header.tracking_no" clearable :placeholder="t('inbound.trackingNoHint')" />
+            <el-input v-model="header.tracking_no" clearable />
           </el-form-item>
           <el-form-item :label="t('inbound.carrier')">
             <el-input v-model="header.carrier" clearable />
@@ -250,7 +249,6 @@
             <div class="scan-hint">{{ t('inbound.relocateHint') }}</div>
             <el-select
               :model-value="null"
-              filterable
               size="small"
               :placeholder="t('inbound.relocateManual')"
               class="scan-relocate"
@@ -267,7 +265,6 @@
             ref="scanInputRef"
             v-model="scanInput"
             clearable
-            :placeholder="t('inbound.manualPlaceholder')"
             @keydown.enter.prevent="submitScanInput"
           />
           <span class="cell-muted">{{ t('inbound.qtyPerScan') }}</span>

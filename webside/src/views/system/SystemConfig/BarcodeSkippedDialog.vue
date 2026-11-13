@@ -12,7 +12,6 @@
       <span class="bs-tip">{{ t('barcodeHistory.skippedTip') }}</span>
       <el-input
         v-model="keyword"
-        :placeholder="t('barcodeHistory.skippedSearch')"
         clearable
         size="small"
         class="bs-search"

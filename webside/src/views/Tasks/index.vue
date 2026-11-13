@@ -14,7 +14,7 @@
           <el-select v-model="filters.task_type" :placeholder="t('tasks.typeFilter')" clearable @change="onFilterChange">
             <el-option v-for="(label, key) in taskTypes" :key="key" :label="label" :value="key" />
           </el-select>
-          <el-select v-model="filters.account_id" :placeholder="t('tasks.accountFilter')" clearable filterable @change="onFilterChange">
+          <el-select v-model="filters.account_id" :placeholder="t('tasks.accountFilter')" clearable @change="onFilterChange">
             <el-option v-for="a in accounts" :key="a.id" :label="a.account_name || `#${a.id}`" :value="a.id" />
           </el-select>
         </div>

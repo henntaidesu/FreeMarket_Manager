@@ -84,13 +84,12 @@
     <el-dialog v-model="dialogVisible" :title="form.id ? t('system.costExpenseEdit') : t('system.costExpenseAdd')" width="520px" destroy-on-close>
       <el-form :model="form" :rules="rules" ref="formRef" label-width="88px">
         <el-form-item :label="t('system.costExpenseOrderNo')">
-          <el-input v-model="form.order_no" clearable :placeholder="t('system.costExpenseOrderNoPlaceholder')" />
+          <el-input v-model="form.order_no" clearable />
         </el-form-item>
         <el-form-item :label="t('system.costExpenseItemName')" prop="item_name">
           <el-select
             v-model="form.item_name"
             :placeholder="t('system.costExpenseItemNamePlaceholder')"
-            filterable
             clearable
             @change="onItemNameChange"
             style="width: 100%"

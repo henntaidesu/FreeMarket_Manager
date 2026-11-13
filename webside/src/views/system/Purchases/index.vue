@@ -8,7 +8,6 @@
           <el-input
             v-model="filters.keyword"
             class="search-keyword"
-            :placeholder="t('purchases.keywordPlaceholder')"
             clearable
             @keyup.enter="onFilterChange"
             @clear="onFilterChange"
@@ -17,7 +16,6 @@
             v-model="filters.account_id"
             :placeholder="t('purchases.accountFilter')"
             clearable
-            filterable
             @change="onFilterChange"
           >
             <el-option v-for="a in accounts" :key="a.id" :label="a.account_name || `#${a.id}`" :value="a.id" />
@@ -52,7 +50,6 @@
             v-model="filters.owner_user_id"
             :placeholder="t('purchases.ownerFilter')"
             clearable
-            filterable
             @change="onFilterChange"
           >
             <!-- 0 是「未指定归属人」的哨兵值，与后端 _build_filter 约定一致 -->
@@ -395,7 +392,6 @@
           <el-select
             v-model="batchForm.owner"
             clearable
-            filterable
             :placeholder="t('purchases.keepUnchanged')"
             style="width:100%"
           >

@@ -177,7 +177,6 @@
         <el-form-item :label="t('calendar.fieldTitle')">
           <el-input
             v-model="form.title"
-            :placeholder="t('calendar.titlePlaceholder')"
             maxlength="120"
             show-word-limit
           />
@@ -240,7 +239,6 @@
             v-model="form.description"
             type="textarea"
             :rows="3"
-            :placeholder="t('calendar.descriptionPlaceholder')"
           />
         </el-form-item>
       </el-form>

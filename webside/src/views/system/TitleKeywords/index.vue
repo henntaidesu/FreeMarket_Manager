@@ -5,7 +5,6 @@
         <div class="search-left-group">
           <el-input
             v-model="keyword"
-            :placeholder="t('titleKeywords.searchPlaceholder')"
             clearable
             class="search-keyword"
             @keyup.enter="load"
@@ -24,11 +23,9 @@
     </el-card>
 
     <el-card shadow="never" class="list-card" v-loading="loading">
-      <el-alert :title="t('titleKeywords.hint')" type="info" :closable="false" show-icon class="tk-hint" />
       <el-table :data="list" :empty-text="t('titleKeywords.empty')">
         <el-table-column :label="t('titleKeywords.fieldKeyword')" prop="keyword" min-width="140" />
         <el-table-column :label="t('titleKeywords.fieldTerm')" prop="term" min-width="160" />
-        <el-table-column :label="t('titleKeywords.fieldSort')" prop="sort_order" width="90" align="center" />
         <el-table-column :label="t('titleKeywords.useCount')" prop="use_count" width="100" align="center" />
         <el-table-column :label="t('titleKeywords.actions')" width="150" align="center">
           <template #default="{ row }">
@@ -45,15 +42,12 @@
       :width="isMobile ? '94vw' : '480px'"
       destroy-on-close
     >
-      <el-form :model="form" :rules="rules" ref="formRef" label-width="auto" @submit.prevent>
+      <el-form :model="form" :rules="rules" ref="formRef" label-width="auto" class="tk-form" @submit.prevent>
         <el-form-item :label="t('titleKeywords.fieldKeyword')" prop="keyword">
-          <el-input v-model="form.keyword" clearable :placeholder="t('titleKeywords.keywordPlaceholder')" />
+          <el-input v-model="form.keyword" clearable />
         </el-form-item>
         <el-form-item :label="t('titleKeywords.fieldTerm')" prop="term">
-          <el-input v-model="form.term" clearable :placeholder="t('titleKeywords.termPlaceholder')" />
-        </el-form-item>
-        <el-form-item :label="t('titleKeywords.fieldSort')">
-          <el-input-number v-model="form.sort_order" :min="0" :max="9999" controls-position="right" />
+          <el-input v-model="form.term" clearable />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -83,7 +77,7 @@ const onResize = () => { isMobile.value = window.innerWidth <= 768 }
 
 const dialogVisible = ref(false)
 const formRef = ref(null)
-const form = reactive({ id: null, keyword: '', term: '', sort_order: 0 })
+const form = reactive({ id: null, keyword: '', term: '' })
 
 const rules = {
   keyword: [{ required: true, whitespace: true, message: () => t('titleKeywords.errKeywordRequired'), trigger: 'blur' }],
@@ -103,12 +97,12 @@ async function load() {
 }
 
 function openCreate() {
-  Object.assign(form, { id: null, keyword: '', term: '', sort_order: 0 })
+  Object.assign(form, { id: null, keyword: '', term: '' })
   dialogVisible.value = true
 }
 
 function openEdit(row) {
-  Object.assign(form, { id: row.id, keyword: row.keyword || '', term: row.term || '', sort_order: row.sort_order || 0 })
+  Object.assign(form, { id: row.id, keyword: row.keyword || '', term: row.term || '' })
   dialogVisible.value = true
 }
 
@@ -116,7 +110,7 @@ async function submit() {
   await formRef.value.validate()
   saving.value = true
   try {
-    const payload = { keyword: form.keyword.trim(), term: form.term.trim(), sort_order: form.sort_order || 0 }
+    const payload = { keyword: form.keyword.trim(), term: form.term.trim() }
     if (form.id) {
       await titleKeywordApi.update(form.id, payload)
     } else {
@@ -154,7 +148,7 @@ onBeforeUnmount(() => window.removeEventListener('resize', onResize))
 .list-card {
   border-radius: 8px;
 }
-.tk-hint {
-  margin-bottom: 12px;
+.tk-form :deep(.el-input) {
+  width: 100%;
 }
 </style>

@@ -9,7 +9,6 @@
             v-model="keyword"
             class="search-keyword"
             clearable
-            :placeholder="t('inventory.keywordBarcodePlaceholder')"
             prefix-icon="Search"
             @change="load"
           />
@@ -20,7 +19,6 @@
             :show-all-levels="false"
             :placeholder="t('inventory.allCategories')"
             popper-class="product-type-cascader-popper"
-            filterable
             clearable
           />
           <el-cascader
@@ -36,7 +34,6 @@
           <el-select
             v-model="filterProductType"
             :placeholder="t('inventory.productType')"
-            filterable
             clearable
             @change="handleFilterProductTypeChange"
           >
@@ -50,7 +47,7 @@
           <el-select v-model="filterOwnerUserId" :placeholder="t('inventory.allOwners')" clearable @change="load">
             <el-option v-for="u in ownerUsers" :key="u.id" :label="u.display_name || u.username" :value="u.id" />
           </el-select>
-          <el-select v-model="filterSeriesId" :placeholder="t('inventory.allSeries')" filterable clearable @change="load">
+          <el-select v-model="filterSeriesId" :placeholder="t('inventory.allSeries')" clearable @change="load">
             <el-option v-for="s in seriesOptions" :key="s.id" :label="`${s.name} (${s.item_count})`" :value="s.id" />
           </el-select>
           <!-- 开关式筛选：单独占一行 -->
@@ -347,7 +344,6 @@
               </template>
               <el-select
                 :model-value="row.product_type_id"
-                filterable
                 clearable
                 class="inline-product-type-select"
                 :placeholder="t('inventory.pleaseSelectProductType')"
@@ -710,7 +706,6 @@
                   </el-select>
                   <el-input
                     v-model="newCategoryName"
-                    :placeholder="t('inventory.inputNewCategoryName')"
                     clearable
                     class="product-field-inline__main"
                     @keyup.enter="confirmCreateCategory"
@@ -726,7 +721,6 @@
             <el-form-item class="pef-field--type" :label="t('inventory.productType')" prop="product_type_id">
               <el-select
                 v-model="form.product_type_id"
-                filterable
                 :placeholder="t('inventory.pleaseSelectProductType')"
                 style="width: 100%"
               >
@@ -782,7 +776,6 @@
             <el-form-item class="pef-field--price" :label="t('inventory.unitPrice')" prop="price">
               <el-input
                 v-model="priceEdit"
-                :placeholder="t('inventory.integerPlaceholder')"
                 class="product-price-input"
                 inputmode="numeric"
                 @blur="applyPriceEditToForm"
@@ -812,7 +805,6 @@
             >
               <el-input
                 v-model="quantityEdit"
-                placeholder=""
                 class="product-qty-input"
                 inputmode="numeric"
                 @blur="applyQuantityEditToForm"
@@ -1351,7 +1343,6 @@
                       type="textarea"
                       :rows="2"
                       maxlength="200"
-                      :placeholder="t('inventory.batchStockOutRemarkPlaceholder')"
                     />
                   </el-form-item>
                 </el-form>
@@ -1393,7 +1384,7 @@
                 >
                   <el-option v-for="n in GUN_QTY_OPTIONS" :key="n" :label="n" :value="n" />
                 </el-select>
-                <el-input v-model="newBatch.remark" size="small" :placeholder="t('inventory.batchRemark')" class="pef-batch-add__remark" />
+                <el-input v-model="newBatch.remark" size="small" class="pef-batch-add__remark" />
                 <el-button type="primary" size="small" :loading="batchSaving" @click="addBatch">
                   {{ t('inventory.addBatch') }}
                 </el-button>
@@ -1973,7 +1964,7 @@
     >
       <el-form :model="combinedProductForm" label-width="112px" class="combined-product-form">
         <el-form-item :label="t('inventory.productNameCol')" required>
-          <el-input v-model="combinedProductForm.name" :placeholder="t('inventory.inputCombinedName')" clearable />
+          <el-input v-model="combinedProductForm.name" clearable />
         </el-form-item>
         <el-row :gutter="12">
           <el-col :xs="24" :sm="12">
@@ -1981,13 +1972,12 @@
               <el-input
                 v-model="combinedProductForm.quantity"
                 inputmode="numeric"
-                :placeholder="t('inventory.howManySets')"
               />
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
             <el-form-item :label="t('inventory.unitPrice')">
-              <el-input v-model="combinedProductForm.price" inputmode="numeric" :placeholder="t('inventory.combinedUnitPrice')" />
+              <el-input v-model="combinedProductForm.price" inputmode="numeric" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -2036,7 +2026,6 @@
             v-model="combinedProductForm.description"
             type="textarea"
             :rows="3"
-            :placeholder="t('inventory.combinedRemarkPlaceholder')"
           />
         </el-form-item>
       </el-form>
@@ -2126,7 +2115,7 @@
         <el-form-item :label="t('inventory.belongingShelf')">
           <el-cascader
             v-model="noCodeInboundPath"
-            :options="warehouseCascaderOptionsWithDefault"
+            :options="warehouseCascaderOptions"
             :props="warehouseCascaderProps"
             separator="-"
             :placeholder="t('inventory.warehouseShelfArrowPlaceholder')"
@@ -2179,7 +2168,6 @@
                 v-model="dedicatedForm.buyer_name"
                 maxlength="20"
                 clearable
-                :placeholder="t('inventory.dedicatedBuyerNamePlaceholder')"
               />
             </el-form-item>
             <el-form-item :label="t('inventory.dedicatedPrice')" required>
@@ -2307,7 +2295,6 @@
           ref="contGunInputRef"
           v-model="contGunInput"
           clearable
-          :placeholder="t('inventory.scannerManualPlaceholder')"
           @keydown.enter.prevent="submitContGunInput"
         />
       </div>
@@ -2532,7 +2519,6 @@
           ref="barcodeSearchInputRef"
           v-model="barcodeSearchInput"
           clearable
-          :placeholder="t('inventory.barcodeSearchPlaceholder')"
           @keydown.enter.prevent="applyBarcodeSearch(barcodeSearchInput)"
         >
           <template #append>

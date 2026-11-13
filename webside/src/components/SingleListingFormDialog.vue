@@ -74,7 +74,6 @@
           <el-input
             v-model="form.listing_title"
             class="listing-name-input"
-            :placeholder="t('dialogs.singleListing.listingTitlePlaceholder')"
             clearable
           />
         </div>
@@ -93,7 +92,6 @@
                 : 1000
             "
             show-word-limit
-            :placeholder="t('dialogs.singleListing.productDescriptionPlaceholder')"
           />
           <div
             v-if="managementNumberLine"
@@ -107,7 +105,6 @@
       <el-form-item :label="t('dialogs.singleListing.productType')" prop="category_mapping_id" required>
         <el-select
           v-model="form.category_mapping_id"
-          filterable
           clearable
           :placeholder="t('dialogs.singleListing.productTypePlaceholder')"
           style="width: 100%"
@@ -130,7 +127,6 @@
           v-model="form.mercari_account_id"
           :placeholder="t('dialogs.singleListing.listingAccountPlaceholder')"
           style="width: 100%"
-          filterable
           :loading="mercariAccountsLoading"
         >
           <el-option
@@ -159,7 +155,6 @@
           :options="shippingFromCascaderOptions"
           :props="shippingFromCascaderProps"
           :show-all-levels="false"
-          filterable
           :placeholder="t('dialogs.singleListing.shippingFromPlaceholder')"
           style="width: 100%"
           popper-class="product-type-cascader-popper"
@@ -199,7 +194,6 @@
         <div class="listing-compact-row">
           <el-input
             v-model="listingPriceEdit"
-            :placeholder="t('dialogs.singleListing.unitPricePlaceholder')"
             class="listing-price-input listing-compact-control"
             inputmode="numeric"
             @blur="applyListingPriceToForm"

@@ -16,7 +16,7 @@
           </div>
           <div class="search-field">
             <span class="search-label">{{ t('purchaseSettlement.account') }}</span>
-            <el-select v-model="accountId" clearable filterable :placeholder="t('purchaseSettlement.accountAll')">
+            <el-select v-model="accountId" clearable :placeholder="t('purchaseSettlement.accountAll')">
               <el-option v-for="a in accounts" :key="a.id" :label="a.account_name || `#${a.id}`" :value="a.id" />
             </el-select>
           </div>

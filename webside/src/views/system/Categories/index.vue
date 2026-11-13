@@ -35,7 +35,7 @@
     <el-dialog v-model="dialogVisible" :title="form.id ? t('system.editCategory') : t('system.addCategory')" width="400px" destroy-on-close>
       <el-form :model="form" :rules="rules" ref="formRef" label-width="80px">
         <el-form-item :label="t('common.name')" prop="name">
-          <el-input v-model="form.name" :placeholder="t('system.categoryNameRequired')" />
+          <el-input v-model="form.name" />
         </el-form-item>
         <el-form-item :label="t('system.categoryCompany')">
           <el-select
@@ -51,7 +51,7 @@
           </el-select>
         </el-form-item>
         <el-form-item :label="t('common.description')">
-          <el-input v-model="form.description" type="textarea" :rows="3" :placeholder="t('system.optionalDescription')" />
+          <el-input v-model="form.description" type="textarea" :rows="3" />
         </el-form-item>
       </el-form>
       <template #footer>

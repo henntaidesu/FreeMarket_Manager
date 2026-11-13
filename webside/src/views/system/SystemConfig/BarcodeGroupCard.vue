@@ -154,7 +154,6 @@
             maxlength="255"
             clearable
             class="bg-name"
-            :placeholder="t('barcodeHistory.newNamePlaceholder')"
           />
         </div>
         <div class="bg-row bg-row--top">

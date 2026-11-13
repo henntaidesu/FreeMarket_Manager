@@ -91,7 +91,7 @@
           <el-table-column :label="t('system.settlementConsumableName')" min-width="130">
             <template #default="{ row }">
               <span v-if="row.fixed" class="fixed-name">{{ displayName(row) }}</span>
-              <el-input v-else v-model="row.name" size="small" :placeholder="t('system.settlementConsumableNamePh')" />
+              <el-input v-else v-model="row.name" size="small" />
             </template>
           </el-table-column>
           <el-table-column :label="t('common.quantity')" width="92" align="right">
@@ -137,7 +137,6 @@
             v-model="pendingForm.name"
             size="small"
             class="pending-name"
-            :placeholder="t('system.settlementPendingNamePh')"
             @keyup.enter="addPendingItem"
           />
           <el-input-number
@@ -147,7 +146,6 @@
             :controls="false"
             size="small"
             class="pending-num"
-            :placeholder="t('common.quantity')"
           />
           <el-input-number
             v-model="pendingForm.unit_price"
@@ -156,7 +154,6 @@
             :controls="false"
             size="small"
             class="pending-num"
-            :placeholder="t('system.settlementUnitPrice')"
           />
           <el-select
             v-model="pendingForm.currency"

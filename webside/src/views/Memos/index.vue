@@ -19,7 +19,6 @@
 
           <el-input
             v-model="keyword"
-            :placeholder="t('memos.searchPlaceholder')"
             clearable
             class="search-keyword"
             @keyup.enter="reload(1)"
@@ -169,7 +168,6 @@
           <el-select
             v-model="composeForm.receiver_id"
             :placeholder="t('memos.receiverPlaceholder')"
-            filterable
             style="width: 100%"
           >
             <el-option
@@ -181,14 +179,13 @@
           </el-select>
         </el-form-item>
         <el-form-item :label="t('memos.colTitle')">
-          <el-input v-model="composeForm.title" :placeholder="t('memos.titlePlaceholder')" maxlength="100" show-word-limit />
+          <el-input v-model="composeForm.title" maxlength="100" show-word-limit />
         </el-form-item>
         <el-form-item :label="t('memos.colContent')" prop="content">
           <el-input
             v-model="composeForm.content"
             type="textarea"
             :rows="5"
-            :placeholder="t('memos.contentPlaceholder')"
             maxlength="2000"
             show-word-limit
           />

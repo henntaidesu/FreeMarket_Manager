@@ -35,7 +35,6 @@
         <el-form-item prop="username">
           <el-input
             v-model="form.username"
-            :placeholder="t('login.usernamePlaceholder')"
             size="large"
             clearable
             autocomplete="off"
@@ -45,7 +44,6 @@
           <el-input
             v-model="form.password"
             type="password"
-            :placeholder="t('login.passwordPlaceholder')"
             size="large"
             show-password
             autocomplete="new-password"

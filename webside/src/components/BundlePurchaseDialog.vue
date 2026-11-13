@@ -119,7 +119,6 @@
               :options="shippingFromCascaderOptions"
               :props="shippingFromCascaderProps"
               :show-all-levels="false"
-              filterable
               :placeholder="t('dialogs.bundlePurchase.shippingFromPlaceholder')"
               style="width: 100%"
               @change="handleShippingFromChange"

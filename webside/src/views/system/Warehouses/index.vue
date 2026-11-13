@@ -287,7 +287,6 @@
             :props="migrateTargetCascaderProps"
             :show-all-levels="false"
             clearable
-            filterable
             placeholder=""
             style="width: 100%"
             @change="onMigrateTargetChange"

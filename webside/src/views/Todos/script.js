@@ -61,8 +61,6 @@ export default defineComponent({
     const DEFAULT_REPLY = 'ご購入いただきありがとうございます。これから発送の準備をさせていただきます。設定した期日内に発送予定ですので今しばらくお待ちください。取引終了までよろしくお願いいたします。'
     //  - 已发送（発送済み）：发送完了 + 等待收货评价
     const DEFAULT_REPLY_SHIPPED = '商品を発送いたしました。到着まで今しばらくお待ちください。商品が届きましたらご確認後に受け取り評価をお願いいたします。'
-    // 已发送状态下输入框 placeholder（与煤炉一致）
-    const REPLY_PLACEHOLDER_SHIPPED = 'お待たせしていた商品の発送が完了しました。到着まで今しばらくお待ちください。'
     const DEFAULT_REVIEW = 'この度はお取引ありがとうございました。また機会がありましたらよろしくお願いします。'
     // 评价模板：与煤炉取引評価上方的两颗 chip（取引への感謝 / スムーズな対応）一一对应，
     // 点一下替换评价正文。煤炉那两颗的正文由服务端下发、拿不到，这里用等价的日文模板。
@@ -976,11 +974,6 @@ export default defineComponent({
     const replyDefaultText = computed(() =>
       isShippedState.value ? DEFAULT_REPLY_SHIPPED : DEFAULT_REPLY,
     )
-    // 回复输入框 placeholder：已发送时提示发送完了模板，否则用通用文案
-    const replyPlaceholder = computed(() => {
-      if (isYahoo.value) return t('todos.yahoo.messagePlaceholder')
-      return isShippedState.value ? REPLY_PLACEHOLDER_SHIPPED : t('todos.replyPlaceholder')
-    })
 
     // 发货向导 dialog（尺寸不再走 MITM 抓取，纯前端硬编码列表）
     const shippingDialogVisible = ref(false)
@@ -3298,7 +3291,6 @@ export default defineComponent({
       isWaitReply,
       canReactToMessages,
       isShippedState,
-      replyPlaceholder,
       shippingDialogVisible,
       shippingStep,
       shipFlowSteps,

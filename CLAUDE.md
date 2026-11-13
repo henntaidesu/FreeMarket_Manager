@@ -326,6 +326,12 @@ Key tables in `backend/src/db_manage/models/`:
   （没有任何包材关联该尺寸则列全部），恰好关联一种时自动选定并跳过包材页。尺寸名清单在
   `webside/src/constants/shipSizes.js`，须与 `views/Todos/script.js` 的尺寸卡片 name 一致。
 - **cost_expenses**: Packaging material usage per order
+- **title_keywords**: 出品标题关联词（其他功能 → 标题关联词，`/#/system/title-keywords`）。一行 = 输入词 → 关联词
+  （`吧唧 → バッジ`），同一输入词可多行，全局共享。库存表单的出品标题用 `components/ListingTitleInput.vue`
+  （`el-autocomplete` 包装）：取光标前最后一个空白之后的那段，找它**被输入词包含的最长结尾片段**（模糊——打「爱」
+  列出所有含「爱」的输入词），选中只替换那段，口径在 `utils/titleKeywords.js::matchTitleKeywords`。匹配全在前端，
+  词表整表缓存 60 秒，配置页增删改后 `invalidateTitleKeywords()`。替换用取候选时的文本 / 光标快照——
+  `el-autocomplete` 选中时会先把整框改成候选词。读接口挂 `system/title-keywords` + `inventory` + `system/inventory-history`。
 
 ## 图床存储 (Image Hosting)
 
