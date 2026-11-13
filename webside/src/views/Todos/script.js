@@ -2,7 +2,7 @@ import { defineComponent, watch, computed, nextTick, onBeforeUnmount, onMounted,
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
 import { ElMessage } from '@/utils/notify'
-import { Loading, Minus, Printer, Setting } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowRight, Loading, Minus, Printer, Setting } from '@element-plus/icons-vue'
 import { todosApi, costRecordApi, costExpenseApi, orderApi, shopAccountApi, TASK_TYPES, newClientToken } from '@/api'
 import { submitTask } from '@/utils/taskSubmit.js'
 import { useMercariAccountStore } from '@/stores/mercariAccount.js'
@@ -3201,6 +3201,26 @@ export default defineComponent({
     }
 
 
+    // 交易详情的左右切换：在当前列表的待发货行之间翻，当前行不是待发货时不显示
+    const waitShippingRows = computed(() =>
+      list.value.filter(
+        (r) =>
+          String(r?.title || '').trim() === WAIT_SHIPPING_TITLE ||
+          String(r?.kind || '').trim() === YAHOO_SHIP_KIND,
+      ),
+    )
+    const detailNavIndex = computed(() => {
+      const id = currentRow.value?.id
+      return id == null ? -1 : waitShippingRows.value.findIndex((r) => r.id === id)
+    })
+    function onDetailNav(step) {
+      const next = waitShippingRows.value[detailNavIndex.value + step]
+      if (!next) return
+      // 与关弹窗同样收尾（补存备注、关上一单的浏览器会话），再按新行打开
+      onDetailDialogClose()
+      onProcess(next)
+    }
+
     function buyerNameFromMessage(msg) {
       const s = String(msg || '')
       // 「<买家名>さんが...」 / 「<买家名>さんに...」
@@ -3398,6 +3418,8 @@ export default defineComponent({
       openQrViewer,
       openShipQrPhoto,
       Printer,
+      ArrowLeft,
+      ArrowRight,
       Setting,
       btPrint,
       onPrintViewerQr,
@@ -3468,6 +3490,9 @@ export default defineComponent({
       onSubmitReview,
       onSendReaction,
       onDetailDialogClose,
+      waitShippingRows,
+      detailNavIndex,
+      onDetailNav,
       buyerNameFromMessage,
     }
   },

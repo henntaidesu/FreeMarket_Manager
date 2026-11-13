@@ -132,10 +132,8 @@ export default {
       sectionShipping: "发货",
       sectionMessages: "消息 / 交流",
       section: {
-        product: "关联商品",
         sender: "发送元",
         shipping: "发货",
-        messages: "消息 / 交流",
       },
       buyerVerified: "已实名认证",
       reviewTitle: "交易评价",
@@ -450,10 +448,8 @@ export default {
       sectionShipping: "発送",
       sectionMessages: "メッセージ / やりとり",
       section: {
-        product: "関連商品",
         sender: "発送元",
         shipping: "発送",
-        messages: "メッセージ / やりとり",
       },
       buyerVerified: "本人確認済",
       reviewTitle: "取引評価",
@@ -768,10 +764,8 @@ export default {
       sectionShipping: "Shipping",
       sectionMessages: "Messages / Chat",
       section: {
-        product: "Related product",
         sender: "Sender",
         shipping: "Shipping",
-        messages: "Messages / Chat",
       },
       buyerVerified: "Verified",
       reviewTitle: "Transaction review",

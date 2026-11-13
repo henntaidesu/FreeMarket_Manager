@@ -450,8 +450,19 @@
     >
       <template #header="{ titleId, titleClass }">
         <div class="detail-header">
-          <span :id="titleId" :class="titleClass">{{ t('todos.transactionDetail') }} <code>{{ detail.item_id || '-' }}</code></span>
+          <span :id="titleId" :class="titleClass">
+            {{ t('todos.transactionDetail') }}
+            <span v-if="invMatch.order_amount != null" class="detail-sold-price">
+              {{ t('todos.soldPrice') }} ¥{{ Number(invMatch.order_amount).toLocaleString() }}
+            </span>
+            <code>{{ detail.item_id || '-' }}</code>
+          </span>
           <div class="detail-header-actions">
+            <template v-if="detailNavIndex >= 0">
+              <el-button size="small" :icon="ArrowLeft" :disabled="detailNavIndex <= 0" @click="onDetailNav(-1)" />
+              <span class="detail-nav-pos">{{ detailNavIndex + 1 }} / {{ waitShippingRows.length }}</span>
+              <el-button size="small" :icon="ArrowRight" :disabled="detailNavIndex >= waitShippingRows.length - 1" @click="onDetailNav(1)" />
+            </template>
             <el-button size="small" :loading="detailLoading" @click="onDetailRefresh">{{ t('todos.refreshFetch') }}</el-button>
           </div>
         </div>
@@ -461,12 +472,6 @@
         <!-- 左栏：商品 / 发送元 / 买家 / 发货 -->
         <div class="detail-col detail-col-left">
           <section class="detail-section">
-            <div class="detail-section-head">
-              <div class="detail-section-title">{{ t('todos.section.product') }}</div>
-              <span v-if="invMatch.order_amount != null" class="detail-sold-price">
-                {{ t('todos.soldPrice') }} ¥{{ Number(invMatch.order_amount).toLocaleString() }}
-              </span>
-            </div>
             <div v-if="showMercariPhoto" class="detail-photo-wrap">
               <el-image
                 :src="mercariImageUrl(detail.photo_url)"
@@ -1162,10 +1167,9 @@
 
           <!-- 消息 / 交流（默认） -->
           <section v-else class="detail-section detail-section-grow">
-            <div class="detail-section-title">
-              {{ t('todos.section.messages') }}
-              <!-- 雅虎对取引メッセージ有次数上限，页面上会写「残り N 回」 -->
-              <span v-if="isYahoo && detail.yahoo_message_quota != null" class="detail-msg-quota">
+            <!-- 雅虎对取引メッセージ有次数上限，页面上会写「残り N 回」 -->
+            <div v-if="isYahoo && detail.yahoo_message_quota != null" class="detail-section-title">
+              <span class="detail-msg-quota">
                 {{ t('todos.yahoo.quota', { n: detail.yahoo_message_quota }) }}
               </span>
             </div>
