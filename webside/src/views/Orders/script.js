@@ -874,6 +874,23 @@ export default defineComponent({
       { label: t('orders.netIncomeJpy'), value: orderMoneyField(form.value.net_income), accent: true },
     ])
 
+    /**
+     * 快递单号 → 承运商官网的公开追踪页。承运商按「快递公司 / 寄件方式名」里的字样认
+     * （两家单号都是 12 位数字，号码本身分不开）；认不出就不给链接，只显示单号。
+     */
+    function trackingUrl(trackingNo, ...carrierTexts) {
+      const no = String(trackingNo || '').replace(/[^0-9A-Za-z]/g, '')
+      if (!no) return ''
+      const s = carrierTexts.filter(Boolean).join(' ')
+      if (/ヤマト|らくらく|ネコ|宅急便|yamato/i.test(s)) {
+        return `https://toi.kuronekoyamato.co.jp/cgi-bin/tneko?number00=1&number01=${no}`
+      }
+      if (/郵便|ゆうゆう|ゆうパケット|ゆうパック|japan ?post/i.test(s)) {
+        return `https://trackings.post.japanpost.jp/services/srv/search/direct?reqCodeNo1=${no}&searchKind=S002&locale=ja`
+      }
+      return ''
+    }
+
     /** 概要右栏的字段：核心 + 物流 + 标识摊平成一张自适应列数的网格（原「更多信息」页签） */
     const detailFacts = computed(() => {
       const row = detailRow.value
@@ -884,10 +901,22 @@ export default defineComponent({
           label: t('orders.accountCol'),
           value: (row && row.account_name) || form.value.data_user || '-',
         },
-        { label: t('orders.buyerId'), value: form.value.customer_name || '-' },
+        // 买家只显示名字；买家 ID（customer_name）仅在没有名字的历史订单上兜底
+        {
+          label: t('orders.buyer'),
+          value: (row && row.buyer_name) || form.value.customer_name || '-',
+        },
         { label: t('orders.carrier'), value: form.value.carrier_display_name || '-' },
         { label: t('orders.shippingMethod'), value: form.value.request_class_display_name || '-' },
-        { label: t('orders.trackingNo'), value: form.value.tracking_no || '-' },
+        {
+          label: t('orders.trackingNo'),
+          value: form.value.tracking_no || '-',
+          href: trackingUrl(
+            form.value.tracking_no,
+            form.value.carrier_display_name,
+            form.value.request_class_display_name,
+          ),
+        },
         { label: t('orders.shipConfirmCode'), value: form.value.ship_confirm_code || '-' },
         {
           label: t('orders.transactionEvidenceId'),

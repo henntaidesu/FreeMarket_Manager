@@ -1229,6 +1229,11 @@
   align-items: center;
   gap: 8px;
 }
+.detail-sold-price {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--el-color-warning);
+}
 
 /* 发送场所（发货码上方：图标 + 「○○から発送」标题，垂直居中对齐图标） */
 .detail-facility {

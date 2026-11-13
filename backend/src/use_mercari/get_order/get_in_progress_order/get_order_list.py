@@ -12,6 +12,7 @@
   order_date       <- item["created"] Unix 秒（原始时间戳）
   order_updated_at <- item["updated"] Unix 秒（最后更新时间）
   customer_name    <- str(item["buyer"]["id"])      （仅存买家用户 ID）
+  buyer_name       <- item["buyer"]["name"]         （买家昵称）
   data_user        <- str(seller_id)                （卖家用户 ID，与请求参数 seller_id 一致）
   status           <- item["transaction_evidence"]["status"]（如 wait_shipping）
   amount           <- item["price"]（日元整数）
@@ -120,6 +121,7 @@ def _item_to_order_data(
         "order_date":       _unix_seconds(item.get("created")),
         "order_updated_at": _unix_seconds(item.get("updated")),
         "customer_name":    buyer_id_str or None,
+        "buyer_name":       str(buyer.get("name") or "").strip() or None,
         "data_user":        data_user,
         "status":           te.get("status") or item.get("status", "trading"),
         "platform":         "mercari",
@@ -162,7 +164,7 @@ def _upsert_order(order_data: Dict[str, Any]) -> str:
     existing.thumbnails        = order_data.get("thumbnails")
     # 仅在调用方确实带了值时覆盖：煤炉的列表同步不传这几项（由订单详情补齐），
     # 雅虎侧在同步时就能给出，故按「有才写」处理，避免两边互相清空。
-    for opt_col in ("description", "carrier_display_name", "tracking_no"):
+    for opt_col in ("description", "carrier_display_name", "tracking_no", "buyer_name"):
         val = order_data.get(opt_col)
         if val is not None and str(val).strip():
             setattr(existing, opt_col, val)

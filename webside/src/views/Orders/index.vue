@@ -657,27 +657,6 @@
                 </div>
               </div>
 
-              <!-- 订单备注：与待办页共用同一条（按订单号存放，见 backend 的 order_note.py）。
-                   两页任一边改完，另一边刷新即可见；待办卡片上有备注会在图右下角标红。 -->
-              <div class="odt-note">
-                <div class="odt-note__head">
-                  <span class="odt-note__k">{{ t('orders.orderNote') }}</span>
-                  <!-- 自动保存：没有保存按钮，停止输入后落库；这里只回一句状态 -->
-                  <span v-if="orderNoteStatus" class="odt-note__status">{{ orderNoteStatus }}</span>
-                </div>
-                <el-input
-                  v-model="orderNoteText"
-                  :disabled="!$can('orders:note')"
-                  type="textarea"
-                  :rows="2"
-                  :maxlength="500"
-                  show-word-limit
-                  resize="none"
-                  @input="scheduleOrderNoteSave"
-                  @blur="flushOrderNote"
-                />
-              </div>
-
               <div class="odt-stats">
                 <div v-for="s in detailMoneyStats" :key="s.label" class="odt-stat">
                   <span class="odt-stat__v" :class="{ 'is-accent': s.accent }">{{ s.value ?? '-' }}</span>
@@ -689,7 +668,16 @@
               <dl class="odt-facts">
                 <div v-for="f in detailFacts" :key="f.label" class="odt-fact">
                   <dt>{{ f.label }}</dt>
-                  <dd>{{ f.value }}</dd>
+                  <dd>
+                    <a
+                      v-if="f.href"
+                      :href="f.href"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="odt-fact__link"
+                    >{{ f.value }}</a>
+                    <template v-else>{{ f.value }}</template>
+                  </dd>
                 </div>
               </dl>
             </div>
@@ -902,6 +890,29 @@
             <el-tab-pane name="desc" :label="t('orders.itemDescription')">
               <div v-if="form.description" class="odt-desc">{{ form.description }}</div>
               <el-empty v-else :description="t('orders.descEmpty')" :image-size="48" />
+            </el-tab-pane>
+
+            <!-- 订单备注：与待办页共用同一条（按订单号存放，见 backend 的 order_note.py）。
+                 两页任一边改完，另一边刷新即可见；待办卡片上有备注会在图右下角标红。 -->
+            <el-tab-pane name="note">
+              <template #label>
+                {{ t('orders.orderNote') }}
+                <!-- 自动保存：没有保存按钮，停止输入后落库；这里只回一句状态 -->
+                <span v-if="orderNoteStatus" class="odt-note__status">{{ orderNoteStatus }}</span>
+              </template>
+              <div class="odt-note">
+                <el-input
+                  v-model="orderNoteText"
+                  :disabled="!$can('orders:note')"
+                  type="textarea"
+                  :rows="8"
+                  :maxlength="500"
+                  show-word-limit
+                  resize="none"
+                  @input="scheduleOrderNoteSave"
+                  @blur="flushOrderNote"
+                />
+              </div>
             </el-tab-pane>
           </el-tabs>
         </div>

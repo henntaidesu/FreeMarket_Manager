@@ -332,6 +332,7 @@ async def _run_yahoo_shipping_qr(
             size=size,
             location="",  # 投函型没有発送場所
             material_code=material_code,
+            qr_text=str(payload.get("qr_text") or "").strip(),
         ),
     )
     if not result.get("submitted"):

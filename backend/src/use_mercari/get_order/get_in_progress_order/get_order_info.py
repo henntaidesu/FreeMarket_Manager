@@ -321,8 +321,9 @@ def apply_post_ship_codes_to_order(
     *,
     ship_confirm_code: Optional[str] = None,
     tracking_no: Optional[str] = None,
+    ship_qr_text: Optional[str] = None,
 ) -> Optional[str]:
-    """把「确认发送」时得到的 発送確認符号 / 追跡番号 写入订单（order_no == item_id）。
+    """把「确认发送」时得到的 発送確認符号 / 追跡番号 / 扫码原文 写入订单（order_no == item_id）。
 
     返回 None 表示成功（或无可写入值）；否则返回错误标识字符串。
     transaction_evidences/get 不含発送確認符号，故由此处单独从待办缓存回填。
@@ -332,7 +333,8 @@ def apply_post_ship_codes_to_order(
         return "empty_item_id"
     code = (ship_confirm_code or "").strip()
     tracking = (tracking_no or "").strip()
-    if not code and not tracking:
+    qr_text = (ship_qr_text or "").strip()
+    if not code and not tracking and not qr_text:
         return None
     rows = OrderModel.find_all(where="[order_no] = ?", params=(item_id,), limit=1)
     if not rows:
@@ -345,9 +347,27 @@ def apply_post_ship_codes_to_order(
     if tracking:
         o.tracking_no = tracking
         changed = True
+    if qr_text:
+        o.ship_qr_text = qr_text
+        changed = True
     if changed and not o.save():
         return "save_failed"
     return None
+
+
+def apply_ship_qr_to_order(item_id: str, qr_text: Optional[str]) -> Optional[str]:
+    """扫码发货（ゆうパケットポスト系，煤炉 / 雅虎通用）：把二维码原文写入订单，
+    発送確認符号取材料码末 6 位（与煤炉交易页显示的一致），不再从页面读。"""
+    from ....use_yahoo.app_api import parse_material_code
+
+    text = (qr_text or "").strip()
+    if not text:
+        return None
+    try:
+        code = parse_material_code(text)[-6:]
+    except ValueError:
+        code = ""
+    return apply_post_ship_codes_to_order(item_id, ship_confirm_code=code, ship_qr_text=text)
 
 
 def _mark_order_cancelled(item_id: str, report: Any) -> Optional[str]:

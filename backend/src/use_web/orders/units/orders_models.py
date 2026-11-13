@@ -48,6 +48,11 @@ class OrderPackagingWaiveBody(PydanticModel):
     order_no: str
 
 
+class OrderShipMethodBody(PydanticModel):
+    order_no: str
+    name: str
+
+
 class SendOrderMessageBody(PydanticModel):
     """订单「编辑订单」面板回复消息：order_no(=item_id) + 文本，data_user 用于回退解析账号。"""
 

@@ -65,8 +65,8 @@ _PRICE_RE = re.compile(r"\n([0-9][0-9,]*)円\s*\n\s*売上履歴を見る")
 #: 商品名就在成交价上一行（「商品名 / N円 / 売上履歴を見る」这一块）。
 #: 有了它，单行「刷新」不必依赖已售列表卡片也能修正商品名。
 _ITEM_NAME_RE = re.compile(r"\n([^\n]{2,150}?)\s*\n\s*[0-9][0-9,]*円\s*\n\s*売上履歴を見る")
-#: 配送方法（おてがる配送（日本郵便）/（ヤマト運輸））
-_CARRIER_RE = re.compile(r"(おてがる配送（[^）]+）)")
+#: 配送方法（おてがる配送（日本郵便）/（ヤマト運輸））：只存括号里的承运商名（日本郵便 / ヤマト運輸）
+_CARRIER_RE = re.compile(r"おてがる配送（([^）]+)）")
 #: 发货后页面改写成「配送方法 / ゆうパケットポスト（専用箱/シール）」这种具体方式，
 #: 不再是发货前的「おてがる配送（…）」，所以 _CARRIER_RE 落空时按标签取下一行。
 _SHIP_METHOD_RE = re.compile(r"配送方法\s*\n\s*(\S[^\n]*)")
@@ -338,6 +338,8 @@ async def sync_yahoo_orders(
                 "order_updated_at": purchase_time,
                 "purchase_time": purchase_time,
                 "customer_name": parsed["customer_name"] or "",
+                # 雅虎交易页只给購入者显示名，customer_name 存的就是它
+                "buyer_name": parsed["customer_name"] or None,
                 # 与煤炉一致：data_user 存卖家ID，订单页据此显示账号名、单行刷新据此定位账号
                 "data_user": seller_key,
                 "status": parsed["status"],

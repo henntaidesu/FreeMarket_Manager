@@ -26,6 +26,7 @@ from .units.orders_outbound import (
     force_stock_out_order_outbound_line,
     refresh_order_info,
     refresh_order_progress,
+    set_order_ship_method,
     stock_out_order_outbound_line,
     waive_order_packaging,
 )
@@ -78,6 +79,10 @@ router.add_api_route("/order-note", save_order_note, methods=["PUT"], dependenci
 router.add_api_route("", list_orders, methods=["GET"])
 router.add_api_route(
     "/packaging-waive", waive_order_packaging, methods=["POST"], dependencies=_f("orders:packaging", "todos:ship"),
+)
+# 待办发货向导选定的尺寸 → 订单的寄件方式名
+router.add_api_route(
+    "/ship-method", set_order_ship_method, methods=["POST"], dependencies=_f("orders:packaging", "todos:ship"),
 )
 router.add_api_route("/refresh-info", refresh_order_info, methods=["POST"], dependencies=_f("orders:sync", "todos:sync"))
 router.add_api_route("/refresh-progress/{job_id}", refresh_order_progress, methods=["GET"])

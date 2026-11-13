@@ -467,12 +467,13 @@ export default defineComponent({
     }
 
     // 「発送をしてください」反查到的本地库存（图片）与关联订单号
-    const invMatch = reactive({ loading: false, inventory: [], order_nos: [] })
+    const invMatch = reactive({ loading: false, inventory: [], order_nos: [], order_amount: null })
 
     function resetInvMatch() {
       invMatch.loading = false
       invMatch.inventory = []
       invMatch.order_nos = []
+      invMatch.order_amount = null
       expandedInvImages.clear()
     }
 
@@ -709,6 +710,17 @@ export default defineComponent({
       const itemId = String(currentRow.value?.item_id || '').trim()
       if (!nos.length && itemId) nos.push(itemId)
       if (!nos.length) return
+      // 0) 向导里选定的尺寸记为订单的寄件方式名（平台同步不提供这一项）
+      const shipMethod = shipSizeName.value.trim()
+      if (shipMethod) {
+        for (const ono of nos) {
+          try {
+            await orderApi.setShipMethod({ order_no: ono, name: shipMethod })
+          } catch (e) {
+            console.error('[寄件方式]', ono, e?.response?.data?.detail || e?.message || e)
+          }
+        }
+      }
       // 1) 同步包材到订单（与 /#/orders 二级列表一致）。同种包材按选择次数合并为数量
       const counts = new Map()
       let hasNone = false
@@ -821,6 +833,7 @@ export default defineComponent({
         if (seq !== invMatchSeq) return
         invMatch.inventory = Array.isArray(res?.inventory) ? res.inventory : []
         invMatch.order_nos = Array.isArray(res?.order_nos) ? res.order_nos : []
+        invMatch.order_amount = res?.order_amount ?? null
         // 预载包材选项 + 关联订单出库明细，供发货成功后同步到 /#/orders
         loadPackagingItemOptions()
         loadShipOutboundLines(invMatch.order_nos.length ? invMatch.order_nos : [iid])

@@ -164,6 +164,22 @@ async def _refresh_order_after_ship(account_id: int, item_id: str) -> Optional[D
         return {"error": str(exc)[:200]}
 
 
+def _record_ship_qr(item_id: str, material_code: str, qr_text: str) -> Optional[str]:
+    """把扫码原文与発送確認符号写进订单（雅虎页面不显示発送確認符号）。
+
+    返回 ``apply_ship_qr_to_order`` 的错误标识（None = 已写入）；失败只记日志。
+    """
+    from ...use_mercari.get_order.get_in_progress_order.get_order_info import (
+        apply_ship_qr_to_order,
+    )
+
+    try:
+        return apply_ship_qr_to_order(item_id, qr_text or material_code)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[yahoo_trade] 写入発送確認符号失败 item_id=%s：%s", item_id, exc)
+        return "error"
+
+
 def _mark_packed(todo_id: int) -> None:
     """复用煤炉的「发行发货码 = 已打包」口径（订单与待办按 order_no == item_id 关联）。"""
     try:
@@ -181,13 +197,14 @@ async def ship_yahoo_todo(
     size: str,
     location: str,
     material_code: str = "",
+    qr_text: str = "",
     dry_run: bool = False,
 ) -> Dict[str, Any]:
     """提交雅虎发货信息（发行配送コード），成功后刷新本地订单并记打包时间。
 
     ``size`` 是 ゆうパケットポスト / mini 时改走 App API（网页端没有这两项），此时
     ``location`` 无意义——投函型没有発送場所可选，包裹是投进邮筒的——但仍需 ``material_code``
-    （专用箱/シール/封筒 上的二维码）。
+    （专用箱/シール/封筒 上的二维码）。``qr_text`` 是该二维码的完整原文，只用于记到订单上。
     """
     aid, item_id = _resolve_yahoo_todo(todo_id)
     # 两条路共用同一套品名规则（雅虎服务端也只认这一套），在开浏览器 / 调接口之前就拦下
@@ -200,6 +217,7 @@ async def ship_yahoo_todo(
             item_name=item_name,
             size=size,
             material_code=material_code,
+            qr_text=qr_text,
             dry_run=dry_run,
         )
 
@@ -232,6 +250,7 @@ async def _ship_yahoo_todo_via_app(
     item_name: str,
     size: str,
     material_code: str,
+    qr_text: str,
     dry_run: bool,
 ) -> Dict[str, Any]:
     """投函型发货：发行配送コード + 绑材料码，**紧接着直接発送通知**。
@@ -255,6 +274,8 @@ async def _ship_yahoo_todo_via_app(
     if not result.get("submitted"):
         return result
     _mark_packed(int(todo_id))
+    # 配送コード已发行即记下码：之后通知失败也不会回滚，这一单发的就是这个码
+    qr_err = _record_ship_qr(item_id, material_code, qr_text)
 
     try:
         notified = await notify_shipped_via_app(account_id, item_id=item_id)
@@ -272,6 +293,9 @@ async def _ship_yahoo_todo_via_app(
     result["todo_finalized"] = _finalize_shipped_todo(int(todo_id))
     # 通知过了雅虎才把交易挪出「待发货」，这时刷新订单状态才有意义
     result["order_refresh"] = await _refresh_order_after_ship(account_id, item_id)
+    if qr_err == "order_not_found":
+        # 订单还没同步进来时，上面那次刷新会把它建出来，再补写一次
+        _record_ship_qr(item_id, material_code, qr_text)
     return result
 
 

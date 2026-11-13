@@ -15,6 +15,7 @@ from ....sync.sync_progress import make_sync_reporter
 from ....get_order.get_in_progress_order.get_order_info import (
     apply_item_info_to_order,
     apply_post_ship_codes_to_order,
+    apply_ship_qr_to_order,
     mark_order_shipped,
 )
 from .....db_manage.database import DatabaseManager
@@ -562,15 +563,15 @@ async def finalize_post_shipping(
                 order_refresh_error = f"exception:{exc}"
                 log.warning("[postship] 订单刷新异常: %s", exc)
 
-            # 把「确认发送」时的 発送確認符号 / 追跡番号 同步进订单（transaction_evidences/get 不含确认符号）。
+            # 把「确认发送」时的 追跡番号 与扫码结果同步进订单（transaction_evidences/get 不含确认符号）。
             # 放在订单刷新之后：刷新可能用接口值覆盖 tracking_no，这里再用确认发送时的实际值兜底/校正。
+            # 発送確認符号取自扫码原文（材料码末 6 位），不存页面读到的值。
             try:
                 cached = get_cached_transaction_detail(int(todo_id))
                 code_err = apply_post_ship_codes_to_order(
                     item_id,
-                    ship_confirm_code=cached.get("ship_confirm_code"),
                     tracking_no=cached.get("ship_tracking_no"),
-                )
+                ) or apply_ship_qr_to_order(item_id, getattr(todo, "ship_qr_text", None))
                 if code_err:
                     log.warning("[postship] 发送确认符号/追跡番号 写入订单失败: %s", code_err)
                 else:

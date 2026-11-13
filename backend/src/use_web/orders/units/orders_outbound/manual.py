@@ -10,7 +10,7 @@ from .....use_mercari.get_order.description_mgmt_ids import refresh_inventory_pe
 from .....use_mercari.inventory_counters import cascade_combined_child_deduction
 from .....use_mercari.inventory_batches import head_owner
 from ..orders_helpers import db
-from ..orders_models import ManualOutboundLineCreateBody, ManualOutboundLineItem, ManualOutboundLinesBatchCreateBody, OrderPackagingWaiveBody
+from ..orders_models import ManualOutboundLineCreateBody, ManualOutboundLineItem, ManualOutboundLinesBatchCreateBody, OrderPackagingWaiveBody, OrderShipMethodBody
 
 
 def create_manual_outbound_line(data: ManualOutboundLineCreateBody):
@@ -154,6 +154,23 @@ def waive_order_packaging(data: OrderPackagingWaiveBody):
         raise HTTPException(status_code=404, detail="订单不存在")
     item = rows[0]
     item.packaging_waived = 1
+    if not item.save():
+        raise HTTPException(status_code=500, detail="保存失败")
+    return item.to_dict()
+
+
+def set_order_ship_method(data: OrderShipMethodBody):
+    """待办发货向导选定的尺寸（ゆうパケットポスト / ネコポス …）记为本单的寄件方式名。
+    平台同步不写这一列（煤炉恒为 None 且只在非空时覆盖），所以不会被下一轮同步冲掉。"""
+    order_no = (data.order_no or "").strip()
+    name = (data.name or "").strip()
+    if not order_no or not name:
+        raise HTTPException(status_code=400, detail="订单号与寄件方式不能为空")
+    rows = OrderModel.find_all(where="[order_no] = ?", params=(order_no,), limit=1)
+    if not rows:
+        raise HTTPException(status_code=404, detail="订单不存在")
+    item = rows[0]
+    item.request_class_display_name = name
     if not item.save():
         raise HTTPException(status_code=500, detail="保存失败")
     return item.to_dict()

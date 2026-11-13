@@ -461,7 +461,12 @@
         <!-- 左栏：商品 / 发送元 / 买家 / 发货 -->
         <div class="detail-col detail-col-left">
           <section class="detail-section">
-            <div class="detail-section-title">{{ t('todos.section.product') }}</div>
+            <div class="detail-section-head">
+              <div class="detail-section-title">{{ t('todos.section.product') }}</div>
+              <span v-if="invMatch.order_amount != null" class="detail-sold-price">
+                {{ t('todos.soldPrice') }} ¥{{ Number(invMatch.order_amount).toLocaleString() }}
+              </span>
+            </div>
             <div v-if="showMercariPhoto" class="detail-photo-wrap">
               <el-image
                 :src="mercariImageUrl(detail.photo_url)"

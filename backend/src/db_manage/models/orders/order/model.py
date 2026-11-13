@@ -86,6 +86,12 @@ class OrderModel(_AggregateMixin, _QueryMixin, BaseModel):
                 'not_null': False,
                 'default': None,
             },
+            # 买家显示名（Mercari buyer.name / 雅虎 購入者），仅新入库订单写入，历史行为空
+            'buyer_name': {
+                'type': 'TEXT',
+                'not_null': False,
+                'default': None,
+            },
             # 卖家用户 ID（Mercari seller.id）。故意不设 NOT NULL：SQLite 改约束需重建表，维持可空即可。
             'data_user': {
                 'type': 'TEXT',
@@ -137,6 +143,12 @@ class OrderModel(_AggregateMixin, _QueryMixin, BaseModel):
             },
             # 発送確認符号（ゆうパケットポスト系：确认发送时从交易页读取，如 QR15TW）
             'ship_confirm_code': {
+                'type': 'TEXT',
+                'not_null': False,
+                'default': None,
+            },
+            # 扫码发货（ゆうパケットポスト系）提交的二维码完整原文，如 PYP:01/…;
+            'ship_qr_text': {
                 'type': 'TEXT',
                 'not_null': False,
                 'default': None,

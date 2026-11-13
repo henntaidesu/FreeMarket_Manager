@@ -592,14 +592,21 @@ def match_inventory_for_item(item_id: str) -> Dict[str, Any]:
 
     # 订单号即 item_id：仅当库中确有该订单时回显
     order_nos: List[str] = []
+    order_amount = None
     has_order = db.execute_query(
-        "SELECT 1 FROM [orders] WHERE order_no = ? LIMIT 1",
+        "SELECT [amount] FROM [orders] WHERE order_no = ? LIMIT 1",
         (iid,),
     )
     if has_order:
         order_nos = [iid]
+        order_amount = has_order[0][0]
 
-    return {"item_id": iid, "inventory": inventory, "order_nos": order_nos}
+    return {
+        "item_id": iid,
+        "inventory": inventory,
+        "order_nos": order_nos,
+        "order_amount": order_amount,
+    }
 
 
 def list_kinds() -> List[str]:

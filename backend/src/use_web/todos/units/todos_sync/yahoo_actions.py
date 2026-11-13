@@ -130,6 +130,8 @@ async def yahoo_ship_endpoint(todo_id: int, req: YahooShipRequest) -> Dict[str, 
             size=req.size,
             location=req.location,
             material_code=material_code,
+            # 这条路的 material_code 就是照片解出的原文，由下游自己提取材料码
+            qr_text=material_code,
             dry_run=bool(req.dry_run),
         ),
     )

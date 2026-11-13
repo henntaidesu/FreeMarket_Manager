@@ -30,6 +30,7 @@ from ....web_drive.core.paths import mercari_automation_key, mercari_todo_key
 from ...get_order.get_in_progress_order.get_order_info import (
     apply_item_info_to_order,
     apply_post_ship_codes_to_order,
+    apply_ship_qr_to_order,
     mark_order_shipped,
 )
 from ...sync.sync_progress import make_sync_reporter
@@ -113,14 +114,15 @@ async def _refresh_orders_after_ship(
                     log.warning("[bulk_ship] 订单刷新返回错误 item_id=%s: %s", item_id, err)
             except Exception as exc:  # noqa: BLE001 单条刷新失败不阻断其余
                 log.warning("[bulk_ship] 订单刷新异常 item_id=%s: %s", item_id, exc)
-            # 用确认发送时缓存的确认符号/追跡番号兜底/校正订单（放在刷新之后，避免被接口值覆盖）
+            # 用确认发送时缓存的追跡番号兜底/校正订单（放在刷新之后，避免被接口值覆盖）；
+            # 発送確認符号取自待办留存的扫码原文（材料码末 6 位），不存页面读到的值
             try:
                 cached = get_cached_transaction_detail(int(todo_id)) if todo_id else {}
+                todo_row = TodoItemModel.find_by_id(id=int(todo_id)) if todo_id else None
                 code_err = apply_post_ship_codes_to_order(
                     item_id,
-                    ship_confirm_code=cached.get("ship_confirm_code"),
                     tracking_no=cached.get("ship_tracking_no"),
-                )
+                ) or apply_ship_qr_to_order(item_id, getattr(todo_row, "ship_qr_text", None))
                 if code_err:
                     log.warning("[bulk_ship] 发送确认符号/追跡番号写入订单失败 item_id=%s: %s", item_id, code_err)
             except Exception as exc:  # noqa: BLE001

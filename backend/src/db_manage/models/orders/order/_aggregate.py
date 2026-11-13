@@ -49,12 +49,13 @@ class _AggregateMixin:
         if keyword:
             base_sql += (
                 " AND (o.order_no LIKE ? OR o.customer_name LIKE ? "
+                "OR IFNULL(o.buyer_name, '') LIKE ? "
                 "OR IFNULL(o.data_user, '') LIKE ? "
                 "OR IFNULL(o.remark, '') LIKE ? "
                 "OR IFNULL(o.description, '') LIKE ?)"
             )
             kw = f"%{keyword}%"
-            params += [kw, kw, kw, kw, kw]
+            params += [kw, kw, kw, kw, kw, kw]
         if status:
             base_sql += " AND o.status = ?"
             params.append(status)

@@ -14,6 +14,7 @@ from .force import force_stock_out_order_outbound_line
 from .manual import (
     create_manual_outbound_line,
     create_manual_outbound_lines,
+    set_order_ship_method,
     waive_order_packaging,
 )
 from .refresh import refresh_order_info, refresh_order_progress
@@ -26,6 +27,7 @@ __all__ = [
     "create_manual_outbound_line",
     "create_manual_outbound_lines",
     "waive_order_packaging",
+    "set_order_ship_method",
     "refresh_order_info",
     "refresh_order_progress",
 ]
