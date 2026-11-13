@@ -363,8 +363,48 @@
   gap: 8px;
   align-items: center;
 }
-.detail-header-actions .el-button + .el-button {
-  margin-left: 0;
+/* 左右切换箭头：定位基准是 .el-dialog（EP 自带 position: relative），挂在弹窗外侧垂直居中 */
+.detail-nav-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  color: #fff;
+  background: rgba(96, 98, 102, 0.6);
+  cursor: pointer;
+  z-index: 1;
+}
+.detail-nav-arrow:hover {
+  background: rgba(96, 98, 102, 0.85);
+}
+.detail-nav-arrow--prev {
+  left: -60px;
+}
+.detail-nav-arrow--next {
+  right: -60px;
+}
+/* 弹窗两侧放不下箭头时（宽度 1080 + 两侧各 60），收进弹窗边缘内侧 */
+@media (max-width: 1240px) {
+  .detail-nav-arrow--prev {
+    left: 6px;
+  }
+  .detail-nav-arrow--next {
+    right: 6px;
+  }
+}
+/* 手机端不提供左右切换（箭头与计数都不显示） */
+@media (max-width: 768px) {
+  .detail-nav-arrow,
+  .detail-nav-pos {
+    display: none;
+  }
 }
 .detail-header .detail-sold-price {
   margin: 0 8px;

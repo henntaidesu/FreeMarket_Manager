@@ -1779,7 +1779,7 @@ export default defineComponent({
     function dropPackedRowFromList(id) {
       if (filters.value.packed_only) return
       let dropped = false
-      for (const rows of [list, cardRows]) {
+      for (const rows of [list, cardRows, navRows]) {
         const idx = rows.value.findIndex((r) => r && r.id === id)
         if (idx === -1) continue
         rows.value.splice(idx, 1)
@@ -2140,7 +2140,7 @@ export default defineComponent({
       }
     }
 
-    function onProcess(row) {
+    function onProcess(row, { fromNav = false } = {}) {
       // 雅虎交易页只能按商品 ID 打开，缺了就没有可处理的对象
       if (platformOf(row) === 'yahoo' && !String(row?.item_id || '').trim()) {
         ElMessage.warning(t('todos.yahooNoItemId'))
@@ -2168,6 +2168,7 @@ export default defineComponent({
       // 优先读本地缓存（不开浏览器）；用户点「刷新抓取」才打开浏览器更新
       loadDetailCache()
       if (isReturnAddressTodo.value) loadReturnAddressInfo(row)
+      if (!fromNav && isWaitShippingTodo(row)) loadNavRows()
     }
 
     /** 读取交易详情本地缓存（不开浏览器）。无缓存时保持本地预填字段。 */
@@ -3201,14 +3202,35 @@ export default defineComponent({
     }
 
 
-    // 交易详情的左右切换：在当前列表的待发货行之间翻，当前行不是待发货时不显示
-    const waitShippingRows = computed(() =>
-      list.value.filter(
-        (r) =>
-          String(r?.title || '').trim() === WAIT_SHIPPING_TITLE ||
-          String(r?.kind || '').trim() === YAHOO_SHIP_KIND,
-      ),
-    )
+    // 交易详情的左右切换：打开待发货单时按当前筛选从后端拉全量（不受表格分页 / 卡片滚动窗口限制），
+    // 只在其中的待发货行之间翻；当前行不是待发货时不显示
+    const NAV_PAGE_SIZE = 200 // 后端 page_size 上限
+    const navRows = ref([])
+    let navSeq = 0
+    function isWaitShippingTodo(r) {
+      return (
+        String(r?.title || '').trim() === WAIT_SHIPPING_TITLE ||
+        KIND_LABEL_KEYS[String(r?.kind || '').trim()] === 'todos.kind.waitShipping'
+      )
+    }
+    async function loadNavRows() {
+      const seq = ++navSeq
+      navRows.value = []
+      const all = []
+      try {
+        for (let p = 1; ; p += 1) {
+          const res = await todosApi.list({ ...baseListParams(), page: p, page_size: NAV_PAGE_SIZE })
+          const items = Array.isArray(res?.items) ? res.items : []
+          all.push(...items)
+          if (items.length < NAV_PAGE_SIZE || all.length >= Number(res?.total || 0)) break
+        }
+      } catch (e) {
+        console.error('[待发货切换]', e?.message || e)
+        return
+      }
+      if (seq === navSeq) navRows.value = all.filter(isWaitShippingTodo)
+    }
+    const waitShippingRows = computed(() => navRows.value)
     const detailNavIndex = computed(() => {
       const id = currentRow.value?.id
       return id == null ? -1 : waitShippingRows.value.findIndex((r) => r.id === id)
@@ -3216,9 +3238,11 @@ export default defineComponent({
     function onDetailNav(step) {
       const next = waitShippingRows.value[detailNavIndex.value + step]
       if (!next) return
+      // 当前视图里已加载的同一行优先，免得详情里改的字段落不到列表那份对象上
+      const visible = (isCardView.value ? cardRows.value : list.value).find((r) => r?.id === next.id)
       // 与关弹窗同样收尾（补存备注、关上一单的浏览器会话），再按新行打开
       onDetailDialogClose()
-      onProcess(next)
+      onProcess(visible || next, { fromNav: true })
     }
 
     function buyerNameFromMessage(msg) {

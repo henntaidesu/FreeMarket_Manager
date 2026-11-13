@@ -458,13 +458,28 @@
             <code>{{ detail.item_id || '-' }}</code>
           </span>
           <div class="detail-header-actions">
-            <template v-if="detailNavIndex >= 0">
-              <el-button size="small" :icon="ArrowLeft" :disabled="detailNavIndex <= 0" @click="onDetailNav(-1)" />
-              <span class="detail-nav-pos">{{ detailNavIndex + 1 }} / {{ waitShippingRows.length }}</span>
-              <el-button size="small" :icon="ArrowRight" :disabled="detailNavIndex >= waitShippingRows.length - 1" @click="onDetailNav(1)" />
-            </template>
+            <span v-if="detailNavIndex >= 0" class="detail-nav-pos">{{ detailNavIndex + 1 }} / {{ waitShippingRows.length }}</span>
             <el-button size="small" :loading="detailLoading" @click="onDetailRefresh">{{ t('todos.refreshFetch') }}</el-button>
           </div>
+          <!-- 左右切换待发货单：挂在弹窗外框两侧（相对 .el-dialog 定位，不随 body 滚动） -->
+          <template v-if="detailNavIndex >= 0">
+            <button
+              v-if="detailNavIndex > 0"
+              type="button"
+              class="detail-nav-arrow detail-nav-arrow--prev"
+              @click="onDetailNav(-1)"
+            >
+              <el-icon><ArrowLeft /></el-icon>
+            </button>
+            <button
+              v-if="detailNavIndex < waitShippingRows.length - 1"
+              type="button"
+              class="detail-nav-arrow detail-nav-arrow--next"
+              @click="onDetailNav(1)"
+            >
+              <el-icon><ArrowRight /></el-icon>
+            </button>
+          </template>
         </div>
       </template>
 
