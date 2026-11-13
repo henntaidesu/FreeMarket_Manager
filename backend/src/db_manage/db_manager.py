@@ -29,6 +29,7 @@ from .models import (
     OrderOutboundLineModel,
     ShopAccountModel,
     YahooAppTokenModel,
+    ShopAccountReturnAddressModel,
     OnSaleItemModel,
     PurchaseItemModel,
     ProxyUserModel,
@@ -770,6 +771,7 @@ class DBManager:
             OrderNoteModel,  # 订单备注（待办页/订单页共用，按订单号独立存放）
             ShopAccountModel,  # 店铺账号（煤炉 / 雅虎）
             YahooAppTokenModel,  # 雅虎 App API 令牌（依赖 shop_accounts，仅顺序习惯）
+            ShopAccountReturnAddressModel,  # 煤炉退货的返品先住所（按店铺账号一行）
             OnSaleItemModel,  # 在售商品缓存
             PurchaseItemModel,  # 购入商品缓存（依赖 shop_accounts，仅顺序习惯）
             ProxyUserModel,  # 代购用户（purchase_items.owner_user_id 指向它，不是 users）

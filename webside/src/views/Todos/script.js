@@ -3,7 +3,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
 import { ElMessage } from '@/utils/notify'
 import { Loading, Minus, Printer, Setting } from '@element-plus/icons-vue'
-import { todosApi, costRecordApi, costExpenseApi, orderApi, TASK_TYPES, newClientToken } from '@/api'
+import { todosApi, costRecordApi, costExpenseApi, orderApi, shopAccountApi, TASK_TYPES, newClientToken } from '@/api'
 import { submitTask } from '@/utils/taskSubmit.js'
 import { useMercariAccountStore } from '@/stores/mercariAccount.js'
 import { useViewModeStore } from '@/stores/viewMode.js'
@@ -2008,6 +2008,77 @@ export default defineComponent({
       }
     }
 
+    // 「返品に必要な情報の入力」：取消申请被同意后，24 小时内要在外部服务 返品くん 填返品先住所。
+    // 处理弹窗里先把该账号配置的地址（店铺账号 → 编辑 → 返品先住所）摆出来，确认后入队由后台填写提交。
+    // 提交后无法修改地址，所以地址不完整时按钮直接禁用，不让它进队列。
+    const RETURN_ADDRESS_KIND = 'CancellationRequestApprovedSeller'
+    const isReturnAddressTodo = computed(
+      () =>
+        !!currentRow.value &&
+        platformOf(currentRow.value) === 'mercari' &&
+        String(currentRow.value?.kind || '').trim() === RETURN_ADDRESS_KIND,
+    )
+    const returnAddressInfo = reactive({ loading: false, address: null, problems: [] })
+    const returnAddressBusy = ref(false)
+    let returnAddressSeq = 0
+
+    async function loadReturnAddressInfo(row) {
+      const seq = ++returnAddressSeq
+      Object.assign(returnAddressInfo, { loading: true, address: null, problems: [] })
+      try {
+        const res = await shopAccountApi.getReturnAddress(row.account_id)
+        if (seq !== returnAddressSeq) return
+        returnAddressInfo.address = res?.address || null
+        returnAddressInfo.problems = res?.problems || []
+      } catch {
+        if (seq === returnAddressSeq) returnAddressInfo.problems = [t('todos.returnAddressLoadFailed')]
+      } finally {
+        if (seq === returnAddressSeq) returnAddressInfo.loading = false
+      }
+    }
+
+    // 预览用的几行文字：姓名 / フリガナ / 电话 / 邮箱 / 〒邮编 + 地址
+    const returnAddressLines = computed(() => {
+      const a = returnAddressInfo.address
+      if (!a) return []
+      const join = (...xs) => xs.filter(Boolean).join(' ')
+      return [
+        { label: t('todos.returnAddressName'), value: join(a.last_name, a.first_name) },
+        { label: t('todos.returnAddressKana'), value: join(a.last_name_kana, a.first_name_kana) },
+        { label: t('todos.returnAddressTel'), value: a.tel },
+        { label: t('todos.returnAddressEmail'), value: a.email },
+        {
+          label: t('todos.returnAddressAddr'),
+          value: join(a.zipcode ? `〒${a.zipcode}` : '', `${a.prefecture || ''}${a.city || ''}${a.address1 || ''}`, a.address2),
+        },
+      ]
+    })
+
+    async function onSubmitReturnAddress() {
+      const row = currentRow.value
+      const todoId = Number(row?.id || 0)
+      if (!todoId || returnAddressBusy.value || returnAddressInfo.problems.length) return
+      try {
+        await ElMessageBox.confirm(
+          t('todos.returnAddressConfirmMessage'),
+          t('todos.returnAddressConfirmTitle'),
+          { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') },
+        )
+      } catch {
+        return
+      }
+      returnAddressBusy.value = true
+      try {
+        await submitTask(
+          TASK_TYPES.TODOS_RETURN_ADDRESS,
+          { todo_id: todoId, account_id: row?.account_id ?? null, item_id: row?.item_id || '' },
+          { t },
+        )
+      } finally {
+        returnAddressBusy.value = false
+      }
+    }
+
     function onProcess(row) {
       // 雅虎交易页只能按商品 ID 打开，缺了就没有可处理的对象
       if (platformOf(row) === 'yahoo' && !String(row?.item_id || '').trim()) {
@@ -2035,6 +2106,7 @@ export default defineComponent({
       }
       // 优先读本地缓存（不开浏览器）；用户点「刷新抓取」才打开浏览器更新
       loadDetailCache()
+      if (isReturnAddressTodo.value) loadReturnAddressInfo(row)
     }
 
     /** 读取交易详情本地缓存（不开浏览器）。无缓存时保持本地预填字段。 */
@@ -3287,6 +3359,11 @@ export default defineComponent({
       isCancellationReceiptRow,
       cancelReceiptBusyId,
       onConfirmCancellationReceipt,
+      isReturnAddressTodo,
+      returnAddressInfo,
+      returnAddressBusy,
+      returnAddressLines,
+      onSubmitReturnAddress,
       onProcess,
       onDetailRefresh,
       onClickShippingSizeLocation,

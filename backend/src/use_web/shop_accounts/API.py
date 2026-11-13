@@ -16,6 +16,7 @@ from .units.shop_accounts_crud import (
     pause_all_auto_fetch,
     update_shop_account,
 )
+from .units.shop_accounts_return_address import get_return_address, save_return_address
 from .units.shop_accounts_mitm import (
     fetch_seller_id_via_mitm,
 )
@@ -57,5 +58,10 @@ router.add_api_route(
 )
 router.add_api_route(
     "/{aid}/yahoo-app-token", delete_yahoo_app_token, methods=["DELETE"], dependencies=_f("shop-accounts:app_token"),
+)
+# 煤炉退货的返品先住所：退货待办「填写返品先住所」时填进 返品くん 表单
+router.add_api_route("/{aid}/return-address", get_return_address, methods=["GET"])
+router.add_api_route(
+    "/{aid}/return-address", save_return_address, methods=["PUT"], dependencies=_f("shop-accounts:edit"),
 )
 router.add_api_route("/{aid}", delete_shop_account, methods=["DELETE"], dependencies=_f("shop-accounts:delete"))

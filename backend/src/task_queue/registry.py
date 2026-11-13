@@ -30,6 +30,7 @@ TODOS_BULK_CONFIRM_SHIP = "todos.bulk_confirm_ship"
 TODOS_SHIPPING_QR = "todos.shipping_qr"
 TODOS_SYNC = "todos.sync"
 TODOS_CONFIRM_CANCELLATION = "todos.confirm_cancellation"
+TODOS_RETURN_ADDRESS = "todos.return_address"
 TODOS_SEND_MESSAGE = "todos.send_message"
 TODOS_SEND_REACTION = "todos.send_reaction"
 ACCOUNT_SYNC_DATA = "account.sync_data"
@@ -188,6 +189,14 @@ _SPECS: Dict[str, TaskSpec] = {
         title=lambda p: "确认签收退回商品："
         + (str(p.get("item_id") or "").strip() or f"待办#{p.get('todo_id')}"),
     ),
+    TODOS_RETURN_ADDRESS: TaskSpec(
+        task_type=TODOS_RETURN_ADDRESS,
+        label_zh="填写返品先住所",
+        # 同一笔待办同时只允许排一条：返品くん 提交后不能改地址，重复排队等于重复提交
+        dedup_key=lambda p: f"{TODOS_RETURN_ADDRESS}:{p.get('todo_id')}",
+        title=lambda p: "填写返品先住所："
+        + (str(p.get("item_id") or "").strip() or f"待办#{p.get('todo_id')}"),
+    ),
     TODOS_SEND_MESSAGE: TaskSpec(
         task_type=TODOS_SEND_MESSAGE,
         label_zh="发送回复",
@@ -310,6 +319,9 @@ def resolve_handler(task_type: str) -> Callable:
     if tt == TODOS_CONFIRM_CANCELLATION:
         from .handlers.todos import handle_confirm_cancellation
         return handle_confirm_cancellation
+    if tt == TODOS_RETURN_ADDRESS:
+        from .handlers.todos import handle_return_address
+        return handle_return_address
     if tt == TODOS_SEND_MESSAGE:
         from .handlers.todos import handle_send_message
         return handle_send_message

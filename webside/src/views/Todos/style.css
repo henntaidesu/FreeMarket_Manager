@@ -440,6 +440,10 @@
   padding: 8px 0;
   text-align: center;
 }
+.return-address-alert {
+  margin-top: 8px;
+}
+
 .detail-empty-hint {
   color: var(--el-text-color-placeholder);
   font-size: 11px;

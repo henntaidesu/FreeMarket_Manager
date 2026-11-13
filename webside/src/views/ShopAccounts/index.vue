@@ -188,6 +188,57 @@
             >{{ t('mercariAccounts.appLogin') }}</el-button>
           </el-form-item>
         </template>
+        <!-- 煤炉退货的返品先住所：取消申请被同意后，待办「填写返品先住所」把它填进 返品くん。
+             独立接口、独立实时保存，不走上面账号字段的保存。 -->
+        <template v-if="form.id && form.platform === 'mercari'">
+          <el-divider content-position="left">{{ t('mercariAccounts.sectionReturnAddress') }}</el-divider>
+          <p class="return-address-tip">{{ t('mercariAccounts.raTip') }}</p>
+          <el-form-item :label="t('mercariAccounts.raName')">
+            <div class="ra-pair">
+              <el-input v-model="returnAddress.last_name" :placeholder="t('mercariAccounts.raLastName')" maxlength="30" />
+              <el-input v-model="returnAddress.first_name" :placeholder="t('mercariAccounts.raFirstName')" maxlength="30" />
+            </div>
+          </el-form-item>
+          <el-form-item :label="t('mercariAccounts.raKana')">
+            <div class="ra-pair">
+              <el-input v-model="returnAddress.last_name_kana" :placeholder="t('mercariAccounts.raLastKana')" maxlength="30" />
+              <el-input v-model="returnAddress.first_name_kana" :placeholder="t('mercariAccounts.raFirstKana')" maxlength="30" />
+            </div>
+          </el-form-item>
+          <el-form-item :label="t('mercariAccounts.raTel')">
+            <el-input v-model="returnAddress.tel" placeholder="0312345678" maxlength="20" />
+          </el-form-item>
+          <el-form-item :label="t('mercariAccounts.raEmail')">
+            <el-input v-model="returnAddress.email" placeholder="email@example.com" maxlength="100" />
+          </el-form-item>
+          <el-form-item :label="t('mercariAccounts.raZipcode')">
+            <el-input v-model="returnAddress.zipcode" placeholder="1234567" maxlength="10" />
+          </el-form-item>
+          <el-form-item :label="t('mercariAccounts.raPrefecture')">
+            <el-select v-model="returnAddress.prefecture" filterable clearable style="width: 100%">
+              <el-option v-for="p in prefectureOptions" :key="p" :label="p" :value="p" />
+            </el-select>
+          </el-form-item>
+          <el-form-item :label="t('mercariAccounts.raCity')">
+            <el-input v-model="returnAddress.city" :placeholder="t('mercariAccounts.raCityPh')" maxlength="60" />
+          </el-form-item>
+          <el-form-item :label="t('mercariAccounts.raAddress1')">
+            <el-input v-model="returnAddress.address1" placeholder="1-1-1" maxlength="60" />
+          </el-form-item>
+          <el-form-item :label="t('mercariAccounts.raAddress2')">
+            <el-input v-model="returnAddress.address2" :placeholder="t('mercariAccounts.raAddress2Ph')" maxlength="60" />
+          </el-form-item>
+          <el-form-item label-width="120px">
+            <el-alert
+              v-if="returnAddressProblems.length"
+              type="warning"
+              :closable="false"
+              show-icon
+              :title="t('mercariAccounts.raIncomplete', { list: returnAddressProblems.join('；') })"
+            />
+            <el-alert v-else type="success" :closable="false" show-icon :title="t('mercariAccounts.raReady')" />
+          </el-form-item>
+        </template>
         <el-divider content-position="left">{{ t('mercariAccounts.sectionAutoFetch') }}</el-divider>
         <el-form-item :label="t('mercariAccounts.syncItems')">
           <div class="af-task-list">

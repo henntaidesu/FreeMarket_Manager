@@ -1203,7 +1203,7 @@ update-list / update-status / single-row refresh; on-sale sync / full-update / r
 suspend / resume; purchases sync + single-row detail refresh (`purchases.sync` /
 `purchases.refresh_one`); todos sync / bulk-review /
 bulk-confirm-ship / shipping-QR /
-confirm-cancellation / send-message / send-reaction; the account
+confirm-cancellation / return-address / send-message / send-reaction; the account
 card's 同步数据 (`account.sync_data`); 一键修改发货时效 (`system.shipping_duration`, see below); and
 确认后隐藏商品 (`system.profile_hide`, see below).
 **Batch revise is not a separate type** — the frontend
@@ -1226,6 +1226,19 @@ glared. `scan.via` records which layer won. `MERCARI_QR_INJECT_RESULT=0` disable
 Tasks queued before `qr_text` existed still fall back to feeding the original photo.
 `todo_items.ship_qr_text` keeps the decoded text **even on success**, when the photo is deleted —
 it is then the only local record of which code shipped.
+
+**退货的返品先住所 (`todos.return_address`, `transaction_detail/return_address.py`)** — after a
+cancellation is approved (`kind=CancellationRequestApprovedSeller`) the seller must enter a return
+address within 24h, and the form is **not on Mercari**: 「返品先住所を入力する」 → 「「返品くん」に移動する」
+opens a **new tab** on the third-party `mercari-anonymous-return.henpin.co` (signed, expiring URL — only
+reachable by clicking through). Three steps there: 同意事項 → 開始する, 返品商品の確認 (3 boxes) → 次へ,
+then the address form → 返品手続きを完了する. Its checkboxes are `button[role=checkbox]` (the sibling
+`input` is a shadow; `check()` on it does nothing), 都道府県 is `button#province` + a hidden native
+`select`. The address comes from `shop_account_return_addresses` (one row per account, edited in the
+account dialog; saving normalizes but never rejects, `return_address_settings.validate` gates execution).
+Every field is read back before submitting and any mismatch aborts — 返品くん says an anonymous return
+can't be re-sent. Verified live up to the submit button (`dry_run=True`); **the submit itself and what
+follows are unverified** — success is judged by a 2xx POST to 返品くん's `/api/` after the click.
 
 **Anything that runs inside the todo 处理 dialog's `__todo` browser session must be registered
 in `_BROWSER_HOLDING_TASKS`** (`todos_sync/actions.py::close_detail_browser`) — the frontend

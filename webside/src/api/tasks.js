@@ -28,6 +28,7 @@ export const TASK_TYPES = {
   TODOS_SYNC: 'todos.sync',
   TODOS_SHIPPING_QR: 'todos.shipping_qr',
   TODOS_CONFIRM_CANCELLATION: 'todos.confirm_cancellation',
+  TODOS_RETURN_ADDRESS: 'todos.return_address',
   TODOS_SEND_MESSAGE: 'todos.send_message',
   TODOS_SEND_REACTION: 'todos.send_reaction',
   ACCOUNT_SYNC_DATA: 'account.sync_data',

@@ -13,7 +13,7 @@ export const PAGE_FEATURES = {
   inventory: ['inbound', 'edit', 'delete', 'listing', 'batch', 'stock_out', 'warehouse', 'series', 'combine'],
   orders: ['sync', 'stock_out', 'bind', 'manual_outbound', 'packaging', 'settlement_exclude', 'note', 'message', 'convert_owner', 'force_stock_out'],
   'on-sale-items': ['sync', 'revise', 'relink', 'suspend', 'resume', 'delist', 'reverse_inbound'],
-  todos: ['sync', 'ship', 'review', 'buyer_receipt', 'cancel_receipt', 'message'],
+  todos: ['sync', 'ship', 'review', 'buyer_receipt', 'cancel_receipt', 'return_address', 'message'],
   notifications: ['sync', 'mark_read', 'bundle', 'price_offer', 'comment'],
   'shop-accounts': ['create', 'edit', 'delete', 'sync', 'browser', 'app_token'],
   tasks: ['cancel', 'retry'],

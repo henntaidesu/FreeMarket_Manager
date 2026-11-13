@@ -218,6 +218,63 @@ export default defineComponent({
       return at ? new Date(Number(at)).toLocaleString() : ''
     })
 
+    // ── 煤炉退货的返品先住所：退货待办「填写返品先住所」时填进 返品くん 表单 ──
+    // 与账号本身分开存（独立接口），所以用单独的 ref 和单独的防抖保存，不混进 form 的实时保存。
+    // 保存只规范化不拒绝；problems 是后端按「能否用于填写」算出来的提示。
+    const RETURN_ADDRESS_FIELDS = [
+      'last_name', 'first_name', 'last_name_kana', 'first_name_kana', 'tel', 'email',
+      'zipcode', 'prefecture', 'city', 'address1', 'address2',
+    ]
+    const emptyReturnAddress = () =>
+      RETURN_ADDRESS_FIELDS.reduce((acc, k) => ({ ...acc, [k]: '' }), {})
+    const returnAddress = ref(emptyReturnAddress())
+    const returnAddressProblems = ref([])
+    const prefectureOptions = ref([])
+    let returnAddressLoadedFor = 0
+    let returnAddressTimer = null
+    let returnAddressSeq = 0
+
+    async function loadReturnAddress(id) {
+      returnAddressLoadedFor = 0
+      returnAddress.value = emptyReturnAddress()
+      returnAddressProblems.value = []
+      if (!id) return
+      try {
+        const res = await shopAccountApi.getReturnAddress(id)
+        if (form.value.id !== id) return
+        returnAddress.value = { ...emptyReturnAddress(), ...(res?.address || {}) }
+        returnAddressProblems.value = res?.problems || []
+        prefectureOptions.value = res?.prefectures || []
+        await nextTick()
+        returnAddressLoadedFor = id // 回显完成后才开始把改动当作用户输入
+      } catch {
+        // 读不到不该挡住账号编辑
+      }
+    }
+
+    async function saveReturnAddress() {
+      returnAddressTimer = null
+      const id = returnAddressLoadedFor
+      if (!id) return
+      const seq = ++returnAddressSeq
+      try {
+        const res = await shopAccountApi.saveReturnAddress(id, { ...returnAddress.value })
+        if (seq === returnAddressSeq) returnAddressProblems.value = res?.problems || []
+      } catch (e) {
+        if (!e?.response) ElMessage.error(e?.message || t('mercariAccounts.raSaveFailed'))
+      }
+    }
+
+    watch(
+      returnAddress,
+      () => {
+        if (!returnAddressLoadedFor || returnAddressLoadedFor !== form.value.id) return
+        if (returnAddressTimer) clearTimeout(returnAddressTimer)
+        returnAddressTimer = setTimeout(saveReturnAddress, AUTO_SAVE_DELAY_MS)
+      },
+      { deep: true },
+    )
+
     const sellerIdRules = [
       {
         validator(_rule, val, cb) {
@@ -418,8 +475,13 @@ export default defineComponent({
         }, {}),
       }
       dialogVisible.value = true
-      if ((row.platform || 'mercari') === 'yahoo') loadYahooAppToken(row.id)
-      else appTokenStatus.value = null
+      if ((row.platform || 'mercari') === 'yahoo') {
+        loadYahooAppToken(row.id)
+        loadReturnAddress(0)
+      } else {
+        appTokenStatus.value = null
+        loadReturnAddress(row.id)
+      }
       nextTick(() => {
         autoSaveSuppressed = false
       })
@@ -528,6 +590,10 @@ export default defineComponent({
       if (autoSaveTimer) {
         cancelAutoSave()
         runAutoSave()
+      }
+      if (returnAddressTimer) {
+        clearTimeout(returnAddressTimer)
+        saveReturnAddress()
       }
     })
 
@@ -853,6 +919,9 @@ export default defineComponent({
       appLoginLoading,
       loginYahooApp,
       clearYahooAppToken,
+      returnAddress,
+      returnAddressProblems,
+      prefectureOptions,
       openBrowserByKey,
       openBrowserForSavedAccount,
       injectCookieForAccount,

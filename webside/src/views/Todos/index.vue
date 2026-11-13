@@ -562,7 +562,7 @@
             />
           </section>
 
-          <section v-if="!isReviewedSeller && !isWaitReply && !isBuyerReceiptTodo" class="detail-section">
+          <section v-if="!isReviewedSeller && !isWaitReply && !isBuyerReceiptTodo && !isReturnAddressTodo" class="detail-section">
             <el-form :disabled="!$can('todos:ship')" class="todos-perm-scope" @submit.prevent>
             <!-- 已发行二维码/条形码时：确认发送 + 修改发货方式 并排放到标题右上角 -->
             <div class="detail-section-head">
@@ -991,6 +991,38 @@
             </template>
             </template>
             </el-form>
+          </section>
+
+          <!-- 退货「返品に必要な情報の入力」：展示该账号的返品先住所，确认后入队填进 返品くん -->
+          <section v-if="isReturnAddressTodo" class="detail-section">
+            <div class="detail-section-title">{{ t('todos.returnAddressTitle') }}</div>
+            <div class="detail-empty-hint">{{ t('todos.returnAddressHint') }}</div>
+            <div v-if="returnAddressInfo.loading" class="detail-empty">{{ t('todos.matching') }}</div>
+            <template v-else>
+              <div v-for="line in returnAddressLines" :key="line.label" class="detail-row">
+                <span class="detail-label">{{ line.label }}</span>
+                <span class="detail-value">{{ line.value || '-' }}</span>
+              </div>
+              <el-alert
+                v-if="returnAddressInfo.problems.length"
+                type="warning"
+                :closable="false"
+                show-icon
+                class="return-address-alert"
+                :title="t('todos.returnAddressIncomplete', { list: returnAddressInfo.problems.join('；') })"
+              />
+            </template>
+            <div class="detail-reply-actions">
+              <el-button
+                size="small"
+                type="primary"
+                :loading="returnAddressBusy"
+                :disabled="!$can('todos:return_address') || returnAddressInfo.loading || returnAddressInfo.problems.length > 0"
+                @click="onSubmitReturnAddress"
+              >
+                {{ t('todos.returnAddressSubmit') }}
+              </el-button>
+            </div>
           </section>
         </div>
 

@@ -32,5 +32,10 @@ export const shopAccountApi = {
   loginYahooApp: (id, data = {}, axiosConfig = {}) =>
     http.post(`/use_web/shop-accounts/${id}/yahoo-app-login`, data, { timeout: 0, ...axiosConfig }),
   /** 清除 App 令牌 */
-  deleteYahooAppToken: (id) => http.delete(`/use_web/shop-accounts/${id}/yahoo-app-token`)
+  deleteYahooAppToken: (id) => http.delete(`/use_web/shop-accounts/${id}/yahoo-app-token`),
+
+  // ── 煤炉退货的返品先住所：退货待办「填写返品先住所」时填进 返品くん 表单 ──
+  /** 返回 { address, problems, prefectures }；problems 为空才可用于填写 */
+  getReturnAddress: (id) => http.get(`/use_web/shop-accounts/${id}/return-address`),
+  saveReturnAddress: (id, data) => http.put(`/use_web/shop-accounts/${id}/return-address`, data)
 }

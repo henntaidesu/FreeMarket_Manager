@@ -17,6 +17,7 @@
 - ``_common`` / ``_captures`` / ``_qr_facility`` / ``_cache`` / ``_ui`` / ``detail``：共享层
 - ``review``：待评价（ReviewedSeller）
 - ``cancellation``：退货申请（CancellationRequested）确认签收并完成取消
+- ``return_address``：取消申请被同意后（CancellationRequestApprovedSeller）在 返品くん 填写返品先住所
 - ``wait_shipping/``：待发货处理逻辑（尺寸选择 / 扫码 / 发货收尾 / 改发货方式）
 - ``wait_reply/``：待回复处理逻辑（发送消息 / emoji 反应）
 """
@@ -50,6 +51,7 @@ from .buyer_receipt import (
 
 # ── 退货（申请退货：确认收到退回商品 → 完成取消） ──
 from .cancellation import confirm_cancellation_receipt
+from .return_address import RETURN_ADDRESS_KIND, fill_return_address
 
 # ── 待回复 ──
 from .wait_reply.message import send_transaction_message
@@ -99,6 +101,8 @@ __all__ = [
     "BUYER_RECEIPT_TITLE",
     "submit_buyer_receipt_review",
     "confirm_cancellation_receipt",
+    "RETURN_ADDRESS_KIND",
+    "fill_return_address",
     "send_transaction_message",
     "SUPPORTED_REACTIONS",
     "send_message_reaction_by_index",

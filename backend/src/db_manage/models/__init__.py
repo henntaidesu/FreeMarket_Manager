@@ -44,6 +44,7 @@ from .notifications.bundle_purchase_request import BundlePurchaseRequestModel
 from .notifications.desired_price_offer import DesiredPriceOfferModel
 from .shop_accounts.shop_account import ShopAccountModel
 from .shop_accounts.yahoo_app_token import YahooAppTokenModel
+from .shop_accounts.return_address import ShopAccountReturnAddressModel
 from .memos.memo import MemoModel
 from .calendar.calendar_event import CalendarEventModel
 from .gotion.gotion_table import GotionTableModel
@@ -66,6 +67,7 @@ __all__ = [
     'OrderModel',
     'ShopAccountModel',
     'YahooAppTokenModel',
+    'ShopAccountReturnAddressModel',
     'OnSaleItemModel',
     'PurchaseItemModel',
     'ProxyUserModel',

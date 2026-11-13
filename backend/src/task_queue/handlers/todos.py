@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """待办页后台操作的任务处理器：一键好评 / 已打包一键处理（确认发送）/ 发货扫码 /
-从煤炉同步 / 退货确认签收 / 待回复的发送回复与反应表情。
+从煤炉同步 / 退货确认签收 / 退货填写返品先住所 / 待回复的发送回复与反应表情。
 
 这些操作本就按账号逐个进串行队列执行（``suppress_idle_close=True`` 复用同一 ``__todo``
 浏览器会话），不占全局同步锁，因此处理器只需桥接进度后直接调用既有端点函数。
@@ -118,6 +118,38 @@ async def handle_confirm_cancellation(task: Dict[str, Any]) -> Dict[str, Any]:
             "请到煤炉核对该交易当前状态，避免重复操作。"
         )
     return result
+
+
+async def handle_return_address(task: Dict[str, Any]) -> Dict[str, Any]:
+    """退货「填写返品先住所」：取引画面 → 返品くん → 用账号配置的地址填表并提交。
+
+    地址是否齐全、待办 kind 是否对，都由业务函数在开浏览器之前校验（``ValueError``）。
+    返品くん 提交后不能改地址，所以「没等到提交请求」一律落成失败，让人去核对。
+    """
+    from ...use_mercari.get_to_du_list.transaction_detail import fill_return_address
+    from ...web_drive.core.account_serial_queue import (
+        queue_key_for_mercari_account,
+        run_mercari_serial_async,
+    )
+    from ...db_manage.models.todos.todo_item import TodoItemModel
+
+    payload = task.get("payload") or {}
+    todo_id = int(payload.get("todo_id") or 0)
+    if not todo_id:
+        raise ValueError("填写返品先住所任务缺少 todo_id")
+    todo = TodoItemModel.find_by_id(id=todo_id)
+    if not todo:
+        raise RuntimeError(f"待办事项 id={todo_id} 不存在")
+    aid = int(getattr(todo, "account_id", 0) or 0)
+    if not aid:
+        raise RuntimeError("待办事项缺少 account_id")
+
+    async with progress.bridge(task["id"], "sync") as jid:
+        return await run_mercari_serial_async(
+            queue_key_for_mercari_account(aid),
+            lambda: fill_return_address(todo_id, progress_job_id=jid),
+            suppress_idle_close=True,
+        )
 
 
 async def _close_todo_browser(account_id: int) -> None:

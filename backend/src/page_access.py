@@ -105,6 +105,7 @@ PAGE_FEATURES = {
         "review",            # 评价（单条 / 一键好评）
         "buyer_receipt",     # 确认收货（买家侧受取評価）
         "cancel_receipt",    # 取消申请的确认
+        "return_address",    # 退货填写返品先住所（返品くん）
         "message",           # 交易留言 / 表情回应
     ),
     "notifications": (
@@ -223,6 +224,7 @@ TASK_FEATURES = {
     "todos.bulk_confirm_ship": ("todos:ship",),
     "todos.shipping_qr": ("todos:ship",),
     "todos.confirm_cancellation": ("todos:cancel_receipt",),
+    "todos.return_address": ("todos:return_address",),
     "todos.send_message": ("todos:message",),
     "todos.send_reaction": ("todos:message",),
 }

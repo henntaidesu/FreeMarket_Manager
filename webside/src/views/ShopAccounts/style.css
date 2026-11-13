@@ -297,6 +297,20 @@
   font-size: 12px;
 }
 
+/* 返品先住所：姓 / 名、セイ / メイ 两两并排 */
+.ra-pair {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.return-address-tip {
+  margin: 0 0 12px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 /* ── 手机端（iOS / Android）─────────────────────────────────────
    账号卡片本身靠 el-col 的 :xs="24" 已经自动单列，这里补的是卡内元素。 */
 @media (max-width: 768px) {
