@@ -1205,7 +1205,7 @@ suspend / resume; purchases sync + single-row detail refresh (`purchases.sync` /
 bulk-confirm-ship / shipping-QR /
 confirm-cancellation / return-address / send-message / send-reaction; the account
 card's 同步数据 (`account.sync_data`); 一键修改发货时效 (`system.shipping_duration`, see below); and
-确认后隐藏商品 (`system.profile_hide`, see below).
+确认后隐藏商品 (`system.profile_hide`, see below; switched per shop account).
 **Batch revise is not a separate type** — the frontend
 submits N `on_sale.revise` tasks, so closing the page no longer aborts halfway.
 
@@ -1312,19 +1312,22 @@ the message instead of `404: …`.
 
 ### 确认后隐藏商品 (`src/profile_hide.py`)
 
-系统配置页的开关：煤炉订单 `done` 满 24 小时后，打开 `jp.mercari.com/item/{id}` 点
+**店铺账号上的开关**（账号弹窗「自动获取」一栏，仅煤炉）：煤炉订单 `done` 满 24 小时后，打开 `jp.mercari.com/item/{id}` 点
 「プロフィールから非表示」，重新加载后读到「プロフィールに表示」才算成功
 （`web_drive/profile_hide/`；一进页面已是「プロフィールに表示」= 已隐藏，**绝不再点**，那会改回显示）。
 
-- **两个范围，一个候选集口径**：开关开启时记下 `profile_hide_since`，自动只处理「完成时间 ≥ since − 24h」
-  的订单，开关一开不会把上千条历史订单全排进浏览器；「处理历史数据」置 `profile_hide_history=1` 去掉 since
-  限制，候选集清空后自动撤掉。完成时间 = `COALESCE(completed_at, order_updated_at, order_date)`——
-  大量历史订单没有 `completed_at`。卖家须有启用中的煤炉账号，否则不进候选集（免得每轮空跑一条任务）。
+- **按账号生效**：开关 = `shop_accounts.profile_hide_since`（开启时刻，NULL = 关），随账号表单保存；
+  店铺账号页「一键暂停同步」会把它连同历史标记一起清掉，正在跑的那批在下一件之前停下（`_still_enabled`）。
+  旧的全局 `[config]` 键 `profile_hide_since` / `profile_hide_history` 由启动迁移 `migrate_legacy_switch` 搬到各煤炉账号后删除。
+- **两个范围，一个候选集口径**：自动只处理「完成时间 ≥ 该账号 since − 24h」的订单，开关一开不会把上千条历史订单全排进浏览器；
+  账号弹窗「处理历史数据」置 `shop_accounts.profile_hide_history=1` 去掉该账号的 since 限制，该账号候选集清空后自动撤掉。
+  完成时间 = `COALESCE(completed_at, order_updated_at, order_date)`——大量历史订单没有 `completed_at`。
+  卖家须有启用中且开关开启的煤炉账号，否则不进候选集（免得每轮空跑一条任务）。
 - **分批续排，不做长任务**：`system.profile_hide` 每条只处理 `PROFILE_HIDE_MAX_PER_RUN`（30）件，
   由自动获取循环每 tick 调 `maybe_enqueue()`（10 分钟节流、去重键防重复）续排——全局单 worker，
   整批历史做成一条会把同步堵上数小时。同账号每件随机等 `PROFILE_HIDE_ITEM_DELAY_MIN_SEC`~`MAX`（10/30）。
 - 记账在 `orders.profile_hidden_at` / `profile_hide_failures` / `profile_hide_error`；失败 3 次退出候选集，
-  页面「重试失败」清零。只做煤炉。
+  账号弹窗「重试失败」按账号清零。只做煤炉。
 
 ### Auxiliary Subsystems
 

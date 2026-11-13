@@ -105,6 +105,7 @@ export default {
       notifications: "Platform Notifications",
       shopAccounts: "Shop Accounts",
       talkScripts: "Scripts",
+      titleKeywords: "Title Keywords",
       calendar: "Calendar",
       memos: "Memos",
       system: "More",

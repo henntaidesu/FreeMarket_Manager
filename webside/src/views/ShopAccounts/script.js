@@ -137,6 +137,7 @@ export default defineComponent({
       status: 'disabled',
       remark: '',
       auto_fetch_relist: 0,
+      profile_hide: 0,
       pause_start_time: null,
       pause_end_time: null,
       // 每项独立间隔表单态；默认全部关闭（sel=''）
@@ -278,6 +279,53 @@ export default defineComponent({
       },
       { deep: true },
     )
+
+    // ── 确认后隐藏商品（煤炉）：开关随账号表单实时保存，这里只管状态与「处理历史数据 / 重试失败」──
+    // 实际点击由 system.profile_hide 任务分批执行，剩下的由自动获取循环约 10 分钟续排一批。
+    const profileHide = ref(null)
+    const profileHideSubmitting = ref(false)
+
+    async function loadProfileHide(id) {
+      profileHide.value = null
+      if (!id) return
+      try {
+        const res = await shopAccountApi.getProfileHide(id)
+        if (form.value.id === id) profileHide.value = res
+      } catch {
+        // 读不到不该挡住账号编辑
+      }
+    }
+
+    async function submitProfileHide(call) {
+      const id = form.value.id
+      profileHideSubmitting.value = true
+      try {
+        const res = await call(id)
+        if (form.value.id === id) profileHide.value = res
+        ElMessage.success(res?.task_id ? t('mercariAccounts.phSubmitted') : t('mercariAccounts.phNothingToDo'))
+      } catch {
+        await loadProfileHide(id)
+      } finally {
+        profileHideSubmitting.value = false
+      }
+    }
+
+    async function processProfileHideHistory() {
+      try {
+        await ElMessageBox.confirm(
+          t('mercariAccounts.phConfirmHistoryMsg', { n: profileHide.value?.history_count ?? 0 }),
+          t('mercariAccounts.phProcessHistory'),
+          { type: 'warning' },
+        )
+      } catch {
+        return
+      }
+      await submitProfileHide((id) => shopAccountApi.processProfileHideHistory(id))
+    }
+
+    function retryProfileHideFailed() {
+      return submitProfileHide((id) => shopAccountApi.retryProfileHideFailed(id))
+    }
 
     const sellerIdRules = [
       {
@@ -471,6 +519,7 @@ export default defineComponent({
         status: row.status || 'active',
         remark: row.remark || '',
         auto_fetch_relist: row.auto_fetch_relist === 1 ? 1 : 0,
+        profile_hide: row.profile_hide === 1 ? 1 : 0,
         pause_start_time: row.pause_start_time || null,
         pause_end_time: row.pause_end_time || null,
         // 回显各同步项的独立间隔
@@ -484,9 +533,11 @@ export default defineComponent({
       if ((row.platform || 'mercari') === 'yahoo') {
         loadYahooAppToken(row.id)
         loadReturnAddress(0)
+        loadProfileHide(0)
       } else {
         appTokenStatus.value = null
         loadReturnAddress(row.id)
+        loadProfileHide(row.id)
       }
       nextTick(() => {
         autoSaveSuppressed = false
@@ -504,6 +555,8 @@ export default defineComponent({
         status: form.value.status,
         remark: form.value.remark || null,
         auto_fetch_relist: form.value.auto_fetch_relist === 1 ? 1 : 0,
+        // 确认后隐藏商品只有煤炉有；后端对雅虎账号一律按关闭处理
+        profile_hide: form.value.platform === 'yahoo' ? 0 : (form.value.profile_hide === 1 ? 1 : 0),
         pause_start_time: String(form.value.pause_start_time || '').trim() || null,
         pause_end_time: String(form.value.pause_end_time || '').trim() || null,
       }
@@ -575,6 +628,8 @@ export default defineComponent({
         await shopAccountApi.update(id, payload)
         if (seq !== autoSaveSeq) return // 已有更新的一次保存在途，旧结果不该再刷列表
         await fetchList().catch(() => {})
+        // 开关改动后待处理件数会变（开启即按开启时刻起算）
+        if (payload.platform !== 'yahoo' && form.value.id === id) loadProfileHide(id)
       } catch {
         // 错误详情由 axios 拦截器提示
       }
@@ -603,7 +658,7 @@ export default defineComponent({
       }
     })
 
-    // 一键暂停同步：全部账号的自动数据获取项一并关闭（自动上架不动）
+    // 一键暂停同步：全部账号的自动数据获取项与「确认后隐藏商品」一并关闭（自动上架不动）
     const pausingAll = ref(false)
 
     async function pauseAllAutoFetch() {
@@ -928,6 +983,10 @@ export default defineComponent({
       clearYahooAppToken,
       returnAddress,
       returnAddressProblems,
+      profileHide,
+      profileHideSubmitting,
+      processProfileHideHistory,
+      retryProfileHideFailed,
       prefectureOptions,
       openBrowserByKey,
       openBrowserForSavedAccount,

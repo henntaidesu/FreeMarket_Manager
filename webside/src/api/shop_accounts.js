@@ -37,5 +37,11 @@ export const shopAccountApi = {
   // ── 煤炉退货的返品先住所：退货待办「填写返品先住所」时填进 返品くん 表单 ──
   /** 返回 { address, problems, prefectures }；problems 为空才可用于填写 */
   getReturnAddress: (id) => http.get(`/use_web/shop-accounts/${id}/return-address`),
-  saveReturnAddress: (id, data) => http.put(`/use_web/shop-accounts/${id}/return-address`, data)
+  saveReturnAddress: (id, data) => http.put(`/use_web/shop-accounts/${id}/return-address`, data),
+
+  // ── 确认后隐藏商品（煤炉）：开关随账号表单保存（profile_hide），这里是状态与两个按钮 ──
+  // 返回 { enabled, history_pending, auto_pending_count, history_count, hidden_count, failed_count, task_id }
+  getProfileHide: (id) => http.get(`/use_web/shop-accounts/${id}/profile-hide`),
+  processProfileHideHistory: (id) => http.post(`/use_web/shop-accounts/${id}/profile-hide/history`),
+  retryProfileHideFailed: (id) => http.post(`/use_web/shop-accounts/${id}/profile-hide/retry-failed`)
 }

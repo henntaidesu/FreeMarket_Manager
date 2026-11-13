@@ -105,6 +105,7 @@ export default {
       notifications: "平台通知",
       shopAccounts: "店铺账号",
       talkScripts: "话术表",
+      titleKeywords: "标题关联词",
       calendar: "日历",
       memos: "备忘录",
       system: "其他功能",

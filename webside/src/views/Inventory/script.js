@@ -42,6 +42,7 @@ import { useInventoryBatches } from './useInventoryBatches.js'
 import { useInventorySeries } from './useInventorySeries.js'
 import RegionRecognizeDialog from './RegionRecognizeDialog.vue'
 import BarcodeDuplicatePrompt from './BarcodeDuplicatePrompt.vue'
+import ListingTitleInput from '@/components/ListingTitleInput.vue'
 
 /**
  * 无码入库上次选择（游戏分类 / 商品类型 / 所属货架 + 商品归属）。
@@ -55,6 +56,7 @@ export default defineComponent({
     WarningFilled,
     RegionRecognizeDialog,
     BarcodeDuplicatePrompt,
+    ListingTitleInput,
   },
   props: {
     // 历史库存（其他功能 → 历史数据）：同一个页面读 inventory_old 归档表，所有改动入口禁用

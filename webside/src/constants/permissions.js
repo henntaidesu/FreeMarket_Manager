@@ -28,12 +28,13 @@ export const PAGE_FEATURES = {
   'system/series': ['create', 'edit', 'delete', 'merge'],
   'system/product-type-category-mappings': ['create', 'edit', 'delete'],
   'system/talk-scripts': ['create', 'edit', 'delete'],
+  'system/title-keywords': ['create', 'edit', 'delete'],
   'system/calendar': ['create', 'edit', 'delete'],
   'system/memos': ['compose', 'process', 'delete'],
   'system/system-logs': ['clear'],
   // 系统配置：一个分区一个功能（SystemConfig 的 SECTIONS.feature 引用这些）
   'system/config': [
-    'accounts', 'roles', 'sso', 'proxy_users', 'ai', 'listing', 'profile_hide', 'barcode',
+    'accounts', 'roles', 'sso', 'proxy_users', 'ai', 'listing', 'barcode',
     'shipping_duration', 'database', 'image_hosting', 'printer', 'web_access', 'proxy', 'service'
   ]
 }

@@ -9,6 +9,8 @@ from fastapi import Depends, HTTPException
 from ....auth import require_auth
 
 from ....db_manage.models.shop_accounts.shop_account import ShopAccountModel
+from ....profile_hide import apply_switch as apply_profile_hide_switch
+from ....profile_hide import maybe_enqueue as profile_hide_maybe_enqueue
 from ...image_storage import delete_image_file
 from .shop_accounts_helpers import (
     _ensure_seller_id_unique,
@@ -142,8 +144,11 @@ async def create_shop_account(
         kwargs[f"auto_fetch_{k}"] = 1 if iv else 0
         kwargs[f"auto_fetch_{k}_interval"] = iv
     item = ShopAccountModel(**kwargs)
+    hide_on = apply_profile_hide_switch(item, platform == "mercari" and _normalize_is_open(data.profile_hide))
     if not item.save():
         raise HTTPException(status_code=500, detail="保存失败")
+    if hide_on:
+        _kick_profile_hide()
     # 把该用户预登录 profile 的登录态归属到新账号主 profile，避免创建后需二次登录
     await _adopt_prepare_login(int(item.id), user.get("sub"))
     return _item_api_dict(item)
@@ -224,6 +229,13 @@ def update_shop_account(aid: int, data: MercariAccountUpdate):
     if data.auto_fetch_relist is not None:
         item.auto_fetch_relist = 1 if _normalize_is_open(data.auto_fetch_relist) else 0
 
+    # 确认后隐藏商品：只有煤炉有这个按钮，改成雅虎即关闭
+    hide_on = False
+    if data.profile_hide is not None or eff_platform != "mercari":
+        hide_on = apply_profile_hide_switch(
+            item, eff_platform == "mercari" and _normalize_is_open(data.profile_hide)
+        )
+
     if data.pause_start_time is not None or data.pause_end_time is not None:
         new_start = (
             data.pause_start_time
@@ -241,11 +253,22 @@ def update_shop_account(aid: int, data: MercariAccountUpdate):
 
     if not item.save():
         raise HTTPException(status_code=500, detail="更新失败")
+    if hide_on:
+        _kick_profile_hide()
     return _item_api_dict(item)
 
 
+def _kick_profile_hide() -> None:
+    """开关刚打开：立刻试排一条隐藏任务，让用户马上在任务页看到；失败不影响账号保存。"""
+    try:
+        profile_hide_maybe_enqueue(force=True)
+    except Exception:
+        log.exception("[profile_hide] 开启后试排任务失败")
+
+
 def pause_all_auto_fetch():
-    """一键暂停同步：关闭全部账号的所有自动数据获取项（间隔清空 = 关闭，同单账号在弹框里关掉）。
+    """一键暂停同步：关闭全部账号的所有自动数据获取项（间隔清空 = 关闭，同单账号在弹框里关掉），
+    以及「确认后隐藏商品」开关（含历史待处理标记；正在跑的那批会在下一件之前停下）。
 
     自动上架（售出即补挂）不是数据获取，不动；暂停时间段也保留。
     """
@@ -254,8 +277,9 @@ def pause_all_auto_fetch():
         if not any(
             (getattr(item, f"auto_fetch_{k}_interval", None) or "").strip()
             for k in AUTO_FETCH_TASK_KEYS
-        ) and not getattr(item, "is_open", 0):
+        ) and not getattr(item, "is_open", 0) and getattr(item, "profile_hide_since", None) is None:
             continue
+        apply_profile_hide_switch(item, False)
         for k in AUTO_FETCH_TASK_KEYS:
             setattr(item, f"auto_fetch_{k}_interval", None)
             setattr(item, f"auto_fetch_{k}", 0)

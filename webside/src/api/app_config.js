@@ -27,12 +27,6 @@ export const configApi = {
   regenerateWebCert: () => http.post('/use_web/system/web-access/regenerate-cert'),
   // 公开下载地址（手机浏览器直接打开才能安装证书，不走 axios）
   webCertUrl: '/mercariV2/src/use_web/system/web-access/cert',
-  // 确认后隐藏商品：{ enabled, history_pending, auto_pending_count, history_count, hidden_count, failed_count, task_id }
-  // 页面操作由 system.profile_hide 任务分批执行；这几个接口只写开关/标记并立刻试排一条
-  getProfileHide: () => http.get('/use_web/system/profile-hide'),
-  putProfileHide: (enable) => http.put('/use_web/system/profile-hide', { enable }),
-  processProfileHideHistory: () => http.post('/use_web/system/profile-hide/history'),
-  retryProfileHideFailed: () => http.post('/use_web/system/profile-hide/retry-failed'),
   // 条码识别（历史数据）：PUT enable=true 即排一条 system.barcode_history 任务
   getBarcodeHistory: () => http.get('/use_web/system/barcode-history'),
   putBarcodeHistory: (enable) => http.put('/use_web/system/barcode-history', { enable }),

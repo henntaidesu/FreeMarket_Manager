@@ -16,6 +16,12 @@ from .units.shop_accounts_crud import (
     pause_all_auto_fetch,
     update_shop_account,
 )
+from .units.shop_accounts_profile_hide import (
+    ProfileHideStatusOut,
+    get_profile_hide,
+    post_profile_hide_history,
+    post_profile_hide_retry_failed,
+)
 from .units.shop_accounts_return_address import get_return_address, save_return_address
 from .units.shop_accounts_mitm import (
     fetch_seller_id_via_mitm,
@@ -63,5 +69,15 @@ router.add_api_route(
 router.add_api_route("/{aid}/return-address", get_return_address, methods=["GET"])
 router.add_api_route(
     "/{aid}/return-address", save_return_address, methods=["PUT"], dependencies=_f("shop-accounts:edit"),
+)
+# 确认后隐藏商品（煤炉）：开关随账号表单保存，这里是弹窗里的状态与「处理历史数据 / 重试失败」
+router.add_api_route("/{aid}/profile-hide", get_profile_hide, methods=["GET"], response_model=ProfileHideStatusOut)
+router.add_api_route(
+    "/{aid}/profile-hide/history", post_profile_hide_history, methods=["POST"],
+    response_model=ProfileHideStatusOut, dependencies=_f("shop-accounts:edit"),
+)
+router.add_api_route(
+    "/{aid}/profile-hide/retry-failed", post_profile_hide_retry_failed, methods=["POST"],
+    response_model=ProfileHideStatusOut, dependencies=_f("shop-accounts:edit"),
 )
 router.add_api_route("/{aid}", delete_shop_account, methods=["DELETE"], dependencies=_f("shop-accounts:delete"))

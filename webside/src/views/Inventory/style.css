@@ -1814,16 +1814,13 @@ a.pef-lcard:hover {
 /* 历史库存（archive 模式）顶部的只读提示 */
 .archive-notice { margin-bottom: 12px; }
 
-/* 无码入库：入库数量下拉 */
-.no-code-inbound-qty {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 12px;
+/* 无码入库：货架与入库数量两行等宽对齐 */
+.no-code-inbound-form .el-form-item:last-child {
+  margin-bottom: 0;
 }
-.no-code-inbound-qty__label {
-  font-size: 13px;
-  color: #a4aec1;
+.no-code-inbound-form__control,
+.no-code-inbound-form__control.el-cascader {
+  width: 100%;
 }
 
 /* 名称前的系列标签：点击按该系列筛选 */

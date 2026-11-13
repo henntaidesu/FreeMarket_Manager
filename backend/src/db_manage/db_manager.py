@@ -44,6 +44,7 @@ from .models import (
     MemoModel,
     CalendarEventModel,
     TalkScriptModel,
+    TitleKeywordModel,
     SystemLogModel,
     TaskQueueModel,
     GotionTableModel,
@@ -785,6 +786,7 @@ class DBManager:
             MemoModel,  # 备忘录 / 站内信（依赖 users，仅顺序习惯）
             CalendarEventModel,  # 日历事项（全员共享，created_by 仅显示用）
             TalkScriptModel,  # 话术表（全局共享，无外键依赖）
+            TitleKeywordModel,  # 出品标题关联词（全局共享，无外键依赖）
             SystemLogModel,  # 系统日志（自动上架 / 自动获取，无外键依赖）
             TaskQueueModel,  # 后台任务队列（出品/同步/改价等，无外键依赖）
             GotionTableModel,   # Gotion 表格管理：表元数据（无外键依赖）
@@ -922,7 +924,16 @@ class DBManager:
         self._migrate_inventory_variant_codes()
         self._backfill_archived_outbound_lines()
         self._backfill_outbound_line_warehouses()
+        self._migrate_profile_hide_to_accounts()
         return True
+
+    def _migrate_profile_hide_to_accounts(self) -> None:
+        """「确认后隐藏商品」旧的全局开关迁到各煤炉账号。幂等；失败只告警。"""
+        try:
+            from ..profile_hide import migrate_legacy_switch
+            migrate_legacy_switch()
+        except Exception as e:  # noqa: BLE001
+            print(f"[WARN] 确认后隐藏商品开关迁移失败: {e}")
 
     def _backfill_outbound_line_warehouses(self) -> None:
         """历史已出库明细补货架快照（取自出库流水）。幂等；失败只告警。"""

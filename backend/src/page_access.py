@@ -58,6 +58,7 @@ PAGE_KEYS = frozenset({
     "system/series",
     "system/product-type-category-mappings",
     "system/talk-scripts",
+    "system/title-keywords",
     "system/calendar",
     "system/memos",
     "system/config",
@@ -117,7 +118,7 @@ PAGE_FEATURES = {
     ),
     "shop-accounts": (
         "create",            # 新建账号（含登录浏览器 / 获取基础信息）
-        "edit",              # 编辑账号
+        "edit",              # 编辑账号（含确认后隐藏商品的开关 / 处理历史 / 重试失败）
         "delete",            # 删除账号
         "sync",              # 同步数据 / 获取历史数据 / 一键暂停同步
         "browser",           # 打开浏览器 / Cookie 注入
@@ -171,6 +172,7 @@ PAGE_FEATURES = {
     ),
     "system/product-type-category-mappings": ("create", "edit", "delete"),
     "system/talk-scripts": ("create", "edit", "delete"),
+    "system/title-keywords": ("create", "edit", "delete"),
     "system/calendar": ("create", "edit", "delete"),
     "system/memos": (
         "compose",           # 写备忘录
@@ -188,7 +190,6 @@ PAGE_FEATURES = {
         "proxy_users",       # 代购用户
         "ai",                # DeepSeek AI 配置
         "listing",           # 出品默认值
-        "profile_hide",      # 确认后隐藏商品
         "barcode",           # 条码识别（历史处理 / 冲突 / 待合并）
         "shipping_duration",  # 一键修改发货时效
         "database",          # *数据库切换 / 迁移 / 同步库

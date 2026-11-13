@@ -18,6 +18,7 @@ from .system.yahoo_category_mapping import YahooCategoryMappingModel
 from .system.config_entry import ConfigEntryModel
 from .system.image_asset import ImageAssetModel
 from .system.talk_script import TalkScriptModel
+from .system.title_keyword import TitleKeywordModel
 from .system.system_log import SystemLogModel
 from .system.task_queue import TaskQueueModel
 from .inventory.inventory import InventoryModel
@@ -85,6 +86,7 @@ __all__ = [
     'MemoModel',
     'CalendarEventModel',
     'TalkScriptModel',
+    'TitleKeywordModel',
     'SystemLogModel',
     'TaskQueueModel',
     'GotionTableModel',

@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 """确认后隐藏商品：煤炉订单变成「已完成（done）」满 24 小时后，把该商品设为「プロフィールから非表示」。
 
-两个入口，同一个候选集口径：
+开关在**店铺账号**上（账号弹窗「自动获取」一栏），按账号各自生效；店铺账号页的「一键暂停同步」
+会把它一并关掉。两个范围，同一个候选集口径：
 
-* **自动**（系统配置开关）：开启时记下开启时刻 ``since``，之后只处理「24 小时期限落在开启之后」
-  的订单，即 ``完成时间 >= since - 24h``。开关一打开不会突然把上千条历史订单全部排进浏览器。
-* **处理历史数据**（按钮）：置一个持久标记，把 ``since`` 的限制去掉，所有满 24 小时、还没隐藏的
-  已完成订单都进候选集；候选集清空后标记自动撤掉。不依赖开关，单独点也能跑完历史。
+* **自动**：开启时在账号上记下开启时刻 ``shop_accounts.profile_hide_since``，之后只处理「24 小时期限
+  落在开启之后」的订单，即 ``完成时间 >= since - 24h``。开关一打开不会突然把上千条历史订单全部排进浏览器。
+* **处理历史数据**（账号弹窗里的按钮）：置 ``shop_accounts.profile_hide_history = 1``，去掉该账号的
+  ``since`` 限制；该账号候选集清空后标记自动撤掉。只对开关已开启的账号生效——关掉开关即全部停下。
 
 执行体是任务队列的 ``system.profile_hide`` 任务，**每条只处理一小批**（``PROFILE_HIDE_MAX_PER_RUN``，
 默认 30），由自动获取循环（``maybe_enqueue``，约 10 分钟查一次）分批续排。整批历史不做成一条
@@ -14,7 +15,7 @@
 
 记账在 ``orders`` 上：``profile_hidden_at`` 非空 = 已隐藏；失败累加 ``profile_hide_failures``，
 到 ``_MAX_FAILURES`` 即退出候选集（商品已删除等永远点不了的页面否则每轮都重试），
-系统配置页「重试失败」清零计数。只处理煤炉订单（雅虎没有这个按钮）。
+账号弹窗「重试失败」清零计数。只处理煤炉订单（雅虎没有这个按钮）。
 
 完成时间取 ``COALESCE(completed_at, order_updated_at, order_date)``：历史订单大量没有
 ``completed_at``（实测 1189 条已完成里 424 条为空），只认它会让这些订单永远进不了候选集。
@@ -33,17 +34,22 @@ from .db_manage.models.system.config_entry import ConfigEntryModel
 
 log = logging.getLogger(__name__)
 
-#: [config] 键：自动隐藏开启时刻（epoch 秒）；键不存在 = 关闭
-SINCE_KEY = "profile_hide_since"
-#: [config] 键："1" = 历史数据待处理
-HISTORY_KEY = "profile_hide_history"
+#: [config] 旧的全局开关键（开关搬到店铺账号之前），启动时迁到各煤炉账号后删除
+_LEGACY_SINCE_KEY = "profile_hide_since"
+_LEGACY_HISTORY_KEY = "profile_hide_history"
 
 HIDE_DELAY_SEC = 24 * 3600
 _MAX_FAILURES = 3
 _CHECK_INTERVAL_SEC = 600
 _last_check: Optional[float] = None
 
-_COMPLETED_TS = "COALESCE([completed_at], [order_updated_at], [order_date])"
+_COMPLETED_TS = "COALESCE([orders].[completed_at], [orders].[order_updated_at], [orders].[order_date])"
+_MERCARI_ACCOUNT = (
+    "a.[status] = 'active' AND COALESCE(NULLIF(TRIM(a.[platform]), ''), 'mercari') = 'mercari'"
+)
+_ENABLED = "a.[profile_hide_since] IS NOT NULL"
+_AUTO = f"{_COMPLETED_TS} >= a.[profile_hide_since] - {HIDE_DELAY_SEC}"
+_HISTORY = "COALESCE(a.[profile_hide_history], 0) = 1"
 
 
 def _env_num(name: str, default: float) -> float:
@@ -65,70 +71,79 @@ def _next_delay_sec() -> float:
     return random.uniform(lo, hi)
 
 
-# ──────────────────────── 开关 ──────────────────────── #
+# ──────────────────────── 开关（店铺账号） ──────────────────────── #
 
-def enabled_since() -> Optional[int]:
-    """自动隐藏的开启时刻；未开启返回 None。读失败按未开启。"""
-    try:
-        raw = str(ConfigEntryModel.get_value(SINCE_KEY) or "").strip()
-        return int(raw) if raw else None
-    except Exception:
-        log.exception("[profile_hide] 读取开关失败，按未开启处理")
-        return None
-
-
-def set_enabled(on: bool) -> None:
-    """开启时记下当前时刻（已开启则保留原时刻，重复保存不会把窗口往后挪）；关闭即删键。"""
-    if not on:
-        ConfigEntryModel.set_value(SINCE_KEY, None)
-    elif enabled_since() is None:
-        ConfigEntryModel.set_value(SINCE_KEY, str(int(time.time())))
+def apply_switch(item: Any, on: bool) -> bool:
+    """把开关写到账号对象上（不保存）。开启时记下当前时刻（已开启则保留原时刻，重复保存不会把
+    窗口往后挪）；关闭即清空时刻与历史标记。返回本次是否「关→开」。"""
+    was_on = getattr(item, "profile_hide_since", None) is not None
+    if on and not was_on:
+        item.profile_hide_since = int(time.time())
+    elif not on:
+        item.profile_hide_since = None
+        item.profile_hide_history = 0
+    return on and not was_on
 
 
-def history_pending() -> bool:
-    try:
-        return str(ConfigEntryModel.get_value(HISTORY_KEY) or "").strip() == "1"
-    except Exception:
-        return False
+def set_history_pending(account_id: int) -> None:
+    DatabaseManager().execute_update(
+        "UPDATE [shop_accounts] SET [profile_hide_history] = 1 WHERE [id] = ?", (int(account_id),)
+    )
 
 
-def set_history_pending(on: bool) -> None:
-    ConfigEntryModel.set_value(HISTORY_KEY, "1" if on else None)
+def migrate_legacy_switch() -> None:
+    """旧的全局开关（[config] 键）→ 当时所有煤炉账号各自的开关。幂等：迁完即删键。"""
+    since = str(ConfigEntryModel.get_value(_LEGACY_SINCE_KEY) or "").strip()
+    history = str(ConfigEntryModel.get_value(_LEGACY_HISTORY_KEY) or "").strip() == "1"
+    if not since and not history:
+        return
+    db = DatabaseManager()
+    mercari = "COALESCE(NULLIF(TRIM([platform]), ''), 'mercari') = 'mercari'"
+    if since.isdigit():
+        db.execute_update(
+            f"UPDATE [shop_accounts] SET [profile_hide_since] = ? WHERE [profile_hide_since] IS NULL AND {mercari}",
+            (int(since),),
+        )
+        if history:
+            db.execute_update(
+                "UPDATE [shop_accounts] SET [profile_hide_history] = 1 "
+                f"WHERE [profile_hide_since] IS NOT NULL AND {mercari}"
+            )
+    ConfigEntryModel.set_value(_LEGACY_SINCE_KEY, None)
+    ConfigEntryModel.set_value(_LEGACY_HISTORY_KEY, None)
 
 
 # ──────────────────────── 候选集 ──────────────────────── #
 
-def _base_where(now: int) -> str:
-    """满 24 小时、未隐藏、未到失败上限的煤炉已完成订单（不含 since 限制）。
+def _order_where(now: int, account_cond: str = "1 = 1", account_id: Optional[int] = None) -> str:
+    """满 24 小时、未隐藏、未到失败上限的煤炉已完成订单，且卖家有满足 ``account_cond`` 的启用中煤炉账号。
 
-    卖家必须有启用中的煤炉账号（与 ``resolve_account_id_by_seller_id`` 同口径）：
-    否则这些行永远处理不了，却会让自动循环每 10 分钟排一条空跑的任务。
+    账号条件与 ``resolve_account_id_by_seller_id`` 同口径：没有启用账号的行永远处理不了，
+    却会让自动循环每 10 分钟排一条空跑的任务。
     """
+    one = f"AND a.[id] = {int(account_id)} " if account_id is not None else ""
     return (
-        "TRIM(IFNULL([platform], '')) IN ('mercari', '') "
-        "AND [status] = 'done' "
-        "AND [profile_hidden_at] IS NULL "
-        f"AND COALESCE([profile_hide_failures], 0) < {_MAX_FAILURES} "
-        "AND TRIM(IFNULL([data_user], '')) IN ("
-        "SELECT TRIM([seller_id]) FROM [shop_accounts] WHERE [status] = 'active' "
-        "AND COALESCE(NULLIF(TRIM([platform]), ''), 'mercari') = 'mercari') "
-        f"AND {_COMPLETED_TS} <= {int(now) - HIDE_DELAY_SEC}"
+        "TRIM(IFNULL([orders].[platform], '')) IN ('mercari', '') "
+        "AND [orders].[status] = 'done' "
+        "AND [orders].[profile_hidden_at] IS NULL "
+        f"AND COALESCE([orders].[profile_hide_failures], 0) < {_MAX_FAILURES} "
+        f"AND {_COMPLETED_TS} <= {int(now) - HIDE_DELAY_SEC} "
+        f"AND EXISTS (SELECT 1 FROM [shop_accounts] a WHERE {_MERCARI_ACCOUNT} "
+        "AND TRIM(a.[seller_id]) = TRIM(IFNULL([orders].[data_user], '')) "
+        f"{one}AND {account_cond})"
     )
 
 
-def _auto_clause(since: int) -> str:
-    return f"{_COMPLETED_TS} >= {int(since) - HIDE_DELAY_SEC}"
+def _candidate_where(now: int) -> str:
+    """当前该处理的范围：开关开启的账号；历史待处理的账号不受 since 限制。"""
+    return _order_where(now, f"{_ENABLED} AND ({_HISTORY} OR {_AUTO})")
 
 
-def _candidate_where(now: int) -> Optional[str]:
-    """当前该处理的范围；开关关闭且没有历史待处理时返回 None。"""
-    base = _base_where(now)
-    if history_pending():
-        return base
-    since = enabled_since()
-    if since is None:
-        return None
-    return f"{base} AND {_auto_clause(since)}"
+def _of_account(account_id: int) -> str:
+    return (
+        "TRIM(IFNULL([orders].[data_user], '')) = "
+        f"(SELECT TRIM([seller_id]) FROM [shop_accounts] WHERE [id] = {int(account_id)})"
+    )
 
 
 def _count(where: str) -> int:
@@ -136,42 +151,55 @@ def _count(where: str) -> int:
     return int(rows[0][0] or 0) if rows else 0
 
 
-def status() -> Dict[str, Any]:
+def _clear_finished_history(now: int) -> None:
+    """历史已处理完的账号撤掉标记。"""
+    db = DatabaseManager()
+    for row in db.execute_query(
+        "SELECT [id] FROM [shop_accounts] WHERE COALESCE([profile_hide_history], 0) = 1"
+    ) or []:
+        aid = int(row[0])
+        if _count(_order_where(now, account_id=aid)) == 0:
+            db.execute_update("UPDATE [shop_accounts] SET [profile_hide_history] = 0 WHERE [id] = ?", (aid,))
+
+
+def status(account_id: int) -> Dict[str, Any]:
     now = int(time.time())
-    base = _base_where(now)
-    since = enabled_since()
-    auto_n = _count(f"{base} AND {_auto_clause(since)}") if since is not None else 0
+    rows = DatabaseManager().execute_query(
+        "SELECT [profile_hide_since], [profile_hide_history] FROM [shop_accounts] WHERE [id] = ?",
+        (int(account_id),),
+    )
+    since = rows[0][0] if rows else None
+    auto_n = _count(_order_where(now, f"{_ENABLED} AND {_AUTO}", account_id)) if since is not None else 0
+    mine = _of_account(account_id)
     return {
         "enabled": since is not None,
-        "since": since,
-        "history_pending": history_pending(),
+        "since": int(since) if since is not None else None,
+        "history_pending": bool(rows and rows[0][1]),
         # 开关范围内待隐藏的
         "auto_pending_count": auto_n,
         # 开关范围之外的历史订单（点「处理历史数据」才会处理）
-        "history_count": _count(base) - auto_n,
-        "hidden_count": _count("[profile_hidden_at] IS NOT NULL"),
+        "history_count": _count(_order_where(now, account_id=account_id)) - auto_n,
+        "hidden_count": _count(f"[orders].[profile_hidden_at] IS NOT NULL AND {mine}"),
         "failed_count": _count(
-            "[profile_hidden_at] IS NULL "
-            f"AND COALESCE([profile_hide_failures], 0) >= {_MAX_FAILURES}"
+            f"[orders].[profile_hidden_at] IS NULL AND {mine} "
+            f"AND COALESCE([orders].[profile_hide_failures], 0) >= {_MAX_FAILURES}"
         ),
     }
 
 
-def reset_failures() -> int:
-    """「重试失败」：把到上限的失败计数清零，让它们重回候选集。"""
+def reset_failures(account_id: int) -> int:
+    """「重试失败」：把该账号到上限的失败计数清零，让它们重回候选集。"""
     return int(DatabaseManager().execute_update(
         "UPDATE [orders] SET [profile_hide_failures] = 0, [profile_hide_error] = NULL "
-        f"WHERE [profile_hidden_at] IS NULL AND COALESCE([profile_hide_failures], 0) >= {_MAX_FAILURES}"
+        f"WHERE [profile_hidden_at] IS NULL AND COALESCE([profile_hide_failures], 0) >= {_MAX_FAILURES} "
+        f"AND {_of_account(account_id)}"
     ) or 0)
 
 
 def _candidates(now: int, limit: int) -> List[Dict[str, Any]]:
-    where = _candidate_where(now)
-    if where is None:
-        return []
     # 新完成的优先：历史积压几百条时，刚满 24 小时的订单不该排在它们后面
     rows = DatabaseManager().execute_query(
-        f"SELECT [order_no], TRIM([data_user]), [remark] FROM [orders] WHERE {where} "
+        f"SELECT [order_no], TRIM([data_user]), [remark] FROM [orders] WHERE {_candidate_where(now)} "
         f"ORDER BY {_COMPLETED_TS} DESC LIMIT {int(limit)}"
     )
     return [
@@ -186,7 +214,7 @@ def maybe_enqueue(*, force: bool = False) -> Optional[int]:
     """有待处理的就排一条 ``system.profile_hide``；已有一条在队列里则什么都不做。
 
     由自动获取循环每个 tick 调用，内部按 ``_CHECK_INTERVAL_SEC`` 节流；``force`` 跳过节流
-    （系统配置页保存开关 / 点按钮时用，让用户立刻在任务页看到）。返回新任务 id 或 None。
+    （店铺账号开启开关 / 点按钮时用，让用户立刻在任务页看到）。返回新任务 id 或 None。
     """
     global _last_check
     now_mono = time.monotonic()
@@ -195,10 +223,8 @@ def maybe_enqueue(*, force: bool = False) -> Optional[int]:
     _last_check = now_mono
 
     now = int(time.time())
-    if history_pending() and _count(_base_where(now)) == 0:
-        set_history_pending(False)
-    where = _candidate_where(now)
-    if where is None or _count(where) == 0:
+    _clear_finished_history(now)
+    if _count(_candidate_where(now)) == 0:
         return None
 
     from .task_queue import TaskDuplicateError, submit_task
@@ -247,6 +273,13 @@ def _account_for(seller_id: str, cache: Dict[str, tuple]) -> tuple:
     return found
 
 
+def _still_enabled(account_id: int) -> bool:
+    rows = DatabaseManager().execute_query(
+        "SELECT 1 FROM [shop_accounts] WHERE [id] = ? AND [profile_hide_since] IS NOT NULL", (int(account_id),)
+    )
+    return bool(rows)
+
+
 async def run(*, report: Optional[Callable[[str, str], None]] = None) -> Dict[str, Any]:
     """处理一批候选订单。账号之间并发，同账号逐件并在两件之间随机等待。"""
     from .web_drive.core.account_serial_queue import (
@@ -279,6 +312,11 @@ async def run(*, report: Optional[Callable[[str, str], None]] = None) -> Dict[st
         nonlocal done
         who, rows = group["name"], group["rows"]
         for idx, row in enumerate(rows):
+            if not _still_enabled(aid):
+                # 本批跑到一半开关被关（含「一键暂停同步」）：剩下的不再点
+                stats["skipped"] += len(rows) - idx
+                say("apply", f"{who}：开关已关闭，跳过剩余 {len(rows) - idx} 件")
+                return
             order_no = row["order_no"]
             try:
                 res = await run_mercari_serial_async(
@@ -310,6 +348,5 @@ async def run(*, report: Optional[Callable[[str, str], None]] = None) -> Dict[st
             stats["failed"] += 1
             stats["errors"].append({"account": groups[aid]["name"], "error": str(res) or res.__class__.__name__})
 
-    if history_pending() and _count(_base_where(int(time.time()))) == 0:
-        set_history_pending(False)
+    _clear_finished_history(int(time.time()))
     return stats

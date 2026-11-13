@@ -184,6 +184,18 @@ class ShopAccountModel(BaseModel):
                 'not_null': True,
                 'default': 0,
             },
+            # 确认后隐藏商品（煤炉）账号级开关：开启时刻 epoch 秒，NULL = 关闭；见 src/profile_hide.py
+            'profile_hide_since': {
+                'type': 'INTEGER',
+                'not_null': False,
+                'default': None,
+            },
+            # 1 = 该账号的历史已完成订单也纳入隐藏（处理完自动撤掉）
+            'profile_hide_history': {
+                'type': 'INTEGER',
+                'not_null': True,
+                'default': 0,
+            },
             # 不进行获取时间段（本地时间 24 小时制 "HH:MM"）；两个字段均非空时启用，
             # 当 start == end 表示无效（视为不暂停）；start > end 跨日（如 22:00 → 08:00）
             'pause_start_time': {
@@ -360,12 +372,12 @@ class ShopAccountModel(BaseModel):
 
         total = db.execute_query(f"SELECT COUNT(*) {base_sql}", tuple(params))[0][0]
         select_sql = f"""
-            SELECT m.id, m.account_name, m.platform, m.login_id, m.seller_id, m.avatar, m.login_password, m.status, m.remark, m.[value], m.is_open, m.fetch_interval, m.auto_fetch_last_at, m.auto_fetch_order_list, m.auto_fetch_on_sale, m.auto_fetch_purchases, m.auto_fetch_todos, m.auto_fetch_notifications, m.auto_fetch_order_list_interval, m.auto_fetch_on_sale_interval, m.auto_fetch_purchases_interval, m.auto_fetch_todos_interval, m.auto_fetch_notifications_interval, m.auto_fetch_relist, m.pause_start_time, m.pause_end_time
+            SELECT m.id, m.account_name, m.platform, m.login_id, m.seller_id, m.avatar, m.login_password, m.status, m.remark, m.[value], m.is_open, m.fetch_interval, m.auto_fetch_last_at, m.auto_fetch_order_list, m.auto_fetch_on_sale, m.auto_fetch_purchases, m.auto_fetch_todos, m.auto_fetch_notifications, m.auto_fetch_order_list_interval, m.auto_fetch_on_sale_interval, m.auto_fetch_purchases_interval, m.auto_fetch_todos_interval, m.auto_fetch_notifications_interval, m.auto_fetch_relist, m.profile_hide_since, m.pause_start_time, m.pause_end_time
             {base_sql}
             ORDER BY m.id ASC
             LIMIT ? OFFSET ?
         """
-        keys = ['id', 'account_name', 'platform', 'login_id', 'seller_id', 'avatar', 'login_password', 'status', 'remark', 'value', 'is_open', 'fetch_interval', 'auto_fetch_last_at', 'auto_fetch_order_list', 'auto_fetch_on_sale', 'auto_fetch_purchases', 'auto_fetch_todos', 'auto_fetch_notifications', 'auto_fetch_order_list_interval', 'auto_fetch_on_sale_interval', 'auto_fetch_purchases_interval', 'auto_fetch_todos_interval', 'auto_fetch_notifications_interval', 'auto_fetch_relist', 'pause_start_time', 'pause_end_time']
+        keys = ['id', 'account_name', 'platform', 'login_id', 'seller_id', 'avatar', 'login_password', 'status', 'remark', 'value', 'is_open', 'fetch_interval', 'auto_fetch_last_at', 'auto_fetch_order_list', 'auto_fetch_on_sale', 'auto_fetch_purchases', 'auto_fetch_todos', 'auto_fetch_notifications', 'auto_fetch_order_list_interval', 'auto_fetch_on_sale_interval', 'auto_fetch_purchases_interval', 'auto_fetch_todos_interval', 'auto_fetch_notifications_interval', 'auto_fetch_relist', 'profile_hide_since', 'pause_start_time', 'pause_end_time']
         rows = db.execute_query(select_sql, tuple(params + [page_size, (page - 1) * page_size]))
         # 各账号当前在售件数：与看板同口径（未软删 + status='on_sale'），
         # 按 (平台, 卖家ID) 归属——on_sale_items 没有 account_id 列，seller_id 才是账号锚点。
@@ -398,6 +410,7 @@ class ShopAccountModel(BaseModel):
             d['auto_fetch_todos_interval'] = d.get('auto_fetch_todos_interval') or None
             d['auto_fetch_notifications_interval'] = d.get('auto_fetch_notifications_interval') or None
             d['auto_fetch_relist'] = 1 if d.get('auto_fetch_relist') else 0
+            d['profile_hide'] = 1 if d.pop('profile_hide_since', None) is not None else 0
             d['pause_start_time'] = d.get('pause_start_time') or None
             d['pause_end_time'] = d.get('pause_end_time') or None
             _sid = str(d.get('seller_id') or '').strip()

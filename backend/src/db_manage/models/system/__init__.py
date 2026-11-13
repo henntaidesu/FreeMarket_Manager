@@ -12,6 +12,7 @@ from .product_type import ProductTypeModel
 from .product_type_category_mapping import ProductTypeCategoryMappingModel
 from .yahoo_category_mapping import YahooCategoryMappingModel
 from .talk_script import TalkScriptModel
+from .title_keyword import TitleKeywordModel
 from .system_log import SystemLogModel
 from .task_queue import TaskQueueModel
 from .user import UserModel
@@ -32,6 +33,7 @@ __all__ = [
     "ProductTypeCategoryMappingModel",
     "YahooCategoryMappingModel",
     "TalkScriptModel",
+    "TitleKeywordModel",
     "SystemLogModel",
     "TaskQueueModel",
     "UserModel",

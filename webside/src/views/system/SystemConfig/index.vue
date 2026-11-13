@@ -445,51 +445,6 @@
           </div>
         </section>
 
-        <!-- 确认后隐藏商品：煤炉订单完成满 24 小时后设为「プロフィールから非表示」；
-             开关只管开启之后到期的订单，历史订单用按钮补上 -->
-        <section v-show="sectionShown('profile-hide')" id="sc-profile-hide" class="sc-panel">
-          <div class="sc-panel-head">
-            <span class="sc-ic"><el-icon :size="16"><Hide /></el-icon></span>
-            <div class="sc-head-text">
-              <div class="sc-panel-title">{{ t('profileHide.section') }}</div>
-            </div>
-            <el-switch
-              v-model="profileHide.enabled"
-              :loading="profileHideSubmitting"
-              :disabled="profileHideLoading || profileHideSubmitting"
-              @change="onProfileHideChange"
-            />
-          </div>
-          <div class="sc-panel-body" v-loading="profileHideLoading">
-            <el-alert
-              v-if="profileHide.history_pending"
-              :title="t('profileHide.historyRunning')"
-              type="info"
-              :closable="false"
-              show-icon
-            />
-            <div class="sc-hc-stats">
-              <span>{{ t('profileHide.autoPending', { n: profileHide.auto_pending_count }) }}</span>
-              <span>{{ t('profileHide.historyCount', { n: profileHide.history_count }) }}</span>
-              <span>{{ t('profileHide.hidden', { n: profileHide.hidden_count }) }}</span>
-              <span>{{ t('profileHide.failed', { n: profileHide.failed_count }) }}</span>
-            </div>
-            <div class="sc-actions">
-              <el-button
-                :loading="profileHideSubmitting"
-                :disabled="profileHide.history_pending || !profileHide.history_count"
-                @click="onProfileHideHistory"
-              >{{ t('profileHide.processHistory') }}</el-button>
-              <el-button
-                :type="profileHide.failed_count ? 'warning' : 'default'"
-                :loading="profileHideSubmitting"
-                :disabled="!profileHide.failed_count"
-                @click="submitProfileHide(() => configApi.retryProfileHideFailed())"
-              >{{ t('profileHide.retryFailed') }}</el-button>
-            </div>
-          </div>
-        </section>
-
         <!-- 条码识别（历史数据）：打开即排一条任务——识别历史商品图片里的条码，
              再把同条码 + 同归属人的商品并入管理番号最大的那个 -->
         <section v-show="sectionShown('barcode-history')" id="sc-barcode-history" class="sc-panel">
@@ -1279,7 +1234,7 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
-import { Plus, User, UserFilled, Key, Lock, MagicStick, Sell, Coin, Tickets, Printer, Compass, Timer, Link, Picture, Connection, Search, Hide, CopyDocument, Share } from '@element-plus/icons-vue'
+import { Plus, User, UserFilled, Key, Lock, MagicStick, Sell, Coin, Tickets, Printer, Compass, Timer, Link, Picture, Connection, Search, CopyDocument, Share } from '@element-plus/icons-vue'
 import { ElMessage } from '@/utils/notify'
 import { setLocale, SUPPORTED_LOCALES } from '@/i18n'
 import { authApi, roleApi, configApi, proxyUserApi, shopAccountApi, ssoApi } from '@/api/index.js'
@@ -1328,7 +1283,6 @@ const SECTIONS = [
   { id: 'password', cat: 'basic', icon: 'Lock', labelKey: 'system.changeMyPassword' },
   { id: 'ai', cat: 'business', icon: 'MagicStick', labelKey: 'systemConfig.deepseekSection', feature: 'ai' },
   { id: 'listing', cat: 'business', icon: 'Sell', labelKey: 'system.listingDefaults', feature: 'listing' },
-  { id: 'profile-hide', cat: 'business', icon: 'Hide', labelKey: 'profileHide.section', feature: 'profile_hide' },
   { id: 'barcode-history', cat: 'business', icon: 'Search', labelKey: 'barcodeHistory.section', feature: 'barcode' },
   { id: 'shipping-duration', cat: 'business', icon: 'Timer', labelKey: 'shippingDurationBatch.section', feature: 'shipping_duration' },
   { id: 'database', cat: 'data', icon: 'Coin', labelKey: 'systemConfig.databaseSection', feature: 'database' },
@@ -2052,65 +2006,6 @@ async function saveListingDefaults() {
   }
 }
 
-// ===== 确认后隐藏商品 =====
-// 后端只写开关 / 标记并立刻试排一条 system.profile_hide 任务；实际点击在任务里分批跑，
-// 剩下的由自动获取循环约 10 分钟续排一批。
-const profileHide = reactive({
-  enabled: false, history_pending: false, auto_pending_count: 0, history_count: 0, hidden_count: 0, failed_count: 0
-})
-const profileHideLoading = ref(false)
-const profileHideSubmitting = ref(false)
-
-function applyProfileHide(res) {
-  profileHide.enabled = !!res?.enabled
-  profileHide.history_pending = !!res?.history_pending
-  for (const k of ['auto_pending_count', 'history_count', 'hidden_count', 'failed_count']) {
-    profileHide[k] = Number(res?.[k]) || 0
-  }
-}
-
-async function loadProfileHide() {
-  profileHideLoading.value = true
-  try {
-    applyProfileHide(await configApi.getProfileHide())
-  } catch {
-    /* 拦截器已提示 */
-  } finally {
-    profileHideLoading.value = false
-  }
-}
-
-/** 统一提交：返回里带 task_id 说明排上了任务，否则只是保存 */
-async function submitProfileHide(call, { silent = false } = {}) {
-  profileHideSubmitting.value = true
-  try {
-    const res = await call()
-    applyProfileHide(res)
-    if (!silent) ElMessage.success(res?.task_id ? t('profileHide.submitted') : t('profileHide.nothingToDo'))
-  } catch {
-    await loadProfileHide()
-  } finally {
-    profileHideSubmitting.value = false
-  }
-}
-
-function onProfileHideChange(val) {
-  return submitProfileHide(() => configApi.putProfileHide(!!val), { silent: !val })
-}
-
-async function onProfileHideHistory() {
-  try {
-    await ElMessageBox.confirm(
-      t('profileHide.confirmHistoryMsg', { n: profileHide.history_count }),
-      t('profileHide.confirmHistoryTitle'),
-      { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') }
-    )
-  } catch {
-    return
-  }
-  await submitProfileHide(() => configApi.processProfileHideHistory())
-}
-
 // ===== 条码识别（历史数据）=====
 // 打开开关即排一条任务（只识别，幂等）：再跑一轮只处理还没识别的。同条码商品走「待合并」人工确认。
 const barcodeHistory = reactive({
@@ -2768,7 +2663,6 @@ onMounted(() => {
   loadProxyUsers()
   load()
   loadListingDefaults()
-  loadProfileHide()
   loadBarcodeHistory()
   loadSdAccounts()
   loadSdPreview()

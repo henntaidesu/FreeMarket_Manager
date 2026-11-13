@@ -192,6 +192,8 @@ def _item_api_dict(item: ShopAccountModel) -> dict:
     d['auto_fetch_todos_interval'] = d.get('auto_fetch_todos_interval') or None
     d['auto_fetch_notifications_interval'] = d.get('auto_fetch_notifications_interval') or None
     d['auto_fetch_relist'] = 1 if d.get('auto_fetch_relist') else 0
+    d['profile_hide'] = 1 if d.pop('profile_hide_since', None) is not None else 0
+    d.pop('profile_hide_history', None)
     d['pause_start_time'] = (d.get('pause_start_time') or None)
     d['pause_end_time'] = (d.get('pause_end_time') or None)
     return d

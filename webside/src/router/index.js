@@ -30,7 +30,6 @@ const routes = [
       // 重定向，收益只是路径好看一点，不值得。
       // /system 自身已无页面：原「系统总览」（实为账号管理）已并入系统配置，旧书签重定向过去
       { path: 'system', redirect: '/system/config' },
-      { path: 'system/inbound-shipments', name: 'InboundShipments', component: () => import('@/views/system/InboundShipments/index.vue'), meta: { title: '快递入库', icon: 'Van' } },
       // 历史数据 = 库存页本身的只读模式：读 inventory_old 归档表，按钮全部禁用
       { path: 'system/inventory-history', name: 'InventoryHistory', component: () => import('@/views/Inventory/index.vue'), props: { archive: true }, meta: { title: '历史库存', icon: 'Box' } },
       { path: 'system/transactions', name: 'Transactions', component: () => import('@/views/system/Transactions/index.vue'), meta: { title: '库存记录', icon: 'List' } },
@@ -44,6 +43,7 @@ const routes = [
       { path: 'system/series', name: 'Series', component: () => import('@/views/system/Series/index.vue'), meta: { title: '系列管理', icon: 'Files' } },
       { path: 'system/product-type-category-mappings', name: 'ProductTypeCategoryMappings', component: () => import('@/views/system/ProductTypeCategoryMappings/index.vue'), meta: { title: '商品类型映射', icon: 'Connection' } },
       { path: 'system/talk-scripts', name: 'TalkScripts', component: () => import('@/views/system/TalkScripts/index.vue'), meta: { title: '话术表', icon: 'ChatLineRound' } },
+      { path: 'system/title-keywords', name: 'TitleKeywords', component: () => import('@/views/system/TitleKeywords/index.vue'), meta: { title: '标题关联词', icon: 'Key' } },
       { path: 'system/calendar', name: 'Calendar', component: () => import('@/views/system/Calendar/index.vue'), meta: { title: '日历', icon: 'Calendar' } },
       { path: 'system/memos', name: 'Memos', component: () => import('@/views/Memos/index.vue'), meta: { title: '备忘录', icon: 'ChatDotRound' } },
       { path: 'system/system-logs', name: 'SystemLogs', component: () => import('@/views/system/SystemLogs/index.vue'), meta: { title: '系统日志', icon: 'Document' } },

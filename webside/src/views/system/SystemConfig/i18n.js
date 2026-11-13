@@ -65,20 +65,6 @@ export default {
       restartConfirm: '保存后将自动重启服务，约 10~20 秒后页面会跳转到新地址（直连为 https://）。是否继续？',
       restarting: '正在重启，稍后自动跳转…',
     },
-    profileHide: {
-      section: '确认后隐藏商品',
-      autoPending: '待隐藏 {n} 件',
-      historyCount: '历史待处理 {n} 件',
-      hidden: '已隐藏 {n} 件',
-      failed: '失败 {n} 件',
-      historyRunning: '历史数据处理中：每批 30 件，约 10 分钟续排一批，进度可在任务页查看',
-      processHistory: '处理历史数据',
-      retryFailed: '重试失败',
-      confirmHistoryTitle: '处理历史数据',
-      confirmHistoryMsg: '将把 {n} 件已完成满 24 小时的历史订单逐件设为「プロフィールから非表示」，分批在后台执行，件数多时耗时以小时计。是否继续？',
-      submitted: '已提交，进度请在任务页查看',
-      nothingToDo: '已保存，当前没有需要处理的商品',
-    },
     barcodeHistory: {
       section: '条码识别',
       pending: '待识别 {n} 件',
@@ -380,6 +366,11 @@ export default {
         edit: '编辑',
         delete: '删除'
       },
+      'system_title-keywords': {
+        create: '新增',
+        edit: '编辑',
+        delete: '删除'
+      },
       system_calendar: {
         create: '新增',
         edit: '编辑',
@@ -400,7 +391,6 @@ export default {
         proxy_users: '代购用户',
         ai: 'AI 配置',
         listing: '出品默认值',
-        profile_hide: '确认后隐藏商品',
         barcode: '条码识别',
         shipping_duration: '一键修改发货时效',
         database: '数据库 / 同步库',
@@ -549,20 +539,6 @@ export default {
       regenerated: '証明書を再生成しました。再起動後に反映されます',
       restartConfirm: '保存後にサービスを自動再起動します。10~20 秒後に新しいアドレス（直接の場合は https://）へ移動します。続行しますか？',
       restarting: '再起動中です。まもなく移動します…',
-    },
-    profileHide: {
-      section: '取引完了後に非表示',
-      autoPending: '非表示待ち {n} 件',
-      historyCount: '過去分 未処理 {n} 件',
-      hidden: '非表示済み {n} 件',
-      failed: '失敗 {n} 件',
-      historyRunning: '過去データを処理中：1 回 30 件ずつ、約 10 分ごとに次の分を登録します。進捗はタスク画面で確認できます',
-      processHistory: '過去データを処理',
-      retryFailed: '失敗分を再試行',
-      confirmHistoryTitle: '過去データを処理',
-      confirmHistoryMsg: '完了から 24 時間以上経った過去の取引 {n} 件を 1 件ずつ「プロフィールから非表示」にします。バックグラウンドで分割実行し、件数が多いと数時間かかります。続行しますか？',
-      submitted: '登録しました。進捗はタスク画面で確認できます',
-      nothingToDo: '保存しました。現在処理が必要な商品はありません',
     },
     barcodeHistory: {
       section: 'バーコード認識',
@@ -863,6 +839,11 @@ export default {
         edit: '編集',
         delete: '削除'
       },
+      'system_title-keywords': {
+        create: '追加',
+        edit: '編集',
+        delete: '削除'
+      },
       system_calendar: {
         create: '追加',
         edit: '編集',
@@ -883,7 +864,6 @@ export default {
         proxy_users: '代理購入ユーザー',
         ai: 'AI 設定',
         listing: '出品デフォルト',
-        profile_hide: '取引後に非表示',
         barcode: 'バーコード認識',
         shipping_duration: '発送日数の一括変更',
         database: 'データベース / 同期',
@@ -1032,20 +1012,6 @@ export default {
       regenerated: 'Certificate regenerated; takes effect after restart',
       restartConfirm: 'The service will restart after saving and the page will move to the new address (https:// for direct) in about 10–20 seconds. Continue?',
       restarting: 'Restarting, redirecting shortly…',
-    },
-    profileHide: {
-      section: 'Hide After Completion',
-      autoPending: '{n} pending',
-      historyCount: '{n} historical pending',
-      hidden: '{n} hidden',
-      failed: '{n} failed',
-      historyRunning: 'Processing history: 30 items per batch, the next batch is queued about every 10 minutes — watch progress on the Tasks page',
-      processHistory: 'Process history',
-      retryFailed: 'Retry failed',
-      confirmHistoryTitle: 'Process history',
-      confirmHistoryMsg: 'This sets {n} historical orders completed over 24 hours ago to "プロフィールから非表示" one by one, in background batches — a large backlog takes hours. Continue?',
-      submitted: 'Submitted — watch progress on the Tasks page',
-      nothingToDo: 'Saved — nothing to process right now',
     },
     barcodeHistory: {
       section: 'Barcode recognition',
@@ -1346,6 +1312,11 @@ export default {
         edit: 'Edit',
         delete: 'Delete'
       },
+      'system_title-keywords': {
+        create: 'Create',
+        edit: 'Edit',
+        delete: 'Delete'
+      },
       system_calendar: {
         create: 'Create',
         edit: 'Edit',
@@ -1366,7 +1337,6 @@ export default {
         proxy_users: 'Proxy users',
         ai: 'AI config',
         listing: 'Listing defaults',
-        profile_hide: 'Hide after completion',
         barcode: 'Barcode recognition',
         shipping_duration: 'Bulk shipping duration',
         database: 'Database / sync',

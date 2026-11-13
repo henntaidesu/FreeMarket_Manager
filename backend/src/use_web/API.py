@@ -46,6 +46,7 @@ from .notifications.API import router as notifications_router
 from .memos.API import router as memos_router
 from .calendar.API import router as calendar_router
 from .talk_scripts.API import router as talk_scripts_router
+from .title_keywords.API import router as title_keywords_router
 from .gotion.API import router as gotion_router
 from .mercari_image.API import public_router as mercari_image_public_router
 from .store.API import public_router as store_public_router
@@ -132,4 +133,6 @@ router.include_router(memos_router, prefix="/memos", tags=["memos"], dependencie
 # 日历：全员共享的一份事项表（前端 /system/calendar）
 router.include_router(calendar_router, prefix="/calendar", tags=["calendar"], dependencies=_page("system/calendar"))
 router.include_router(talk_scripts_router, prefix="/talk-scripts", tags=["talk-scripts"], dependencies=_page("system/talk-scripts"))
+# 出品标题关联词：配置页之外，库存表单的出品标题输入框也读它
+router.include_router(title_keywords_router, prefix="/title-keywords", tags=["title-keywords"], dependencies=_page("system/title-keywords", "inventory", "system/inventory-history"))
 router.include_router(gotion_router, prefix="/gotion", tags=["gotion"], dependencies=_AUTH)

@@ -84,13 +84,6 @@ from .units.barcode_history_handler import (
     put_barcode_history,
     resolve_barcode_conflict,
 )
-from .units.profile_hide_handler import (
-    ProfileHideStatusOut,
-    get_profile_hide,
-    post_profile_hide_history,
-    post_profile_hide_retry_failed,
-    put_profile_hide,
-)
 from .units.shipping_duration_handler import (
     ShippingDurationPreviewOut,
     get_shipping_duration,
@@ -204,10 +197,6 @@ router.add_api_route("/shipping-duration", get_shipping_duration, methods=["GET"
 router.add_api_route("/shipping-duration", post_shipping_duration, methods=["POST"], response_model=ShippingDurationPreviewOut, dependencies=_cfg("shipping_duration"))
 
 # 确认后隐藏商品（煤炉订单完成满 24 小时后设为プロフィールから非表示）
-router.add_api_route("/profile-hide", get_profile_hide, methods=["GET"], response_model=ProfileHideStatusOut)
-router.add_api_route("/profile-hide", put_profile_hide, methods=["PUT"], response_model=ProfileHideStatusOut, dependencies=_cfg("profile_hide"))
-router.add_api_route("/profile-hide/history", post_profile_hide_history, methods=["POST"], response_model=ProfileHideStatusOut, dependencies=_cfg("profile_hide"))
-router.add_api_route("/profile-hide/retry-failed", post_profile_hide_retry_failed, methods=["POST"], response_model=ProfileHideStatusOut, dependencies=_cfg("profile_hide"))
 
 # Cookie 注入域名（代理经 nginx 以独立域名发布时的对外基址）
 # PUT 限管理员：这个值决定用户点「Cookie 注入」会被送到哪个地址，等同于一次跳转目标的授权。

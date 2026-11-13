@@ -102,6 +102,8 @@ class MercariAccountCreate(PydanticModel):
     auto_fetch_todos_interval: Optional[str] = None
     auto_fetch_notifications_interval: Optional[str] = None
     auto_fetch_relist: int = 0
+    # 确认后隐藏商品（仅煤炉）：1 = 开启
+    profile_hide: int = 0
     pause_start_time: Optional[str] = None
     pause_end_time: Optional[str] = None
 
@@ -129,6 +131,7 @@ class MercariAccountUpdate(PydanticModel):
     auto_fetch_todos_interval: Optional[str] = None
     auto_fetch_notifications_interval: Optional[str] = None
     auto_fetch_relist: Optional[int] = None
+    profile_hide: Optional[int] = None
     pause_start_time: Optional[str] = None
     pause_end_time: Optional[str] = None
 

@@ -105,6 +105,7 @@ export default {
       notifications: "プラットフォーム通知",
       shopAccounts: "店舗アカウント",
       talkScripts: "定型文",
+      titleKeywords: "タイトル関連語",
       calendar: "カレンダー",
       memos: "メモ",
       system: "その他の機能",

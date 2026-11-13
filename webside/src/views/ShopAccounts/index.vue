@@ -225,6 +225,45 @@
             <el-form-item :label="t('mercariAccounts.taskRelist')">
               <el-switch v-model="form.auto_fetch_relist" :active-value="1" :inactive-value="0" />
             </el-form-item>
+            <!-- 确认后隐藏商品（仅煤炉）：订单完成满 24 小时后设为「プロフィールから非表示」；
+                 开关只管开启之后到期的订单，历史订单用按钮补上。「一键暂停同步」会把它一并关掉 -->
+            <el-form-item v-if="form.platform !== 'yahoo'" :label="t('mercariAccounts.profileHide')">
+              <div class="ph-block">
+                <el-tooltip :content="t('mercariAccounts.profileHideHint')" placement="top">
+                  <el-switch v-model="form.profile_hide" :active-value="1" :inactive-value="0" />
+                </el-tooltip>
+                <template v-if="form.id && profileHide">
+                  <el-alert
+                    v-if="profileHide.history_pending"
+                    :title="t('mercariAccounts.phHistoryRunning')"
+                    type="info"
+                    :closable="false"
+                    show-icon
+                  />
+                  <div class="ph-stats">
+                    <span>{{ t('mercariAccounts.phAutoPending', { n: profileHide.auto_pending_count }) }}</span>
+                    <span>{{ t('mercariAccounts.phHistoryCount', { n: profileHide.history_count }) }}</span>
+                    <span>{{ t('mercariAccounts.phHidden', { n: profileHide.hidden_count }) }}</span>
+                    <span>{{ t('mercariAccounts.phFailed', { n: profileHide.failed_count }) }}</span>
+                  </div>
+                  <div v-if="$can('shop-accounts:edit')" class="ph-actions">
+                    <el-button
+                      size="small"
+                      :loading="profileHideSubmitting"
+                      :disabled="!profileHide.enabled || profileHide.history_pending || !profileHide.history_count"
+                      @click="processProfileHideHistory"
+                    >{{ t('mercariAccounts.phProcessHistory') }}</el-button>
+                    <el-button
+                      size="small"
+                      :type="profileHide.failed_count ? 'warning' : 'default'"
+                      :loading="profileHideSubmitting"
+                      :disabled="!profileHide.failed_count"
+                      @click="retryProfileHideFailed"
+                    >{{ t('mercariAccounts.phRetryFailed') }}</el-button>
+                  </div>
+                </template>
+              </div>
+            </el-form-item>
             <el-form-item :label="t('mercariAccounts.pauseRange')" prop="pause_window">
               <div class="af-pause-row">
                 <el-time-picker

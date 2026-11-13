@@ -33,7 +33,6 @@ export const MENU_ITEMS = [
 
       // 仓储与包材：货放哪儿、用掉了哪些包材
       { path: '/system/warehouses', titleKey: 'layout.menu.warehouses', icon: 'OfficeBuilding', group: 'layout.menuGroup.storage' },
-      { path: '/system/inbound-shipments', titleKey: 'layout.menu.inboundShipments', icon: 'Van', group: 'layout.menuGroup.storage' },
       { path: '/system/inventory-history', titleKey: 'layout.menu.inventoryHistory', icon: 'Box', group: 'layout.menuGroup.storage' },
       { path: '/system/cost-records', titleKey: 'layout.menu.costRecords', icon: 'Money', group: 'layout.menuGroup.storage' },
       { path: '/system/cost-expenses', titleKey: 'layout.menu.costExpenses', icon: 'Wallet', group: 'layout.menuGroup.storage' },
@@ -43,6 +42,7 @@ export const MENU_ITEMS = [
       { path: '/system/series', titleKey: 'layout.menu.series', icon: 'Files', group: 'layout.menuGroup.masterData' },
       { path: '/system/product-type-category-mappings', titleKey: 'layout.menu.productTypeMappings', icon: 'Connection', group: 'layout.menuGroup.masterData' },
       { path: '/system/talk-scripts', titleKey: 'layout.menu.talkScripts', icon: 'ChatLineRound', group: 'layout.menuGroup.masterData' },
+      { path: '/system/title-keywords', titleKey: 'layout.menu.titleKeywords', icon: 'Key', group: 'layout.menuGroup.masterData' },
 
       // 系统
       { path: '/system/calendar', titleKey: 'layout.menu.calendar', icon: 'Calendar', group: 'layout.menuGroup.system' },

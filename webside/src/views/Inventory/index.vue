@@ -913,10 +913,10 @@
                 </el-button>
               </div>
             </template>
-            <el-input
+            <!-- 输入时按关联词表（其他功能 → 标题关联词）下拉候选，选中即替换光标前的词 -->
+            <ListingTitleInput
               v-model="form.listing_title"
               class="listing-field-fullwidth"
-              type="text"
               :maxlength="40"
               show-word-limit
               clearable
@@ -2116,32 +2116,39 @@
       destroy-on-close
     >
       <!-- data-scanner-capture：焦点在货架选择框里时扫码枪扫货架码也交给 onScannerCode -->
-      <div data-scanner-capture>
-        <el-cascader
-          v-model="noCodeInboundPath"
-          :options="warehouseCascaderOptionsWithDefault"
-          :props="warehouseCascaderProps"
-          separator="-"
-          :placeholder="t('inventory.warehouseShelfArrowPlaceholder')"
-          popper-class="product-type-cascader-popper"
-          style="width: 100%"
-        />
+      <el-form
+        data-scanner-capture
+        class="no-code-inbound-form"
+        :label-position="isMobile ? 'top' : 'right'"
+        label-width="auto"
+        @submit.prevent
+      >
+        <el-form-item :label="t('inventory.belongingShelf')">
+          <el-cascader
+            v-model="noCodeInboundPath"
+            :options="warehouseCascaderOptionsWithDefault"
+            :props="warehouseCascaderProps"
+            separator="-"
+            :placeholder="t('inventory.warehouseShelfArrowPlaceholder')"
+            popper-class="product-type-cascader-popper"
+            class="no-code-inbound-form__control"
+          />
+        </el-form-item>
         <!-- 入库数量：只能下拉选 1–100，不可输入；扫货架码后自动展开，选定即开始拍照 -->
-        <div class="no-code-inbound-qty">
-          <span class="no-code-inbound-qty__label">{{ t('inventory.noCodeInboundQty') }}</span>
+        <el-form-item :label="t('inventory.noCodeInboundQty')">
           <el-select
             ref="noCodeInboundQtyRef"
             v-model="noCodeInboundQty"
             :filterable="false"
             :placeholder="t('inventory.noCodeInboundPickQty')"
             automatic-dropdown
-            style="width: 120px"
+            class="no-code-inbound-form__control"
             @change="onNoCodeInboundQtyChange"
           >
             <el-option v-for="n in NO_CODE_INBOUND_QTY_OPTIONS" :key="n" :label="String(n)" :value="n" />
           </el-select>
-        </div>
-      </div>
+        </el-form-item>
+      </el-form>
       <template #footer>
         <el-button @click="noCodeInboundVisible = false">{{ t('common.cancel') }}</el-button>
         <el-button type="primary" @click="confirmNoCodeInbound">{{ t('inventory.noCodeInboundStart') }}</el-button>
