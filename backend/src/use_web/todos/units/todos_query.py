@@ -121,6 +121,7 @@ _LIST_COLS = (
     "virtual_ship_state",
     "virtual_shipped_at",
     "return_address_submitted_at",
+    "cancel_request_status",
 )
 
 

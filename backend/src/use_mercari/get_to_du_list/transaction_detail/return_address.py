@@ -21,7 +21,11 @@
 
 提交成功 = 点击后 返品くん 的 ``/api/`` 有一次 2xx 的 POST，且页面出现「返品手続きが完了しました」
 （实测 m97029923903）。两者缺一都算失败并带上页面文字。成功后在待办行记
-``return_address_submitted_at``，处理弹窗据此屏蔽第一步。
+``return_address_submitted_at``，处理弹窗据此屏蔽这一步、放开之后的确认签收。
+
+申请那条待办（CancellationRequested）在退货表单里同意之后也能直接填：两条待办是同一张取引页，
+而煤炉要等下一次待办同步才带回退货地址那条。所以「已提交」标记按交易（账号 + 商品 ID）共用，
+见 ``propagate_return_address_submitted``。
 """
 from __future__ import annotations
 
@@ -30,16 +34,48 @@ import logging
 import time
 from typing import Any, Callable, Dict, Optional
 
+from ....db_manage.database import DatabaseManager
 from ....db_manage.models.todos.todo_item import TodoItemModel
 from ....web_drive.core.mitm_session import mitm_automation_browser
 from ....web_drive.core.paths import mercari_todo_key
 from ...return_address_settings import load as load_return_address, validate
 from ...sync.sync_progress import make_sync_reporter
+from ._common import _CANCELLATION_KINDS
 from .cancellation import _resolve_item_id
 
 log = logging.getLogger(__name__)
 
 RETURN_ADDRESS_KIND = "CancellationRequestApprovedSeller"
+_REQUEST_KIND = "CancellationRequested"
+
+
+def propagate_return_address_submitted(account_id: int) -> int:
+    """把「返品先住所已提交」标记补到同一笔交易的另一条退货待办上，返回补了几行。
+
+    地址在申请那条的表单里提交后，煤炉才另发退货地址那条；新插入的行带的是 NULL，
+    不补的话它的表单会再给一次提交按钮（返品くん 提交后不能重填），确认签收也会被一直锁着。
+    """
+    db = DatabaseManager()
+    kinds = tuple(sorted(_CANCELLATION_KINDS))
+    ph = ",".join("?" * len(kinds))
+    rows = db.execute_query(
+        f"SELECT [item_id], MAX([return_address_submitted_at]) FROM [todo_items] "
+        f"WHERE [account_id]=? AND [kind] IN ({ph}) AND [return_address_submitted_at] IS NOT NULL "
+        f"AND [item_id] IS NOT NULL GROUP BY [item_id]",
+        (int(account_id), *kinds),
+    )
+    n = 0
+    for item_id, ts in rows or []:
+        n += int(
+            db.execute_update(
+                f"UPDATE [todo_items] SET [return_address_submitted_at]=? "
+                f"WHERE [account_id]=? AND [item_id]=? AND [kind] IN ({ph}) "
+                f"AND [return_address_submitted_at] IS NULL",
+                (int(ts), int(account_id), item_id, *kinds),
+            )
+            or 0
+        )
+    return n
 
 _INPUT_BUTTON_TEXT = "返品先住所を入力する"
 _MOVE_BUTTON_TEXT = "「返品くん」に移動する"
@@ -324,13 +360,18 @@ async def fill_return_address(
     if (getattr(todo, "platform", "") or "mercari").strip().lower() != "mercari":
         raise ValueError("返品先住所仅支持煤炉待办")
     kind = (getattr(todo, "kind", "") or "").strip()
-    if kind != RETURN_ADDRESS_KIND:
-        raise ValueError(f"该待办不是「返品に必要な情報の入力」（kind={kind or '空'}）")
-    if getattr(todo, "return_address_submitted_at", None) and not dry_run:
-        raise ValueError("该待办的返品先住所已经提交过（返品くん 提交后不能修改）")
+    if kind not in (RETURN_ADDRESS_KIND, _REQUEST_KIND):
+        raise ValueError(f"该待办不是退货待办（kind={kind or '空'}）")
+    if kind == _REQUEST_KIND and (getattr(todo, "cancel_request_status", "") or "") != "approved":
+        raise ValueError("该退货申请还没有同意，不能填写返品先住所")
     aid = int(getattr(todo, "account_id", 0) or 0)
     if not aid:
         raise ValueError("该待办缺少 account_id")
+    # 另一条退货待办上提交过也算（两条是同一笔交易）
+    propagate_return_address_submitted(aid)
+    todo = TodoItemModel.find_by_id(id=int(todo_id)) or todo
+    if getattr(todo, "return_address_submitted_at", None) and not dry_run:
+        raise ValueError("该交易的返品先住所已经提交过（返品くん 提交后不能修改）")
     item_id = _resolve_item_id(todo)
     if not item_id:
         raise ValueError("该待办无关联商品 ID，无法打开交易页")
@@ -367,6 +408,7 @@ async def fill_return_address(
         try:
             todo.return_address_submitted_at = int(time.time())
             todo.save()
+            propagate_return_address_submitted(aid)
         except Exception as exc:
             # 地址已经提交且不可撤回，记账失败不该把任务判成失败
             log.warning("[return_address] 记录提交时间失败 todo_id=%s: %s", todo_id, exc)

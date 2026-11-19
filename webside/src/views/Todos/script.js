@@ -874,6 +874,8 @@ export default defineComponent({
         shipping_facility_name: '',
         shipping_facility_desc: '',
         shipping_facility_image_url: '',
+        // 退货申请（仅退货待办）：{ status, requested_by, reason_label, reason_text, return_method, created }
+        cancel_request: null,
         // 雅虎交易页字段（platform=yahoo 时才填；煤炉侧始终为空）
         yahoo_loaded: false,          // 是否已读到过交易页（缓存或抓取）
         yahoo_ship_form: null,        // { pending, item_name, item_name_max, size, location, carrier, size_options, location_options }
@@ -1405,13 +1407,8 @@ export default defineComponent({
       }
     }
 
-    /** 卡片点击 = 表格操作列那颗按钮：申请退货行走「确认签收」（自带二次确认），其余进处理弹窗 */
+    /** 卡片点击 = 表格操作列那颗按钮：进处理弹窗（退货的每一步也都在弹窗的退货表单里做） */
     function onCardClick(row) {
-      if (isCancellationReceiptRow(row)) {
-        if (cancelReceiptBusyId.value) return
-        onConfirmCancellationReceipt(row)
-        return
-      }
       onProcess(row)
     }
 
@@ -1991,10 +1988,12 @@ export default defineComponent({
       }
     }
 
-    // 「申请退货」（キャンセル申請）行的操作列不是「处理」而是「确认签收」：卖家收到买家退回的
-    // 商品后，在交易页点「返送された商品を受け取った」→ 二次确认「キャンセルを完了する」结案。
+    // 「申请退货」（キャンセル申請）行与「退货地址」行一样进处理弹窗的退货表单。交易页按
+    // cancel_request 的状态（交易详情抓取时落库，同步后的预缓存会自动抓一次）分段：
+    //   wait     → 买家刚提出申请，要卖家「同意する / 同意しない」：表单第一步由人点，后台代点「同意する」
+    //   approved → 已同意：匿名退货先填返品先住所，退回商品到手后再「确认签收」
     // 只认煤炉：雅虎没有这套页面（キャンセル 相关待办另走 Yahoo* kind，不会命中这里）。
-    function isCancellationReceiptRow(row) {
+    function isCancellationRequestRow(row) {
       return (
         platformOf(row) === 'mercari' &&
         String(row?.kind || '').trim() === 'CancellationRequested'
@@ -2003,6 +2002,62 @@ export default defineComponent({
 
     // 正在提交「确认签收」的 todo id（只覆盖入队那一瞬，执行本身在后台队列里）
     const cancelReceiptBusyId = ref(0)
+    const cancelAcceptBusyId = ref(0)
+
+    // 退货表单（处理弹窗）里的「同意退货申请」一步：理由与退货方式来自交易详情里的 cancel_request
+    const RETURN_METHOD_KEYS = { anonymous_return: 'anonymous', manual_return: 'manual', no_return: 'none' }
+    const isCancellationRequestTodo = computed(() => isCancellationRequestRow(currentRow.value))
+    const isReturnFlowTodo = computed(() => isReturnAddressTodo.value || isCancellationRequestTodo.value)
+    const cancelRequestView = computed(() => {
+      const req = detail.cancel_request
+      if (!req) return null
+      const rm = RETURN_METHOD_KEYS[req.return_method]
+      return {
+        reason: [req.reason_label, req.reason_text].filter(Boolean).join(' / '),
+        method: rm ? t(`todos.returnMethods.${rm}`) : req.return_method || '',
+      }
+    })
+    // 弹窗里刚抓过详情时以详情为准，否则用列表行上的状态列
+    const dialogCancelStatus = computed(
+      () => String(detail.cancel_request?.status || currentRow.value?.cancel_request_status || '').trim(),
+    )
+    // 退货地址那条待办本身就是同意之后才有的
+    const cancelAccepted = computed(() => isReturnAddressTodo.value || dialogCancelStatus.value === 'approved')
+    // 返品先住所只有匿名退货才要填；申请那一步先把地址摆出来，同意前就能发现地址不全
+    const showReturnAddressStep = computed(
+      () => isReturnAddressTodo.value || detail.cancel_request?.return_method === 'anonymous_return',
+    )
+    // 确认签收在煤炉上一同意就能点，提前点 = 货还没退回就把钱退了，所以锁到前面几步都做完
+    const receiptUnlocked = computed(
+      () => cancelAccepted.value && (!showReturnAddressStep.value || !!returnAddressSubmittedText.value),
+    )
+
+    async function onAcceptCancellation() {
+      const row = currentRow.value
+      const todoId = Number(row?.id || 0)
+      if (!todoId || cancelAcceptBusyId.value) return
+      try {
+        await ElMessageBox.confirm(
+          t('todos.acceptCancellationMessage'),
+          t('todos.acceptCancellationTitle'),
+          { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') },
+        )
+      } catch {
+        return
+      }
+      // 同意不可撤回：后端按 todo_id 去重，并在点之前、点之后各读一次申请状态
+      cancelAcceptBusyId.value = todoId
+      try {
+        await submitTask(
+          TASK_TYPES.TODOS_ACCEPT_CANCELLATION,
+          { todo_id: todoId, account_id: row?.account_id ?? null, item_id: row?.item_id || '' },
+          { t },
+        )
+      } finally {
+        cancelAcceptBusyId.value = 0
+      }
+    }
+
 
     // 「待发货」下出库明细没绑上库存的行（inventory_linked 由列表接口按 match-inventory 同口径算）：
     // 「获取商品说明」重读商品页说明、按暗号重建出库明细，绑上后处理弹窗才能走 关联库存 → 发货
@@ -2167,7 +2222,7 @@ export default defineComponent({
       }
       // 优先读本地缓存（不开浏览器）；用户点「刷新抓取」才打开浏览器更新
       loadDetailCache()
-      if (isReturnAddressTodo.value) loadReturnAddressInfo(row)
+      if (isReturnFlowTodo.value) loadReturnAddressInfo(row)
       if (!fromNav && isWaitShippingTodo(row)) loadNavRows()
     }
 
@@ -2197,6 +2252,8 @@ export default defineComponent({
           if (merged.buyer_name == null) delete merged.buyer_name
           Object.assign(detail, merged)
         }
+        // 退货表单要靠申请理由 / 退货方式 / 状态来决定下一步，缓存里没有就当场抓一次
+        if (isCancellationRequestTodo.value && !d?.cancel_request) onDetailRefresh()
       } catch { /* 无缓存：静默，保留本地预填 */ }
     }
 
@@ -3466,10 +3523,19 @@ export default defineComponent({
       purchaseTsMs,
       displayTs,
       itemUrlOf,
-      isCancellationReceiptRow,
+      isCancellationRequestRow,
       cancelReceiptBusyId,
+      cancelAcceptBusyId,
       onConfirmCancellationReceipt,
+      onAcceptCancellation,
       isReturnAddressTodo,
+      isCancellationRequestTodo,
+      isReturnFlowTodo,
+      cancelRequestView,
+      dialogCancelStatus,
+      cancelAccepted,
+      receiptUnlocked,
+      showReturnAddressStep,
       returnAddressInfo,
       returnAddressBusy,
       returnAddressView,

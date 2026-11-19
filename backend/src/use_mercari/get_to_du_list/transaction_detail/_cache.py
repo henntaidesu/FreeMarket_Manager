@@ -7,7 +7,13 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 from ....db_manage.database import DatabaseManager
-from ._common import _WAIT_REPLY_KINDS, _WAIT_REVIEW_KINDS, _WAIT_SHIPPING_KINDS, _WAIT_SHIPPING_TITLE
+from ._common import (
+    _CANCELLATION_KINDS,
+    _WAIT_REPLY_KINDS,
+    _WAIT_REVIEW_KINDS,
+    _WAIT_SHIPPING_KINDS,
+    _WAIT_SHIPPING_TITLE,
+)
 
 log = logging.getLogger(__name__)
 
@@ -187,7 +193,7 @@ PRECACHE_MAX_FAILURES = 3
 def list_uncached_detail_todo_ids(
     account_id: int, *, limit: Optional[int] = None
 ) -> List[int]:
-    """返回某账号下「待发货」「待回复」「待评价」且尚无交易详情缓存的待办 id（供「从煤炉同步」后批量补抓详情）。
+    """返回某账号下「待发货」「待回复」「待评价」「退货」且尚无交易详情缓存的待办 id（供「从煤炉同步」后批量补抓详情）。
 
     判定「无缓存」：``detail_synced_at IS NULL``（fetch_transaction_detail 成功后才会写入）。
     仅含未软删 + 有 item_id 的待办（无 item_id 无法打开交易页）。
@@ -221,6 +227,7 @@ def list_uncached_detail_todo_ids(
             kind in _WAIT_SHIPPING_KINDS
             or kind in _WAIT_REPLY_KINDS
             or kind in _WAIT_REVIEW_KINDS
+            or kind in _CANCELLATION_KINDS
             or title == _WAIT_SHIPPING_TITLE
         ):
             ids.append(int(tid))

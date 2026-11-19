@@ -269,6 +269,12 @@ def apply_todolist_sync(
     # 本账号没买过的商品自然匹配不到行，多跑几条 UPDATE 不会误伤。
     purchase_state_advanced = advance_purchase_states(account_id, wait_receipt_items)
 
+    # ── 退货：申请那条的表单里已提交过返品先住所 → 同意后新来的退货地址那条也要带上标记 ──
+    #    否则它的表单会再给一次提交按钮（返品くん 提交后不能重填），确认签收也一直锁着。
+    from .transaction_detail.return_address import propagate_return_address_submitted
+
+    propagate_return_address_submitted(account_id)
+
     # 软删除：当前账号下、未在本次返回中的活跃行。
     # 抓取不完整（分页中途失败）时跳过：缺席不等于已完成。
     marked_deleted = 0

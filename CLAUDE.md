@@ -1233,6 +1233,26 @@ Tasks queued before `qr_text` existed still fall back to feeding the original ph
 `todo_items.ship_qr_text` keeps the decoded text **even on success**, when the photo is deleted —
 it is then the only local record of which code shipped.
 
+**退货申请的阶段 (`transaction_detail/cancellation.py`)** — a `CancellationRequested` todo is two
+different pages depending on `transaction_evidences/get` → `cancel_request.status` (verified live,
+m83007936499): `wait` = buyer just asked, the page shows 「同意する / 同意しない」 (testids
+`transaction:cancellation-accept-button` / `-decline-button`, 24h or the request lapses); `approved` =
+the 「返送された商品を受け取った」 section. 「确认签收」 on a `wait` page just fails with "button not found",
+so the form's steps are gated on `todo_items.cancel_request_status`, written by every detail fetch of a
+退货 todo — both 退货 kinds are in the post-sync precache for exactly this. Unknown status → the form
+fetches it on the spot. **Every 退货 step runs from the 处理 dialog's 退货表单**
+(shared with the `CancellationRequestApprovedSeller` todo; rows and cards have no direct action):
+同意退货申请 (reason / return method from the cached `cancel_request`) → 返品先住所 (anonymous return
+only; submittable on the 申请 todo once `approved`, since Mercari only sends the 退货地址 todo on the next
+sync) → 确认签收. 确认签收 stays locked until the earlier steps are done: Mercari shows
+「返送された商品を受け取った」 the moment the request is approved, so clicking it early refunds before the
+goods are back. `return_address_submitted_at` is per trade, not per row —
+`return_address.propagate_return_address_submitted` copies it to the sibling 退货 todo (run on submit and
+on every todo sync). Its agree step (`todos.accept_cancellation`, feature `todos:cancel_accept`)
+clicks 同意する → the same `transaction:accept-cancellation-dialog` the receipt flow uses, and succeeds
+only when a re-captured evidence shows the status left `wait`; it refuses to click at all if it can't
+read the status first. The decision stays manual — sync never accepts anything.
+
 **退货的返品先住所 (`todos.return_address`, `transaction_detail/return_address.py`)** — after a
 cancellation is approved (`kind=CancellationRequestApprovedSeller`) the seller must enter a return
 address within 24h, and the form is **not on Mercari**: 「返品先住所を入力する」 → 「「返品くん」に移動する」

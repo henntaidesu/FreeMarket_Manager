@@ -501,7 +501,7 @@
   margin-top: 8px;
 }
 
-/* 退货处理：两步（填返品先住所 → 确认签收），标题右侧是 24h 剩余时间 */
+/* 退货处理：（同意退货申请 →）填返品先住所 → 确认签收，标题右侧是 24h 剩余时间 */
 .return-flow-title {
   display: flex;
   align-items: center;
@@ -519,7 +519,7 @@
   gap: 8px;
   margin-bottom: 6px;
 }
-.return-step + .return-step .return-step-head {
+.return-step:last-child .return-step-head {
   margin-bottom: 0;
 }
 .return-step-no {
@@ -566,6 +566,10 @@
 }
 .return-addr-card > .return-addr-sub {
   margin-left: 0;
+}
+.return-field-label {
+  margin-right: 8px;
+  color: var(--el-text-color-secondary);
 }
 .return-step-actions {
   display: flex;

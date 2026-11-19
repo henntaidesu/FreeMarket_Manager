@@ -248,6 +248,15 @@ class TodoItemModel(BaseModel):
                 "not_null": False,
                 "default": None,
             },
+            # cancel_request_status: 退货待办在取引画面上的 ``cancel_request.status`` 原值
+            # （wait = 等卖家「同意する / 同意しない」，approved = 已同意、等退回商品）。
+            # 交易详情抓取 / 确认退货后写入，列表据此给「确认退货」还是「确认签收」；NULL = 还没读到。
+            # 不在 ``todolist_sync._UPSERT_COLS`` 里，同步不会重置它。
+            "cancel_request_status": {
+                "type": "TEXT",
+                "not_null": False,
+                "default": None,
+            },
         }
 
     @classmethod

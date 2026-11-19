@@ -37,6 +37,10 @@ _WAIT_REPLY_KINDS = frozenset({"IncomingMessage"})
 # 与待发货/待回复一样纳入「从煤炉同步」后的交易详情预缓存（按 item_id 抓取）。
 _WAIT_REVIEW_KINDS = frozenset({"ReviewedSeller"})
 
+# 「退货」待办：买家发起的キャンセル申請，以及卖家同意后填返品先住所、确认退回商品的那一段。
+# 当前该做哪一步（同意 / 签收）只能从取引画面的 ``cancel_request`` 读出来，所以同样纳入预缓存。
+_CANCELLATION_KINDS = frozenset({"CancellationRequested", "CancellationRequestApprovedSeller"})
+
 def _is_wait_shipping_todo(todo: Any) -> bool:
     kind = (getattr(todo, "kind", "") or "").strip()
     title = (getattr(todo, "title", "") or "").strip()

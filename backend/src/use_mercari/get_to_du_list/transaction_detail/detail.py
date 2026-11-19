@@ -8,13 +8,18 @@ import time
 from typing import Any, Dict, Optional
 from ....db_manage.database import DatabaseManager
 from ....db_manage.models.todos.todo_item import TodoItemModel
-from ....ssl_mitm_proxy.capture_config import clear_shipping_info_response_file, clear_transaction_messages_response_file
+from ....ssl_mitm_proxy.capture_config import (
+    clear_shipping_info_response_file,
+    clear_transaction_evidence_response_file,
+    clear_transaction_messages_response_file,
+)
 from ....web_drive.core.mitm_session import mitm_automation_browser
 from ....web_drive.core.paths import mercari_todo_key
 from ...sync.sync_progress import make_sync_reporter
 from ._cache import _clear_qr_image, _persist_awaiting_feedback, _persist_transaction_detail, resolve_viewer_is_buyer
 from ._captures import _wait_for_both_captures
-from ._common import _WAIT_REPLY_KINDS, _is_wait_shipping_todo, _parse_messages, _parse_shipping_info
+from ._common import _CANCELLATION_KINDS, _WAIT_REPLY_KINDS, _is_wait_shipping_todo, _parse_messages, _parse_shipping_info
+from .cancellation import store_cancel_request, wait_cancel_request
 from ._messages_media import cache_message_images
 from ._messages_store import load_order_messages, replace_order_messages
 from ._translate import translate_buyer_messages
@@ -53,6 +58,11 @@ async def fetch_transaction_detail(
     # ── Step 1: 清空 latest 响应文件 + 取 since_ms ──
     clear_shipping_info_response_file()
     clear_transaction_messages_response_file()
+    kind = (getattr(todo, "kind", "") or "").strip()
+    # 退货待办：该给「确认退货」还是「确认签收」看 transaction_evidences 里的 cancel_request
+    is_cancellation = kind in _CANCELLATION_KINDS
+    if is_cancellation:
+        clear_transaction_evidence_response_file(item_id)
     since_ms = int(time.time() * 1000)
 
     # ── Step 2: 用待办专用无头 profile（mercari_{id}__todo）经 MITM 打开交易页：
@@ -61,7 +71,6 @@ async def fetch_transaction_detail(
     # 待发货待办：强制有头 + 前台可见的持久化浏览器，便于用户在浏览器内亲自核对发货；
     # 其余类型沿用默认（由 WEB_DRIVE_AUTOMATION_HEADLESS 决定，通常无头静默）。
     is_wait_shipping = _is_wait_shipping_todo(todo)
-    kind = (getattr(todo, "kind", "") or "").strip()
     # 该待办「关键 API」（仅控制截获等待循环的提前返回）：
     #   待回复→必须等到 transaction_messages；
     #   待发货→不强制等某接口：メルカリ便会发 shipping/get_info，但「未定」(非匿名) 方式
@@ -94,6 +103,11 @@ async def fetch_transaction_detail(
             require=require_api,
             expect_item_id=item_id,
         )
+        # evidences 是取引页的第一个业务请求（shipping/get_info 要用它返回的 id），
+        # 走到这里通常早已落盘，等几秒只为兜底
+        cancel_request: Optional[Dict[str, Any]] = None
+        if is_cancellation:
+            cancel_request = await wait_cancel_request(item_id, since_ms, timeout_sec=5)
         # 同步发货码（QR 二维码 / らくらく×セブン等返回的条形码，二者通用同一处理）：
         # 交易页若带发货码（含在 App/其他平台已完成发货）→ 抓取保存；
         # 若页面确无发货码（别处取消/重置了发货）→ 后续清除本地已存的，回到选择发送状态。
@@ -231,6 +245,10 @@ async def fetch_transaction_detail(
     result["awaiting_feedback"] = bool(awaiting_feedback)
     # エコメルカリ便/置き発送の配送情报行（集荷待ち时才有；メルカリ表记原样的 {label,value} 列表）。
     result["okihasso_shipping_rows"] = okihasso_rows or None
+    # 退货申请（{} = 交易上已没有申请）。状态列单独写：列表按列判断给哪个按钮，不解析 detail_json
+    if cancel_request is not None:
+        result["cancel_request"] = cancel_request or None
+        store_cancel_request(int(todo_id), cancel_request)
     # 单独写入 awaiting_feedback 列（列表查询读列、不解析 detail_json）。该状态直接读自
     # 渲染后的 DOM（qr_checked=已成功访问页面 DOM），即便此场景未截获 shipping/messages
     # 接口（page_loaded=False）也能写入；按当前实际状态置 1/0，随状态变化自动纠正。
@@ -262,6 +280,8 @@ async def fetch_transaction_detail(
             or bool(result.get("awaiting_feedback"))
             or bool(result.get("okihasso_shipping_rows"))
         )
+    elif is_cancellation:
+        capture_ok = page_loaded or cancel_request is not None
     else:
         capture_ok = page_loaded
     if capture_ok:

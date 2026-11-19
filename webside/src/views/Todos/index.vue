@@ -286,21 +286,11 @@
 
         <el-table-column :label="t('common.operate')" :width="hasFetchItemDetailRows ? 230 : 130" align="center" header-align="center" fixed="right">
           <template #default="{ row }">
-            <!-- 「申请退货」行不进处理弹窗：直接确认收到退回商品并完成取消 -->
-            <el-button
-              v-if="isCancellationReceiptRow(row)"
-              type="danger"
-              plain
-              :disabled="!$can('todos:cancel_receipt')"
-              :loading="cancelReceiptBusyId === row.id"
-              @click="onConfirmCancellationReceipt(row)"
-            >
-              {{ t('todos.confirmReceipt') }}
-            </el-button>
             <!-- 「待收货」行（本账号作为买家，等待受取評価）：按钮改叫「确认收货」，
-                 点击仍走 onProcess 打开处理弹窗——弹窗内选评价 + 挑自选回复后再提交 -->
+                 点击仍走 onProcess 打开处理弹窗——弹窗内选评价 + 挑自选回复后再提交。
+                 退货两类行走普通「处理」：同意 / 返品先住所 / 确认签收 都在退货表单里按顺序做 -->
             <el-button
-              v-else-if="isBuyerReceiptRow(row)"
+              v-if="isBuyerReceiptRow(row)"
               type="success"
               plain
               @click="onProcess(row)"
@@ -483,7 +473,7 @@
         </div>
       </template>
 
-      <div v-loading="detailLoading" :class="['detail-body', { 'detail-body--compact': isReturnAddressTodo }]">
+      <div v-loading="detailLoading" :class="['detail-body', { 'detail-body--compact': isReturnFlowTodo }]">
         <!-- 左栏：商品 / 发送元 / 买家 / 发货 -->
         <div class="detail-col detail-col-left">
           <section class="detail-section">
@@ -583,7 +573,7 @@
             />
           </section>
 
-          <section v-if="!isReviewedSeller && !isWaitReply && !isBuyerReceiptTodo && !isReturnAddressTodo" class="detail-section">
+          <section v-if="!isReviewedSeller && !isWaitReply && !isBuyerReceiptTodo && !isReturnFlowTodo" class="detail-section">
             <el-form :disabled="!$can('todos:ship')" class="todos-perm-scope" @submit.prevent>
             <!-- 已发行二维码/条形码时：确认发送 + 修改发货方式 并排放到标题右上角 -->
             <div class="detail-section-head">
@@ -1013,9 +1003,10 @@
             </el-form>
           </section>
 
-          <!-- 退货处理（CancellationRequestApprovedSeller）：同一条待办的两步——
-               ① 24 小时内在 返品くん 填返品先住所（入队自动填写）② 退回商品到手后确认签收 -->
-          <section v-if="isReturnAddressTodo" class="detail-section">
+          <!-- 退货表单：申请退货（CancellationRequested）与退货地址（CancellationRequestApprovedSeller）共用，
+               三步按顺序放开：同意退货申请（入队代点「同意する」）→ 匿名退货 24 小时内在 返品くん 填返品先住所
+               → 退回商品到手后确认签收。签收在煤炉上一同意就能点，提前点等于没收到货就退款，所以必须锁到前两步做完 -->
+          <section v-if="isReturnFlowTodo" class="detail-section">
             <div class="detail-section-title return-flow-title">
               <span>{{ t('todos.returnFlowTitle') }}</span>
               <el-tag
@@ -1026,9 +1017,40 @@
               >{{ returnAddressDeadline.text }}</el-tag>
             </div>
 
-            <div class="return-step">
+            <div v-if="isCancellationRequestTodo" class="return-step">
               <div class="return-step-head">
-                <span :class="['return-step-no', { 'is-done': returnAddressSubmittedText }]">{{ returnAddressSubmittedText ? '✓' : '1' }}</span>
+                <span :class="['return-step-no', { 'is-done': cancelAccepted }]">{{ cancelAccepted ? '✓' : '1' }}</span>
+                <span class="return-step-name">{{ t('todos.acceptCancellationTitle') }}</span>
+              </div>
+              <div v-if="cancelRequestView" class="return-addr-card">
+                <div class="return-addr-line">
+                  <span class="return-field-label">{{ t('todos.cancelReason') }}</span>{{ cancelRequestView.reason || '-' }}
+                </div>
+                <div class="return-addr-line">
+                  <span class="return-field-label">{{ t('todos.returnMethod') }}</span>{{ cancelRequestView.method || '-' }}
+                </div>
+              </div>
+              <div v-else class="detail-empty">{{ t('todos.toFetch') }}</div>
+              <div class="return-step-actions">
+                <el-tag v-if="cancelAccepted" type="success" effect="light">
+                  {{ t('todos.cancelAccepted') }}
+                </el-tag>
+                <el-button
+                  v-else
+                  size="small"
+                  type="warning"
+                  :loading="cancelAcceptBusyId === currentRow?.id"
+                  :disabled="!$can('todos:cancel_accept') || dialogCancelStatus !== 'wait'"
+                  @click="onAcceptCancellation"
+                >
+                  {{ t('todos.acceptCancellation') }}
+                </el-button>
+              </div>
+            </div>
+
+            <div v-if="showReturnAddressStep" class="return-step">
+              <div class="return-step-head">
+                <span :class="['return-step-no', { 'is-done': returnAddressSubmittedText }]">{{ returnAddressSubmittedText ? '✓' : (isCancellationRequestTodo ? '2' : '1') }}</span>
                 <span class="return-step-name">{{ t('todos.returnAddressTitle') }}</span>
               </div>
               <div v-if="returnAddressInfo.loading" class="detail-empty">{{ t('todos.matching') }}</div>
@@ -1058,7 +1080,7 @@
                   size="small"
                   type="primary"
                   :loading="returnAddressBusy"
-                  :disabled="!$can('todos:return_address') || returnAddressInfo.loading || returnAddressInfo.problems.length > 0"
+                  :disabled="!$can('todos:return_address') || returnAddressInfo.loading || returnAddressInfo.problems.length > 0 || !cancelAccepted"
                   @click="onSubmitReturnAddress"
                 >
                   {{ t('todos.returnAddressSubmit') }}
@@ -1068,14 +1090,14 @@
 
             <div class="return-step">
               <div class="return-step-head">
-                <span class="return-step-no">2</span>
+                <span class="return-step-no">{{ (isCancellationRequestTodo ? 1 : 0) + (showReturnAddressStep ? 1 : 0) + 1 }}</span>
                 <span class="return-step-name">{{ t('todos.confirmReceiptTitle') }}</span>
                 <el-button
                   size="small"
                   type="danger"
                   plain
                   :loading="cancelReceiptBusyId === currentRow?.id"
-                  :disabled="!$can('todos:cancel_receipt')"
+                  :disabled="!$can('todos:cancel_receipt') || !receiptUnlocked"
                   @click="onConfirmCancellationReceipt(currentRow)"
                 >
                   {{ t('todos.confirmReceipt') }}

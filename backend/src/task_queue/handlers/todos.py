@@ -120,6 +120,42 @@ async def handle_confirm_cancellation(task: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
+async def handle_accept_cancellation(task: Dict[str, Any]) -> Dict[str, Any]:
+    """「确认退货」：同意买家的キャンセル申請（取引页「同意する」→ 确认弹窗）。
+
+    业务函数读回 ``cancel_request`` 状态，没离开「待回复」就抛错，所以这里不用再判结果。
+    只收「申请退货」这一种 kind：退货地址那一段的申请早已同意过，页面上没有「同意する」。
+    """
+    from ...use_mercari.get_to_du_list.transaction_detail import accept_cancellation_request
+    from ...web_drive.core.account_serial_queue import (
+        queue_key_for_mercari_account,
+        run_mercari_serial_async,
+    )
+    from ...db_manage.models.todos.todo_item import TodoItemModel
+
+    payload = task.get("payload") or {}
+    todo_id = int(payload.get("todo_id") or 0)
+    if not todo_id:
+        raise ValueError("确认退货任务缺少 todo_id")
+    todo = TodoItemModel.find_by_id(id=todo_id)
+    if not todo:
+        raise RuntimeError(f"待办事项 id={todo_id} 不存在")
+    if (getattr(todo, "platform", "") or "mercari").strip().lower() != "mercari":
+        raise RuntimeError("确认退货仅支持煤炉待办")
+    kind = (getattr(todo, "kind", "") or "").strip()
+    if kind != "CancellationRequested":
+        raise RuntimeError(f"该待办不是退货申请（kind={kind or '空'}）")
+    aid = int(getattr(todo, "account_id", 0) or 0)
+    if not aid:
+        raise RuntimeError("待办事项缺少 account_id")
+
+    async with progress.bridge(task["id"], "sync") as jid:
+        return await run_mercari_serial_async(
+            queue_key_for_mercari_account(aid),
+            lambda: accept_cancellation_request(todo_id, progress_job_id=jid),
+        )
+
+
 async def handle_return_address(task: Dict[str, Any]) -> Dict[str, Any]:
     """退货「填写返品先住所」：取引画面 → 返品くん → 用账号配置的地址填表并提交。
 
