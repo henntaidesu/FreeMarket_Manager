@@ -1248,7 +1248,10 @@ sync) → 确认签收. 确认签收 stays locked until the earlier steps are do
 「返送された商品を受け取った」 the moment the request is approved, so clicking it early refunds before the
 goods are back. `return_address_submitted_at` is per trade, not per row —
 `return_address.propagate_return_address_submitted` copies it to the sibling 退货 todo (run on submit and
-on every todo sync). Its agree step (`todos.accept_cancellation`, feature `todos:cancel_accept`)
+on every todo sync). Once it is set, the 退货地址 row is a duplicate and the list hides it
+(`todos_query._RETURN_ADDRESS_DUP_COND`) — at read time and only while the 申请 row is still active, so
+if Mercari drops the 申请 row the 退货地址 row reappears and 确认签收 still has a home. Completing
+确认签收 soft-deletes both rows of the trade. Its agree step (`todos.accept_cancellation`, feature `todos:cancel_accept`)
 clicks 同意する → the same `transaction:accept-cancellation-dialog` the receipt flow uses, and succeeds
 only when a re-captured evidence shows the status left `wait`; it refuses to click at all if it can't
 read the status first. The decision stays manual — sync never accepts anything.

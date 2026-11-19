@@ -32,10 +32,13 @@ from .shop_accounts_models import (
 
 log = logging.getLogger(__name__)
 
-async def _adopt_prepare_login(account_id: int, user_id) -> None:
-    """把「新增账号」预登录用的 ``mercari_prepare_{user_id}`` profile 迁移为账号主 profile ``mercari_{id}``。
+async def _adopt_prepare_login(account_id: int, user_id, platform: str) -> None:
+    """把「新增账号」预登录用的 profile 迁移为账号主 profile ``mercari_{id}``。
 
-    创建流程中用户在预登录 profile 手动登录煤炉后，登录态只落在该 profile；
+    预登录 profile 按平台区分：煤炉 ``mercari_prepare_{user_id}``，雅虎 ``yahoo_prepare_{user_id}``——
+    雅虎账号若去迁移煤炉那个，自己的登录态留在原地，卡片「打开浏览器」打开的就是未登录的空 profile。
+
+    创建流程中用户在预登录 profile 手动登录后，登录态只落在该 profile；
     若不迁移，后续同步/抓取从主 profile ``mercari_{id}`` 克隆 Cookie 会读不到登录态，
     用户需在卡片「打开浏览器」重新登录一遍。此处创建成功后把预登录 profile 归属到新账号。
 
@@ -45,12 +48,12 @@ async def _adopt_prepare_login(account_id: int, user_id) -> None:
     try:
         from ....web_drive import get_web_drive_manager
         from ....web_drive.core.paths import (
-            MERCARI_PREPARE_ALIAS,
             mercari_account_key,
+            prepare_alias_for,
             resolve_prepare_alias,
         )
 
-        prepare_key = resolve_prepare_alias(MERCARI_PREPARE_ALIAS, user_id)
+        prepare_key = resolve_prepare_alias(prepare_alias_for(platform), user_id)
         mgr = get_web_drive_manager()
         moved = await mgr.adopt_profile(prepare_key, mercari_account_key(account_id))
         if moved:
@@ -150,7 +153,7 @@ async def create_shop_account(
     if hide_on:
         _kick_profile_hide()
     # 把该用户预登录 profile 的登录态归属到新账号主 profile，避免创建后需二次登录
-    await _adopt_prepare_login(int(item.id), user.get("sub"))
+    await _adopt_prepare_login(int(item.id), user.get("sub"), platform)
     return _item_api_dict(item)
 
 

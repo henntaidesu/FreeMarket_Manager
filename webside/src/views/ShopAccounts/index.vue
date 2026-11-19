@@ -97,9 +97,6 @@
       destroy-on-close
       class="mercari-dialog"
     >
-      <p v-if="!form.id && form.platform === 'mercari'" class="form-intro-tip">
-        {{ t('mercariAccounts.formIntroTip') }}
-      </p>
       <!-- 没有「编辑账号」时已有账号的表单只读（新建走「新建账号」权限） -->
       <el-form
         :model="form"
@@ -348,20 +345,6 @@
             </template>
           </el-popconfirm>
           <div class="mercari-dialog-footer__actions">
-            <el-button
-              v-if="!form.id && form.platform === 'mercari'"
-              plain
-              :loading="browserLoadingKeys.has(MERCARI_PREPARE_KEY)"
-              @click="openPrepareLoginBrowser"
-            >{{ t('mercariAccounts.openLoginBrowser') }}</el-button>
-            <el-button
-              v-if="!form.id && form.platform === 'yahoo'"
-              type="warning"
-              plain
-              :loading="browserLoadingKeys.has(YAHOO_PREPARE_KEY)"
-              @click="openYahooLoginBrowser"
-            >{{ t('mercariAccounts.openYahooLoginBrowser') }}</el-button>
-            <el-button v-if="!form.id && form.platform === 'mercari'" plain @click="onFetchUserInfoPlaceholder">{{ t('mercariAccounts.fetchUserInfo') }}</el-button>
             <el-button
               v-if="form.id && form.platform === 'mercari' && $can('shop-accounts:sync')"
               type="success"

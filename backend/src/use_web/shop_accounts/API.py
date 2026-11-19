@@ -23,6 +23,7 @@ from .units.shop_accounts_profile_hide import (
     post_profile_hide_retry_failed,
 )
 from .units.shop_accounts_return_address import get_return_address, save_return_address
+from .units.shop_accounts_login_watch import prepare_login_status
 from .units.shop_accounts_mitm import (
     fetch_seller_id_via_mitm,
 )
@@ -53,6 +54,10 @@ router.add_api_route("/fetch-seller-id-via-mitm", fetch_seller_id_via_mitm, meth
 # 雅虎的「获取基础信息」：卖家ID 在 /my 的 DOM 里，不需要 MITM，故与煤炉分开成独立端点
 router.add_api_route(
     "/fetch-yahoo-basic-info", fetch_yahoo_basic_info_endpoint, methods=["POST"], dependencies=_BASIC_INFO,
+)
+# 新增账号：轮询预登录浏览器是否已登录，登录完成即由前端自动获取用户信息并保存
+router.add_api_route(
+    "/prepare-login-status", prepare_login_status, methods=["POST"], dependencies=_f("shop-accounts:create"),
 )
 router.add_api_route("/{aid}/sync-data", sync_account_all_data, methods=["POST"], dependencies=_f("shop-accounts:sync"))
 # 雅虎 App 令牌：ゆうパケットポスト / mini 只能走 App API 发货，凭证与账号请求头分开存放

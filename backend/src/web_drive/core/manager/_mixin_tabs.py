@@ -70,6 +70,17 @@ class _TabsMixin:
         await page.goto(u, wait_until=wait_until, timeout=timeout_ms)
 
 
+    async def alive_context(self, account_key: str) -> Any:
+        """返回会话当前的浏览器上下文；未运行返回 None。只查注册表，不启动、不开标签。"""
+        key = validate_account_key(account_key)
+        s = self._prepare_async()
+        async with s.lock:  # type: ignore[union-attr]
+            ctx = s.contexts.get(key)
+            if ctx is None or not self._is_context_alive(ctx):
+                return None
+            return ctx
+
+
     async def active_tab_page(self, account_key: str) -> Any:
         """返回会话当前活动标签页（与 ``reload_active_tab`` 选取规则一致）。"""
         key = validate_account_key(account_key)

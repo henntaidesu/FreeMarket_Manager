@@ -94,6 +94,11 @@ YAHOO_PREPARE_ALIAS = "yahoo_prepare"
 PREPARE_ALIASES = (MERCARI_PREPARE_ALIAS, YAHOO_PREPARE_ALIAS)
 
 
+def prepare_alias_for(platform: str) -> str:
+    """市集平台 → 该平台「新增账号」预登录会话别名。"""
+    return YAHOO_PREPARE_ALIAS if platform == "yahoo" else MERCARI_PREPARE_ALIAS
+
+
 def resolve_prepare_alias(account_key: str, user_id) -> str:
     """「新增账号」预登录会话键按用户隔离：``mercari_prepare`` → ``mercari_prepare_{user_id}``。
 

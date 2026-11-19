@@ -43,6 +43,16 @@ _WAIT_RECEIPT_COND = "IFNULL(t.[kind], '') IN ('Shipped', 'Yahoo:rsura')"
 _CANCELLATION_COND = (
     "IFNULL(t.[kind], '') IN ('CancellationRequested', 'CancellationRequestApprovedSeller')"
 )
+# 同一笔交易的两条退货待办里，申请那条的退货表单能做完 同意 / 返品先住所 / 确认签收 全部三步。
+# 返品先住所提交过后，「退货地址」那条就是重复的——隐藏它，但只在申请那条还在时：
+# 申请那条没了（煤炉不再返回）它会重新出现，确认签收不会因此没地方点。读时判定、不落库。
+_RETURN_ADDRESS_DUP_COND = (
+    "IFNULL(t.[kind], '') = 'CancellationRequestApprovedSeller'"
+    " AND t.[return_address_submitted_at] IS NOT NULL"
+    " AND EXISTS (SELECT 1 FROM [todo_items] r"
+    " WHERE r.[account_id] = t.[account_id] AND r.[item_id] = t.[item_id]"
+    " AND r.[kind] = 'CancellationRequested' AND COALESCE(r.[is_delete], 0) = 0)"
+)
 
 # 「发货中」判定：已提交扫码照片、后台任务进行中。这类行不再算作「待发货」——
 # 用户已经拍完码交给系统了，再列在待发货里会让人以为还没处理。失败后 state 变 'failed'，
@@ -246,6 +256,7 @@ def _build_todo_where(
     else:
         if not include_deleted:
             where.append("COALESCE(t.[is_delete], 0) = 0")
+            where.append(f"NOT ({_RETURN_ADDRESS_DUP_COND})")
         if packed_only:
             where.append(f"({_PACKED_COND})")
         else:

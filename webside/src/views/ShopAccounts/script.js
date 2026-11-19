@@ -1,4 +1,4 @@
-import { defineComponent, ref, computed, onMounted, nextTick, watch } from 'vue'
+import { defineComponent, ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessageBox } from 'element-plus'
@@ -169,6 +169,8 @@ export default defineComponent({
 
     //: 编辑态「改动即存」的防抖时长
     const AUTO_SAVE_DELAY_MS = 600
+    //: 新增账号时轮询预登录浏览器登录状态的间隔
+    const LOGIN_WATCH_INTERVAL_MS = 2000
 
     // ── 雅虎 App 令牌：ゆうパケットポスト / mini 网页端发不了，只能走 App API ──
     // 令牌只能由「登录雅虎 App 账号」取得（雅虎没有账密接口，也不指望用户去抓包），
@@ -387,18 +389,52 @@ export default defineComponent({
       }))
     )
 
-    function openPrepareLoginBrowser() {
-      // 新增账号：先清空 mercari_prepare 的登录态，确保打开的是未登录的全新页面
-      // （否则会沿用上一次准备账号时残留的 Cookie，打开已登录的旧账号页面）
-      openBrowserByKey(MERCARI_PREPARE_KEY, t('mercariAccounts.prepareLoginBrowserLabel'), { fresh: true })
+    // 新增账号：打开弹框即打开预登录浏览器（先清空上一次残留的登录态，确保是未登录的全新页面），
+    // 之后轮询登录状态，用户登录完成就自动获取用户信息并保存入库
+    async function openPrepareLoginBrowser(platform) {
+      const opened = platform === 'yahoo'
+        ? await openBrowserByKey(YAHOO_PREPARE_KEY, t('mercariAccounts.yahooPrepareLoginBrowserLabel'), {
+          fresh: true,
+          startUrl: YAHOO_FLEA_LOGIN_URL,
+        })
+        : await openBrowserByKey(MERCARI_PREPARE_KEY, t('mercariAccounts.prepareLoginBrowserLabel'), { fresh: true })
+      if (opened) startLoginWatch()
     }
 
-    // 雅虎新增账号：打开 Yahoo!フリマ 登录页由用户人工登录（复用通用 web_drive 会话）
-    function openYahooLoginBrowser() {
-      openBrowserByKey(YAHOO_PREPARE_KEY, t('mercariAccounts.yahooPrepareLoginBrowserLabel'), {
-        fresh: true,
-        startUrl: YAHOO_FLEA_LOGIN_URL,
-      })
+    let loginWatchTimer = null
+    let loginWatchBusy = false
+
+    function startLoginWatch() {
+      stopLoginWatch()
+      loginWatchTimer = setInterval(checkPrepareLogin, LOGIN_WATCH_INTERVAL_MS)
+    }
+
+    function stopLoginWatch() {
+      if (loginWatchTimer) {
+        clearInterval(loginWatchTimer)
+        loginWatchTimer = null
+      }
+    }
+
+    async function checkPrepareLogin() {
+      if (loginWatchBusy) return
+      if (!dialogVisible.value || form.value.id) {
+        stopLoginWatch()
+        return
+      }
+      loginWatchBusy = true
+      try {
+        const res = await shopAccountApi.prepareLoginStatus({ platform: form.value.platform })
+        if (!res?.logged_in || !loginWatchTimer) return
+        // 只自动触发一次：煤炉获取时会把登录浏览器换成后台 MITM 会话，失败后再轮询会反复重来；
+        // 失败时改用基础信息里的「获取基础信息」手动重试
+        stopLoginWatch()
+        await fetchBasicInfo()
+      } catch {
+        /* 下一轮再问 */
+      } finally {
+        loginWatchBusy = false
+      }
     }
 
     // 每个平台模块各有自己的「添加账号」卡片，平台由所在模块决定，无需再弹框选平台
@@ -407,12 +443,9 @@ export default defineComponent({
       openSections.value = [...DEFAULT_OPEN_SECTIONS]
       form.value.platform = platform
       dialogVisible.value = true
-      // 煤炉：沿用原「新增前登录」自动打开预登录浏览器；雅虎：由弹框内「打开雅虎登录浏览器」按钮触发
-      if (platform === 'mercari') {
-        nextTick(() => {
-          openPrepareLoginBrowser()
-        })
-      }
+      nextTick(() => {
+        openPrepareLoginBrowser(platform)
+      })
     }
 
     // 弹框标题随平台变化：新增/编辑 + 平台名
@@ -423,18 +456,17 @@ export default defineComponent({
       ),
     )
 
-    function onFetchUserInfoPlaceholder() {
-      fetchSellerIdViaMitm()
-    }
-
     function sellerIdCaptureAccountKey() {
       if (form.value.id) return browserKeyFor(form.value.id)
       return isYahooForm.value ? YAHOO_PREPARE_KEY : MERCARI_PREPARE_KEY
     }
 
     /** 「获取基础信息」按平台分派：煤炉要 MITM 截包，雅虎读 /my 的 DOM 即可 */
-    function fetchBasicInfo() {
-      return isYahooForm.value ? fetchYahooBasicInfo() : fetchSellerIdViaMitm()
+    async function fetchBasicInfo() {
+      const ok = await (isYahooForm.value ? fetchYahooBasicInfo() : fetchSellerIdViaMitm())
+      // 新增账号取到用户信息即保存入库（编辑态由实时保存负责）；获取期间弹框已关则不建号。
+      // 校验不过（如没读到账号名称）就停在表单上，由用户补全后点「保存」
+      if (ok && !form.value.id && dialogVisible.value) await submit().catch(() => {})
     }
 
     /** 雅虎：打开「マイページ」读回卖家ID + 账号名称（雅虎个人页没有头像可取） */
@@ -461,6 +493,7 @@ export default defineComponent({
         await nextTick()
         formRef.value?.validateField('seller_id').catch(() => {})
         ElMessage.success(t('mercariAccounts.msgSellerIdFilled', { sid }))
+        return true
       } catch {
         /* 错误由 axios 拦截器提示 */
       } finally {
@@ -496,6 +529,7 @@ export default defineComponent({
         await nextTick()
         formRef.value?.validateField('seller_id').catch(() => {})
         ElMessage.success(t('mercariAccounts.msgSellerIdFilled', { sid }))
+        return true
       } catch {
         /* 错误由 axios 拦截器提示 */
       } finally {
@@ -645,6 +679,7 @@ export default defineComponent({
     // 关闭弹框时把还在防抖中的改动立即落库，避免「改完就关」丢失
     watch(dialogVisible, (visible) => {
       if (visible) return
+      stopLoginWatch()
       if (autoSaveTimer) {
         cancelAutoSave()
         runAutoSave()
@@ -699,8 +734,9 @@ export default defineComponent({
     const cookieInjectKeys = ref(new Set())
     const fetchSellerIdLoading = ref(false)
 
+    /** 返回是否打开成功 */
     async function openBrowserByKey(accountKey, label, { fresh = false, startUrl = null } = {}) {
-      if (browserLoadingKeys.value.has(accountKey)) return
+      if (browserLoadingKeys.value.has(accountKey)) return false
       const next = new Set(browserLoadingKeys.value)
       next.add(accountKey)
       browserLoadingKeys.value = next
@@ -725,8 +761,10 @@ export default defineComponent({
           ? t('mercariAccounts.browserAlreadyRunning', { tabHint })
           : t('mercariAccounts.browserStarted', { tabHint })
         ElMessage.success(`${label || accountKey}${t('mercariAccounts.colon')}${tip}`)
+        return true
       } catch {
         /* 错误由 axios 拦截器提示 */
+        return false
       } finally {
         const s = new Set(browserLoadingKeys.value)
         s.delete(accountKey)
@@ -910,6 +948,8 @@ export default defineComponent({
       load()
     })
 
+    onUnmounted(stopLoginWatch)
+
     return {
       ref,
       onMounted,
@@ -923,8 +963,6 @@ export default defineComponent({
       webDriveApi,
       t,
       MERCARI_HOME,
-      MERCARI_PREPARE_KEY,
-      YAHOO_PREPARE_KEY,
       browserKeyFor,
       loading,
       submitting,
@@ -954,10 +992,7 @@ export default defineComponent({
       sellerIdRules,
       formRules,
       load,
-      openPrepareLoginBrowser,
-      openYahooLoginBrowser,
       openCreate,
-      onFetchUserInfoPlaceholder,
       sellerIdCaptureAccountKey,
       fetchSellerIdViaMitm,
       fetchBasicInfo,

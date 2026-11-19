@@ -34,6 +34,7 @@ from ...get_order.get_in_progress_order.get_order_info import (
     apply_item_info_to_order,
 )
 from ...sync.sync_progress import make_sync_reporter
+from ._common import _CANCELLATION_KINDS
 
 log = logging.getLogger(__name__)
 
@@ -157,6 +158,9 @@ def _soft_delete_cancellation_todo(todo: Any) -> None:
 
     与 ``review`` 同理：该标记是通用的「本地已完成、不得被同步复活」标记（不限发货类）。
     煤炉陈旧列表仍返回同 uuid 时，同步照抄 ``is_delete=0`` 会把该行复活回退货列表。
+
+    同一笔交易的另一条退货待办（申请 / 退货地址）一并收掉：交易已结案，留着它的话，
+    待办页对「退货地址」那条的隐藏（只在申请那条还在时生效）一失效，它就会冒出来。
     """
     try:
         todo.is_delete = 1
@@ -164,6 +168,15 @@ def _soft_delete_cancellation_todo(todo: Any) -> None:
         todo.synced_at = int(time.time() * 1000)
         todo.save()
         log.info("[cancellation] 已软删除 todo_id=%s", getattr(todo, "id", None))
+        item_id = _resolve_item_id(todo)
+        if item_id:
+            kinds = tuple(sorted(_CANCELLATION_KINDS))
+            DatabaseManager().execute_update(
+                f"UPDATE [todo_items] SET [is_delete]=1, [shipped_finalized]=1, [synced_at]=? "
+                f"WHERE [account_id]=? AND [item_id]=? AND [id]<>? "
+                f"AND [kind] IN ({','.join('?' * len(kinds))})",
+                (int(todo.synced_at), int(todo.account_id), item_id, int(todo.id), *kinds),
+            )
     except Exception as exc:
         log.warning("[cancellation] 软删除 todo 失败: %s", exc)
 

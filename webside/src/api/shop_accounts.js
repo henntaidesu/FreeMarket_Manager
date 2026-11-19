@@ -20,6 +20,8 @@ export const shopAccountApi = {
    */
   fetchYahooBasicInfo: (data, axiosConfig = {}) =>
     http.post('/use_web/shop-accounts/fetch-yahoo-basic-info', data, { timeout: 0, ...axiosConfig }),
+  /** 新增账号：预登录浏览器是否已登录（只读，不打扰正在登录的浏览器）→ { alive, logged_in } */
+  prepareLoginStatus: (data) => http.post('/use_web/shop-accounts/prepare-login-status', data),
   /** 单账号「同步数据」：一键同步该账号在各业务页面的数据（待办/通知/在售/订单），可能较久 */
   syncData: (id, data = {}, axiosConfig = {}) =>
     http.post(`/use_web/shop-accounts/${id}/sync-data`, data, { timeout: 0, ...axiosConfig }),
