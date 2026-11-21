@@ -801,12 +801,8 @@
                     </el-tooltip>
                   </div>
                 </div>
-                <!-- 品名 / 尺寸 / 発送場所（或扫二维码）全部搬进多级向导，与煤炉同一形态。
-                     这里只留一个入口按钮和当前已填内容的回显。 -->
-                <div v-if="yahooForm.size" class="detail-row">
-                  <span class="detail-label">{{ t('todos.yahoo.size') }}</span>
-                  <span class="detail-value">{{ yahooForm.size }}</span>
-                </div>
+                <!-- 尺寸 / 発送場所（或扫二维码）全部搬进多级向导，与煤炉同一形态。
+                     这里只留一个入口按钮。 -->
                 <div v-if="yahooForm.location" class="detail-row">
                   <span class="detail-label">{{ t('todos.yahoo.location') }}</span>
                   <span class="detail-value">{{ yahooForm.location }}</span>
@@ -1472,17 +1468,8 @@
       <!-- 第 3 步：发送方法（发货场所） -->
       <!-- ── 雅虎第 2 步：选择商品尺寸。与煤炉尺寸页同一套卡片（复用 ship-card 类）：
            插图 + 规格行 + 注意事项，文案与排序都对齐煤炉的 SHIPPING_OPTIONS。
-           品名也在这一页：普通单雅虎已按商品名预填，但组合购买（まとめ買い）的品名框是空的，
-           回落用的商品标题又是出品文案——雅虎必填且只收 EUC-JP 字符，不给改就发不出去。 -->
+           品名不在这里填：用 applyYahooDetail 预填的值（交易页品名 → App 读到的商品标题 → 待办商品名）。 -->
       <template v-else-if="shippingStep === 'ysize'">
-          <div class="yship-field">
-            <span class="yship-label">{{ t('todos.yahoo.itemName') }}</span>
-            <el-input
-              v-model="yahooForm.item_name"
-              :maxlength="yahooItemNameMax"
-              show-word-limit
-            />
-          </div>
           <el-radio-group v-if="yahooSizeCards.length" v-model="yahooForm.size" class="ship-radio-group">
             <div
               v-for="opt in yahooSizeCards"
@@ -1522,23 +1509,27 @@
           <div v-else class="detail-empty">{{ t('todos.yahoo.needFetch') }}</div>
       </template>
 
-      <!-- ── 雅虎第 3 步（网页模拟的三种）：発送場所 ── -->
-      <div v-else-if="shippingStep === 'ylocation'" class="yship-step">
-        <div class="yship-field">
-          <span class="yship-label">{{ t('todos.yahoo.location') }}</span>
-          <div v-if="yahooLocationOptions.length" class="yship-cards">
-            <div
-              v-for="l in yahooLocationOptions"
-              :key="l"
-              :class="['yship-card', yahooForm.location === l ? 'yship-card-active' : '']"
-              @click="yahooForm.location = l"
-            >
-              <span class="yship-card__name">{{ l }}</span>
-            </div>
+      <!-- ── 雅虎第 3 步（网页模拟的三种）：発送場所。与煤炉发货地页同一套卡片（图标 + 名称） ── -->
+      <div v-else-if="shippingStep === 'ylocation'" class="ship-facility-section">
+        <div v-if="yahooLocationCards.length" class="ship-facility-cards">
+          <div
+            v-for="l in yahooLocationCards"
+            :key="l.name"
+            :class="['ship-facility-card', yahooForm.location === l.name ? 'ship-facility-card-active' : '']"
+            @click="yahooForm.location = l.name"
+          >
+            <img
+              v-if="l.img"
+              class="ship-facility-img"
+              :src="facilityImageUrl(l.img)"
+              :alt="l.name"
+              @error="onShippingImgError"
+            />
+            <span class="ship-facility-label">{{ l.name }}</span>
           </div>
-          <div v-else class="detail-empty-hint">{{ t('todos.yahoo.needFetch') }}</div>
         </div>
-        <div class="yship-actions">
+        <div v-else class="detail-empty-hint">{{ t('todos.yahoo.needFetch') }}</div>
+        <div class="ship-facility-actions">
           <el-button
             type="primary"
             :disabled="!canSubmitYahooShip"

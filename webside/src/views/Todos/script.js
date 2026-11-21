@@ -434,6 +434,26 @@ export default defineComponent({
         .sort((a, b) => (a.order ?? 900 + a._idx) - (b.order ?? 900 + b._idx))
     })
     const yahooLocationOptions = computed(() => detail.yahoo_ship_form?.location_options || [])
+    // 発送場所卡片图标：与煤炉发货地卡片同一套图（public/static/post_hukuro/<img>.png）。
+    // 选项名以交易页下发的为准（随配送会社变化），按名字里的关键词认图标，认不出的卡片只显示名字。
+    // 「集荷」「PUDO」要排在「ヤマト」前面——「ヤマト運輸による集荷」这类名字两个词都含。
+    const YAHOO_LOCATION_ICONS = [
+      ['郵便局', 'japan-post'],
+      ['ローソン', 'lawson'],
+      ['ファミロッカー', 'fami-locker'],
+      ['ファミリーマート', 'family-mart'],
+      ['セブン', '7-eleven'],
+      ['PUDO', 'pudo'],
+      ['スマリ', 'smari-box'],
+      ['集荷', 'pick-up'],
+      ['ヤマト', 'yamato'],
+    ]
+    const yahooLocationCards = computed(() =>
+      yahooLocationOptions.value.map((name) => ({
+        name,
+        img: (YAHOO_LOCATION_ICONS.find(([kw]) => name.includes(kw)) || [])[1] || '',
+      })),
+    )
     // 选中的是投函型：没有発送場所可选（投进邮筒），但必须先扫专用箱/シール 的二维码
     const isYahooPostBoxSize = computed(() => yahooAppSizeOptions.value.includes(yahooForm.size))
     // 读到过交易页且提交按钮已不在 → 发货信息已提交（配送码已发行）。
@@ -1951,7 +1971,7 @@ export default defineComponent({
       // 免得计数器显示超限、提交的却是被悄悄截短的另一个品名。
       // 组合购买（まとめ買い）的交易页品名框是空的（实测 z708827142），回落到 App 读到的商品标题——
       // 后端已剥掉「＜まとめ買い＞」这类标签并按词截到 17 字（suggest_contents_name），比待办行上的原始
-      // 商品名更像品名，所以排在它前面。这只是默认值，向导尺寸页与失败重试处都能改。
+      // 商品名更像品名，所以排在它前面。这只是默认值，失败重试处能改。
       yahooForm.item_name = String(
         form?.item_name || detail.yahoo_app?.item_name || currentRow.value?.item_name || '',
       )
@@ -3369,7 +3389,7 @@ export default defineComponent({
       yahooShipLoading,
       yahooNotifyLoading,
       yahooSizeOptions,
-      yahooLocationOptions,
+      yahooLocationCards,
       yahooShipped,
       isYahooPostBoxSize,
       yahooNeedsShipNotify,

@@ -1617,64 +1617,11 @@
   line-height: 1.6;
 }
 
-/* ── 雅虎发货向导：与煤炉共用同一个弹窗，但选项是纯文字（雅虎没有尺寸插图） ── */
-.yship-step {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  padding: 4px 2px;
-}
-
-.yship-field {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.yship-label {
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-}
-
-.yship-cards {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.yship-card {
-  position: relative;
-  min-width: 168px;
-  padding: 14px 16px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 8px;
-  cursor: pointer;
-  transition: border-color 0.15s, background-color 0.15s;
-}
-
-.yship-card:hover {
-  border-color: var(--el-color-primary);
-}
-
-.yship-card-active {
-  border-color: var(--el-color-primary);
-  background: var(--el-color-primary-light-9);
-}
-
-.yship-card__name {
-  font-size: 14px;
-}
-
-
+/* ── 雅虎发货向导：与煤炉共用同一个弹窗；尺寸 / 発送場所 卡片直接复用煤炉的样式 ── */
 .yship-warn {
   font-size: 12px;
   line-height: 1.6;
   color: var(--el-text-color-secondary);
-}
-
-.yship-actions {
-  display: flex;
-  justify-content: flex-end;
 }
 
 
@@ -1805,14 +1752,6 @@
   .ship-facility-cards {
     grid-template-columns: 1fr;
   }
-  /* 雅虎発送場所：选项是「ヤマト運輸の営業所」这类长串，横排必然截断 */
-  .yship-cards {
-    flex-direction: column;
-  }
-  .yship-card {
-    min-width: 0;
-  }
-
   /* 发货二次确认：150px 的标签列吃掉近一半宽度 */
   .ship-confirm-row {
     flex-direction: column;
