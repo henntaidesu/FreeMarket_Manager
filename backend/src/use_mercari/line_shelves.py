@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 import re
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from ..db_manage.database import DatabaseManager
 from .inventory_batches import _FIFO_ORDER, ONSHORE_COND
@@ -131,6 +131,72 @@ def warehouse_labels(db: DatabaseManager, wids: Iterable[Optional[int]]) -> Dict
         tuple(ids),
     ) or []
     return {int(r[0]): (r[1], r[2], r[3]) for r in rows}
+
+
+def transit_warehouse_ids(db: DatabaseManager, wids: Iterable[Optional[int]]) -> Set[int]:
+    """仓位 id 里落在「在途仓」的那些。在途标记只记在仓库节点行上、按仓库名作用于其下全部货架号
+    （见 use_web/system/warehouses/units/warehouse_transit.py），所以按仓库名比对。"""
+    from ..db_manage.models.system.warehouse import WarehouseModel
+
+    ids = sorted({int(w) for w in wids if w is not None})
+    if not ids:
+        return set()
+    norm = WarehouseModel.normalize_warehouse_key
+    transit = {
+        norm(r[0]) for r in db.execute_query(
+            "SELECT [warehouse] FROM [warehouses] WHERE COALESCE([is_transit], 0) = 1"
+        ) or []
+    }
+    if not transit:
+        return set()
+    rows = db.execute_query(
+        f"SELECT [id], [warehouse] FROM [warehouses] WHERE [id] IN ({','.join('?' * len(ids))})",
+        tuple(ids),
+    ) or []
+    return {int(r[0]) for r in rows if norm(r[1]) in transit}
+
+
+def orders_in_transit(db: DatabaseManager, order_nos: Iterable[str]) -> Set[str]:
+    """待办页图片上的「在途」角标：哪些订单有货此刻在在途仓上。
+
+    与处理弹窗显示的货架同口径：明细走 ``effective_line_warehouses``；组合商品本身不占货架，
+    看各来源商品的当前仓位（弹窗里组合明细也是这样显示的）。
+    """
+    from .inventory_counters import _combined_children
+
+    nos = sorted({str(n).strip() for n in order_nos if n and str(n).strip()})
+    if not nos:
+        return set()
+    rows = db.execute_query(
+        f"""
+        SELECT l.[id], l.[order_no], l.[inventory_id], COALESCE(p.[is_combined], 0)
+        FROM [order_outbound_lines] l
+        INNER JOIN [inventory] p ON p.[id] = l.[inventory_id]
+        WHERE l.[order_no] IN ({','.join('?' * len(nos))})
+          AND COALESCE(l.[inventory_archived], 0) = 0
+          AND COALESCE(p.[is_delete], 1) = 0
+        """,
+        tuple(nos),
+    ) or []
+    line_wh = effective_line_warehouses(db, [r[0] for r in rows])
+    wids_by_order: Dict[str, List[Optional[int]]] = {}
+    comps_by_order: Dict[str, Set[int]] = {}
+    for lid, order_no, inv_id, is_combined in rows:
+        wids_by_order.setdefault(order_no, []).append(line_wh.get(int(lid)))
+        if int(is_combined):
+            comps_by_order.setdefault(order_no, set()).update(c for c, _ in _combined_children(int(inv_id)))
+    comp_ids = sorted(set().union(*comps_by_order.values())) if comps_by_order else []
+    if comp_ids:
+        comp_wh = {
+            int(r[0]): r[1] for r in db.execute_query(
+                f"SELECT [id], [warehouse_id] FROM [inventory] WHERE [id] IN ({','.join('?' * len(comp_ids))})",
+                tuple(comp_ids),
+            ) or []
+        }
+        for order_no, comps in comps_by_order.items():
+            wids_by_order[order_no].extend(comp_wh.get(c) for c in comps)
+    transit = transit_warehouse_ids(db, [w for ws in wids_by_order.values() for w in ws])
+    return {o for o, ws in wids_by_order.items() if any(w is not None and int(w) in transit for w in ws)}
 
 
 _LINE_REF_RE = re.compile(r"line#(\d+)\s*$")

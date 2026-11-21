@@ -453,11 +453,18 @@ def list_todos(
     # 稳定排序：推算不出发货期限的行保持原有 id 升序垫底
     items.sort(key=_ship_deadline_sort_key)
     offset = (page - 1) * page_size
+    page_items = items[offset:offset + page_size]
+    # 图片左下角「在途」角标：货在在途仓上。只算当前页，按订单查货架比整表贵得多
+    from ....use_mercari.line_shelves import orders_in_transit
+
+    transit = orders_in_transit(db, [it.get("item_id") for it in page_items])
+    for it in page_items:
+        it["in_transit"] = 1 if str(it.get("item_id") or "").strip() in transit else 0
     return {
         "total": len(items),
         "page": page,
         "page_size": page_size,
-        "items": items[offset:offset + page_size],
+        "items": page_items,
     }
 
 

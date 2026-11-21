@@ -180,6 +180,29 @@
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
   pointer-events: none;
 }
+/* 在途角标：货在在途仓上。棕底，与「一单多件」同在左下角，两者同时出现时叠在它上面一格 */
+.todo-card-transit {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  max-width: calc(100% - 12px);
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #8b5a2b;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 18px;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+.todo-card-transit.has-bundle {
+  bottom: 32px;
+}
 
 /* 备注自动保存的状态字：顶替了原来的保存按钮，只在保存中/刚存完时出现 */
 .detail-note-status {
@@ -217,7 +240,7 @@
 }
 /* 左下角的「一单多件」在场时给它让出 88px：那块牌子文案固定且短
    （「N 件商品」/「まとめ商品」/「Bundle」，13px 加粗下最宽约 75px），88px 含间隙足够。
-   不让位的话长备注会直接压到它身上——量过，重叠约 9px。 */
+   不让位的话长备注会直接压到它身上——量过，重叠约 9px。左下角只有「在途」时同样让位。 */
 .todo-card-note.has-bundle {
   max-width: calc(100% - 12px - 88px);
 }
@@ -238,6 +261,24 @@
   background: #f56c6c;
   border: 2px solid var(--el-bg-color, #fff);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+/* 表格里的在途角标：压在图左下角，字号缩到 56px 的格子放得下 */
+.todo-thumb-transit {
+  position: absolute;
+  left: 2px;
+  bottom: 2px;
+  max-width: calc(100% - 4px);
+  padding: 0 3px;
+  border-radius: 3px;
+  background: #8b5a2b;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
 }
 
 /* 发货码缩略图压在图右下角，沿用表格的模糊处理（防误扫），点击才出清晰大图 */
@@ -313,10 +354,14 @@
     height: 34px;
   }
   .todo-card-bundle,
+  .todo-card-transit,
   .todo-card-note {
     font-size: 12px;
     padding: 1px 6px;
     line-height: 16px;
+  }
+  .todo-card-transit.has-bundle {
+    bottom: 28px;
   }
   /* 发货码在移动端是 66×34，红标的避让高度跟着改 */
   .todo-card-note.is-above-qr {

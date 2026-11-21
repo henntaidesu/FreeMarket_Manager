@@ -155,6 +155,7 @@
                 </template>
               </el-image>
               <span v-else class="thumb-fallback">-</span>
+              <span v-if="row.in_transit" class="todo-thumb-transit">{{ t('todos.inTransit') }}</span>
               <span
                 v-if="orderNoteOf(row)"
                 class="todo-thumb-note"
@@ -352,12 +353,18 @@
               </el-tag>
               <!-- 一单多件的提醒压在图左下角（右下角是发货码）：装箱时别漏发 -->
               <div v-if="bundleBadgeText(row)" class="todo-card-bundle">{{ bundleBadgeText(row) }}</div>
+              <!-- 货在在途仓上：同在左下角，与「一单多件」同时出现时叠在它上面 -->
+              <div
+                v-if="row.in_transit"
+                class="todo-card-transit"
+                :class="{ 'has-bundle': !!bundleBadgeText(row) }"
+              >{{ t('todos.inTransit') }}</div>
               <!-- 订单备注红标：有备注才出现，压在图右下角。发货码也在右下角，同时出现时
                    本标上移一格避开它。纯标记（pointer-events:none），改备注在处理面板里 -->
               <div
                 v-if="orderNoteOf(row)"
                 class="todo-card-note"
-                :class="{ 'is-above-qr': !!cardQrSrc(row), 'has-bundle': !!bundleBadgeText(row) }"
+                :class="{ 'is-above-qr': !!cardQrSrc(row), 'has-bundle': !!bundleBadgeText(row) || !!row.in_transit }"
                 :title="orderNoteOf(row)"
               >{{ orderNoteOf(row) }}</div>
               <!-- 卡片没有条件列，发货码/扫码照片压在图右下角；点它看大图，不触发卡片的处理动作 -->
