@@ -604,6 +604,26 @@
                   {{ t('todos.confirmShip') }}
                 </el-button>
               </div>
+              <!-- 雅虎网页发货的配送コード：与煤炉同一组按钮。确认发送 = 交件后通知买家发货 -->
+              <div v-else-if="yahooCodeIssued" class="detail-section-head-actions">
+                <el-button
+                  size="default"
+                  :icon="Printer"
+                  :loading="btPrint.busy"
+                  @click="onPrintDetailQr"
+                >
+                  {{ t('todos.btPrint.print') }}
+                </el-button>
+                <el-button
+                  v-if="!detail.yahoo_app?.ship_notified"
+                  type="primary"
+                  size="default"
+                  :loading="yahooNotifyLoading"
+                  @click="onNotifyYahooShipped({ resend: false })"
+                >
+                  {{ t('todos.confirmShip') }}
+                </el-button>
+              </div>
             </div>
             <!-- 发货扫码照片 + 解出的码：仅「已扫码(排队/执行中)」与「失败」期间存在（成功后照片已删除）。
                  两个平台共用：失败时可就地重扫（原照片）或换一张重拍，不必回列表。 -->
@@ -703,7 +723,31 @@
                  提交即发行配送コード。尺寸/发货场所的候选项随配送会社变化，由后端从交易页
                  读回来（见 web_drive/yahoo_trade），前端不写死。 -->
             <template v-else-if="isYahoo">
-              <div v-if="yahooShipped" class="detail-ship-form">
+              <!-- 网页发货（ゆうパック / ゆうパケット / プラス）发行的配送コード：与煤炉「已打包」同一版式——
+                   发货地行 + 码，打印 / 确认发送在标题右上角 -->
+              <template v-if="yahooCodeIssued">
+                <div v-if="yahooShipFacility" class="detail-facility">
+                  <el-image
+                    v-if="yahooShipFacility.img"
+                    :src="facilityImageUrl(yahooShipFacility.img)"
+                    fit="contain"
+                    class="detail-facility-icon"
+                  />
+                  <div class="detail-facility-text">
+                    <div class="detail-facility-name">{{ yahooShipFacility.name }}</div>
+                  </div>
+                </div>
+                <div class="detail-qr-wrap">
+                  <el-image
+                    :src="detail.yahoo_code_image_url"
+                    :preview-src-list="[detail.yahoo_code_image_url]"
+                    :preview-teleported="true"
+                    fit="contain"
+                    class="detail-qr-img"
+                  />
+                </div>
+              </template>
+              <div v-else-if="yahooShipped" class="detail-ship-form">
                 <div class="detail-method-head detail-method-head--solo">
                   <img
                     v-if="yahooCarrierImg"
@@ -740,15 +784,6 @@
                   </div>
                 </template>
                 <div v-else class="detail-empty-hint">{{ t('todos.yahoo.alreadyShipped') }}</div>
-                <div v-if="detail.yahoo_code_image_url" class="detail-qr-wrap">
-                  <el-image
-                    :src="detail.yahoo_code_image_url"
-                    :preview-src-list="[detail.yahoo_code_image_url]"
-                    :preview-teleported="true"
-                    fit="contain"
-                    class="detail-qr-img"
-                  />
-                </div>
               </div>
               <!-- 扫码流程进行中/失败时（isShipQrActive）不显示——与煤炉同口径，发货已交给重扫任务接管 -->
               <div v-else-if="!isShipQrActive" class="detail-ship-form">

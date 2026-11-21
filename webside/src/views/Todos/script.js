@@ -448,12 +448,17 @@ export default defineComponent({
       ['集荷', 'pick-up'],
       ['ヤマト', 'yamato'],
     ]
+    function yahooLocationIcon(name) {
+      return (YAHOO_LOCATION_ICONS.find(([kw]) => String(name || '').includes(kw)) || [])[1] || ''
+    }
     const yahooLocationCards = computed(() =>
-      yahooLocationOptions.value.map((name) => ({
-        name,
-        img: (YAHOO_LOCATION_ICONS.find(([kw]) => name.includes(kw)) || [])[1] || '',
-      })),
+      yahooLocationOptions.value.map((name) => ({ name, img: yahooLocationIcon(name) })),
     )
+    // 已发行配送コード的发货地行，对应煤炉的「○○から発送」——雅虎交易页发码后的标题也正是「郵便局窓口から発送」
+    const yahooShipFacility = computed(() => {
+      const loc = String(detail.yahoo_ship_form?.location || '').trim()
+      return loc ? { name: `${loc}から発送`, img: yahooLocationIcon(loc) } : null
+    })
     // 选中的是投函型：没有発送場所可选（投进邮筒），但必须先扫专用箱/シール 的二维码
     const isYahooPostBoxSize = computed(() => yahooAppSizeOptions.value.includes(yahooForm.size))
     // 读到过交易页且提交按钮已不在 → 发货信息已提交（配送码已发行）。
@@ -464,6 +469,8 @@ export default defineComponent({
         !!detail.yahoo_loaded &&
         (!detail.yahoo_ship_form?.pending || !!detail.yahoo_app?.is_ship_code_created),
     )
+    // 网页发货（ゆうパック 等）发出的配送コード：交易页上有码图（投函型走 App，没有这张图）
+    const yahooCodeIssued = computed(() => yahooShipped.value && !!detail.yahoo_code_image_url)
     // 投函型发完配送码还差一步「投函したので発送通知」——没通知买家就不算发出去了
     const yahooNeedsShipNotify = computed(
       () =>
@@ -1769,7 +1776,8 @@ export default defineComponent({
       printQrImage(qrViewer.src)
     }
     function onPrintDetailQr() {
-      printQrImage(mercariImageUrl(detail.qr_image_url))
+      // 雅虎的码是交易页内嵌的 data URL，同源、可直接排版
+      printQrImage(isYahoo.value ? detail.yahoo_code_image_url : mercariImageUrl(detail.qr_image_url))
     }
 
     /** 打印机参数/连接管理统一在 系统管理 → 系统配置 页调整 */
@@ -1980,16 +1988,26 @@ export default defineComponent({
       yahooForm.location = form?.location || ''
     }
 
-    /** 投函型第二步：确认已投进邮筒 → 通知买家发货（买家的受取期限从这一刻起算） */
-    async function onNotifyYahooShipped() {
+    /** 通知买家发货（买家的受取期限从这一刻起算）。两个入口：网页发货（ゆうパック 等）交件后，
+     *  标题栏与煤炉同款的「确认发送」（resend=false）；投函型 App 发货通知失败后的「补发发货通知」。
+     *  只是确认文案不同，走的都是同一个 App API 発送通知。 */
+    async function onNotifyYahooShipped({ resend = true } = {}) {
       const row = currentRow.value
       if (!row?.id || yahooNotifyLoading.value) return
       try {
-        await ElMessageBox.confirm(
-          t('todos.yahoo.confirmNotify'),
-          t('todos.yahoo.confirmTitle'),
-          { type: 'warning' },
-        )
+        if (resend) {
+          await ElMessageBox.confirm(
+            t('todos.yahoo.confirmNotify'),
+            t('todos.yahoo.confirmTitle'),
+            { type: 'warning' },
+          )
+        } else {
+          await ElMessageBox.confirm(
+            t('todos.yahoo.confirmShipNotify'),
+            t('todos.confirmShipTitle'),
+            { type: 'warning', confirmButtonText: t('todos.confirmShipOk'), cancelButtonText: t('common.cancel') },
+          )
+        }
       } catch {
         return
       }
@@ -3390,6 +3408,8 @@ export default defineComponent({
       yahooNotifyLoading,
       yahooSizeOptions,
       yahooLocationCards,
+      yahooShipFacility,
+      yahooCodeIssued,
       yahooShipped,
       isYahooPostBoxSize,
       yahooNeedsShipNotify,
