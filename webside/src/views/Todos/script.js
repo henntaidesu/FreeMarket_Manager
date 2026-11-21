@@ -799,7 +799,7 @@ export default defineComponent({
         String(currentRow.value?.kind || '').trim() === YAHOO_SHIP_KIND,
     )
     // 是否「已打包」详情（待发货 + 已发行发货二维码/条形码）。已打包时不再展示包材表单。
-    // 雅虎没有本地二维码文件，「已发行配送码」＝交易页上的提交按钮已消失（yahooShipped）。
+    // 雅虎投函型（App 发货）没有可存的配送码图，「已发行配送码」＝交易页上的提交按钮已消失（yahooShipped）。
     const isPackedDetail = computed(
       () => isPackedRow(currentRow.value) || !!detail.qr_image_url || yahooShipped.value,
     )

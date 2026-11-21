@@ -20,6 +20,7 @@
 """
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import time
@@ -82,6 +83,44 @@ def _cache_detail(todo_id: int, data: Dict[str, Any]) -> None:
         )
     except Exception as exc:  # noqa: BLE001 缓存失败不影响本次返回
         log.warning("[yahoo_trade] 缓存交易详情失败 todo_id=%s：%s", todo_id, exc)
+
+
+def _persist_code_image(todo_id: int, item_id: str, code_image_url: Optional[str]) -> None:
+    """把交易页上的配送コード存成本地图并写 ``todo_items.qr_image_path``，与煤炉发货码同口径。
+
+    待办列表的「已打包」、发货码缩略图 / 大图都只认 ``qr_image_path``（煤炉发码后由
+    ``_save_qr_code_image`` 写入）。雅虎原先只把码作为 data URL 留在 ``detail_json`` 里，
+    所以网页发货（ゆうパック 等）发完码，这一行既不算已打包，列表里也调不出码去窗口出示。
+
+    交易页的码是内嵌的 ``data:image/png``，重载后字节不变：同一张码不重存；码变了（在雅虎侧
+    改过尺寸会重发）才换新文件并删掉旧的。失败只记日志——码已经发行，本地留图失败不能让发货报错。
+    """
+    from ...use_mercari.get_to_du_list.transaction_detail._cache import _persist_qr_image_path
+    from ...use_web.image_storage import (
+        delete_image_file,
+        is_base64_image,
+        read_image_bytes,
+        save_base64_image,
+    )
+
+    if not is_base64_image(code_image_url):
+        return
+    try:
+        rows = DatabaseManager().execute_query(
+            "SELECT [qr_image_path] FROM [todo_items] WHERE [id]=?", (int(todo_id),)
+        ) or []
+        old_path = (rows[0][0] or "") if rows and rows[0] else ""
+        if old_path and read_image_bytes(old_path) == base64.b64decode(
+            code_image_url.split(",", 1)[1]
+        ):
+            return
+        path = save_base64_image(code_image_url, prefix=f"qr_{item_id}")
+        _persist_qr_image_path(int(todo_id), path)
+        if old_path:
+            delete_image_file(old_path)
+        log.info("[yahoo_trade] 已保存配送コード todo_id=%s path=%s", todo_id, path)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[yahoo_trade] 保存配送コード失败 todo_id=%s：%s", todo_id, exc)
 
 
 def get_cached_yahoo_todo_detail(todo_id: int) -> Dict[str, Any]:
@@ -150,6 +189,8 @@ async def fetch_yahoo_todo_detail(todo_id: int) -> Dict[str, Any]:
     data["todo_id"] = int(todo_id)
     data["cached"] = False
     _cache_detail(int(todo_id), data)
+    # 码已发行的交易每次重抓都对一遍：补上旧单的本地码，也跟上雅虎侧改尺寸后的新码
+    _persist_code_image(int(todo_id), item_id, data.get("code_image_url"))
     return data
 
 
@@ -239,6 +280,7 @@ async def ship_yahoo_todo(
     if isinstance(state, dict):
         state["todo_id"] = int(todo_id)
         _cache_detail(int(todo_id), state)
+    _persist_code_image(int(todo_id), item_id, result.get("code_image_url"))
     return result
 
 

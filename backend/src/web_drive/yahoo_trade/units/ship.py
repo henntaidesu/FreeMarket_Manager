@@ -38,6 +38,24 @@ from .detail import read_trade_state
 
 log = logging.getLogger(__name__)
 
+#: 点「配送コードを表示する」后雅虎先盖一层「読み込み中...」，等配送会社那边发完码才把配送コード
+#: 渲染出来（ゆうパック 实测 1~4 秒，走 MITM 代理更慢）。固定等几秒就读，慢的时候读到的还是发行前
+#: 的页面，被报成 code_uncertain——可码其实已经发了、撤不回。所以轮询到码出现为止。
+CODE_WAIT_TIMEOUT_MS = 30000
+
+
+async def _wait_code_shown(page: Any, *, element_timeout_ms: int) -> Dict[str, Any]:
+    """点了发行之后轮询交易页，直到配送コード图出现或超时，返回最后一次读到的状态。"""
+    waited = 0
+    while True:
+        await page.wait_for_timeout(1000)
+        waited += 1000
+        state = await read_trade_state(
+            page, with_options=False, element_timeout_ms=element_timeout_ms
+        )
+        if state.get("code_image_url") or waited >= CODE_WAIT_TIMEOUT_MS:
+            return state
+
 
 async def _fill_item_name(page: Any, name: str, *, element_timeout_ms: int) -> str:
     """填品名。受控组件，必须真实输入并失焦，值才会进 React state。"""
@@ -157,14 +175,7 @@ async def ship_yahoo_item(
             raise RuntimeError(f"点不到「{SHIP_SUBMIT_READY_TEXT}」按钮")
         result["submitted"] = True
         # 发行后页面就地刷新成配送コード视图
-        await page.wait_for_timeout(4000)
-        try:
-            await page.wait_for_load_state("networkidle", timeout=element_timeout_ms)
-        except Exception:
-            pass
-        after = await read_trade_state(
-            page, with_options=False, element_timeout_ms=element_timeout_ms
-        )
+        after = await _wait_code_shown(page, element_timeout_ms=element_timeout_ms)
         result["state"] = after
         result["code_image_url"] = after.get("code_image_url")
         result["tracking_no"] = after.get("tracking_no")

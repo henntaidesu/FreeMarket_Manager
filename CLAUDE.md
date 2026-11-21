@@ -1009,8 +1009,13 @@ soft-delete, inventory counters and order upsert semantics stay identical across
     local inventory match *and* a packaging choice exist, exactly like Mercari's 発送 button. A
     separate Yahoo-only dialog (the deleted `YahooTradeDialog.vue`) shipped without ever touching
     包材 or 出库, so a Yahoo sale silently skipped both ledgers.
-    "Already shipped" is `ship_form.pending === false` — Yahoo has no local QR file, so
-    `isPackedDetail` can't key on `qr_image_url` the way Mercari does.
+    "Already shipped" is `ship_form.pending === false` — the App (post-box) path has no QR to
+    keep, so `isPackedDetail` can't key on `qr_image_url` the way Mercari does. The **web** path's
+    配送コード (ゆうパック / ゆうパケット / プラス) is an inline `data:image/png` on the trade page;
+    `trade_actions._persist_code_image` saves it to `todo_items.qr_image_path` after shipping and on
+    every detail fetch (skipped when the bytes are unchanged), so the row becomes 已打包 like Mercari's.
+    After clicking 配送コードを表示する the page sits on a 「読み込み中...」 layer while the code is
+    issued — `ship.py` polls for the code (`CODE_WAIT_TIMEOUT_MS`) rather than reading after a fixed wait.
 - `use_yahoo/app_api/` — **雅虎 App API 发货**（`sparkle-secure.yahooapis.jp`）。The phone app's
   backend is a real JSON API with **no client attestation** — `Authorization: Bearer` plus a few
   copied headers (`X-UUID` / `X-BCOOKIE` / `os` / `os-version` / `app-version` / `User-Agent`, all
