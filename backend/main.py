@@ -1,3 +1,18 @@
+# 单文件 exe 的解压目录挂久了会被系统清理掏空（见 src/meipass_lock.py），所以占住它排在一切之前，
+# 连下面自调用的 mitmdump 也一样（它只依赖标准库，不算「业务模块」）；清上次的残留必须在占住之后，
+# 它靠「活着的实例都占着文件」来分辨死活。结果等日志配好后由 lifecycle 打出来。
+# 失败也不拦着启动——大不了回到没占住时的样子。
+import sys as _sys
+
+if getattr(_sys, "frozen", False) and _sys.platform == "win32":
+    try:
+        from src.meipass_lock import lock_bundle as _lock_bundle, sweep_stale as _sweep_stale
+
+        _lock_bundle()
+        _sweep_stale()
+    except Exception:  # noqa: BLE001
+        pass
+
 # 单文件打包后 backend.exe 自调用充当 mitmdump：带 MERCARI_RUN_MITMDUMP=1 启动时，
 # 在加载任何业务模块前切换到 mitmdump 入口并退出（见 src/ssl_mitm_proxy/runner.py）。
 import os as _os
@@ -10,8 +25,6 @@ if _os.environ.get("MERCARI_RUN_MITMDUMP") == "1":
 # 打包为 windowed（无 CMD 黑框）后默认没有 stdout/stderr：尽早分配一个隐藏的日志控制台，
 # 让后续所有日志/print 有真实控制台可写；再打开运行窗口（log_window）把这些输出同步显示出来，
 # 双击 exe 即可看到运行日志，点 X 询问「退出程序 / 收入任务栏」。仅 Windows 冻结态生效。
-import sys as _sys
-
 if getattr(_sys, "frozen", False) and _sys.platform == "win32":
     try:
         from src.console_win import setup_hidden_console

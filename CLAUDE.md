@@ -120,6 +120,29 @@ npm run build  # Output to webside/dist/
 
 The FastAPI backend can serve the SPA by mounting `webside/dist`. Override with `MERCARI_WEBSIDE_DIST` env var or disable with `MERCARI_NO_STATIC=1`.
 
+### Packaged .exe: the onefile extraction dir must not live in %TEMP%
+
+`FreeMarket Manager.exe` is a PyInstaller onefile: every launch unpacks DLLs, the bundled `webside`,
+the Playwright driver, `mitm_addon.py`, certifi's `cacert.pem` etc. into `_MEIxxxx` and runs from there.
+By default that is `%TEMP%`, and Storage Sense / Disk Cleanup deletes `%TEMP%` files older than ~7 days —
+an exe left running for a week gets gutted: pages 500 (`index.html` gone), all HTTPS fails (no CA
+bundle), MITM restarts can't find the addon, late imports fail, yet the process stays alive.
+
+Three layers, reasons in the `src/meipass_lock.py` docstring: `mercari.spec` sets `runtime_tmpdir` to
+`runtime\` **next to the exe**; the very top of `main.py` (before the mitmdump self-invocation guard)
+calls `lock_bundle()` (a read handle on every file until exit, so nothing else can delete them) and then
+`sweep_stale()` (removes `_MEI*` left by a kill / power loss). **Keep that order**: the sweep tells live
+from dead by "rename fails = someone holds files", so our own files must be held first. Logging isn't
+configured that early, so `lifecycle._on_startup` prints the result via `log_summary()` after `basicConfig`.
+The self-invoked mitmdump child reuses the parent's `_MEI` (PyInstaller recognises it), it doesn't unpack again.
+
+`runtime_tmpdir` is `%_PYI_ARCHIVE_FILE%\..\runtime`, not `runtime`: a relative path resolves against the
+**current working directory**, not the exe's (measured), so `restart.bat` / autostart / a shortcut with a
+different "Start in" would unpack elsewhere. `_PYI_ARCHIVE_FILE` is the bootloader's **internal** variable
+holding the exe path (works on PyInstaller 6.22, undocumented): after upgrading PyInstaller, check the run
+window for the "解压目录没落在 exe 旁边" warning — that means it's gone (the sweep then stops by itself).
+The exe's folder must be writable (not Program Files). Keep the dir name in sync with `_RUNTIME_DIR_NAME`.
+
 ## Project Structure
 
 There is **no `src/routes/` package** — the HTTP layer is `use_web/`, one folder per frontend page.

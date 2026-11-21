@@ -37,6 +37,7 @@ PROVIDER = "portal"
 STATE_COOKIE = "fm_portal_sso"
 STATE_TTL = 600
 TICKET_TTL = 60
+CLOCK_LEEWAY = 300  # 校验 id_token 时容忍和门户之间的时钟差（秒），见 verify_id_token
 CALLBACK_PATH = "mercariV2/src/use_web/sso/callback"
 
 _tickets: Dict[str, Dict[str, Any]] = {}
@@ -135,12 +136,16 @@ def exchange(code: str, saved: Dict[str, Any]) -> Dict[str, Any]:
 
 def verify_id_token(id_token: str, nonce: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
     """门户用本系统的 client_secret 做 HS256 签名，这里有那把钥匙，签名照验。
-    再加 iss / aud / exp / nonce，分别防指到假门户、拿别的系统的 token、过期票、重放。"""
+    再加 iss / aud / exp / nonce，分别防指到假门户、拿别的系统的 token、过期票、重放。
+
+    ``leeway``：本机和门户不是一台机器，时钟总有差。PyJWT 默认一秒都不让，本机只要比门户慢
+    一点，iat 就落在「未来」，报 ``The token is not yet valid (iat)``。"""
     try:
         claims = jwt.decode(
             id_token, cfg["client_secret"], algorithms=["HS256"],
             audience=cfg["client_id"], issuer=cfg["portal_url"],
             options={"require": ["exp", "iss", "aud", "sub"]},
+            leeway=CLOCK_LEEWAY,
         )
     except jwt.InvalidIssuerError:
         raise SsoError(f"id_token 的签发方与这里填的门户地址（{cfg['portal_url']}）对不上："

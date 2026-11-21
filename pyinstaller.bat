@@ -55,10 +55,18 @@ if %errorlevel% neq 0 (
 )
 
 rem ===== Prepare release directory =====
+rem Do NOT wipe the whole release dir: the exe's folder is the data root (app_paths.backend_root),
+rem so mercariDB.db, system.db, data\, models\ etc. of this install live next to it.
+rem Only the old exe is replaced; runtime\ is the exe's own extraction dir and cleans itself up.
 echo.
-echo [1/3] Cleaning and creating release dir %RELEASE% ...
-if exist "%RELEASE%" rmdir /s /q "%RELEASE%"
-mkdir "%RELEASE%"
+echo [1/3] Preparing release dir %RELEASE% ...
+if not exist "%RELEASE%" mkdir "%RELEASE%"
+if exist "%RELEASE%\FreeMarket Manager.exe" del /f /q "%RELEASE%\FreeMarket Manager.exe"
+if exist "%RELEASE%\FreeMarket Manager.exe" (
+    echo ERROR: cannot delete old "FreeMarket Manager.exe", is it still running? Exit it from the tray first.
+    pause
+    exit /b 1
+)
 if exist "%ROOT%build" rmdir /s /q "%ROOT%build"
 
 rem ===== Build frontend =====

@@ -149,7 +149,11 @@ exe = EXE(
     strip=False,
     upx=False,
     upx_exclude=[],
-    runtime_tmpdir=None,
+    # 解压到 exe 旁边的 runtime\ 而不是默认的 %TEMP%：存储感知 / 磁盘清理会删掉 %TEMP% 里放了
+    # 7 天左右的文件，程序挂着跑一周就被掏空。_PYI_ARCHIVE_FILE 是引导程序放 exe 路径的内部变量，
+    # 「exe\..」折回 exe 所在目录；为什么不直接写相对路径、它没了会怎样、占住文件与清强杀残留，
+    # 都在 backend/src/meipass_lock.py。最后一级目录名与那个模块的 _RUNTIME_DIR_NAME 一致，改要一起改。
+    runtime_tmpdir=r"%_PYI_ARCHIVE_FILE%\..\runtime",
     console=False,
     icon=icon_arg,
     disable_windowed_traceback=False,

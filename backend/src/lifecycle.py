@@ -38,6 +38,11 @@ async def _on_startup(force_headed_debug: bool = False) -> None:
     except TypeError:
         logging.basicConfig(level=logging.INFO, format=_fmt)
 
+    # 单文件 exe 的解压目录在 main.py 最顶上就占住、清过残留了，那时日志还没配好，结果在这里补打。
+    from .meipass_lock import log_summary
+
+    log_summary(logging.getLogger(__name__))
+
     # ① MITM 代理优先启动：后续浏览器自动化与煤炉抓取都依赖它，先于较重的数据库初始化拉起，
     #    保证性能较弱的服务器上代理尽早就绪（自动抓取循环另有 180s 延迟，避免启动期资源争抢）。
     if _env_enabled("SSL_MITM_AUTO_START"):
