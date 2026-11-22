@@ -37,13 +37,13 @@ export default {
       ssoLastLogin: '最近登录',
       ssoUnbind: '解绑',
       ssoUnbindConfirm: '解绑门户账号 {name}？用户本身不会被删除，下次从门户登录会重新按用户名匹配。',
-      proxySection: 'Cookie 注入域名',
+      proxySection: 'Cookie 访问域名',
       proxyPublicBase: '对外基址',
       proxyPublicBasePlaceholder: 'https://mp.example.com（留空 = 不使用）',
       proxyBasePath: '挂载子路径',
       proxyBasePathPlaceholder: '/mp（留空 = 根挂载，代理需独立域名或端口）',
-      proxyBasePathWarning: '子路径挂载会让代理与本系统同源：市集页面上的脚本能读到浏览器里的登录令牌，请把 JWT_EXPIRE_HOURS 设为正数以限制泄露后的可用窗口。该路径须与 nginx 的 location 前缀完全一致；保存后代理会停止，下次 Cookie 注入时按新配置重启。',
-      proxyWarning: '该域名是一条通往煤炉/雅虎登录态的隧道，必须只经 HTTPS 发布。经反代后代理自带的来源检查会永远放行，实际把关的是「Cookie 注入」下发的会话票据（最长 1 小时、不续期、到期需重新注入）；仍建议再叠加一层 Cloudflare Access 或 Basic Auth。',
+      proxyBasePathWarning: '子路径挂载会让代理与本系统同源：市集页面上的脚本能读到浏览器里的登录令牌，请把 JWT_EXPIRE_HOURS 设为正数以限制泄露后的可用窗口。该路径须与 nginx 的 location 前缀完全一致；保存后代理会停止，下次 Cookie 访问时按新配置重启。',
+      proxyWarning: '该域名是一条通往煤炉/雅虎登录态的隧道，必须只经 HTTPS 发布。代理不按来源地址设限，把关的是「Cookie 访问」下发的会话票据（最长 1 小时、不续期、到期需重新访问）；仍建议再叠加一层 Cloudflare Access 或 Basic Auth。',
       proxyBaseInvalid: '只填协议和域名（可带端口），例如 https://mp.example.com',
     },
     webAccess: {
@@ -304,7 +304,7 @@ export default {
         edit: '编辑账号',
         delete: '删除账号',
         sync: '同步数据 / 暂停同步',
-        browser: '打开浏览器 / Cookie 注入',
+        browser: '打开浏览器 / Cookie 访问',
         app_token: '雅虎 App 登录'
       },
       tasks: {
@@ -398,7 +398,7 @@ export default {
         image_hosting: '图床存储',
         printer: '打印设置',
         web_access: '网页访问方式',
-        proxy: 'Cookie 注入域名',
+        proxy: 'Cookie 访问域名',
         service: '重启服务 / MITM'
       }
     },
@@ -513,13 +513,13 @@ export default {
       ssoLastLogin: '最終ログイン',
       ssoUnbind: '連携解除',
       ssoUnbindConfirm: 'ポータルアカウント {name} の連携を解除しますか？ユーザー自体は削除されません。',
-      proxySection: 'Cookie 注入用ドメイン',
+      proxySection: 'Cookie アクセス用ドメイン',
       proxyPublicBase: '公開ベース URL',
       proxyPublicBasePlaceholder: 'https://mp.example.com（空欄 = 使用しない）',
       proxyBasePath: 'サブパス',
       proxyBasePathPlaceholder: '/mp（空欄 = ルート公開。独立ドメインかポートが必要）',
-      proxyBasePathWarning: 'サブパス公開ではプロキシが本システムと同一オリジンになります。マーケットのページ上のスクリプトがブラウザ内のログイントークンを読み取れるため、JWT_EXPIRE_HOURS を正の数に設定して漏洩時の有効期間を制限してください。このパスは nginx の location 接頭辞と完全に一致する必要があります。保存するとプロキシは停止し、次回の Cookie 注入時に新しい設定で再起動します。',
-      proxyWarning: 'このドメインはメルカリ／ヤフーのログイン状態へ通じるトンネルです。必ず HTTPS で公開してください。リバースプロキシ経由ではプロキシ側の送信元チェックが常に通過するため、実際の防御は「Cookie 注入」が発行するセッションチケット（最長 1 時間・延長なし・失効後は再注入）です。加えて Cloudflare Access または Basic 認証の併用を推奨します。',
+      proxyBasePathWarning: 'サブパス公開ではプロキシが本システムと同一オリジンになります。マーケットのページ上のスクリプトがブラウザ内のログイントークンを読み取れるため、JWT_EXPIRE_HOURS を正の数に設定して漏洩時の有効期間を制限してください。このパスは nginx の location 接頭辞と完全に一致する必要があります。保存するとプロキシは停止し、次回の Cookie アクセス時に新しい設定で再起動します。',
+      proxyWarning: 'このドメインはメルカリ／ヤフーのログイン状態へ通じるトンネルです。必ず HTTPS で公開してください。プロキシは送信元アドレスで制限しないため、防御は「Cookie アクセス」が発行するセッションチケット（最長 1 時間・延長なし・失効後は再アクセス）です。加えて Cloudflare Access または Basic 認証の併用を推奨します。',
       proxyBaseInvalid: 'スキームとドメインのみを入力してください（ポート可）。例: https://mp.example.com',
     },
     webAccess: {
@@ -778,7 +778,7 @@ export default {
         edit: 'アカウント編集',
         delete: 'アカウント削除',
         sync: 'データ同期 / 同期停止',
-        browser: 'ブラウザを開く / Cookie 注入',
+        browser: 'ブラウザを開く / Cookie アクセス',
         app_token: 'Yahoo アプリログイン'
       },
       tasks: {
@@ -872,7 +872,7 @@ export default {
         image_hosting: '画像ホスティング',
         printer: '印刷設定',
         web_access: 'Web アクセス方式',
-        proxy: 'Cookie 注入ドメイン',
+        proxy: 'Cookie アクセスドメイン',
         service: '再起動 / MITM'
       }
     },
@@ -987,13 +987,13 @@ export default {
       ssoLastLogin: 'Last login',
       ssoUnbind: 'Unlink',
       ssoUnbindConfirm: 'Unlink portal account {name}? The user itself is not deleted.',
-      proxySection: 'Cookie Injection Domain',
+      proxySection: 'Cookie Access Domain',
       proxyPublicBase: 'Public base URL',
       proxyPublicBasePlaceholder: 'https://mp.example.com (empty = not used)',
       proxyBasePath: 'Mount subpath',
       proxyBasePathPlaceholder: '/mp (empty = root mount; proxy then needs its own domain or port)',
-      proxyBasePathWarning: 'A subpath mount puts the proxy on the same origin as this system: scripts on marketplace pages can read the login token held in the browser, so set JWT_EXPIRE_HOURS to a positive number to bound the damage. The path must match the nginx location prefix exactly. Saving stops the proxy; it restarts with the new setting on the next Cookie injection.',
-      proxyWarning: 'This domain is a tunnel into a live Mercari/Yahoo session, so publish it over HTTPS only. Behind a reverse proxy the built-in source check always passes; what actually gates access is the session ticket issued by "Inject Cookies" (max 1 hour, never renewed, re-inject once it expires). Layering Cloudflare Access or Basic Auth on top is still recommended.',
+      proxyBasePathWarning: 'A subpath mount puts the proxy on the same origin as this system: scripts on marketplace pages can read the login token held in the browser, so set JWT_EXPIRE_HOURS to a positive number to bound the damage. The path must match the nginx location prefix exactly. Saving stops the proxy; it restarts with the new setting on the next Cookie Access.',
+      proxyWarning: 'This domain is a tunnel into a live Mercari/Yahoo session, so publish it over HTTPS only. The proxy does not filter by source address; what gates access is the session ticket issued by "Cookie Access" (max 1 hour, never renewed, use Cookie Access again once it expires). Layering Cloudflare Access or Basic Auth on top is still recommended.',
       proxyBaseInvalid: 'Enter only the scheme and domain (port allowed), e.g. https://mp.example.com',
     },
     webAccess: {
@@ -1252,7 +1252,7 @@ export default {
         edit: 'Edit account',
         delete: 'Delete account',
         sync: 'Sync data / pause sync',
-        browser: 'Open browser / cookie inject',
+        browser: 'Open browser / Cookie Access',
         app_token: 'Yahoo app login'
       },
       tasks: {
@@ -1346,7 +1346,7 @@ export default {
         image_hosting: 'Image hosting',
         printer: 'Printing',
         web_access: 'Web access mode',
-        proxy: 'Cookie inject domain',
+        proxy: 'Cookie Access domain',
         service: 'Restart / MITM'
       }
     },

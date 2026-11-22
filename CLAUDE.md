@@ -1427,6 +1427,24 @@ Three self-contained features that are easy to miss because nothing else depends
   at Mercari and surface as "injected N cookies" with no login and no error. `/__boot` also expires
   every cookie already in the browser before writing the new set: leftovers from the previous account
   or marketplace otherwise compose a half-old session, and would ride along to the other upstream.
+  **Cookies are not the whole login**: Mercari keeps its access token in `localStorage`
+  (`authTokenData` + `signIn`) and uses it as long as it hasn't expired, so swapping cookies alone
+  still showed the previous account. The injected client script therefore moves the marketplace's
+  `localStorage`/`sessionStorage` under its own `__mp:` namespace and wipes that namespace before any
+  page script runs whenever the ticket changed — every `/__boot` signs a new ticket (random segment),
+  and the page gets a hash of it as `GEN` (never the ticket itself: it is HttpOnly), compared with
+  `__mp_gen`. The namespace matters through the portal, where that storage is the portal's
+  per-(user, card) slice **shared with this SPA** (its JWT lives there): only `__mp:` keys are wiped,
+  and marketplace JS no longer sees the SPA's keys. Works whether the portal's storage wrapper ends up
+  inside or outside this one. IndexedDB is left alone (Mercari's `auth-sdk` there only holds the DPoP
+  key pair; through the portal IndexedDB is shared by every card). The button is labelled
+  「Cookie 访问」.
+  **`/__boot` writes only printable-ASCII cookies** (`asciiOrNull`); the rest are skipped. Yahoo's
+  page scripts store raw Japanese in some cookies (search history and the like): written as-is,
+  Node throws `ERR_INVALID_CHAR` and the whole boot becomes a 502, which Cloudflare replaces with
+  its own branded page, hiding the reason; written as UTF-8 bytes, the portal's httpx stores it in
+  its client cookie jar and then crashes (500) encoding the Cookie header while preparing the
+  redirect's next request. Login cookies are server-set ASCII on both marketplaces.
   `Secure` is attached iff the proxy is on https — without it the browser silently discards
   `__Secure-`/`__Host-` prefixed cookies, and with it (on an http fallback) it discards all of them.
   **There is no source-address filtering** — the Cookie 注入 button builds its boot URL from

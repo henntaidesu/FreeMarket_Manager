@@ -97,7 +97,7 @@ async def inject_cookies(body: InjectCookiesBody):
     try:
         register_injection(token, cookies, site=site)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=f"Cookie 注入失败: {exc}") from exc
+        raise HTTPException(status_code=500, detail=f"Cookie 访问失败: {exc}") from exc
 
     # 代理经 nginx 以独立域名发布时，前端「当前主机名 + 代理端口」那套拼法失效
     # （SPA 与代理是两个源），改由后端给出完整地址。未配置则为空串，前端沿用旧拼法。

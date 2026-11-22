@@ -123,7 +123,9 @@ const SESSION_TTL_SEC = (() => {
 const SESSION_KEY = INTERNAL_SECRET || crypto.randomBytes(32).toString("hex");
 
 function signSession(expSec, siteKey) {
-  const body = `${expSec}.${siteKey}`;
+  // 末尾的随机段让每次 /__boot 的票据都不同（同一秒内连点两个账号也是），
+  // 页面存储的「代次」就是按票据算的，见 verifySession 的 gen。
+  const body = `${expSec}.${siteKey}.${crypto.randomBytes(6).toString("base64url")}`;
   return `${body}.${crypto.createHmac("sha256", SESSION_KEY).update(body).digest("base64url")}`;
 }
 
@@ -141,7 +143,9 @@ function verifySession(req) {
   // 过期时间是签进票据里的，改浏览器那份 Cookie 的 Max-Age 没有意义
   const exp = Number(body.slice(0, body.indexOf(".")));
   if (!Number.isFinite(exp) || exp * 1000 <= Date.now()) return null;
-  return { exp };
+  // gen：这张票的「代次」，写进页面脚本用来判断要不要清空市集页面的存储（buildClientScript）。
+  // 取哈希而不是票据本身：票据是 HttpOnly 的，原样写进页面就等于交给了页面脚本。
+  return { exp, gen: crypto.createHash("sha256").update(raw).digest("hex").slice(0, 16) };
 }
 
 function denySession(res) {
@@ -154,7 +158,7 @@ function denySession(res) {
   res.end(
     '<meta charset="utf-8"><h3>注入会话不存在或已过期</h3>' +
       `<p>会话最长 ${mins} 分钟，且不会自动续期。` +
-      "请回到系统的「店铺账号」页重新点击「Cookie 注入」。</p>"
+      "请回到系统的「店铺账号」页重新点击「Cookie 访问」。</p>"
   );
 }
 
@@ -215,7 +219,8 @@ const handler = async (req, res) => {
 
     // 5) 授权闸门：除上面几个自有端点外，一切都要一张有效的注入会话票据。
     //    不按来源地址设限，这是唯一挡住「开放反向代理」的东西。
-    if (!verifySession(req)) return denySession(res);
+    const sess = verifySession(req);
+    if (!sess) return denySession(res);
 
     // 6) 解析上游目标（先剥离 BASE 前缀）；上游站点由 __mp_site Cookie 决定
     const site = siteOf(req);
@@ -286,7 +291,7 @@ const handler = async (req, res) => {
     // 10) HTML：注入运行时劫持脚本 + 改写绝对 URL 属性
     if (ctype.includes("text/html")) {
       let html = await resp.text();
-      html = injectAndRewriteHtml(html, PROXY_HOST, site);
+      html = injectAndRewriteHtml(html, PROXY_HOST, site, sess.gen);
       res.writeHead(resp.status, outHeaders);
       return res.end(html);
     }
@@ -362,13 +367,26 @@ async function handleInject(req, res) {
   res.end(JSON.stringify({ ok: true, count: cookies.length }));
 }
 
+// 导出的 Cookie 是 JS 字符串，而页面脚本用 document.cookie 种的那些可以直接带日文
+// （雅虎就有）。只收可打印 ASCII，其余整条跳过，不连累其余的：
+//   - 原样拼进 Set-Cookie，Node 会抛 ERR_INVALID_CHAR，整个 /__boot 变成 502——经
+//     Cloudflare 时还被换成它自己的错误页，看不到原因；
+//   - 按 UTF-8 字节写出也不行：经门户时它的 httpx 会把这条存进客户端 Cookie 罐子，
+//     给 302 预备下一跳请求时按 ASCII 编码 Cookie 头，当场抛异常，门户回 500。
+// 登录用的那几枚（雅虎 Y/T/A/SSL…、煤炉 op_sess…）都是服务端种的 ASCII，跳过的只是
+// 搜索记录这类页面脚本自己记的东西。
+function asciiOrNull(s) {
+  const v = String(s);
+  return /^[\x20-\x7e]*$/.test(v) ? v : null;
+}
+
 function handleBoot(req, res, reqUrl, proxyHost) {
   pruneInjections();
   const token = reqUrl.searchParams.get("token") || "";
   const entry = token ? injectionStore.get(token) : null;
   if (!entry) {
     res.writeHead(400, { "content-type": "text/html; charset=utf-8" });
-    return res.end("<h3>注入链接已失效或已被使用，请在系统里重新点击「Cookie 注入」。</h3>");
+    return res.end("<h3>注入链接已失效或已被使用，请在系统里重新点击「Cookie 访问」。</h3>");
   }
   injectionStore.delete(token); // 一次性
   const cookiePath = BASE || "/";
@@ -399,7 +417,10 @@ function handleBoot(req, res, reqUrl, proxyHost) {
       `; Max-Age=${SESSION_TTL_SEC}; HttpOnly; SameSite=Lax${secure}`
   );
   for (const c of injected) {
-    let s = `${c.name}=${c.value}; Path=${cookiePath}; SameSite=Lax${secure}`;
+    const name = asciiOrNull(c.name);
+    const value = asciiOrNull(c.value);
+    if (name === null || value === null) continue;
+    let s = `${name}=${value}; Path=${cookiePath}; SameSite=Lax${secure}`;
     if (c.httpOnly) s += "; HttpOnly";
     setCookies.push(s);
   }
@@ -558,7 +579,7 @@ function rewriteLocation(h, upstreamHost, proxyHost, site) {
 }
 
 // ---------------- HTML 注入 + 属性改写 ----------------
-function injectAndRewriteHtml(html, proxyHost, site) {
+function injectAndRewriteHtml(html, proxyHost, site, gen) {
   html = html.replace(/\b(src|href)\s*=\s*("|')(.*?)\2/gi, (full, attr, q, val) => {
     let nv = val;
     if (/^https?:\/\//i.test(val)) nv = toProxyUrl(val, proxyHost, site);
@@ -578,7 +599,7 @@ function injectAndRewriteHtml(html, proxyHost, site) {
     }).join(", ");
     return `srcset=${q}${nv}${q}`;
   });
-  const tag = `<script>${buildClientScript(proxyHost, site)}</script>`;
+  const tag = `<script>${buildClientScript(proxyHost, site, gen)}</script>`;
   const m = html.match(/<head[^>]*>/i);
   if (m) {
     const idx = m.index + m[0].length;
@@ -588,11 +609,51 @@ function injectAndRewriteHtml(html, proxyHost, site) {
 }
 
 // ---------------- 注入页面的运行时劫持脚本 ----------------
-function buildClientScript(proxyHost, site) {
+function buildClientScript(proxyHost, site, gen) {
   return `
 (function(){
   var PROXY=${JSON.stringify(proxyHost)};
   var BASE=${JSON.stringify(BASE)};
+  // 市集页面的 localStorage / sessionStorage 收进自己的命名空间（NS），票据换了（GEN 变了）
+  // 就在页面脚本跑之前清空这一片。煤炉把访问令牌存在 localStorage（authTokenData），
+  // 只换 Cookie 的话页面照旧拿上一个账号的令牌调接口——换账号访问仍显示旧账号就是这么来的。
+  // 经门户打开时那片存储和本系统共用（门户按「门户用户 + 卡片」分），所以只能清自己这一片，
+  // 也顺带让市集页面读不到本系统存的东西。门户的包装在本层之前或之后套上都成立：
+  // 本层只管它拿到的那一个 Storage 底下以 NS 开头的键。
+  var NS="__mp:",GEN=${JSON.stringify(gen || "")};
+  function nsStorage(base){
+    function keys(){var o=[];for(var i=0;i<base.length;i++){var k=base.key(i);if(k!==null&&k.indexOf(NS)===0)o.push(k.slice(NS.length));}return o;}
+    function wipe(){keys().forEach(function(k){base.removeItem(NS+k);});}
+    if(base.getItem("__mp_gen")!==GEN){wipe();base.setItem("__mp_gen",GEN);}
+    function m(f){return {value:f,writable:true,configurable:true};}
+    var api=Object.create(Storage.prototype,{
+      getItem:m(function(k){return base.getItem(NS+k);}),
+      setItem:m(function(k,v){base.setItem(NS+k,v);}),
+      removeItem:m(function(k){base.removeItem(NS+k);}),
+      clear:m(wipe),
+      key:m(function(i){var ks=keys();return ks[i]===undefined?null:ks[i];})
+    });
+    return new Proxy(api,{
+      get:function(t,k){if(k==="length")return keys().length;if(typeof k==="symbol"||k in t)return t[k];var v=base.getItem(NS+k);return v===null?undefined:v;},
+      set:function(t,k,v){if(typeof k==="symbol")t[k]=v;else base.setItem(NS+k,v);return true;},
+      has:function(t,k){return typeof k==="symbol"||k in t?k in t:base.getItem(NS+k)!==null;},
+      deleteProperty:function(t,k){if(typeof k!=="symbol")base.removeItem(NS+k);return true;},
+      ownKeys:function(){return keys();},
+      getOwnPropertyDescriptor:function(t,k){if(typeof k==="symbol")return undefined;var v=base.getItem(NS+k);return v===null?undefined:{value:v,writable:true,enumerable:true,configurable:true};},
+      defineProperty:function(t,k,d){if(typeof k!=="symbol"&&"value" in d)base.setItem(NS+k,d.value);return true;}
+    });
+  }
+  ["localStorage","sessionStorage"].forEach(function(name){
+    try{
+      var owner=Object.prototype.hasOwnProperty.call(window,name)?window:Window.prototype;
+      var d=Object.getOwnPropertyDescriptor(owner,name);
+      if(!d||!d.get||!d.configurable) return;
+      var base=d.get.call(window);
+      if(!base) return;
+      var view=nsStorage(base);
+      Object.defineProperty(window,name,{configurable:true,enumerable:d.enumerable,get:function(){return view;}});
+    }catch(e){}
+  });
   // 经门户打开时，本代理在浏览器里挂在门户的那段前缀底下；地址要拼在它后面，
   // 拼成本代理自己的主机名的话，浏览器会绕过门户直连一个它根本连不上的地址。
   // 页面加载那一刻取一次：之后的 pushState 由门户自己的钩子维持前缀不变。
