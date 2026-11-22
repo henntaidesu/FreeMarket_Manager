@@ -566,19 +566,15 @@ export default defineComponent({
       await setupCardObserver()
     })
 
-    /** 卡片点击：批量模式当勾选用；否则等同表格「查看详情 / 获取详情」按钮。
-     *  卡片上没有按钮，同步锁定时的禁用只能在这里判——直接吞掉点击会显得没反应，所以给条提示。 */
+    /** 卡片点击：批量模式当勾选用；否则一律打开详情弹窗（纯本地读取，不受同步锁影响）。
+     *  不再像表格按钮那样对未关联的商品直接去抓详情——抓取失败时卡片就成了死路，
+     *  要抓取用弹窗里的「同步数据」。 */
     function onCardClick(row) {
       if (batchMode.value) {
         toggleBatchRow(row)
         return
       }
-      if (detailLoadingIds.value.has(String(row?.item_id ?? '').trim())) return
-      if (syncLockStore.locked && !hasDetailViewable(row)) {
-        ElMessage.warning(syncLockStore.label)
-        return
-      }
-      onDetailActionClick(row)
+      openDetailView(row)
     }
 
     const pad2 = (n) => String(n).padStart(2, '0')

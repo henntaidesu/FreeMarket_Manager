@@ -6,7 +6,8 @@
 
 取数走**商品编辑页** ``/item/{id}/edit``：说明直接从 textarea 读原值，比解析商品页正文稳
 （管理番号暗号是 ``-=~<>`` 这类字符，正文里容易被排版和相邻文案粘连）；发货天数也能直接从
-``select[name=timeToShip]`` 拿到枚举值。
+``select[name=timeToShip]`` 拿到枚举值。编辑页被雅虎弹回商品页（审核中等，表单不渲染）时，
+这三样改从公开商品页的 ``__NEXT_DATA__`` 读（``fetch_public_item``）。
 
 解析到的东西塞成与煤炉 ``items/get`` 同形状的伪响应，直接交给
 ``detail_sync_inventory_from_item_get_response``——暗号解析、组合出品拆分、库存回写、
@@ -139,13 +140,26 @@ async def _sync_one_on_page(
     form = await _read_edit_form(page, item_id)
     if not form or form.get("notFound"):
         raise RuntimeError("编辑页打不开（商品可能已售出/已删除）")
+    public: Optional[Dict[str, Any]] = None
     if form.get("description") is None:
-        raise RuntimeError("编辑页未读到商品说明（页面结构可能已变更）")
+        # 编辑页没渲染表单：雅虎在服务端判定「本人 + 审核中（isInspecting）」或「まとめ買い进行中」时
+        # 会把 /edit 302 回 /item/{id}（见其前端 pages/item/[itemId]/edit），刚出品的商品常这样。
+        # 标题、说明原文、发货天数公开商品页的 __NEXT_DATA__ 里都有，退到那里读。
+        public = await asyncio.to_thread(fetch_public_item, item_id)
+        if not public or public.get("description") is None:
+            raise RuntimeError(f"编辑页未读到商品说明，公开商品页也读不到（编辑页落在 {page.url}）")
+        log.info("[yahoo_detail] %s 编辑页无表单（落在 %s），改用公开商品页", item_id, page.url)
+        form = {
+            "name": public.get("title"),
+            "description": public.get("description"),
+            "timeToShip": public.get("time_to_ship"),
+        }
     photos: List[str] = []
     if prefer_edit_photos:
         photos = await _edit_page_photos(page, item_id)
     if not photos:
-        public = await asyncio.to_thread(fetch_public_item, item_id)
+        if public is None:
+            public = await asyncio.to_thread(fetch_public_item, item_id)
         photos = (public or {}).get("photos") or []
     if not photos and not prefer_edit_photos:
         photos = await _edit_page_photos(page, item_id)

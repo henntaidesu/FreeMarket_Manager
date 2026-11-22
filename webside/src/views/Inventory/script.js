@@ -2657,11 +2657,10 @@ export default defineComponent({
       return raw
     }
 
+    /** 点开大图用原图：格子里是 560 缩略图，预览不能跟着用（与列表行的预览一致） */
     function inventoryFormImagePreviewList() {
       const imgs = Array.isArray(form.value.images) ? form.value.images : []
-      return imgs
-        .map((_, i) => inventoryFormImageSrcByIndex(i))
-        .filter((src) => src != null && String(src).trim() !== '')
+      return imgs.filter((src) => src != null && String(src).trim() !== '')
     }
 
     function combinedAsideImagePreviewList(row) {

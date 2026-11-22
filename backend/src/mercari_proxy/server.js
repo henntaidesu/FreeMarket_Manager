@@ -12,8 +12,12 @@
 //   4) 多站点：上游**不是**进程级常量。/__boot 把选中的站点写进 __mp_site Cookie，
 //      之后每个请求按该 Cookie 决定上游与域名改写规则（见 SITES）。
 //   5) 注入会话：/__boot 同时下发一张 HMAC 签名的会话票据（__mp_sess），其余所有路径
-//      没票即 403。绝对过期、不续期，最长 1 小时。经 nginx 以独立域名对外发布时，这是
-//      唯一挡住「开放反向代理」的东西——按来源地址判断的 isAllowedClient 在反代背后恒真。
+//      没票即 403。绝对过期、不续期，最长 1 小时。不按来源地址设限（本机 / 局域网 / 公网 /
+//      nginx / 门户转发一视同仁），所以这张票是唯一挡住「开放反向代理」的东西。
+//   6) 门户整站代理：页面可能经门户打开，地址形如
+//      /api/proxy/<卡片>/__portal__/https/<本代理主机:端口>/<路径>。本进程生成的代理地址
+//      一律落在「当前页面所在的那层前缀」底下（见 toProxyUrl / buildClientScript），
+//      直连和经门户两种打开方式共用一套改写。
 // ============================================================
 const http = require("http");
 const tls = require("tls");
@@ -72,15 +76,9 @@ const DROP_RESP_HEADERS = new Set([
   "content-encoding", "content-length", "transfer-encoding", "connection",
 ]);
 
-// ---------------- 访问控制（第一层：谁能连上这个端口） ----------------
-// 只看 TCP 对端地址：环回 + 私有网段放行，公网地址一律拒绝
-// （MERCARI_PROXY_ALLOW_LAN=0 收回成仅本机）。用户常从局域网另一台机器访问管理系统，
-// 此时浏览器的 boot 请求来自内网 IP 而非环回地址，只认 loopback 会直接 403。
-//
-// ⚠ 经 nginx 以独立域名对外发布后，对端恒为 nginx 的内网地址——这一层对公网访客
-// **永远放行**，它不是、也无法是对外发布时的授权手段。那件事由下面的注入会话票据负责。
-const ALLOW_LAN = process.env.MERCARI_PROXY_ALLOW_LAN !== "0";
-
+// ---------------- 内部端点的来源判断 ----------------
+// 浏览器那侧不按来源地址设限（授权全靠下面的注入会话票据），这里只给 /__inject、/__ping
+// 这两个后端专用端点认环回用。
 function remoteAddr(req) {
   const a = (req.socket && req.socket.remoteAddress) || "";
   // Node 在双栈监听下把 IPv4 报成 IPv4-mapped IPv6（::ffff:192.168.1.5）
@@ -91,25 +89,11 @@ function isLoopbackAddr(a) {
   return a === "::1" || /^127\./.test(a);
 }
 
-// RFC1918 + 链路本地；IPv6 取 ULA(fc00::/7) 与链路本地(fe80::/10)。
-function isPrivateAddr(a) {
-  if (a.includes(":")) return /^(f[cd]|fe[89ab])/i.test(a);
-  const p = a.split(".");
-  if (p.length !== 4) return false;
-  const n = p.map(Number);
-  if (n.some((x) => !Number.isInteger(x) || x < 0 || x > 255)) return false;
-  if (n[0] === 10) return true;
-  if (n[0] === 172 && n[1] >= 16 && n[1] <= 31) return true;
-  if (n[0] === 192 && n[1] === 168) return true;
-  if (n[0] === 169 && n[1] === 254) return true;
-  return false;
-}
-
-function isAllowedClient(req) {
-  const a = remoteAddr(req);
-  if (isLoopbackAddr(a)) return true;
-  return ALLOW_LAN && isPrivateAddr(a);
-}
+// ---------------- 门户整站代理 ----------------
+// 经门户打开时浏览器地址是 /api/proxy/<卡片>/__portal__/https/<本代理主机:端口>/<路径>，
+// 门户把 <路径> 转给本进程。匹配到的那段前缀就是「本代理在浏览器眼里的挂载点」。
+const PORTAL_MARK = "__portal__";
+const PORTAL_PREFIX_RE = /^.*?\/__portal__\/https?\/[^\/?#]+/;
 
 // ---------------- 浏览器那一跳用的是什么协议 ----------------
 // SCHEME 是「本进程自己有没有证书」决定的。TLS 由 nginx / cloudflared 终止时回源那跳
@@ -122,8 +106,8 @@ function reqScheme(req) {
   return p === "https" || p === "http" ? p : SCHEME;
 }
 
-// ---------------- 访问控制（第二层：注入会话票据） ----------------
-// 对外发布时这是**唯一**的授权凭据。/__boot 的一次性 token 只有登录了本系统的用户才拿得到，
+// ---------------- 访问控制：注入会话票据 ----------------
+// 这是**唯一**的授权凭据。/__boot 的一次性 token 只有登录了本系统的用户才拿得到，
 // 用它换一张 HMAC 签名的票据；其余所有路径（含 /__p/ 与 /__pws__/ WebSocket）没票即 403。
 // 票据**绝对过期**：不续期、不滑动，到点必须回系统重新点「Cookie 注入」。于是浏览器里那张
 // 通往煤炉/雅虎登录态的门票，生命周期被硬性限制在一小时内。
@@ -200,12 +184,6 @@ function pruneInjections() {
 
 const handler = async (req, res) => {
   try {
-    if (!isAllowedClient(req)) {
-      res.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
-      return res.end(
-        `forbidden: 仅允许本机与局域网访问（来源 ${remoteAddr(req) || "unknown"}）`
-      );
-    }
     const PROXY_HOST = req.headers.host || `localhost:${PORT}`;
     const reqUrl = new URL(req.url, `http://${PROXY_HOST}`);
     const path = reqUrl.pathname;
@@ -236,7 +214,7 @@ const handler = async (req, res) => {
     if (path === `${BASE}/__boot`) return handleBoot(req, res, reqUrl, PROXY_HOST);
 
     // 5) 授权闸门：除上面几个自有端点外，一切都要一张有效的注入会话票据。
-    //    对外发布时这是唯一挡住「开放反向代理」的东西——isAllowedClient 在 nginx 背后恒真。
+    //    不按来源地址设限，这是唯一挡住「开放反向代理」的东西。
     if (!verifySession(req)) return denySession(res);
 
     // 6) 解析上游目标（先剥离 BASE 前缀）；上游站点由 __mp_site Cookie 决定
@@ -260,6 +238,14 @@ const handler = async (req, res) => {
         if (c) fwd[k] = c;
         continue;
       }
+      // 经门户打开时，Next.js 把地址栏里带门户前缀的路径原样放进这两个头，上游认不得，
+      // 回一份对不上的 RSC 负载（点进去一片空白、刷新又好了）。Next-Url 还原成上游路径；
+      // 路由状态树是编码过的 JSON，混进了门户路径就整条丢掉，上游按首次进入处理。
+      if (lk === "next-url") {
+        fwd[k] = String(v).replace(PORTAL_PREFIX_RE, "") || "/";
+        continue;
+      }
+      if (lk === "next-router-state-tree" && String(v).includes(PORTAL_MARK)) continue;
       fwd[k] = v;
     }
     if (fwd["origin"]) fwd["origin"] = `https://${site.host}`;
@@ -449,7 +435,6 @@ if (SCHEME === "https") {
 
 // ---------------- WebSocket 代理：<BASE>/__pws__/<host>/<path> ----------------
 server.on("upgrade", (req, clientSock, head) => {
-  if (!isAllowedClient(req)) return clientSock.destroy();
   // WebSocket 同样要票：漏掉这里就等于给未授权访客留了一条绕开 HTTP 闸门的通道。
   if (!verifySession(req)) return clientSock.destroy();
   const wsPath =
@@ -490,8 +475,10 @@ function toProxyUrl(absUrl, proxyHost, site) {
     const u = new URL(absUrl);
     if (u.hostname === proxyHost) return absUrl;
     if (!site.re.test(u.hostname)) return absUrl;
-    // 协议相对 //host<BASE>/__p/...，让浏览器按当前页面协议解析，避免 mixed-content。
-    return `//${proxyHost}${BASE}/__p/${u.hostname}${u.pathname}${u.search}`;
+    // 根相对 <BASE>/__p/...：直连时落在本代理的源上（没有 mixed-content）；经门户打开时
+    // 门户会把 HTML 属性与 Location 里的根相对地址折到当前上游（本代理）底下。
+    // 写成 //host 的话要靠门户认出这个主机名，localhost 这种不带点的名字它不认。
+    return `${BASE}/__p/${u.hostname}${u.pathname}${u.search}`;
   } catch {
     return absUrl;
   }
@@ -606,6 +593,11 @@ function buildClientScript(proxyHost, site) {
 (function(){
   var PROXY=${JSON.stringify(proxyHost)};
   var BASE=${JSON.stringify(BASE)};
+  // 经门户打开时，本代理在浏览器里挂在门户的那段前缀底下；地址要拼在它后面，
+  // 拼成本代理自己的主机名的话，浏览器会绕过门户直连一个它根本连不上的地址。
+  // 页面加载那一刻取一次：之后的 pushState 由门户自己的钩子维持前缀不变。
+  var EXT=(location.pathname.match(new RegExp(${JSON.stringify(PORTAL_PREFIX_RE.source)}))||[""])[0];
+  var ROOT=location.host+EXT+BASE;
   var RE=new RegExp(${JSON.stringify(site.reSrc)},"i");
   function toProxy(input){
     try{
@@ -613,8 +605,8 @@ function buildClientScript(proxyHost, site) {
       if(u.hostname===PROXY) return input;
       if(!RE.test(u.hostname)) return input;
       if(u.protocol==="ws:"||u.protocol==="wss:")
-        return (location.protocol==="https:"?"wss:":"ws:")+"//"+PROXY+BASE+"/__pws__/"+u.hostname+u.pathname+u.search;
-      return location.protocol+"//"+PROXY+BASE+"/__p/"+u.hostname+u.pathname+u.search;
+        return (location.protocol==="https:"?"wss:":"ws:")+"//"+ROOT+"/__pws__/"+u.hostname+u.pathname+u.search;
+      return location.protocol+"//"+ROOT+"/__p/"+u.hostname+u.pathname+u.search;
     }catch(e){ return input; }
   }
   var _fetch=window.fetch;

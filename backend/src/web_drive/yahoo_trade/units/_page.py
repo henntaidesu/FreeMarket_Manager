@@ -88,6 +88,17 @@ const openSheet = () => [...document.querySelectorAll('div')]
   .pop() || null;
 const firstLine = (el) => (el.innerText || '').trim().split('\\n')[0].trim();
 const vis = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+// 弹层里一个 radio 选项的名字。label 整体的 innerText 是「选项名 + 尺寸说明 + 价格」连成一串
+// （中间没有换行），选项名单独在最里层的那个节点上——取 label 里第一个有文字的叶子节点。
+// 读选项 / 点选 / 回读选中项三处都走它，三者口径必须一致。
+const radioName = (r) => {
+  const lab = r.closest('label') || r.parentElement;
+  if (!lab) return '';
+  const leaf = [...lab.querySelectorAll('*')].find(
+    (el) => el.children.length === 0 && (el.innerText || '').trim()
+  );
+  return leaf ? firstLine(leaf) : '';
+};
 """
 )
 
@@ -113,34 +124,34 @@ _SHEET_OPTIONS_JS = (
     + """
     const s = openSheet();
     if (!s) return [];
-    const names = [...s.querySelectorAll('input[type=radio]')].map((r) => {
-      const lab = r.closest('label') || r.parentElement;
-      if (!lab) return '';
-      // label 整体的 innerText 是「选项名 + 尺寸说明 + 价格」连成一串（中间没有换行），
-      // 选项名单独在最里层的那个节点上——取第一个有文字的叶子节点，
-      // 这也正是 _SHEET_CLICK_JS 点选时匹配的那个节点，两边口径必须一致。
-      const leaf = [...lab.querySelectorAll('*')].find(
-        (el) => el.children.length === 0 && (el.innerText || '').trim()
-      );
-      return leaf ? firstLine(leaf) : '';
-    }).filter(Boolean);
+    const names = [...s.querySelectorAll('input[type=radio]')].map(radioName).filter(Boolean);
     return [...new Set(names)];
 }"""
 )
 
-#: 弹层内按首行文案点条目：取最深的匹配元素（事件挂在祖先行上，会冒泡上去）
+#: 在弹层里按选项名找到那个 radio 并点它本身（React 的 radio onChange 认的就是 click）。
+#: 不按「文案命中的最深元素」去点：那要靠事件冒泡到 label，点没点中只能事后猜。
 _SHEET_CLICK_JS = (
     "(name) => {"
     + _PRELUDE
     + """
     const s = openSheet();
     if (!s) return false;
-    const hits = [...s.querySelectorAll('*')].filter(
-      (el) => el.children.length <= 2 && firstLine(el) === name
-    );
-    if (!hits.length) return false;
-    hits[hits.length - 1].click();
+    const r = [...s.querySelectorAll('input[type=radio]')].find((x) => radioName(x) === name);
+    if (!r) return false;
+    r.click();
     return true;
+}"""
+)
+
+#: 弹层里当前**实际选中**的选项名（点选之后按文本回读核对用）
+_SHEET_CHECKED_JS = (
+    "() => {"
+    + _PRELUDE
+    + """
+    const s = openSheet();
+    if (!s) return [];
+    return [...s.querySelectorAll('input[type=radio]')].filter((r) => r.checked).map(radioName);
 }"""
 )
 
@@ -267,6 +278,11 @@ async def sheet_options(page: Any) -> List[str]:
 
 async def sheet_click(page: Any, name: str) -> bool:
     return bool(await page.evaluate(_SHEET_CLICK_JS, name))
+
+
+async def sheet_checked(page: Any) -> List[str]:
+    """当前弹层里实际选中的选项名（按 radio 回读）。"""
+    return await page.evaluate(_SHEET_CHECKED_JS) or []
 
 
 async def sheet_ok(page: Any) -> bool:

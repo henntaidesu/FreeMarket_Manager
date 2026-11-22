@@ -12,7 +12,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List
+import re
+from typing import Any, Dict, List, Optional
 
 from ...core.yahoo_session import yahoo_automation_browser
 from ._page import (
@@ -26,6 +27,7 @@ from ._page import (
     click_button,
     close_sheet,
     open_row_sheet,
+    sheet_checked,
     sheet_click,
     sheet_items,
     sheet_ok,
@@ -81,6 +83,12 @@ async def _fill_item_name(page: Any, name: str, *, element_timeout_ms: int) -> s
     return text
 
 
+def _same_choice(picked: str, shown: Optional[str]) -> bool:
+    """弹层选项名与表单行回显是否同一项。雅虎回显会省掉「の」（选「郵便局の窓口」，行上是「郵便局窓口」）。"""
+    norm = lambda s: re.sub(r"[\sの]", "", s or "")  # noqa: E731
+    return bool(shown) and norm(picked) == norm(shown)
+
+
 async def _select_row(
     page: Any, row: str, value: str, *, element_timeout_ms: int
 ) -> str:
@@ -96,6 +104,13 @@ async def _select_row(
             f"「{row}」没有「{target}」这一项；当前可选：{'、'.join(options[:20])}"
         )
     await page.wait_for_timeout(800)
+    # 点完按文本回读弹层里实际选中的是哪一项——选错的発送場所 / サイズ 会直接印进配送コード
+    checked = await sheet_checked(page)
+    if checked != [target]:
+        await close_sheet(page)
+        raise RuntimeError(
+            f"「{row}」弹层里实际选中的是 {'、'.join(checked) or '（无）'}，不是「{target}」，已中止未提交"
+        )
     if not await sheet_ok(page):
         await close_sheet(page)
         raise RuntimeError(f"「{row}」弹层的 OK 按钮不可点（选项可能未真正选中）")
@@ -157,6 +172,21 @@ async def ship_yahoo_item(
         )
 
         await page.wait_for_timeout(1000)
+        # 发行前最后一道：按文本核对表单行上显示的尺寸 / 発送場所 就是所选的那一项
+        form = (
+            await read_trade_state(
+                page, with_options=False, element_timeout_ms=element_timeout_ms
+            )
+        )["ship_form"]
+        for row, picked, shown in (
+            (ROW_SIZE, result["filled"]["size"], form.get("size")),
+            (ROW_LOCATION, result["filled"]["location"], form.get("location")),
+        ):
+            if not _same_choice(picked, shown):
+                raise RuntimeError(
+                    f"「{row}」表单上显示的是 {shown!r}，不是所选的「{picked}」，已中止未提交"
+                )
+
         state = await submit_button_state(page)
         result["submit_ready"] = bool(state.get("ready"))
         result["submit_text"] = state.get("text")

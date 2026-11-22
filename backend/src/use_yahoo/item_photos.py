@@ -52,7 +52,11 @@ def _dedupe(urls: Iterable[Any]) -> List[str]:
 
 
 def fetch_public_item(item_id: str, *, timeout: float = 15.0) -> Optional[Dict[str, Any]]:
-    """公开商品页 → ``{"title", "photos"}``；打不开 / 不是这件商品 / 结构变了返回 None。阻塞 IO。"""
+    """公开商品页 → ``{"title", "photos", "description", "time_to_ship"}``；打不开 / 不是这件商品 /
+    结构变了返回 None。阻塞 IO。
+
+    ``description`` 是 JSON 里的原文（不是页面上折叠排版后的正文），``time_to_ship`` 是
+    ``deliverySchedule.id``，与编辑页 ``select[name=timeToShip]`` 同一套枚举（``ONE_TO_TWO_DAYS``…）。"""
     from ..mercari_cdn_fetch import https_context
 
     iid = str(item_id or "").strip()
@@ -73,9 +77,13 @@ def fetch_public_item(item_id: str, *, timeout: float = 15.0) -> Optional[Dict[s
     if not isinstance(item, dict) or str(item.get("id") or "").strip() != iid:
         return None
     images = item.get("images") if isinstance(item.get("images"), list) else []
+    schedule = item.get("deliverySchedule") if isinstance(item.get("deliverySchedule"), dict) else {}
+    desc = item.get("description")
     return {
         "title": str(item.get("title") or ""),
         "photos": _dedupe(i.get("url") for i in images if isinstance(i, dict)),
+        "description": desc if isinstance(desc, str) else None,
+        "time_to_ship": schedule.get("id"),
     }
 
 

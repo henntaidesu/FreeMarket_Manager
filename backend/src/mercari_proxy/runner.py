@@ -5,8 +5,8 @@
 - 独立 HTTPS 端口，默认根挂载（与原项目设计一致，SPA 导航/刷新/前进后退均正常）；
   系统配置页的「挂载子路径」（或 ``MERCARI_PROXY_BASE_PATH``）可改为子路径挂载
   （如 ``/mp``），把代理经 nginx 收进 SPA 的同一个域名 + 端口之下——代价见 :func:`base_path`；
-- 默认监听 0.0.0.0:<MERCARI_PROXY_PORT>（默认 9610），但 server.js 只放行环回 +
-  私有网段（``MERCARI_PROXY_ALLOW_LAN=0`` 可收回成仅本机），公网来源一律 403；
+- 默认监听 0.0.0.0:<MERCARI_PROXY_PORT>（默认 9610），不按来源地址设限——本机、局域网、
+  nginx、门户整站代理转发过来的都一样，授权只看下面那张注入会话票据；
 - 自签证书使浏览器处于安全上下文（DPoP 所需），用户首次访问点「继续」即可；
 - ``register_injection`` 把账号 Cookie 以一次性 token 推送到 Node 进程内存，
   用户随后访问 ``/__boot?token=...`` 时写入本地浏览器；
@@ -42,8 +42,7 @@ def proxy_port() -> int:
 
 def bind_host() -> str:
     # 用户常从局域网另一台机器访问管理系统，前端按 window.location.hostname 拼 boot 地址，
-    # 只绑 127.0.0.1 时那个地址根本连不上。访问控制交给 server.js 的 isAllowedClient
-    # （环回 + 私有网段放行，公网拒绝），这里放开监听。
+    # 只绑 127.0.0.1 时那个地址根本连不上。授权交给 server.js 的注入会话票据，这里放开监听。
     return os.environ.get("MERCARI_PROXY_BIND_HOST", "0.0.0.0")
 
 
@@ -140,8 +139,10 @@ def proxy_public_base() -> str:
 
     只影响给用户的引导链接；``register_injection`` 始终走环回，与此无关。
 
-    注意：一旦经反代发布，``server.js`` 的 ``isAllowedClient`` 就形同虚设（来源恒为
-    nginx 的内网地址）。真正挡住「开放反向代理」的是 ``/__boot`` 下发的注入会话票据
+    经门户整站代理打开本系统时前端不用这一项，而是走门户（同一张卡片、同一台主机、换成
+    代理端口），见 ShopAccounts 页的 ``injectCookieForAccount``。
+
+    注意：代理不按来源地址设限，挡住「开放反向代理」的是 ``/__boot`` 下发的注入会话票据
     （见 :func:`session_ttl_sec`）：没票的访客在任何路径上都只拿得到 403。nginx /
     Cloudflare Access 侧的认证仍建议叠加一层，但不再是唯一防线。
     """

@@ -872,6 +872,12 @@ soft-delete, inventory counters and order upsert semantics stay identical across
   `items/get` response into `detail_sync_inventory_from_item_get_response`. This is what binds a
   Yahoo listing to inventory and consumes the listing reservation; it runs automatically for newly
   inserted items after each list sync (`WEB_DRIVE_ON_SALE_SYNC_AUTO_DETAIL=0` disables it).
+  **The edit page does not always render the form**: Yahoo's `getInitialProps` 302s `/edit` back to
+  `/item/{id}` when the seller's item is `isInspecting` or has a まとめ買い in progress. Observed on
+  items right after listing (2026-11), while the public API showed `isInspecting: false` for them —
+  which trigger fired was never confirmed, and it can't be predicted from outside.
+  When no description textarea is found, name / description /
+  `timeToShip` fall back to the public page's `__NEXT_DATA__` (`fetch_public_item`, same enum).
   Two entry points, and picking the wrong one is a silent bug: `sync_yahoo_item_details` is the
   **batch** form and folds per-item failures into a stats dict, while `sync_yahoo_item_detail_one`
   is the **single-item** form that mirrors Mercari's `fetch_detail_and_sync_inventory` — same
@@ -1423,16 +1429,26 @@ Three self-contained features that are easy to miss because nothing else depends
   or marketplace otherwise compose a half-old session, and would ride along to the other upstream.
   `Secure` is attached iff the proxy is on https — without it the browser silently discards
   `__Secure-`/`__Host-` prefixed cookies, and with it (on an http fallback) it discards all of them.
-  **Binding and access control are two separate things, and they must stay consistent** — the Cookie
-  注入 button builds its boot URL from `window.location.hostname`, so a user browsing the SPA from
-  another machine hits the proxy at the server's LAN IP. It therefore binds `0.0.0.0` and does the
-  filtering in `server.js::isAllowedClient`: loopback + RFC1918/link-local/IPv6-ULA pass, **public
-  sources 403** (`MERCARI_PROXY_ALLOW_LAN=0` narrows it back to this machine only). `/__inject` stays
-  loopback-only on top of its `x-internal-secret`.
-  **`isAllowedClient` stops being a defence the moment the proxy is published through nginx** — the
-  peer is then always nginx's LAN address, so it passes for every public visitor, and
-  `MERCARI_PROXY_ALLOW_LAN=0` cannot help (it would block nginx itself). What gates a public
-  deployment is the **injection session ticket**: `/__boot` swaps the one-time token — obtainable
+  **There is no source-address filtering** — the Cookie 注入 button builds its boot URL from
+  `window.location.hostname`, so a user browsing the SPA from another machine hits the proxy at the
+  server's LAN IP; it binds `0.0.0.0` and lets loopback, LAN, public, nginx and the portal through
+  alike (the old loopback+LAN-only `isAllowedClient` and `MERCARI_PROXY_ALLOW_LAN` were removed: behind
+  nginx or the portal the peer is always a local address, so it never protected a published proxy
+  anyway). Only `/__inject` and `/__ping` stay loopback-only, on top of `x-internal-secret`.
+  **Opened through the portal's 整站 proxy** (SPA at `/api/proxy/<card>/__portal__/http/127.0.0.1:9600/`),
+  the button sends the boot through the **same card and host, with the proxy's port**
+  (`…/__portal__/https/127.0.0.1:9610/__boot?token=`) — the portal allows any port on the card's own
+  host — and `boot_url` is ignored in that case. Three things make the double proxy work, each load-bearing:
+  `toProxyUrl` emits **root-relative** `/__p/<host>/…` (the portal folds root-relative HTML attributes
+  and `Location` under the current upstream; a `//127.0.0.1:9610` form only works while the portal
+  recognises that host — `localhost` it doesn't); the injected client script prefixes
+  `location.host + <portal prefix>` (`PORTAL_PREFIX_RE`, read once at load), so its URLs are already
+  under the portal mount and the portal's own hook leaves them alone in either wrapping order; and
+  `Next-Url` is stripped of that prefix / a `next-router-state-tree` containing `__portal__` is
+  dropped — the portal does this itself only for cards whose host is Mercari, not for this one.
+  The injected marketplace cookies then live under the card path, so they also ride along on the
+  SPA's own API calls through the portal, and marketplace JS runs same-origin with the SPA.
+  What gates the proxy is the **injection session ticket**: `/__boot` swaps the one-time token — obtainable
   only by a user authenticated to *this* system — for an HMAC-signed `__mp_sess` cookie, and every
   other path (including `/__p/` and the `/__pws__/` WebSocket upgrade) 403s without it. The ticket
   **expires absolutely**: never renewed, never slid forward, capped at 1 hour
@@ -1514,7 +1530,7 @@ Each run writes a `system_logs` row (category `database`).
   server above). There are no `MERCARI_SSL_*` / `MERCARI_FORCE_HTTP` variables.
 - `MERCARI_ACCESS_MODE` (`nginx` / `direct`): fallback for the 网页访问方式 switch when the UI hasn't set it.
 - `MERCARI_AUTO_FETCH` / `MERCARI_AUTO_FETCH_TICK_SEC` / `MERCARI_AUTO_FETCH_INITIAL_DELAY_SEC`: Background sync loop toggle & cadence (first run is deliberately delayed ~180s to avoid contending with startup).
-- `MERCARI_PROXY_AUTO_START` / `MERCARI_PROXY_PORT` / `MERCARI_PROXY_BIND_HOST` (default `0.0.0.0`) / `MERCARI_PROXY_ALLOW_LAN` (set `0` = this machine only) / `MERCARI_PROXY_UPSTREAM` / `MERCARI_PROXY_CERT_DIR`: Node reverse proxy (see Auxiliary Subsystems).
+- `MERCARI_PROXY_AUTO_START` / `MERCARI_PROXY_PORT` / `MERCARI_PROXY_BIND_HOST` (default `0.0.0.0`) / `MERCARI_PROXY_UPSTREAM` / `MERCARI_PROXY_CERT_DIR`: Node reverse proxy (see Auxiliary Subsystems).
 - `MERCARI_PROXY_BASE_PATH` (default empty = root mount): mount the proxy under a subpath such as
   `/mp` so it can share an existing hostname **and port** with the SPA. **The System 配置 page's
   「挂载子路径」 field wins over this** — it persists to `system.db` and is the only way to set this
