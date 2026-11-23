@@ -36,7 +36,8 @@ from ._page import (
     wait_ready,
     yahoo_trade_url,
 )
-from .detail import read_trade_state
+from .carrier import ensure_sheet_carrier, normalize_carrier
+from .detail import _read_options, read_trade_state
 
 log = logging.getLogger(__name__)
 
@@ -90,13 +91,18 @@ def _same_choice(picked: str, shown: Optional[str]) -> bool:
 
 
 async def _select_row(
-    page: Any, row: str, value: str, *, element_timeout_ms: int
+    page: Any, row: str, value: str, *, element_timeout_ms: int, carrier: str = ""
 ) -> str:
-    """在某个表单行的弹层里按名字选一项并按 OK 确认。"""
+    """在某个表单行的弹层里按名字选一项并按 OK 确认。
+
+    ``carrier`` 只对「サイズ」有意义：「配送会社の変更」就在尺寸弹层里，先换承运商再选尺寸。
+    """
     target = (value or "").strip()
     if not target:
         raise ValueError(f"「{row}」未指定")
     await open_row_sheet(page, row, element_timeout_ms=element_timeout_ms)
+    if carrier:
+        await ensure_sheet_carrier(page, carrier, element_timeout_ms=element_timeout_ms)
     if not await sheet_click(page, target):
         options = await sheet_options(page) or await sheet_items(page)
         await close_sheet(page)
@@ -126,15 +132,20 @@ async def ship_yahoo_item(
     item_name: str,
     size: str,
     location: str,
+    carrier: str = "",
     dry_run: bool = False,
     page_load_timeout_ms: int = DEFAULT_PAGE_LOAD_TIMEOUT_MS,
     element_timeout_ms: int = DEFAULT_ELEMENT_TIMEOUT_MS,
 ) -> Dict[str, Any]:
     """提交发货信息并发行配送コード。
 
+    ``carrier``（JAPAN_POST / YAMATO）非空时先在「サイズ」弹层里换配送会社；空串 = 沿用交易当前的。
+    两家的尺寸名互不重叠，所以后面「表单行显示的尺寸 == 所选尺寸」的核对同时也核对了承运商。
+
     返回 ``{filled, submit_ready, submitted, code_image_url, tracking_no, state}``。
     ``dry_run`` 时 ``submitted`` 恒为 False，但 ``submit_ready`` 已经过真实校验。
     """
+    carrier = normalize_carrier(carrier)
     result: Dict[str, Any] = {
         "platform": "yahoo",
         "item_id": str(item_id).strip(),
@@ -164,8 +175,10 @@ async def ship_yahoo_item(
         result["filled"]["item_name"] = await _fill_item_name(
             page, item_name, element_timeout_ms=element_timeout_ms
         )
+        if carrier:
+            result["filled"]["carrier"] = carrier
         result["filled"]["size"] = await _select_row(
-            page, ROW_SIZE, size, element_timeout_ms=element_timeout_ms
+            page, ROW_SIZE, size, element_timeout_ms=element_timeout_ms, carrier=carrier
         )
         result["filled"]["location"] = await _select_row(
             page, ROW_LOCATION, location, element_timeout_ms=element_timeout_ms
@@ -259,3 +272,35 @@ async def fetch_ship_state(
         )
     data["item_id"] = str(item_id).strip()
     return data
+
+
+async def fetch_carrier_ship_options(
+    account_id: int,
+    *,
+    item_id: str,
+    carrier: str,
+    page_load_timeout_ms: int = DEFAULT_PAGE_LOAD_TIMEOUT_MS,
+    element_timeout_ms: int = DEFAULT_ELEMENT_TIMEOUT_MS,
+) -> Dict[str, Any]:
+    """换成另一家配送会社后的「サイズ / 発送場所」可选项（只读，不提交）。
+
+    选项只有在页面上真的换过承运商才看得到，所以不并进常规的详情抓取——那样每次预抓
+    都要在交易页上切一遍承运商；只在用户点了「配送会社の変更」时按需读这一次。
+    """
+    vendor = normalize_carrier(carrier)
+    if not vendor:
+        raise ValueError("未指定配送会社")
+    async with yahoo_automation_browser(
+        int(account_id), start_url=yahoo_trade_url(item_id)
+    ) as (mgr, key):
+        page = await mgr.active_tab_page(key)
+        await wait_ready(page, page_load_timeout_ms)
+        if not (await submit_button_state(page)).get("text"):
+            raise RuntimeError("该交易当前没有发货表单（可能已发行配送コード或不在待发货阶段），不能改配送会社")
+        opts = await _read_options(page, element_timeout_ms=element_timeout_ms, carrier=vendor)
+    return {
+        "item_id": str(item_id).strip(),
+        "carrier": vendor,
+        "size_options": opts["size"],
+        "location_options": opts["location"],
+    }

@@ -407,8 +407,10 @@ export default defineComponent({
       },
     }
 
-    const yahooForm = reactive({ item_name: '', size: '', location: '' })
+    // carrier：向导里选的配送会社（JAPAN_POST / YAMATO），空 = 沿用交易当前的
+    const yahooForm = reactive({ item_name: '', size: '', location: '', carrier: '' })
     const yahooShipLoading = ref(false)
+    const yahooCarrierLoading = ref(false)
     const yahooNotifyLoading = ref(false)
 
     // ── 投函型：与煤炉一样用本机摄像头拍一张二维码照片，拍完直接提交 ──
@@ -416,10 +418,30 @@ export default defineComponent({
     // 照片随发货请求一起发出，由后端解码取材料码。材料码可用与否在服务端发行前自动核验，
     // 不作为用户步骤暴露——与煤炉的ゆうパケットポスト系「拍完即提交」一致。
 
-    // 网页端的尺寸 + 只能走 App API 的投函型（ゆうパケットポスト / mini，配了令牌才出现）
-    const yahooAppSizeOptions = computed(() => detail.yahoo_app?.extra_size_options || [])
+    // 交易当前的配送会社（JAPAN_POST / YAMATO）：交易页尺寸弹层标题 → App 读到的 vendor
+    const yahooTradeCarrier = computed(
+      () => detail.yahoo_ship_form?.carrier_vendor || detail.yahoo_app?.vendor || '',
+    )
+    // 向导里实际要发的配送会社。尺寸页的「配送会社の変更」换的就是它
+    const yahooShipCarrier = computed(() => yahooForm.carrier || yahooTradeCarrier.value)
+    const yahooCarrierChanged = computed(
+      () => !!yahooTradeCarrier.value && yahooShipCarrier.value !== yahooTradeCarrier.value,
+    )
+    // 所选配送会社的 サイズ / 発送場所 候选：当前那家在 size_options / location_options，
+    // 换过去的那家是点「配送会社の変更」时现读的，放在 carrier_options[vendor]
+    const yahooCarrierOptions = computed(() => {
+      const form = detail.yahoo_ship_form || {}
+      return yahooCarrierChanged.value
+        ? form.carrier_options?.[yahooShipCarrier.value] || {}
+        : form
+    })
+    // 网页端的尺寸 + 只能走 App API 的投函型（ゆうパケットポスト / mini，配了令牌才出现）。
+    // 投函型是日本郵便的方式，配送会社选了ヤマト就不列
+    const yahooAppSizeOptions = computed(() =>
+      yahooShipCarrier.value === 'JAPAN_POST' ? detail.yahoo_app?.extra_size_options || [] : [],
+    )
     const yahooSizeOptions = computed(() => [
-      ...(detail.yahoo_ship_form?.size_options || []),
+      ...(yahooCarrierOptions.value.size_options || []),
       ...yahooAppSizeOptions.value,
     ])
     // 尺寸卡片：**能选哪些**仍以交易页/App 实际提供的为准（配送会社不同选项完全不同），
@@ -433,7 +455,7 @@ export default defineComponent({
         .map((name, idx) => ({ name, ...(YAHOO_SIZE_SPECS[name] || {}), _idx: idx }))
         .sort((a, b) => (a.order ?? 900 + a._idx) - (b.order ?? 900 + b._idx))
     })
-    const yahooLocationOptions = computed(() => detail.yahoo_ship_form?.location_options || [])
+    const yahooLocationOptions = computed(() => yahooCarrierOptions.value.location_options || [])
     // 発送場所卡片图标：与煤炉发货地卡片同一套图（public/static/post_hukuro/<img>.png）。
     // 选项名以交易页下发的为准（随配送会社变化），按名字里的关键词认图标，认不出的卡片只显示名字。
     // 「集荷」「PUDO」要排在「ヤマト」前面——「ヤマト運輸による集荷」这类名字两个词都含。
@@ -488,7 +510,9 @@ export default defineComponent({
       yahooForm.item_name = ''
       yahooForm.size = ''
       yahooForm.location = ''
+      yahooForm.carrier = ''
       yahooShipLoading.value = false
+      yahooCarrierLoading.value = false
       yahooNotifyLoading.value = false
       resetQrScanState() // 换一条待办必须清掉，否则上一单拍的照片会跟过来
     }
@@ -1229,6 +1253,55 @@ export default defineComponent({
       if (yahooCarrierKind.value === 'jp') return t('todos.yahoo.carrierJapanPost')
       return detail.yahoo_ship_form?.carrier || ''
     })
+    // 发货向导尺寸页顶上那一栏：显示**向导里选的**配送会社（可能已「配送会社の変更」过）
+    const YAHOO_CARRIER_VIEW = {
+      JAPAN_POST: { img: 'post-box', name: 'todos.yahoo.carrierJapanPost' },
+      YAMATO: { img: 'yamato', name: 'todos.yahoo.carrierYamato' },
+    }
+    const yahooShipCarrierImg = computed(() => YAHOO_CARRIER_VIEW[yahooShipCarrier.value]?.img || yahooCarrierImg.value)
+    const yahooShipCarrierName = computed(() => {
+      const view = YAHOO_CARRIER_VIEW[yahooShipCarrier.value]
+      return view ? t(view.name) : yahooCarrierName.value
+    })
+    // 交易页尺寸弹层里有「配送会社の変更」才给换（发过码就没有了）；读不出当前是哪家时没法「换成另一家」。
+    // 虚拟发货只能发投函型，配送会社只能是日本郵便
+    const yahooCanChangeCarrier = computed(
+      () =>
+        !shipFlowVirtual.value &&
+        !!yahooTradeCarrier.value &&
+        detail.yahoo_ship_form?.can_change_carrier !== false,
+    )
+
+    /** 尺寸页的「配送会社の変更」：在日本郵便 / ヤマト運輸 之间切换。
+     *  另一家的 サイズ / 発送場所 只有在交易页上真的换过承运商才看得到，第一次换时开浏览器现读
+     *  （后端顺手记进详情缓存），之后直接切。换了承运商，已选的尺寸 / 发货场所都不再适用。 */
+    async function onChangeYahooCarrier() {
+      const row = currentRow.value
+      if (!row?.id || yahooCarrierLoading.value || !yahooCanChangeCarrier.value) return
+      const next = yahooShipCarrier.value === 'YAMATO' ? 'JAPAN_POST' : 'YAMATO'
+      const form = detail.yahoo_ship_form
+      if (next !== yahooTradeCarrier.value && !form?.carrier_options?.[next]) {
+        yahooCarrierLoading.value = true
+        try {
+          const d = await todosApi.yahooCarrierOptions(row.id, { carrier: next })
+          // 读取期间弹窗被关掉 / 换了待办：结果丢弃
+          if (currentRow.value?.id !== row.id || !detail.yahoo_ship_form) return
+          detail.yahoo_ship_form.carrier_options = {
+            ...(detail.yahoo_ship_form.carrier_options || {}),
+            [next]: { size_options: d?.size_options || [], location_options: d?.location_options || [] },
+          }
+        } catch (e) {
+          if (!e?.response) ElMessage.error(e?.message || t('todos.yahoo.carrierFetchFailed'))
+          return
+        } finally {
+          yahooCarrierLoading.value = false
+        }
+      }
+      resetQrScanState()
+      yahooForm.carrier = next
+      yahooForm.size = ''
+      yahooForm.location = ''
+    }
 
     // 图片缺失时隐藏 <img>，避免显示破图占位
     function onShippingImgError(e) {
@@ -1693,6 +1766,8 @@ export default defineComponent({
         // 点尺寸卡片即进拍照页。包材在第一次提交时已记账，不再走包材页。
         resetQrScanState()
         openShipFlow({ target: 'yahoo', withPackaging: false, virtual: wasVirtual })
+        // 扫码发货只有投函型，而投函型是日本郵便的方式——ヤマト的交易上次也是换成日本郵便发的
+        yahooForm.carrier = 'JAPAN_POST'
         if (row.ship_qr_class_text) yahooForm.size = row.ship_qr_class_text
         return
       }
@@ -1984,6 +2059,8 @@ export default defineComponent({
         form?.item_name || detail.yahoo_app?.item_name || currentRow.value?.item_name || '',
       )
         .slice(0, Number(form?.item_name_max || 17))
+      // 回显的尺寸 / 场所是交易页当前那家配送会社的，配送会社也随之回到交易当前的
+      yahooForm.carrier = ''
       yahooForm.size = form?.size || ''
       yahooForm.location = form?.location || ''
     }
@@ -2370,7 +2447,11 @@ export default defineComponent({
       if (!row?.id || !canSubmitYahooShip.value || yahooShipLoading.value) return false
       try {
         await ElMessageBox.confirm(
-          t('todos.yahoo.confirmShip', { size: yahooForm.size, location: yahooForm.location }),
+          t('todos.yahoo.confirmShip', {
+            carrier: yahooShipCarrierName.value,
+            size: yahooForm.size,
+            location: yahooForm.location,
+          }),
           t('todos.yahoo.confirmTitle'),
           { type: 'warning' },
         )
@@ -2385,6 +2466,8 @@ export default defineComponent({
           item_name: yahooForm.item_name.trim(),
           size: yahooForm.size,
           location: yahooForm.location,
+          // 只在换过配送会社时才让后端去点「配送会社の変更」，没换就完全按原来的路径走
+          carrier: yahooCarrierChanged.value ? yahooShipCarrier.value : '',
         })
         // submitted 只代表「点到了发行按钮」。后端会回读页面，读不到配送コード图片时给出
         // code_uncertain —— 这时不能报成功：既不知道配送码是否真的发行，也就不该顺势
@@ -2476,6 +2559,16 @@ export default defineComponent({
       shipFlowVirtual.value = virtual
       shippingPickedIdx.value = null
       shippingFacility.value = null
+      // 雅虎每次进向导都从交易当前的配送会社开始；虚拟发货只有投函型，只能是日本郵便。
+      // 上一次在向导里换过配送会社的话，那时选的尺寸 / 场所属于另一家，一并清掉
+      if (target === 'yahoo') {
+        const carrier = virtual ? 'JAPAN_POST' : ''
+        if (yahooForm.carrier !== carrier) {
+          yahooForm.size = ''
+          yahooForm.location = ''
+        }
+        yahooForm.carrier = carrier
+      }
       const firstStep = target === 'yahoo' ? 'ysize' : 'size'
       shippingStep.value = scanOnly ? 'qrscan' : firstStep
       shippingDialogVisible.value = true
@@ -3420,6 +3513,11 @@ export default defineComponent({
       yahooSizeCards,
       onPickYahooSize,
       onConfirmYahooShip,
+      yahooCarrierLoading,
+      yahooShipCarrierImg,
+      yahooShipCarrierName,
+      yahooCanChangeCarrier,
+      onChangeYahooCarrier,
       syncLoading,
       bulkReviewLoading,
       bulkConfirmShipLoading,

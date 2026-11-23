@@ -34,6 +34,7 @@ from ._page import (
     wait_ready,
     yahoo_trade_url,
 )
+from .carrier import carrier_of, ensure_sheet_carrier, sheet_state
 
 log = logging.getLogger(__name__)
 
@@ -190,20 +191,38 @@ def _clean_options(items: List[str], *, drop: List[str]) -> List[str]:
     return out
 
 
-async def _read_options(page: Any, *, element_timeout_ms: int) -> Dict[str, List[str]]:
-    """把两个选择弹层各开一次，读回页面当前真实提供的选项，读完就关。"""
-    opts: Dict[str, List[str]] = {"size": [], "location": []}
+async def _read_options(
+    page: Any, *, element_timeout_ms: int, carrier: str = ""
+) -> Dict[str, Any]:
+    """把两个选择弹层各开一次，读回页面当前真实提供的选项，读完就关。
+
+    顺带从「サイズ」弹层读出当前配送会社（``carrier_vendor``）与能不能「配送会社の変更」。
+    ``carrier`` 非空时先在「サイズ」弹层里换成该配送会社再读两边的选项（只改页面上的选择，
+    不提交）；换不过去直接抛错——读回来的若是原承运商的选项，前端会把它们当成另一家的显示。
+    """
+    opts: Dict[str, Any] = {
+        "size": [], "location": [], "carrier_vendor": "", "can_change_carrier": None,
+    }
     for key, row, drop in (
         ("size", ROW_SIZE, ["荷物のサイズを選択", "持込場所", "配送サイズ詳細"]),
         ("location", ROW_LOCATION, ["荷物の発送場所を選択", "近くの発送場所", "発送方法"]),
     ):
         try:
             await open_row_sheet(page, row, element_timeout_ms=element_timeout_ms)
+            if key == "size":
+                st = await sheet_state(page)
+                names = st.get("carriers") or []
+                opts["carrier_vendor"] = carrier_of(names[0]) if len(names) == 1 else ""
+                opts["can_change_carrier"] = bool(st.get("has_change"))
+                if carrier:
+                    await ensure_sheet_carrier(page, carrier, element_timeout_ms=element_timeout_ms)
             # 优先按 radio 读（干净且与点选用的文案完全一致）；
             # 弹层若改成非 radio 实现，再退回扫文本并过滤标题/说明/价格行
             found = await sheet_options(page)
             opts[key] = found or _clean_options(await sheet_items(page), drop=drop)
         except Exception as exc:  # noqa: BLE001 读不到选项不影响其余详情
+            if carrier:
+                raise
             log.warning("[yahoo_trade] 读取「%s」选项失败：%s", row, exc)
         finally:
             await close_sheet(page)
@@ -230,6 +249,11 @@ async def read_trade_state(
         "carrier": state.get("carrier"),
         "submit_text": submit.get("text"),
         "submit_ready": submit.get("ready"),
+        # 当前配送会社的枚举名（JAPAN_POST / YAMATO）。读过选项时以「サイズ」弹层标题为准，
+        # 否则按上面那行文案推断
+        "carrier_vendor": carrier_of(state.get("carrier") or ""),
+        # 「サイズ」弹层里有没有「配送会社の変更」（没读选项时为 None = 未知）
+        "can_change_carrier": None,
         "size_options": [],
         "location_options": [],
         # 雅虎明示「仅 App 支持」的发货方式（ゆうパケットポスト / mini）——网页端选不了，
@@ -240,6 +264,8 @@ async def read_trade_state(
         opts = await _read_options(page, element_timeout_ms=element_timeout_ms)
         ship_form["size_options"] = opts["size"]
         ship_form["location_options"] = opts["location"]
+        ship_form["carrier_vendor"] = opts["carrier_vendor"] or ship_form["carrier_vendor"]
+        ship_form["can_change_carrier"] = opts["can_change_carrier"]
 
     buyer_id = None
     try:

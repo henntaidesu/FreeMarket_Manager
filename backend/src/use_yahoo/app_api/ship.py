@@ -6,9 +6,9 @@
 受取期限从那一刻起算。APK 里的引导文案也是分开的两步
 （``お近くの郵便ポストに投函してください`` / ``購入者に発送通知をしてください``）。
 
-发行配送コード在雅虎侧不可撤回，所以每一次都在动手前把能查的都查了：承运商是不是日本郵便、
-是不是还在待发货阶段、配送码是不是已经发过、材料码是不是没用过。任何一条不对就抛错，
-绝不「尽力而为」地继续。
+发行配送コード在雅虎侧不可撤回，所以每一次都在动手前把能查的都查了：是不是还在待发货阶段、
+配送码是不是已经发过、材料码是不是没用过。任何一条不对就抛错，绝不「尽力而为」地继续。
+承运商不查：发行前配送会社本来就能改，发行请求里带的就是日本郵便。
 """
 from __future__ import annotations
 
@@ -19,7 +19,6 @@ from ._client import YahooAppApiError
 from .contents_name import suggest_contents_name, validate_contents_name
 from .trade import (
     JAPAN_POST_SHIP_METHODS,
-    VENDOR_JAPAN_POST,
     check_material_code,
     create_ship_code,
     fetch_trade_seller,
@@ -75,9 +74,9 @@ async def fetch_app_ship_state(account_id: int, item_id: str) -> Dict[str, Any]:
     seller = await fetch_trade_seller(int(account_id), item_id)
     data = _summarize(seller)
     data["item_id"] = str(item_id).strip()
-    data["available_ship_methods"] = (
-        list(JAPAN_POST_SHIP_METHODS.values()) if data["vendor"] == VENDOR_JAPAN_POST else []
-    )
+    # 不按交易当前的 vendor 筛：发行配送コード之前配送会社可以改（交易页「配送会社の変更」，
+    # App 的 shipcode 也是把 vendor 随请求一起送），出品时选了ヤマト的交易同样能改发日本郵便
+    data["available_ship_methods"] = list(JAPAN_POST_SHIP_METHODS.values())
     return data
 
 
@@ -106,11 +105,9 @@ async def ship_via_app(
     seller_id, buyer_id, order_id = resolve_trade_ids(seller)
     state = _summarize(seller)
 
-    if state["vendor"] != VENDOR_JAPAN_POST:
-        raise ValueError(
-            f"这笔交易的配送会社是 {state['vendor'] or '未知'}，不是日本郵便，不能用「"
-            f"{JAPAN_POST_SHIP_METHODS[method]}」发货"
-        )
+    # 交易当前的 vendor 不是日本郵便也照发：shipcode 请求里带的就是 vendor=JAPAN_POST，
+    # 相当于发行时「配送会社の変更」。⚠ 对出品时选ヤマト的交易尚未实测；雅虎若不认，
+    # 拒绝发生在发行之前（4xx 原文会带回来），不会发出码。
     if state["is_ship_code_created"]:
         raise ValueError("这笔交易已经发行过配送コード，不能重复发行")
     if not state["shippable"]:

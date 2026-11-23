@@ -29,7 +29,9 @@ from typing import Any, Dict, Optional, Tuple
 from ...db_manage.database import DatabaseManager
 from ...db_manage.models.todos.todo_item import TodoItemModel
 from ...web_drive.yahoo_trade import (
+    fetch_carrier_ship_options,
     fetch_ship_state,
+    normalize_carrier,
     send_yahoo_trade_message,
     ship_yahoo_item,
 )
@@ -194,6 +196,41 @@ async def fetch_yahoo_todo_detail(todo_id: int) -> Dict[str, Any]:
     return data
 
 
+async def fetch_yahoo_carrier_options(todo_id: int, carrier: str) -> Dict[str, Any]:
+    """「配送会社の変更」：读换成 ``carrier`` 之后的「サイズ / 発送場所」可选项，并记进详情缓存。
+
+    记在 ``ship_form.carrier_options[carrier]`` 下，与交易当前承运商的 ``size_options`` /
+    ``location_options`` 分开放——重开处理面板时还能直接切换，不必再开一次浏览器。
+    """
+    aid, item_id = _resolve_yahoo_todo(todo_id)
+    vendor = normalize_carrier(carrier)
+    if not vendor:
+        raise ValueError("未指定配送会社")
+    data = await fetch_carrier_ship_options(aid, item_id=item_id, carrier=vendor)
+    data["todo_id"] = int(todo_id)
+    cached = get_cached_yahoo_todo_detail(int(todo_id))
+    form = cached.get("ship_form") if cached.get("cached") else None
+    if isinstance(form, dict):
+        options = form.get("carrier_options")
+        if not isinstance(options, dict):
+            options = {}
+        options[vendor] = {
+            "size_options": data["size_options"],
+            "location_options": data["location_options"],
+        }
+        form["carrier_options"] = options
+        for key in ("cached", "detail_synced_at"):
+            cached.pop(key, None)
+        try:
+            DatabaseManager().execute_update(
+                "UPDATE [todo_items] SET [detail_json]=? WHERE [id]=?",
+                (json.dumps(cached, ensure_ascii=False), int(todo_id)),
+            )
+        except Exception as exc:  # noqa: BLE001 缓存失败不影响本次返回
+            log.warning("[yahoo_trade] 缓存配送会社选项失败 todo_id=%s：%s", todo_id, exc)
+    return data
+
+
 async def _refresh_order_after_ship(account_id: int, item_id: str) -> Optional[Dict[str, Any]]:
     """发货后重读交易页刷新订单状态；失败只记日志，不让发货结果回滚。"""
     from ..orders.sold_sync import refresh_yahoo_order
@@ -237,6 +274,7 @@ async def ship_yahoo_todo(
     item_name: str,
     size: str,
     location: str,
+    carrier: str = "",
     material_code: str = "",
     qr_text: str = "",
     dry_run: bool = False,
@@ -246,11 +284,17 @@ async def ship_yahoo_todo(
     ``size`` 是 ゆうパケットポスト / mini 时改走 App API（网页端没有这两项），此时
     ``location`` 无意义——投函型没有発送場所可选，包裹是投进邮筒的——但仍需 ``material_code``
     （专用箱/シール/封筒 上的二维码）。``qr_text`` 是该二维码的完整原文，只用于记到订单上。
+
+    ``carrier``（JAPAN_POST / YAMATO）非空 = 发货前先「配送会社の変更」；空串沿用交易当前的。
+    投函型本身就是日本郵便的方式（App 发行时随请求带 ``vendor=JAPAN_POST``），不用另换。
     """
     aid, item_id = _resolve_yahoo_todo(todo_id)
+    carrier = normalize_carrier(carrier)
     # 两条路共用同一套品名规则（雅虎服务端也只认这一套），在开浏览器 / 调接口之前就拦下
     item_name = validate_contents_name(item_name)
     if _wants_app_path(size):
+        if carrier and carrier != "JAPAN_POST":
+            raise ValueError(f"「{size}」是日本郵便的发货方式，不能配 {carrier}")
         return await _ship_yahoo_todo_via_app(
             todo_id,
             aid,
@@ -268,6 +312,7 @@ async def ship_yahoo_todo(
         item_name=item_name,
         size=size,
         location=location,
+        carrier=carrier,
         dry_run=dry_run,
     )
     result["todo_id"] = int(todo_id)

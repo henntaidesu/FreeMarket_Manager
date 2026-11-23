@@ -15,6 +15,7 @@ from typing import Any, Dict
 from fastapi import HTTPException
 
 from .....use_yahoo.todos import (
+    fetch_yahoo_carrier_options,
     fetch_yahoo_todo_detail,
     finish_yahoo_wait_reply_todo,
     get_cached_yahoo_todo_detail,
@@ -26,7 +27,12 @@ from .....web_drive.core.account_serial_queue import (
     queue_key_for_mercari_account,
     run_mercari_serial_async,
 )
-from ..todos_models import YahooShipQrRequest, YahooShipRequest, YahooTradeMessageRequest
+from ..todos_models import (
+    YahooCarrierOptionsRequest,
+    YahooShipQrRequest,
+    YahooShipRequest,
+    YahooTradeMessageRequest,
+)
 
 log = logging.getLogger(__name__)
 
@@ -94,6 +100,19 @@ def yahoo_trade_detail_cache_endpoint(todo_id: int) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+async def yahoo_carrier_options_endpoint(
+    todo_id: int, req: YahooCarrierOptionsRequest
+) -> Dict[str, Any]:
+    """「配送会社の変更」：读换成另一家配送会社后的「サイズ / 発送場所」可选项（不提交）。"""
+    from .....web_drive.yahoo_trade import normalize_carrier
+
+    try:
+        carrier = normalize_carrier(req.carrier)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return await _run(todo_id, lambda: fetch_yahoo_carrier_options(int(todo_id), carrier))
+
+
 async def yahoo_ship_endpoint(todo_id: int, req: YahooShipRequest) -> Dict[str, Any]:
     """提交发货信息并发行配送コード（``dry_run`` 只校验不提交）。
 
@@ -129,6 +148,7 @@ async def yahoo_ship_endpoint(todo_id: int, req: YahooShipRequest) -> Dict[str, 
             item_name=req.item_name,
             size=req.size,
             location=req.location,
+            carrier=req.carrier,
             material_code=material_code,
             # 这条路的 material_code 就是照片解出的原文，由下游自己提取材料码
             qr_text=material_code,

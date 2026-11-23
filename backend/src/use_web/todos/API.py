@@ -53,6 +53,7 @@ from .units.todos_sync import (
     submit_transaction_review_endpoint,
     sync_todos,
     todos_sync_progress,
+    yahoo_carrier_options_endpoint,
     yahoo_finish_reply_endpoint,
     yahoo_notify_shipped_endpoint,
     yahoo_ship_endpoint,
@@ -191,6 +192,8 @@ router.add_api_route("/close-detail-browser/{account_id}", close_detail_browser,
 router.add_api_route("/{todo_id}/yahoo/trade-detail", yahoo_trade_detail_endpoint, methods=["POST"])
 router.add_api_route("/{todo_id}/yahoo/trade-detail-cache", yahoo_trade_detail_cache_endpoint, methods=["GET"])
 router.add_api_route("/{todo_id}/yahoo/ship", yahoo_ship_endpoint, methods=["POST"], dependencies=_f("todos:ship"))
+# 「配送会社の変更」：读换成另一家配送会社后的 サイズ / 発送場所 可选项（不提交）
+router.add_api_route("/{todo_id}/yahoo/carrier-options", yahoo_carrier_options_endpoint, methods=["POST"], dependencies=_f("todos:ship"))
 # ゆうパケットポスト / mini：拍一张二维码照片 → 校验 → 入队（发行配送コード + 発送通知 + 软删待办）
 router.add_api_route("/{todo_id}/yahoo/ship-qr", _yahoo_ship_qr_endpoint, methods=["POST"], dependencies=_f("todos:ship"))
 # 発送通知失败时的手动补发口（正常路径下发货任务已经通知过了）

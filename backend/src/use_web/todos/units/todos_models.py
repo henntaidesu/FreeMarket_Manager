@@ -153,11 +153,19 @@ class YahooShipRequest(PydanticModel):
     item_name: str = Field(..., min_length=1, max_length=17)
     size: str = Field(..., min_length=1, max_length=60)
     location: str = ""
+    # 发货前先「配送会社の変更」成这家（JAPAN_POST / YAMATO）；空串 = 沿用交易当前的配送会社
+    carrier: str = Field("", max_length=20)
     # 专用箱 / 発送用シール / 専用封筒 上二维码的**照片**（data URL，仅投函型需要）。
     # 由后端解码并提取材料码——与煤炉一样「拍完即提交」，不让用户多按一次校验。
     material_image: str = ""
     # 只填表校验、不点「配送コードを表示する」
     dry_run: bool = False
+
+
+class YahooCarrierOptionsRequest(PydanticModel):
+    """雅虎「配送会社の変更」：读换成这家配送会社（JAPAN_POST / YAMATO）后的可选项。"""
+
+    carrier: str = Field(..., min_length=1, max_length=20)
 
 
 class YahooShipQrRequest(PydanticModel):

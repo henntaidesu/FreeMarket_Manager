@@ -1648,6 +1648,15 @@
   margin-bottom: 8px;
 }
 
+/* 雅虎发货向导尺寸页顶部：当前配送会社（左）+「配送会社の変更」（右） */
+.yahoo-carrier-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
 
 /* 发货向导里的「虚拟发货」提示条：贴在步骤条与页面主体之间 */
 .ship-virtual-hint {

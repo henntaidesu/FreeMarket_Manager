@@ -1001,6 +1001,19 @@ soft-delete, inventory counters and order upsert semantics stay identical across
     `_SHEET_CLICK_JS` matches, so enumerate and click can't drift apart. Scanning `li/p/label` text
     instead returns the same option at several nesting depths (`ゆうパケットプラス` *and*
     `ゆうパケットプラス24cm×17cm以内`).
+  - **The 配送会社 is not fixed at listing time** — the サイズ sheet's title row reads
+    「おてがる配送（日本郵便）」 with a 「配送会社の変更」 link on the right, usable until the 配送コード is
+    shown (`units/carrier.py`). Switching replaces both the size *and* the location lists, so it must
+    happen inside the size sheet **before** picking a size (`_select_row(..., carrier=)`), and the
+    location after. The current carrier is read **only from the open sheet's title** — closed sheets
+    stay in the DOM on desktop, so body-wide text can hold both names. The other carrier's options are
+    **not** part of the regular detail fetch (that would flip the carrier on every precache); the
+    wizard's 「配送会社の変更」 reads them on demand (`/yahoo/carrier-options`, cached under
+    `ship_form.carrier_options[vendor]`), and `/yahoo/ship` gets `carrier` **only when it differs**
+    from the trade's — the unchanged path never touches the link. Size names don't overlap between
+    carriers, so the existing "row shows the picked size" check doubles as the carrier check.
+    ⚠ The layer opened by 「配送会社の変更」 is **unverified live**: picking tries radio name/value =
+    vendor enum, then label text, then the deepest text match; every failure raises with the sheet text.
   - `発送場所` is an `h3` row, not a `<button>` like `サイズ` — hence the unified "click the element
     whose first line is X and let React bubble it" helper instead of `get_by_role`.
   - The page has no trade API at all: `__NEXT_DATA__` carries only an empty Redux state and no XHR
@@ -1090,8 +1103,10 @@ soft-delete, inventory counters and order upsert semantics stay identical across
   - **The 发货 UI is the same multi-step wizard as Mercari's**, sharing one dialog
     (`shippingDialogVisible`) but its own step keys — 包材 → `ysize` (品名 + 尺寸) →
     `ylocation` *or* `yqr`. Sizes are merged: web options (read off the trade page) + the App-only
-    two, the latter only when a token is configured *and* `order.vendor == JAPAN_POST` *and* the
-    trade is still `WAIT_FOR_SELLER_SHIP`. **Which branch the third step takes is the same split as
+    two, the latter only when a token is configured *and* the wizard's carrier is 日本郵便 *and* the
+    trade is still `WAIT_FOR_SELLER_SHIP` — **not** gated on `order.vendor`: the `/shipcode` body
+    carries `vendor=JAPAN_POST` itself, i.e. it changes the carrier at issue time (unverified live on a
+    trade listed as ヤマト; a refusal happens before any code is issued). **Which branch the third step takes is the same split as
     the backend's**: post-box → `yqr` → App API; the other three → `ylocation` → page automation.
     Don't reuse Mercari's `size`/`facility` steps — they read a hard-coded Mercari size table.
   - **The material code is photographed, and the shot goes to the task queue — not to a blocking

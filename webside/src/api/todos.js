@@ -102,6 +102,9 @@ export const todosApi = {
    *  尺寸为 ゆうパケットポスト / mini 时后端自动改走 App API，需一并传 material_image（二维码照片） */
   yahooShip: (todoId, body = {}, axiosConfig = {}) =>
     http.post(`/use_web/todos/${encodeURIComponent(todoId)}/yahoo/ship`, body || {}, { timeout: 0, ...axiosConfig }),
+  /** 「配送会社の変更」：读换成 body.carrier（JAPAN_POST / YAMATO）后的 サイズ / 発送場所 可选项（不提交） */
+  yahooCarrierOptions: (todoId, body = {}, axiosConfig = {}) =>
+    http.post(`/use_web/todos/${encodeURIComponent(todoId)}/yahoo/carrier-options`, body || {}, { timeout: 0, ...axiosConfig }),
   /** 投函型（ゆうパケットポスト / mini）发货：提交一张二维码照片 → 后端校验并入队后台执行
    *  （发行配送コード → 発送通知 → 刷订单 → 软删待办），与煤炉的 scanQrPhoto 同一形态 */
   yahooShipQr: (todoId, body = {}, axiosConfig = {}) =>

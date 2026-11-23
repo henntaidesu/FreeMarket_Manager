@@ -817,7 +817,7 @@
                       </span>
                     </el-tooltip>
                     <!-- 点它进多级向导：包材 → 品名/尺寸 → 発送場所（或上传二维码）。
-                         没有「修改」——雅虎的配送公司在出品时就定了，交易页改不了。 -->
+                         这里没有「修改」：雅虎的「配送会社の変更」在尺寸弹层里，向导的尺寸页照搬了那个入口。 -->
                     <el-tooltip
                       :disabled="hasInventoryMatch"
                       :content="t('todos.updateOrderFirst')"
@@ -1505,6 +1505,28 @@
            插图 + 规格行 + 注意事项，文案与排序都对齐煤炉的 SHIPPING_OPTIONS。
            品名不在这里填：用 applyYahooDetail 预填的值（交易页品名 → App 读到的商品标题 → 待办商品名）。 -->
       <template v-else-if="shippingStep === 'ysize'">
+        <!-- 与雅虎交易页「荷物のサイズを選択」同一形态：标题行是当前配送会社，右侧「配送会社の変更」。
+             换承运商后下面的尺寸（以及下一步的发货场所）整套换成那一家的 -->
+        <div class="yahoo-carrier-bar">
+          <div class="detail-method-head">
+            <img
+              v-if="yahooShipCarrierImg"
+              class="detail-method-img"
+              :src="facilityImageUrl(yahooShipCarrierImg)"
+              :alt="yahooShipCarrierName"
+              @error="onShippingImgError"
+            />
+            <span class="detail-method-name">{{ yahooShipCarrierName || dash }}</span>
+          </div>
+          <el-button
+            v-if="yahooCanChangeCarrier"
+            link
+            type="primary"
+            :loading="yahooCarrierLoading"
+            @click="onChangeYahooCarrier"
+          >{{ t('todos.yahoo.changeCarrier') }}</el-button>
+        </div>
+        <div v-loading="yahooCarrierLoading">
           <el-radio-group v-if="yahooSizeCards.length" v-model="yahooForm.size" class="ship-radio-group">
             <div
               v-for="opt in yahooSizeCards"
@@ -1542,6 +1564,7 @@
             </div>
           </el-radio-group>
           <div v-else class="detail-empty">{{ t('todos.yahoo.needFetch') }}</div>
+        </div>
       </template>
 
       <!-- ── 雅虎第 3 步（网页模拟的三种）：発送場所。与煤炉发货地页同一套卡片（图标 + 名称） ── -->
