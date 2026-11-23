@@ -29,6 +29,7 @@ from ._page import (
     close_sheet,
     open_row_sheet,
     sheet_items,
+    sheet_option_details,
     sheet_options,
     submit_button_state,
     wait_ready,
@@ -201,7 +202,8 @@ async def _read_options(
     不提交）；换不过去直接抛错——读回来的若是原承运商的选项，前端会把它们当成另一家的显示。
     """
     opts: Dict[str, Any] = {
-        "size": [], "location": [], "carrier_vendor": "", "can_change_carrier": None,
+        "size": [], "location": [], "size_details": {}, "location_details": {},
+        "carrier_vendor": "", "can_change_carrier": None,
     }
     for key, row, drop in (
         ("size", ROW_SIZE, ["荷物のサイズを選択", "持込場所", "配送サイズ詳細"]),
@@ -220,6 +222,8 @@ async def _read_options(
             # 弹层若改成非 radio 实现，再退回扫文本并过滤标题/说明/价格行
             found = await sheet_options(page)
             opts[key] = found or _clean_options(await sheet_items(page), drop=drop)
+            # 选项上的限制 / 附加费（ヤマト集荷「※ネコポス利用不可」「税込50円」），前端据此禁选、标价
+            opts[f"{key}_details"] = await sheet_option_details(page)
         except Exception as exc:  # noqa: BLE001 读不到选项不影响其余详情
             if carrier:
                 raise
@@ -256,6 +260,9 @@ async def read_trade_state(
         "can_change_carrier": None,
         "size_options": [],
         "location_options": [],
+        # 选项名 → {notes, fee, disabled, unavailable_for}，见 _page.sheet_option_details
+        "size_option_details": {},
+        "location_option_details": {},
         # 雅虎明示「仅 App 支持」的发货方式（ゆうパケットポスト / mini）——网页端选不了，
         # 前端据此提示用户去 App 发货，而不是让人对着少两项的列表发懵
         "app_only_note": data["app_only_note"],
@@ -264,6 +271,8 @@ async def read_trade_state(
         opts = await _read_options(page, element_timeout_ms=element_timeout_ms)
         ship_form["size_options"] = opts["size"]
         ship_form["location_options"] = opts["location"]
+        ship_form["size_option_details"] = opts["size_details"]
+        ship_form["location_option_details"] = opts["location_details"]
         ship_form["carrier_vendor"] = opts["carrier_vendor"] or ship_form["carrier_vendor"]
         ship_form["can_change_carrier"] = opts["can_change_carrier"]
 

@@ -1014,6 +1014,18 @@ soft-delete, inventory counters and order upsert semantics stay identical across
     carriers, so the existing "row shows the picked size" check doubles as the carrier check.
     ⚠ The layer opened by 「配送会社の変更」 is **unverified live**: picking tries radio name/value =
     vendor enum, then label text, then the deepest text match; every failure raises with the sheet text.
+  - **ヤマト's names come from the APK** (`core_entity/ShipMethod` / `ShipPlace`): sizes ネコポス /
+    宅急便コンパクト（EAZY） / 宅急便（EAZY）; 発送場所 ヤマト営業所 / セブン-イレブン /
+    ファミリーマート・ファミロッカー・宅配ロッカー（PUDOなど） / スマリボックス / 自宅など（ヤマト運輸の集荷）.
+    An option's restrictions and surcharge are **not** in its name leaf but elsewhere in its row
+    (「※ネコポス利用不可」, 「税込50円」), so `_page.sheet_option_details` takes the outermost ancestor
+    holding only that radio and parses `notes` / `fee` / `disabled` / `unavailable_for`; they ride along as
+    `ship_form.{size,location}_option_details`. The wizard greys out a location that can't pair with the
+    picked size, and `_select_row(..., paired_with=size)` refuses it before clicking. The final
+    "row shows the picked option" check falls back to a **unique** substring match, because those long
+    names may be echoed abbreviated — two options matching = refuse. **集荷 is not implemented**: the
+    App's `/otegaruDelivery/pickup` wants a pickup address + `pickupDate`/`pickupTime`, the web form
+    presumably too, so the submit button stays pending and ship aborts with the page's buttons dumped.
   - `発送場所` is an `h3` row, not a `<button>` like `サイズ` — hence the unified "click the element
     whose first line is X and let React bubble it" helper instead of `get_by_role`.
   - The page has no trade API at all: `__NEXT_DATA__` carries only an empty Redux state and no XHR

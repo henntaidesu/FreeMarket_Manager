@@ -450,16 +450,16 @@ def list_todos(
     for it in items:
         if not it.get("item_name") and str(it.get("platform") or "").strip() == "yahoo":
             it["item_name"] = _yahoo_item_name(it)
-    # 稳定排序：推算不出发货期限的行保持原有 id 升序垫底
-    items.sort(key=_ship_deadline_sort_key)
-    offset = (page - 1) * page_size
-    page_items = items[offset:offset + page_size]
-    # 图片左下角「在途」角标：货在在途仓上。只算当前页，按订单查货架比整表贵得多
+    # 图片左下角「在途」角标：货在在途仓上。要按它排序，所以整表都算（待办行数很小）
     from ....use_mercari.line_shelves import orders_in_transit
 
-    transit = orders_in_transit(db, [it.get("item_id") for it in page_items])
-    for it in page_items:
+    transit = orders_in_transit(db, [it.get("item_id") for it in items])
+    for it in items:
         it["in_transit"] = 1 if str(it.get("item_id") or "").strip() in transit else 0
+    # 稳定排序：非在途的货在前（能立刻发）；同组内按发货期限，推算不出期限的保持 id 升序垫底
+    items.sort(key=lambda it: (it["in_transit"], _ship_deadline_sort_key(it)))
+    offset = (page - 1) * page_size
+    page_items = items[offset:offset + page_size]
     return {
         "total": len(items),
         "page": page,

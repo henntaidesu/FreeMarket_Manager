@@ -1567,14 +1567,19 @@
         </div>
       </template>
 
-      <!-- ── 雅虎第 3 步（网页模拟的三种）：発送場所。与煤炉发货地页同一套卡片（图标 + 名称） ── -->
+      <!-- ── 雅虎第 3 步（网页模拟的那几种）：発送場所。与煤炉发货地页同一套卡片（图标 + 名称）。
+           雅虎标了附加费的（ヤマト集荷 税込50円）卡片上照标；注明不能配所选尺寸的（集荷「※ネコポス利用不可」）置灰不可点 ── -->
       <div v-else-if="shippingStep === 'ylocation'" class="ship-facility-section">
         <div v-if="yahooLocationCards.length" class="ship-facility-cards">
           <div
             v-for="l in yahooLocationCards"
             :key="l.name"
-            :class="['ship-facility-card', yahooForm.location === l.name ? 'ship-facility-card-active' : '']"
-            @click="yahooForm.location = l.name"
+            :class="[
+              'ship-facility-card',
+              yahooForm.location === l.name ? 'ship-facility-card-active' : '',
+              l.disabled ? 'ship-facility-card-disabled' : '',
+            ]"
+            @click="onPickYahooLocation(l)"
           >
             <img
               v-if="l.img"
@@ -1584,6 +1589,7 @@
               @error="onShippingImgError"
             />
             <span class="ship-facility-label">{{ l.name }}</span>
+            <span v-if="l.fee" class="ship-facility-fee">+¥{{ l.fee }}</span>
           </div>
         </div>
         <div v-else class="detail-empty-hint">{{ t('todos.yahoo.needFetch') }}</div>

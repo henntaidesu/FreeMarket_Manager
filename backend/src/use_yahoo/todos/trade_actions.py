@@ -215,8 +215,13 @@ async def fetch_yahoo_carrier_options(todo_id: int, carrier: str) -> Dict[str, A
         if not isinstance(options, dict):
             options = {}
         options[vendor] = {
-            "size_options": data["size_options"],
-            "location_options": data["location_options"],
+            key: data[key]
+            for key in (
+                "size_options",
+                "location_options",
+                "size_option_details",
+                "location_option_details",
+            )
         }
         form["carrier_options"] = options
         for key in ("cached", "detail_synced_at"):

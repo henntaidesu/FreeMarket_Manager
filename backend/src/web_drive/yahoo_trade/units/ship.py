@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from ...core.yahoo_session import yahoo_automation_browser
 from ._page import (
@@ -26,13 +26,16 @@ from ._page import (
     SHIP_SUBMIT_READY_TEXT,
     click_button,
     close_sheet,
+    conflicts_with,
     open_row_sheet,
     sheet_checked,
     sheet_click,
     sheet_items,
     sheet_ok,
+    sheet_option_details,
     sheet_options,
     submit_button_state,
+    visible_buttons,
     wait_ready,
     yahoo_trade_url,
 )
@@ -45,6 +48,9 @@ log = logging.getLogger(__name__)
 #: 渲染出来（ゆうパック 实测 1~4 秒，走 MITM 代理更慢）。固定等几秒就读，慢的时候读到的还是发行前
 #: 的页面，被报成 code_uncertain——可码其实已经发了、撤不回。所以轮询到码出现为止。
 CODE_WAIT_TIMEOUT_MS = 30000
+
+#: ヤマト「自宅など（ヤマト運輸の集荷）」的标志词（APK ``ShipPlace.PICKUP``）
+PICKUP_MARK = "集荷"
 
 
 async def _wait_code_shown(page: Any, *, element_timeout_ms: int) -> Dict[str, Any]:
@@ -84,18 +90,37 @@ async def _fill_item_name(page: Any, name: str, *, element_timeout_ms: int) -> s
     return text
 
 
-def _same_choice(picked: str, shown: Optional[str]) -> bool:
-    """弹层选项名与表单行回显是否同一项。雅虎回显会省掉「の」（选「郵便局の窓口」，行上是「郵便局窓口」）。"""
+def _same_choice(picked: str, shown: Optional[str], options: List[str]) -> bool:
+    """弹层选项名与表单行回显是否同一项。雅虎回显会省掉「の」（选「郵便局の窓口」，行上是「郵便局窓口」）。
+
+    名字对不上时退一步：回显与选项名互为包含、且**同一弹层里只有所选这一项**能这样对上，
+    也算同一项——ヤマト的発送場所名很长（「ファミリーマート・ファミロッカー・宅配ロッカー（PUDOなど）」
+    「自宅など（ヤマト運輸の集荷）」），表单行上可能只回显其中一段。对得上两项以上就不认，宁可中止。
+    """
     norm = lambda s: re.sub(r"[\sの]", "", s or "")  # noqa: E731
-    return bool(shown) and norm(picked) == norm(shown)
+    got = norm(shown)
+    if not got:
+        return False
+    if norm(picked) == got:
+        return True
+    hits = [o for o in options or [] if norm(o) and (got in norm(o) or norm(o) in got)]
+    return hits == [picked]
 
 
 async def _select_row(
-    page: Any, row: str, value: str, *, element_timeout_ms: int, carrier: str = ""
-) -> str:
-    """在某个表单行的弹层里按名字选一项并按 OK 确认。
+    page: Any,
+    row: str,
+    value: str,
+    *,
+    element_timeout_ms: int,
+    carrier: str = "",
+    paired_with: str = "",
+) -> Tuple[str, List[str]]:
+    """在某个表单行的弹层里按名字选一项并按 OK 确认，返回 ``(所选项, 弹层里的全部选项)``。
 
     ``carrier`` 只对「サイズ」有意义：「配送会社の変更」就在尺寸弹层里，先换承运商再选尺寸。
+    ``paired_with`` 是另一行已选的项（选発送場所时传尺寸）：雅虎在选项上注明了不能搭配的
+    （ヤマト集荷「※ネコポス利用不可」），或那一项是禁用的，就在点之前拦下并说清原因。
     """
     target = (value or "").strip()
     if not target:
@@ -103,8 +128,14 @@ async def _select_row(
     await open_row_sheet(page, row, element_timeout_ms=element_timeout_ms)
     if carrier:
         await ensure_sheet_carrier(page, carrier, element_timeout_ms=element_timeout_ms)
+    options = await sheet_options(page)
+    detail = (await sheet_option_details(page)).get(target)
+    if detail and (detail.get("disabled") or conflicts_with(detail, paired_with)):
+        await close_sheet(page)
+        why = "、".join(detail.get("notes") or []) or "雅虎页面上该项不可选"
+        raise ValueError(f"「{row}」的「{target}」不能与「{paired_with}」一起用（{why}）")
     if not await sheet_click(page, target):
-        options = await sheet_options(page) or await sheet_items(page)
+        options = options or await sheet_items(page)
         await close_sheet(page)
         raise ValueError(
             f"「{row}」没有「{target}」这一项；当前可选：{'、'.join(options[:20])}"
@@ -122,7 +153,7 @@ async def _select_row(
         raise RuntimeError(f"「{row}」弹层的 OK 按钮不可点（选项可能未真正选中）")
     await page.wait_for_timeout(1200)
     await close_sheet(page)
-    return target
+    return target, options
 
 
 async def ship_yahoo_item(
@@ -177,11 +208,15 @@ async def ship_yahoo_item(
         )
         if carrier:
             result["filled"]["carrier"] = carrier
-        result["filled"]["size"] = await _select_row(
+        result["filled"]["size"], size_options = await _select_row(
             page, ROW_SIZE, size, element_timeout_ms=element_timeout_ms, carrier=carrier
         )
-        result["filled"]["location"] = await _select_row(
-            page, ROW_LOCATION, location, element_timeout_ms=element_timeout_ms
+        result["filled"]["location"], location_options = await _select_row(
+            page,
+            ROW_LOCATION,
+            location,
+            element_timeout_ms=element_timeout_ms,
+            paired_with=result["filled"]["size"],
         )
 
         await page.wait_for_timeout(1000)
@@ -191,11 +226,11 @@ async def ship_yahoo_item(
                 page, with_options=False, element_timeout_ms=element_timeout_ms
             )
         )["ship_form"]
-        for row, picked, shown in (
-            (ROW_SIZE, result["filled"]["size"], form.get("size")),
-            (ROW_LOCATION, result["filled"]["location"], form.get("location")),
+        for row, picked, shown, options in (
+            (ROW_SIZE, result["filled"]["size"], form.get("size"), size_options),
+            (ROW_LOCATION, result["filled"]["location"], form.get("location"), location_options),
         ):
-            if not _same_choice(picked, shown):
+            if not _same_choice(picked, shown, options):
                 raise RuntimeError(
                     f"「{row}」表单上显示的是 {shown!r}，不是所选的「{picked}」，已中止未提交"
                 )
@@ -204,6 +239,15 @@ async def ship_yahoo_item(
         result["submit_ready"] = bool(state.get("ready"))
         result["submit_text"] = state.get("text")
         if not result["submit_ready"]:
+            if PICKUP_MARK in result["filled"]["location"]:
+                # ヤマト集荷还要集荷先住所 / 集荷日時（App 的集荷登记接口要的就是这些），
+                # 本系统还不会填。把页面上多出来的按钮带回去，日后照着补
+                buttons = "、".join(b.get("text", "")[:30] for b in await visible_buttons(page))
+                raise RuntimeError(
+                    f"选了「{result['filled']['location']}」后雅虎还要求填写集荷信息，本系统尚未支持，"
+                    f"已中止未提交。请改选营业所 / 便利店发货，或到雅虎页面上手动办理集荷。"
+                    f"（页面按钮：{buttons[:300]}）"
+                )
             raise RuntimeError(
                 f"发货信息填完后提交按钮仍不可用（当前文案：{state.get('text')!r}），已中止未提交"
             )
@@ -303,4 +347,6 @@ async def fetch_carrier_ship_options(
         "carrier": vendor,
         "size_options": opts["size"],
         "location_options": opts["location"],
+        "size_option_details": opts["size_details"],
+        "location_option_details": opts["location_details"],
     }

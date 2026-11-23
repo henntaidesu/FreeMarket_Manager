@@ -1321,6 +1321,21 @@
   font-size: 13px;
   font-weight: 600;
 }
+/* 雅虎発送場所的附加费（ヤマト集荷 税込50円），贴卡片右侧 */
+.ship-facility-fee {
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--el-color-danger);
+}
+/* 与所选尺寸不能搭配的雅虎発送場所（集荷「※ネコポス利用不可」） */
+.ship-facility-card-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.ship-facility-card-disabled:hover {
+  border-color: var(--el-border-color);
+}
 
 /* 发货 section 标题行：标题左、修改发货方式按钮右上角 */
 .detail-section-head {

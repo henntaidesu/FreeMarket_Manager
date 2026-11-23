@@ -458,12 +458,14 @@ export default defineComponent({
     const yahooLocationOptions = computed(() => yahooCarrierOptions.value.location_options || [])
     // 発送場所卡片图标：与煤炉发货地卡片同一套图（public/static/post_hukuro/<img>.png）。
     // 选项名以交易页下发的为准（随配送会社变化），按名字里的关键词认图标，认不出的卡片只显示名字。
-    // 「集荷」「PUDO」要排在「ヤマト」前面——「ヤマト運輸による集荷」这类名字两个词都含。
+    // 「集荷」「PUDO」要排在「ヤマト」前面——「自宅など（ヤマト運輸の集荷）」两个词都含。
+    // 「ファミリーマート」排在「ファミロッカー」前面：ヤマト那一项是「ファミリーマート・ファミロッカー・
+    // 宅配ロッカー（PUDOなど）」，雅虎自己也是把全家的图标放第一个；日本郵便的「ファミロッカー」不含前者
     const YAHOO_LOCATION_ICONS = [
       ['郵便局', 'japan-post'],
       ['ローソン', 'lawson'],
-      ['ファミロッカー', 'fami-locker'],
       ['ファミリーマート', 'family-mart'],
+      ['ファミロッカー', 'fami-locker'],
       ['セブン', '7-eleven'],
       ['PUDO', 'pudo'],
       ['スマリ', 'smari-box'],
@@ -473,9 +475,30 @@ export default defineComponent({
     function yahooLocationIcon(name) {
       return (YAHOO_LOCATION_ICONS.find(([kw]) => String(name || '').includes(kw)) || [])[1] || ''
     }
-    const yahooLocationCards = computed(() =>
-      yahooLocationOptions.value.map((name) => ({ name, img: yahooLocationIcon(name) })),
-    )
+    // 雅虎在选项上注明了不能搭配的尺寸（ヤマト集荷「※ネコポス利用不可」→ unavailable_for: ['ネコポス']），
+    // 口径与后端 _page.conflicts_with 一致
+    function yahooOptionConflicts(info, other) {
+      const target = String(other || '').trim()
+      if (!target || !info) return false
+      return (info.unavailable_for || []).some((t) => t === target || target.includes(t) || t.includes(target))
+    }
+    // fee 是该场所自己标的附加费（集荷 税込50円）；disabled = 交易页上禁用，或与已选尺寸不能搭配
+    const yahooLocationCards = computed(() => {
+      const details = yahooCarrierOptions.value.location_option_details || {}
+      return yahooLocationOptions.value.map((name) => {
+        const info = details[name]
+        return {
+          name,
+          img: yahooLocationIcon(name),
+          fee: info?.fee ?? null,
+          disabled: !!info?.disabled || yahooOptionConflicts(info, yahooForm.size),
+        }
+      })
+    })
+    function onPickYahooLocation(card) {
+      if (card.disabled) return
+      yahooForm.location = card.name
+    }
     // 已发行配送コード的发货地行，对应煤炉的「○○から発送」——雅虎交易页发码后的标题也正是「郵便局窓口から発送」
     const yahooShipFacility = computed(() => {
       const loc = String(detail.yahoo_ship_form?.location || '').trim()
@@ -504,7 +527,11 @@ export default defineComponent({
     const yahooItemNameMax = computed(() => Number(detail.yahoo_ship_form?.item_name_max || 17))
     const canSubmitYahooShip = computed(() => {
       if (!yahooForm.item_name.trim() || !yahooForm.size) return false
-      return isYahooPostBoxSize.value ? !!qrShot.value : !!yahooForm.location
+      if (isYahooPostBoxSize.value) return !!qrShot.value
+      return (
+        !!yahooForm.location &&
+        !yahooLocationCards.value.some((c) => c.name === yahooForm.location && c.disabled)
+      )
     })
     function resetYahooShipForm() {
       yahooForm.item_name = ''
@@ -1288,7 +1315,12 @@ export default defineComponent({
           if (currentRow.value?.id !== row.id || !detail.yahoo_ship_form) return
           detail.yahoo_ship_form.carrier_options = {
             ...(detail.yahoo_ship_form.carrier_options || {}),
-            [next]: { size_options: d?.size_options || [], location_options: d?.location_options || [] },
+            [next]: {
+              size_options: d?.size_options || [],
+              location_options: d?.location_options || [],
+              size_option_details: d?.size_option_details || {},
+              location_option_details: d?.location_option_details || {},
+            },
           }
         } catch (e) {
           if (!e?.response) ElMessage.error(e?.message || t('todos.yahoo.carrierFetchFailed'))
@@ -3513,6 +3545,7 @@ export default defineComponent({
       yahooSizeCards,
       onPickYahooSize,
       onConfirmYahooShip,
+      onPickYahooLocation,
       yahooCarrierLoading,
       yahooShipCarrierImg,
       yahooShipCarrierName,

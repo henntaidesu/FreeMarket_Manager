@@ -21,6 +21,7 @@ PC 版是**居中模态**，关闭态照样 ``position:fixed``、照样有尺寸
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Dict, List, Optional
 
 from ...core.yahoo_session import YAHOO_SEC_BASE_URL
@@ -141,6 +142,26 @@ _SHEET_CLICK_JS = (
     if (!r) return false;
     r.click();
     return true;
+}"""
+)
+
+#: 弹层里每个选项的整行原文 + 是否禁用。选项名之外的东西（「※ネコポス利用不可」这类限制、
+#: 「税込50円」这类附加费）不在 label 的首个文字节点里，而在同一行的其它节点上——
+#: 所以从 radio 往上取「只包含这一个 radio 的最外层祖先」当这一行。
+_SHEET_OPTION_ROWS_JS = (
+    "() => {"
+    + _PRELUDE
+    + """
+    const s = openSheet();
+    if (!s) return [];
+    const radioCount = (el) => el.querySelectorAll('input[type=radio]').length;
+    return [...s.querySelectorAll('input[type=radio]')].map((r) => {
+      let row = r;
+      while (row.parentElement && row.parentElement !== s && radioCount(row.parentElement) === 1) {
+        row = row.parentElement;
+      }
+      return {name: radioName(r), text: (row.innerText || '').trim(), disabled: !!r.disabled};
+    }).filter((x) => x.name);
 }"""
 )
 
@@ -274,6 +295,47 @@ async def sheet_options(page: Any) -> List[str]:
         return await page.evaluate(_SHEET_OPTIONS_JS) or []
     except Exception:
         return []
+
+
+_NOTE_RE = re.compile(r"※[^\n]+")
+_FEE_RE = re.compile(r"税込\s*([0-9,]+)\s*円")
+#: 「※ネコポス利用不可」→ ネコポス。多项时雅虎用「・」「、」分隔
+_UNAVAILABLE_RE = re.compile(r"※\s*(.+?)(?:は|の)?(?:ご)?利用不可")
+
+
+def _parse_option_row(text: str, disabled: bool) -> Dict[str, Any]:
+    notes = [n.strip() for n in _NOTE_RE.findall(text or "")]
+    unavailable: List[str] = []
+    for note in notes:
+        m = _UNAVAILABLE_RE.search(note)
+        if m:
+            unavailable += [t.strip() for t in re.split(r"[・、/／,，]", m.group(1)) if t.strip()]
+    m = _FEE_RE.search(text or "")
+    return {
+        "notes": notes,
+        # 这一项自己标的价格（尺寸是运费，発送場所是附加费，如集荷的 税込50円）
+        "fee": int(m.group(1).replace(",", "")) if m else None,
+        "disabled": bool(disabled),
+        # 雅虎注明「不能配这些」的另一行的选项名（発送場所「※ネコポス利用不可」→ ["ネコポス"]）
+        "unavailable_for": unavailable,
+    }
+
+
+async def sheet_option_details(page: Any) -> Dict[str, Dict[str, Any]]:
+    """当前弹层每个选项的附加信息：``{选项名: {notes, fee, disabled, unavailable_for}}``。"""
+    try:
+        rows = await page.evaluate(_SHEET_OPTION_ROWS_JS) or []
+    except Exception:
+        return {}
+    return {r["name"]: _parse_option_row(r.get("text") or "", r.get("disabled")) for r in rows}
+
+
+def conflicts_with(detail: Optional[Dict[str, Any]], other: str) -> bool:
+    """``detail`` 这个选项是否被雅虎注明不能和 ``other``（另一行选中的项）一起用。"""
+    target = (other or "").strip()
+    if not target or not detail:
+        return False
+    return any(t == target or t in target or target in t for t in detail.get("unavailable_for") or [])
 
 
 async def sheet_click(page: Any, name: str) -> bool:

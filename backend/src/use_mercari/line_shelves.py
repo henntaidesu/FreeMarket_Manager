@@ -6,7 +6,8 @@
   · 同一商品有多笔待出库：全都显示队首货架，哪怕那一批只剩 1 件。
 所以：
   · 已扣过库存的明细（已出库 / 手动预扣）读 ``order_outbound_lines.warehouse_id`` 快照——
-    扣减那一刻写入（``line_warehouse_for_deduction``），之后队首怎么移都不变；
+    扣减那一刻写入（``line_warehouse_for_deduction``，取的是实际被扣的最早有货批次），
+    之后队首怎么移都不变；
   · 还没扣的明细按订单购入时间排队，依次占用在岸批次（与 ``inventory_batches._FIFO_ORDER`` 同序，
     在途批次不在货架上、不参与），占到哪一批就显示哪一批的货架；
   · 都推不出来（未分批商品、批次不够分、没有快照的历史行）时退回 ``inventory.warehouse_id``。
@@ -111,12 +112,18 @@ def effective_line_warehouses(db: DatabaseManager, line_ids: Iterable[int]) -> D
 
 
 def line_warehouse_for_deduction(db: DatabaseManager, line_id: int, inv_id: int) -> Optional[int]:
-    """明细出库前调用：它此刻显示的货架（排队分到的批次，没有则当前队首），写进快照。
-    必须在把明细标成已出库**之前**调用——标完它就不在排队里了。"""
-    alloc = _pending_allocation(db, [inv_id])
-    if int(line_id) in alloc:
-        return alloc[int(line_id)]
-    rows = db.execute_query("SELECT [warehouse_id] FROM [inventory] WHERE [id] = ? LIMIT 1", (int(inv_id),))
+    """明细出库前调用：这次扣减实际动的那一批的货架，写进快照。
+
+    按**批次时间**取：有货的在岸批次里最早的那一批——库存扣减（``reconcile_batches``）与所有人快照
+    （``head_owner``）都是这个先进先出口径。不能用按订单先后排队分到的批次：后买的订单先发时，
+    排队会把它分到较新的批次（实测 m72425365376 被分到 11-22 的「人肉」），而货实际是从最早那批
+    （10-27 的「凹墙」）扣的，快照就和真实出库对不上。排队只用于给还没出库的明细做显示预估。
+    必须在扣减库存**之前**调用。``line_id`` 保留给调用方，口径上已不需要。"""
+    rows = db.execute_query(
+        f"SELECT [warehouse_id] FROM [inventory_batches] "
+        f"WHERE [inventory_id] = ? AND [quantity] > 0 AND {ONSHORE_COND} {_FIFO_ORDER} LIMIT 1",
+        (int(inv_id),),
+    ) or db.execute_query("SELECT [warehouse_id] FROM [inventory] WHERE [id] = ? LIMIT 1", (int(inv_id),))
     return rows[0][0] if rows else None
 
 
