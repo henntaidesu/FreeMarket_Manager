@@ -18,6 +18,7 @@ import {
   costExpenseApi,
   costRecordApi,
   authApi,
+  configApi,
   tasksApi,
   TASK_TYPES,
 } from '@/api/index.js'
@@ -380,6 +381,12 @@ export default defineComponent({
       }
     }
 
+    /** 「商品归属」默认值：/x9 打开了订单页的开关时 = 当前登录人，否则不筛（显示全部） */
+    let ownerDefaultSelf = false
+    const defaultOwnerUserId = () => {
+      const n = Number(authStore.user?.id)
+      return ownerDefaultSelf && Number.isFinite(n) && n > 0 ? n : null
+    }
     const filters = ref({ keyword: '', status: '', owner_user_id: null, platform: '', seller_id: '' })
 
     /** 卖出账号筛选：orders.data_user 即卖家 seller_id，与列表 account_name 列同源 */
@@ -1095,7 +1102,7 @@ export default defineComponent({
     }
 
     async function resetFilters() {
-      filters.value = { keyword: '', status: '', owner_user_id: null, platform: '', seller_id: '' }
+      filters.value = { keyword: '', status: '', owner_user_id: defaultOwnerUserId(), platform: '', seller_id: '' }
       dateRange.value = []
       timeField.value = 'purchase'
       page.value = 1
@@ -2101,6 +2108,12 @@ export default defineComponent({
       } catch {
         ownerUsers.value = []
       }
+      try {
+        ownerDefaultSelf = Boolean((await configApi.getOwnerFilterDefault())?.orders)
+      } catch {
+        ownerDefaultSelf = false
+      }
+      filters.value.owner_user_id = defaultOwnerUserId()
       await load()
       await setupCardObserver()
       loadStats()

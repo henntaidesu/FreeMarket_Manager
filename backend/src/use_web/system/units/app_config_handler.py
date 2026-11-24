@@ -163,6 +163,34 @@ def put_mgmt_image_code(body: MgmtImageCodeSettings):
         raise HTTPException(status_code=400, detail=str(exc)) from None
 
 
+# 列表页「商品归属」筛选默认选中当前登录人（隐藏页 /x9 设置）。全局一份，各页单独开关，默认全关 = 显示全部。
+_K_OWNER_FILTER_DEFAULT_SELF = "owner_filter_default_self"
+
+
+class OwnerFilterDefaultSelf(BaseModel):
+    orders: bool = False
+    inventory: bool = False
+    inventory_history: bool = False
+
+
+def get_owner_filter_default_self():
+    import json
+
+    try:
+        data = json.loads(ConfigEntryModel.get_value(_K_OWNER_FILTER_DEFAULT_SELF) or "{}")
+    except ValueError:
+        data = {}
+    return OwnerFilterDefaultSelf(**{k: bool(v) for k, v in data.items() if k in OwnerFilterDefaultSelf.model_fields})
+
+
+def put_owner_filter_default_self(body: OwnerFilterDefaultSelf):
+    import json
+
+    data = body.model_dump()
+    ConfigEntryModel.set_value(_K_OWNER_FILTER_DEFAULT_SELF, json.dumps(data) if any(data.values()) else None)
+    return body
+
+
 class ProxyPublicBaseOut(BaseModel):
     """Cookie 注入引导地址的对外基址 + 挂载子路径。
 

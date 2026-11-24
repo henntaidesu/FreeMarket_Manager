@@ -8,13 +8,6 @@
         </div>
       </template>
 
-      <el-alert
-        type="warning"
-        :closable="false"
-        show-icon
-        title="切换后编码与解析都只按所选进制（非兼容解析）。用另一进制生成的旧暗号将无法被解析，请确保现有库存暗号与此设置一致。"
-        style="margin-bottom: 16px"
-      />
 
       <el-form label-width="96px" v-loading="loading">
         <el-form-item label="编码方式">
@@ -48,13 +41,6 @@
         </div>
       </template>
 
-      <el-alert
-        type="warning"
-        :closable="false"
-        show-icon
-        title="只影响之后的新出品。管理番号码选「无码上架」后，新挂牌在售 / 订单都无法自动关联库存；件数码选「无码」后，多件挂牌一律按 1 件计。解码会四个角都找，改位置不影响已上架的图片。"
-        style="margin-bottom: 16px"
-      />
 
       <el-form label-width="96px" v-loading="imgLoading">
         <template v-for="k in codeKinds" :key="k.key">
@@ -86,6 +72,25 @@
         <el-form-item>
           <el-button type="primary" :loading="imgSaving" @click="saveImgCode">保存</el-button>
           <el-button @click="loadImgCode">重置</el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
+
+    <el-card class="cipher-card" shadow="never">
+      <template #header>
+        <div class="cipher-header">
+          <span>商品归属筛选 · 默认当前登录人</span>
+        </div>
+      </template>
+
+      <el-form label-width="96px" v-loading="ownerLoading">
+        <el-form-item v-for="p in ownerPages" :key="p.key" :label="p.label">
+          <el-switch v-model="ownerDefault[p.key]" />
+        </el-form-item>
+
+        <el-form-item>
+          <el-button type="primary" :loading="ownerSaving" @click="saveOwnerDefault">保存</el-button>
+          <el-button @click="loadOwnerDefault">重置</el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -197,9 +202,46 @@ async function saveImgCode() {
   }
 }
 
+const ownerPages = [
+  { key: 'orders', label: '订单' },
+  { key: 'inventory', label: '库存' },
+  { key: 'inventory_history', label: '历史库存' }
+]
+const ownerDefault = reactive({ orders: false, inventory: false, inventory_history: false })
+const ownerLoading = ref(false)
+const ownerSaving = ref(false)
+
+function applyOwnerDefault(res) {
+  for (const p of ownerPages) ownerDefault[p.key] = Boolean(res?.[p.key])
+}
+
+async function loadOwnerDefault() {
+  ownerLoading.value = true
+  try {
+    applyOwnerDefault(await configApi.getOwnerFilterDefault())
+  } catch {
+    ElMessage.error('读取商品归属筛选设置失败')
+  } finally {
+    ownerLoading.value = false
+  }
+}
+
+async function saveOwnerDefault() {
+  ownerSaving.value = true
+  try {
+    applyOwnerDefault(await configApi.putOwnerFilterDefault({ ...ownerDefault }))
+    ElMessage.success('已保存')
+  } catch {
+    ElMessage.error('保存失败')
+  } finally {
+    ownerSaving.value = false
+  }
+}
+
 onMounted(() => {
   load()
   loadImgCode()
+  loadOwnerDefault()
 })
 </script>
 

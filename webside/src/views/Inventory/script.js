@@ -5628,6 +5628,13 @@ export default defineComponent({
         productTypeCategoryMappingApi.list()
       ])
       await refreshListingDefaults()
+      // 「商品归属」默认值：/x9 打开了本页（库存 / 历史库存各一个开关）= 当前登录人，否则显示全部
+      try {
+        const d = await configApi.getOwnerFilterDefault()
+        if (d?.[archive ? 'inventory_history' : 'inventory']) filterOwnerUserId.value = getCurrentAuthUserId()
+      } catch {
+        // 读不到按默认（显示全部）
+      }
       categories.value = cats
       warehouses.value = whs
       productTypes.value = buildProductTypeOptionsFromMappings(mappings)

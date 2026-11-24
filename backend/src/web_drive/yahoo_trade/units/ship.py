@@ -298,19 +298,44 @@ async def fetch_ship_options(
     }
 
 
+async def _restore_shipped_location(page: Any, location: str, *, element_timeout_ms: int) -> None:
+    """码已发行的交易页：発送場所不是发码时那一项就切回去。失败只记日志，照常读页面。"""
+    form = (
+        await read_trade_state(page, with_options=False, element_timeout_ms=element_timeout_ms)
+    )["ship_form"]
+    if _same_choice(location, form.get("location"), [location]):
+        return
+    try:
+        await _select_row(page, ROW_LOCATION, location, element_timeout_ms=element_timeout_ms)
+        await page.wait_for_timeout(1000)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[yahoo_trade] 切回发码时的発送場所「%s」失败：%s", location, exc)
+
+
 async def fetch_ship_state(
     account_id: int,
     *,
     item_id: str,
+    shipped_location: str = "",
     page_load_timeout_ms: int = DEFAULT_PAGE_LOAD_TIMEOUT_MS,
     element_timeout_ms: int = DEFAULT_ELEMENT_TIMEOUT_MS,
 ) -> Dict[str, Any]:
-    """打开交易页读发货表单当前状态 + 可选项（只读）。"""
+    """打开交易页读发货表单当前状态 + 可选项（只读）。
+
+    ``shipped_location`` 是发码时选的発送場所。**雅虎不记这个选择**：码发行之后每次打开交易页，
+    発送場所都回到第一项（ヤマト是「ヤマト営業所」），页面上画的也是那一项的码——实测选セブン-イレブン
+    发的码，重开就变成营业所的二维码。所以码已发行时先把発送場所切回发码时那一项再读，
+    读到的场所名和码才是真正要拿去用的。切换只改页面显示（同一受付番号换一种码的画法），不提交任何东西。
+    """
     async with yahoo_automation_browser(
         int(account_id), start_url=yahoo_trade_url(item_id)
     ) as (mgr, key):
         page = await mgr.active_tab_page(key)
         await wait_ready(page, page_load_timeout_ms)
+        if shipped_location and not (await submit_button_state(page)).get("text"):
+            await _restore_shipped_location(
+                page, shipped_location, element_timeout_ms=element_timeout_ms
+            )
         data = await read_trade_state(
             page, with_options=True, element_timeout_ms=element_timeout_ms
         )

@@ -183,10 +183,28 @@ async def _merge_app_ship_state(account_id: int, item_id: str, data: Dict[str, A
     data["app"] = app
 
 
+def _shipped_location(todo_id: int) -> str:
+    """发码时选的発送場所（详情缓存里的 ``shipped_location``）。
+
+    雅虎交易页不记这个选择，重开就回到第一项（见 ``fetch_ship_state``），所以只能本地记。
+    没记过的旧缓存：码已发行时缓存的 ``ship_form.location`` 就是当时的选择，拿来兜底。"""
+    cached = get_cached_yahoo_todo_detail(int(todo_id))
+    if not cached.get("cached"):
+        return ""
+    if cached.get("shipped_location"):
+        return str(cached["shipped_location"])
+    form = cached.get("ship_form") or {}
+    return "" if form.get("pending", True) else str(form.get("location") or "")
+
+
 async def fetch_yahoo_todo_detail(todo_id: int) -> Dict[str, Any]:
     """打开雅虎交易页读详情（含发货表单可选项），并写入缓存。"""
     aid, item_id = _resolve_yahoo_todo(todo_id)
-    data = await fetch_ship_state(aid, item_id=item_id)
+    shipped_location = _shipped_location(int(todo_id))
+    data = await fetch_ship_state(aid, item_id=item_id, shipped_location=shipped_location)
+    form = data.get("ship_form") or {}
+    if not form.get("pending"):
+        data["shipped_location"] = shipped_location or form.get("location") or ""
     await _merge_app_ship_state(aid, item_id, data)
     data["todo_id"] = int(todo_id)
     data["cached"] = False
@@ -329,6 +347,8 @@ async def ship_yahoo_todo(
     state = result.get("state")
     if isinstance(state, dict):
         state["todo_id"] = int(todo_id)
+        # 雅虎不记发码时选的発送場所，之后重抓详情要靠这一条把页面切回去
+        state["shipped_location"] = (result.get("filled") or {}).get("location") or ""
         _cache_detail(int(todo_id), state)
     _persist_code_image(int(todo_id), item_id, result.get("code_image_url"))
     return result

@@ -52,6 +52,9 @@ from .units.app_config_handler import (
     MgmtImageCodeSettings,
     get_mgmt_image_code,
     put_mgmt_image_code,
+    OwnerFilterDefaultSelf,
+    get_owner_filter_default_self,
+    put_owner_filter_default_self,
     ProxyPublicBaseOut,
     get_proxy_public_base,
     put_proxy_public_base,
@@ -208,6 +211,8 @@ router.add_api_route("/mgmt-cipher-mode", get_mgmt_cipher_mode, methods=["GET"],
 router.add_api_route("/mgmt-cipher-mode", put_mgmt_cipher_mode, methods=["PUT"], response_model=MgmtCipherModeOut, dependencies=_CONFIG_WRITE)
 router.add_api_route("/mgmt-image-code", get_mgmt_image_code, methods=["GET"], response_model=MgmtImageCodeSettings)
 router.add_api_route("/mgmt-image-code", put_mgmt_image_code, methods=["PUT"], response_model=MgmtImageCodeSettings, dependencies=_CONFIG_WRITE)
+router.add_api_route("/owner-filter-default", get_owner_filter_default_self, methods=["GET"], response_model=OwnerFilterDefaultSelf)
+router.add_api_route("/owner-filter-default", put_owner_filter_default_self, methods=["PUT"], response_model=OwnerFilterDefaultSelf, dependencies=_CONFIG_WRITE)
 
 # 系统配置（DeepSeek AI：API Key / 模型 / API 地址）
 router.add_api_route("/deepseek-config", get_deepseek_config, methods=["GET"], response_model=DeepSeekConfigOut)

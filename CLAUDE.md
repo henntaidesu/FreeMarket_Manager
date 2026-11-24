@@ -1045,6 +1045,11 @@ soft-delete, inventory counters and order upsert semantics stay identical across
     配送コード (ゆうパック / ゆうパケット / プラス) is an inline `data:image/png` on the trade page;
     `trade_actions._persist_code_image` saves it to `todo_items.qr_image_path` after shipping and on
     every detail fetch (skipped when the bytes are unchanged), so the row becomes 已打包 like Mercari's.
+    **Yahoo does not remember the 発送場所 picked at issue time**: every reload of an issued trade
+    falls back to the first option (ヤマト営業所) and draws *that* location's code — a セブン-イレブン
+    shipment reopens showing the 営業所 QR. The pick is kept locally as `detail_json.shipped_location`
+    and `fetch_ship_state(shipped_location=)` re-selects it before reading, so the cached location and
+    `qr_image_path` stay on the code that was actually printed.
     After clicking 配送コードを表示する the page sits on a 「読み込み中...」 layer while the code is
     issued — `ship.py` polls for the code (`CODE_WAIT_TIMEOUT_MS`) rather than reading after a fixed wait.
 - `use_yahoo/app_api/` — **雅虎 App API 发货**（`sparkle-secure.yahooapis.jp`）。The phone app's

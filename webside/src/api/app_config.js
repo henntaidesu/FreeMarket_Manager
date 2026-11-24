@@ -9,6 +9,9 @@ export const configApi = {
   putMgmtCipherMode: (mode) => http.put('/use_web/system/mgmt-cipher-mode', { mode }),
   getMgmtImageCode: () => http.get('/use_web/system/mgmt-image-code'),
   putMgmtImageCode: (body) => http.put('/use_web/system/mgmt-image-code', body),
+  // 列表页「商品归属」默认选中当前登录人：{ orders, inventory, inventory_history }
+  getOwnerFilterDefault: () => http.get('/use_web/system/owner-filter-default'),
+  putOwnerFilterDefault: (body) => http.put('/use_web/system/owner-filter-default', body),
   // 系统配置（DeepSeek AI）：{ api_key, model, base_url }
   getDeepseekConfig: () => http.get('/use_web/system/deepseek-config'),
   putDeepseekConfig: (data) => http.put('/use_web/system/deepseek-config', data),
