@@ -171,6 +171,7 @@ class OwnerFilterDefaultSelf(BaseModel):
     orders: bool = False
     inventory: bool = False
     inventory_history: bool = False
+    on_sale_items: bool = False
 
 
 def get_owner_filter_default_self():

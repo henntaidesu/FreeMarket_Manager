@@ -3,11 +3,12 @@ import { ElMessageBox } from 'element-plus'
 import { ElMessage } from '@/utils/notify'
 import { Download, Loading, WarningFilled, Check, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
-import { onSaleItemApi, shopAccountApi, inventoryApi, TASK_TYPES } from '@/api/index.js'
+import { onSaleItemApi, shopAccountApi, inventoryApi, authApi, configApi, TASK_TYPES } from '@/api/index.js'
 import { submitTask, submitTasks } from '@/utils/taskSubmit.js'
 import { parseMgmtIdsFromDescription, isCipherMgmtLine } from '@/utils/mgmtIdCipher.js'
 import { mercariImageUrlList } from '@/utils/mercariImage.js'
 import { useMercariAccountStore } from '@/stores/mercariAccount.js'
+import { useAuthStore } from '@/stores/auth.js'
 import { useSyncLockStore } from '@/stores/syncLock.js'
 import { useViewModeStore } from '@/stores/viewMode.js'
 import { useCardWindow } from '@/composables/useCardWindow.js'
@@ -212,7 +213,9 @@ export default defineComponent({
       listing_type: '',
       shipping_duration_id: '',
       platform: '',
+      owner_user_id: null,
     })
+    const ownerUsers = ref([])
 
     /** 表头排序状态：prop 为列字段，order 为 'ascending' | 'descending' | null */
     const sort = ref({ prop: '', order: '' })
@@ -399,6 +402,7 @@ export default defineComponent({
       if (filters.value.listing_type === 'auction') p.auction = '1'
       else if (filters.value.listing_type === 'normal') p.auction = '0'
       if (filters.value.shipping_duration_id?.trim()) p.shipping_duration_id = filters.value.shipping_duration_id.trim()
+      if (filters.value.owner_user_id) p.owner_user_id = filters.value.owner_user_id
       if (sort.value.prop && sort.value.order) {
         p.sort_by = sort.value.prop
         p.sort_order = sort.value.order === 'ascending' ? 'asc' : 'desc'
@@ -1437,6 +1441,15 @@ export default defineComponent({
       mercariAccountStore.ensureLoaded()
       syncLockStore.subscribe()
       loadSellerAccounts()
+      authApi.listUserOptions()
+        .then((users) => { ownerUsers.value = Array.isArray(users) ? users : [] })
+        .catch(() => { ownerUsers.value = [] })
+      try {
+        if ((await configApi.getOwnerFilterDefault())?.on_sale_items) {
+          const uid = Number(useAuthStore().user?.id)
+          if (Number.isFinite(uid) && uid > 0) filters.value.owner_user_id = uid
+        }
+      } catch { /* 读不到设置就显示全部 */ }
       await load()
       await setupCardObserver()
     })
@@ -1509,6 +1522,7 @@ export default defineComponent({
       page,
       pageSize,
       filters,
+      ownerUsers,
       statusFilterOptions,
       platformFilterOptions,
       platformLabel,

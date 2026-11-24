@@ -49,6 +49,19 @@
             />
           </el-select>
           <el-select
+            v-model="filters.owner_user_id"
+            :placeholder="t('onSaleItems.ownerFilterPlaceholder')"
+            clearable
+            @change="onFilterChange"
+          >
+            <el-option
+              v-for="u in ownerUsers"
+              :key="u.id"
+              :label="u.display_name || u.username"
+              :value="u.id"
+            />
+          </el-select>
+          <el-select
             v-model="filters.listing_type"
             :placeholder="t('onSaleItems.listingTypePlaceholder')"
             clearable

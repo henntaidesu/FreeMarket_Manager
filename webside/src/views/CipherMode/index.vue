@@ -205,9 +205,10 @@ async function saveImgCode() {
 const ownerPages = [
   { key: 'orders', label: '订单' },
   { key: 'inventory', label: '库存' },
-  { key: 'inventory_history', label: '历史库存' }
+  { key: 'inventory_history', label: '历史库存' },
+  { key: 'on_sale_items', label: '在售' }
 ]
-const ownerDefault = reactive({ orders: false, inventory: false, inventory_history: false })
+const ownerDefault = reactive({ orders: false, inventory: false, inventory_history: false, on_sale_items: false })
 const ownerLoading = ref(false)
 const ownerSaving = ref(false)
 

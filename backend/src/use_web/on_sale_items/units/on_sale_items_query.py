@@ -124,7 +124,8 @@ def _attach_inventory_by_item_id(items: list) -> None:
             w.[id] AS wh_id,
             TRIM(IFNULL(w.[warehouse], '')) AS wh_top,
             TRIM(IFNULL(w.[shelf_name], '')) AS wh_shelf,
-            TRIM(IFNULL(w.[name], '')) AS wh_code
+            TRIM(IFNULL(w.[name], '')) AS wh_code,
+            i.[owner_user_id]
         FROM [inventory] i
         LEFT JOIN [warehouses] w ON w.[id] = i.[warehouse_id]
         LEFT JOIN [users] u ON u.[id] = i.[owner_user_id]
@@ -135,7 +136,7 @@ def _attach_inventory_by_item_id(items: list) -> None:
     _COLS = (
         "mids_raw", "iid", "iname", "qty", "osq", "pend", "lpend", "barcode",
         "wname", "wloc", "images_json", "owner_name", "combined",
-        "wh_id", "wh_top", "wh_shelf", "wh_code",
+        "wh_id", "wh_top", "wh_shelf", "wh_code", "owner_user_id",
     )
     rows = db.execute_query(sql)
     by_mid: Dict[str, list] = {}
@@ -196,6 +197,7 @@ def _attach_inventory_by_item_id(items: list) -> None:
                         "barcode": bc or None,
                         "location": _warehouse_full_path(h),
                         "owner_name": str(h["owner_name"] or "").strip() or None,
+                        "owner_user_id": h["owner_user_id"],
                         "quantity": q_i,
                         "on_sale_quantity": os_i,
                         "pending_outbound_qty": pend_i,
@@ -329,6 +331,7 @@ def list_on_sale_items(
     auction: Optional[str] = None,
     shipping_duration_id: Optional[str] = None,
     platform: Optional[str] = None,
+    owner_user_id: Optional[int] = None,
     page: int = 1,
     page_size: int = 20,
     sort_by: Optional[str] = None,
@@ -371,6 +374,15 @@ def list_on_sale_items(
     _attach_seller_name(all_items)
     _attach_inventory_by_item_id(all_items)
     _attach_description_mgmt_hints(all_items)
+
+    # 归属人筛选：关联库存里任一件归该用户即命中；未关联库存的行不归任何人
+    if owner_user_id:
+        oid = int(owner_user_id)
+        all_items = [
+            r
+            for r in all_items
+            if any(ln.get("owner_user_id") == oid for ln in r.get("inventory_lines") or [])
+        ]
 
     key_fn = _SORT_FIELD_KEYS.get(str(sort_by or "").strip())
     if key_fn is not None:
