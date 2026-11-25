@@ -25,7 +25,7 @@ class DeleteMercariItemBody(PydanticModel):
 
     account_key: str = Field(..., min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
     item_id: str = Field(..., min_length=1, max_length=64)
-    proxy_server: Optional[str] = None
+    proxy_server: Optional[str] = None  # 已忽略，固定走本机 MITM
     use_mitm_proxy: bool = True
     progress_job_id: Optional[str] = None
 
@@ -61,7 +61,7 @@ async def delete_on_sale_item(body: DeleteMercariItemBody):
     try:
         proxy: Optional[str] = None
         if body.use_mitm_proxy:
-            proxy = (body.proxy_server or "").strip() or default_mitm_proxy_url()
+            proxy = default_mitm_proxy_url()  # 不接受调用方指定代理：会把账号登录态送到外部
 
         mgr = get_web_drive_manager()
 
@@ -127,7 +127,7 @@ class ReviseMercariItemBody(PydanticModel):
     # 修改关联库存：改绑到的新库存 id。须同时带 image_urls（该库存的图）与说明（末行暗码已换成它），
     # 图片上传前在左下角重嵌这个 id 的管理暗码，提交成功后按新说明 / 新图重新绑定库存。两个平台都支持。
     relink_inventory_id: Optional[int] = Field(default=None, ge=1)
-    proxy_server: Optional[str] = None
+    proxy_server: Optional[str] = None  # 已忽略，固定走本机 MITM
     use_mitm_proxy: bool = True
     progress_job_id: Optional[str] = None
 
@@ -208,7 +208,7 @@ async def revise_on_sale_item(body: ReviseMercariItemBody):
     try:
         proxy: Optional[str] = None
         if body.use_mitm_proxy:
-            proxy = (body.proxy_server or "").strip() or default_mitm_proxy_url()
+            proxy = default_mitm_proxy_url()  # 不接受调用方指定代理：会把账号登录态送到外部
 
         mgr = get_web_drive_manager()
         is_yahoo = _account_platform(account_id) == "yahoo"
@@ -293,7 +293,7 @@ class ResumeMercariItemBody(PydanticModel):
 
     account_key: str = Field(..., min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
     item_id: str = Field(..., min_length=1, max_length=64)
-    proxy_server: Optional[str] = None
+    proxy_server: Optional[str] = None  # 已忽略，固定走本机 MITM
     use_mitm_proxy: bool = True
     progress_job_id: Optional[str] = None
 
@@ -332,7 +332,7 @@ async def resume_on_sale_item(body: ResumeMercariItemBody):
     try:
         proxy: Optional[str] = None
         if body.use_mitm_proxy:
-            proxy = (body.proxy_server or "").strip() or default_mitm_proxy_url()
+            proxy = default_mitm_proxy_url()  # 不接受调用方指定代理：会把账号登录态送到外部
 
         mgr = get_web_drive_manager()
 
@@ -374,7 +374,7 @@ class SuspendMercariItemBody(PydanticModel):
 
     account_key: str = Field(..., min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
     item_id: str = Field(..., min_length=1, max_length=64)
-    proxy_server: Optional[str] = None
+    proxy_server: Optional[str] = None  # 已忽略，固定走本机 MITM
     use_mitm_proxy: bool = True
     progress_job_id: Optional[str] = None
 
@@ -411,7 +411,7 @@ async def suspend_on_sale_item(body: SuspendMercariItemBody):
     try:
         proxy: Optional[str] = None
         if body.use_mitm_proxy:
-            proxy = (body.proxy_server or "").strip() or default_mitm_proxy_url()
+            proxy = default_mitm_proxy_url()  # 不接受调用方指定代理：会把账号登录态送到外部
 
         mgr = get_web_drive_manager()
 

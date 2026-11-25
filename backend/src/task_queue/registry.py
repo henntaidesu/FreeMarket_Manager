@@ -192,10 +192,12 @@ _SPECS: Dict[str, TaskSpec] = {
     ),
     TODOS_ACCEPT_CANCELLATION: TaskSpec(
         task_type=TODOS_ACCEPT_CANCELLATION,
-        label_zh="确认退货",
-        # 同一笔待办同时只允许排一条：同意退货申请不可撤回，重复排队等于重复点击
+        label_zh="回复退货申请",
+        # 同一笔待办同时只允许排一条：同意 / 拒绝都不可撤回，重复排队等于重复点击
         dedup_key=lambda p: f"{TODOS_ACCEPT_CANCELLATION}:{p.get('todo_id')}",
-        title=lambda p: "确认退货（同意退货申请）："
+        title=lambda p: (
+            "拒绝退货申请：" if str(p.get("decision") or "") == "decline" else "确认退货（同意退货申请）："
+        )
         + (str(p.get("item_id") or "").strip() or f"待办#{p.get('todo_id')}"),
     ),
     TODOS_RETURN_ADDRESS: TaskSpec(
@@ -226,9 +228,9 @@ _SPECS: Dict[str, TaskSpec] = {
     ),
     TODOS_BULK_CONFIRM_SHIP: TaskSpec(
         task_type=TODOS_BULK_CONFIRM_SHIP,
-        label_zh="一键确认发送",
+        label_zh="一键发送",
         dedup_key=lambda p: TODOS_BULK_CONFIRM_SHIP,
-        title=lambda p: "待办已打包一键处理（全部启用账号）",
+        title=lambda p: "待办已打包一键发送（全部账号）",
     ),
     ACCOUNT_SYNC_DATA: TaskSpec(
         task_type=ACCOUNT_SYNC_DATA,

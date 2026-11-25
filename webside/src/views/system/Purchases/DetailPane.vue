@@ -32,6 +32,7 @@
         <div class="odt-summary">
           <!-- 状态只读；结算状态与归属人就地可改，走的是列表那同一个 applySettlement -->
           <div class="odt-chips">
+            <el-tag v-if="isYahoo" type="warning" size="small" effect="plain">{{ t('purchases.platformYahoo') }}</el-tag>
             <el-tag :type="stateType" size="small" effect="dark">{{ stateText }}</el-tag>
 
             <el-dropdown trigger="click" :disabled="!$can('system/purchases:edit')" @command="(v) => $emit('set-settlement', v)">
@@ -72,6 +73,13 @@
               size="small"
               @click="$emit('fetch-detail')"
             >{{ t('purchases.fetchDetail') }}</el-button>
+            <el-button
+              v-if="canReceive"
+              class="odt-chips__action"
+              size="small"
+              type="primary"
+              @click="$emit('receive')"
+            >{{ t('purchases.receive') }}</el-button>
           </div>
 
           <a class="odt-title" :href="transactionUrl" target="_blank" rel="noopener">
@@ -140,7 +148,7 @@
       </div>
     </div>
 
-    <!-- 右侧：交易留言。只读——购入侧不回复、不翻译，所以没有输入框与原文切换 -->
+    <!-- 右侧：交易留言。可以以买家身份回复；不翻译，所以没有原文切换 -->
     <aside class="order-conversation">
       <div class="order-conversation-head">
         <span class="order-conversation-title">{{ t('purchases.messages') }}</span>
@@ -182,16 +190,28 @@
         </div>
         <el-empty v-else-if="!loading" :description="t('purchases.noMessages')" :image-size="60" />
       </div>
+      <div v-if="$can('system/purchases:message')" class="order-conversation-reply">
+        <el-input v-model="replyText" type="textarea" :rows="3" maxlength="1000" show-word-limit />
+        <el-button
+          type="primary"
+          size="small"
+          :loading="sending"
+          :disabled="!replyText.trim()"
+          @click="onSend"
+        >{{ t('purchases.sendMessage') }}</el-button>
+      </div>
     </aside>
   </div>
 </template>
 
 <script>
-import { defineComponent, computed } from 'vue'
+import { defineComponent, computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { formatUnixSecLocal } from '@/utils/timeDisplay.js'
 import { mercariImageUrl, mercariImageUrlList } from '@/utils/mercariImage.js'
 import { yen } from './format.js'
+import { purchaseUrl } from '@/utils/purchaseUrl.js'
+import { useAuthStore } from '@/stores/auth.js'
 
 /** el-dropdown 的 command 不能是 null（会被当成「没给命令」），清除归属人用这个哨兵值 */
 const OWNER_CLEAR = '__clear__'
@@ -202,20 +222,22 @@ export default defineComponent({
     row: { type: Object, required: true },
     messages: { type: Array, default: () => [] },
     loading: { type: Boolean, default: false },
+    /** 父级发送中（发送走父级：发完要提交 refresh_one 重抓留言） */
+    sending: { type: Boolean, default: false },
     /** 状态标签由父级算好传进来：STATE_* 的中文对照表在 script.js 里 */
     stateText: { type: String, default: '-' },
     stateType: { type: String, default: 'info' },
     settlementOptions: { type: Array, default: () => [] },
     ownerUsers: { type: Array, default: () => [] },
   },
-  emits: ['set-settlement', 'set-owner', 'fetch-detail', 'open-tracking'],
+  emits: ['set-settlement', 'set-owner', 'fetch-detail', 'open-tracking', 'send-message', 'receive'],
   setup(props, { emit }) {
     const { t } = useI18n()
 
     const thumbUrl = computed(() => mercariImageUrl(props.row?.thumbnail))
 
     const transactionUrl = computed(
-      () => `https://jp.mercari.com/transaction/${encodeURIComponent(props.row?.item_id || '')}`
+      () => purchaseUrl(props.row)
     )
 
     const settlementOption = computed(() => {
@@ -225,6 +247,23 @@ export default defineComponent({
         || { value: cur, label: String(cur), tag: 'info' }
       )
     })
+
+    const authStore = useAuthStore()
+    const authCan = (k) => authStore.can(k)
+    const isYahoo = computed(() => String(props.row?.platform || '') === 'yahoo')
+    // 雅虎购入的受取評価在这里做（App API）；煤炉的仍走待办页「待收货」
+    const canReceive = computed(
+      () => isYahoo.value
+        && String(props.row?.state || '') === 'STATE_WAITING_BUYER_REVIEW'
+        && authCan('system/purchases:receive'),
+    )
+    const replyText = ref('')
+    function onSend() {
+      const text = replyText.value.trim()
+      if (!text) return
+      // 父级发送成功后回调清空；失败保留原文，免得重打
+      emit('send-message', text, () => { replyText.value = '' })
+    }
 
     function onOwnerCommand(cmd) {
       emit('set-owner', cmd === OWNER_CLEAR ? null : cmd)
@@ -371,6 +410,10 @@ export default defineComponent({
     })
 
     return {
+      isYahoo,
+      canReceive,
+      replyText,
+      onSend,
       t,
       OWNER_CLEAR,
       thumbUrl,

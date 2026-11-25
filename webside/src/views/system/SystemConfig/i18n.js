@@ -287,7 +287,8 @@ export default {
         ship: '发货（含出库 / 包材）',
         review: '评价 / 一键好评',
         buyer_receipt: '确认收货',
-        cancel_accept: '确认退货',
+        cancel_accept: '回复退货申请（同意 / 拒绝）',
+        cancel_trade: '卖家主动取消交易（雅虎）',
         cancel_receipt: '确认取消收货',
         return_address: '填写返品先住所',
         message: '交易留言 / 表情回应'
@@ -313,7 +314,9 @@ export default {
       },
       system_purchases: {
         sync: '同步 / 获取详情',
-        edit: '修改结算状态 / 归属人'
+        edit: '修改结算状态 / 归属人',
+        message: '给卖家发留言',
+        receive: '雅虎购入确认收货（受取評価）'
       },
       'system_purchase-settlement': {
         settle: '标记已结算'
@@ -761,7 +764,8 @@ export default {
         ship: '発送（出庫 / 梱包資材を含む）',
         review: '評価 / 一括評価',
         buyer_receipt: '受取評価',
-        cancel_accept: '返品申請への同意',
+        cancel_accept: '返品申請への回答（同意 / 同意しない）',
+        cancel_trade: '出品者からの取引キャンセル（Yahoo）',
         cancel_receipt: 'キャンセル時の受取確認',
         return_address: '返品先住所の入力',
         message: '取引メッセージ / リアクション'
@@ -787,7 +791,9 @@ export default {
       },
       system_purchases: {
         sync: '同期 / 詳細取得',
-        edit: '精算状態 / 所有者の変更'
+        edit: '精算状態 / 所有者の変更',
+        message: '出品者へのメッセージ送信',
+        receive: 'Yahoo 購入品の受取評価'
       },
       'system_purchase-settlement': {
         settle: '精算済みにする'
@@ -1235,7 +1241,8 @@ export default {
         ship: 'Ship (incl. stock-out / packaging)',
         review: 'Review / bulk review',
         buyer_receipt: 'Confirm receipt',
-        cancel_accept: 'Accept return request',
+        cancel_accept: 'Respond to return request (accept / decline)',
+        cancel_trade: 'Cancel trade as seller (Yahoo)',
         cancel_receipt: 'Confirm cancellation return',
         return_address: 'Fill return address',
         message: 'Trade messages / reactions'
@@ -1261,7 +1268,9 @@ export default {
       },
       system_purchases: {
         sync: 'Sync / fetch detail',
-        edit: 'Change settlement / owner'
+        edit: 'Change settlement / owner',
+        message: 'Message the seller',
+        receive: 'Confirm receipt of Yahoo purchases'
       },
       'system_purchase-settlement': {
         settle: 'Mark as settled'

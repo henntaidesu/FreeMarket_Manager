@@ -149,6 +149,7 @@ async def sync_yahoo_notifications(account_id: int) -> Dict[str, Any]:
 
     db = DatabaseManager()
     new_completed_item_ids: List[str] = []
+    new_cancelled_item_ids: List[str] = []
     for notice in raw:
         row = yahoo_notice_to_row(aid, notice, synced_at_ms)
         if not row:
@@ -163,6 +164,10 @@ async def sync_yahoo_notifications(account_id: int) -> Dict[str, Any]:
         # ``updated`` 是同一条通知又被拉了一遍，据它刷新等于每轮把老订单重刷一次。
         if outcome == "inserted" and row.get("item_id") and is_completion_notice(notice):
             new_completed_item_ids.append(str(row["item_id"]).strip())
+        # 「取引のキャンセル」同理：雅虎不推订单状态，而「更新列表」是增量的、碰到已有订单就停，
+        # 不刷的话订单一直停在待发货、库存也不回吐，直到有人手点「更新状态」。
+        if outcome == "inserted" and row.get("item_id") and _is_cancel_notice(notice):
+            new_cancelled_item_ids.append(str(row["item_id"]).strip())
 
     # 刷新目标必须在置 done **之前**定下来（见 pending_orders_for_completion 的说明）
     try:
@@ -184,5 +189,38 @@ async def sync_yahoo_notifications(account_id: int) -> Dict[str, Any]:
     if refresh_targets:
         stats["completion_refresh"] = await refresh_orders_for_completion(aid, refresh_targets)
 
+    # 取消：重读交易页即可——sold_sync 解析出 cancelled 后 _upsert_order 会按手动取消同口径回吐库存
+    cancel_targets = _open_orders(new_cancelled_item_ids)
+    if cancel_targets:
+        stats["cancel_refresh"] = await refresh_orders_for_completion(aid, cancel_targets)
+
     log.info("[yahoo_notices] 账号#%s 通知同步：%s", aid, stats)
     return stats
+
+
+def _is_cancel_notice(notice: Dict[str, Any]) -> bool:
+    """「…の取引が購入者都合/出品者都合でキャンセルされました」。按措辞判，理由同取引完了。"""
+    text = f"{notice.get('title') or ''} {notice.get('content') or ''}"
+    return "取引" in text and "キャンセルされました" in text
+
+
+def _open_orders(item_ids: List[str]) -> List[str]:
+    """只留本地有、是雅虎、且还没取消的订单。
+
+    买家侧也会收到同样措辞的通知（我们买的东西被卖家取消），那种 item_id 在 ``orders`` 里没有，
+    这里自然筛掉，不会去开一个不属于自己的交易页。
+    """
+    from ...db_manage.models.orders.order.model import OrderModel
+
+    out: List[str] = []
+    for iid in dict.fromkeys(i for i in item_ids if i):
+        rows = OrderModel.find_all(where="[order_no] = ?", params=(iid,), limit=1)
+        if not rows:
+            continue
+        o = rows[0]
+        if (str(getattr(o, "platform", "") or "").strip().lower() or "mercari") != "yahoo":
+            continue
+        if str(getattr(o, "status", "") or "") == "cancelled":
+            continue
+        out.append(iid)
+    return out

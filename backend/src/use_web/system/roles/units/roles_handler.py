@@ -3,11 +3,12 @@
 import json
 from typing import Dict, List, Optional
 
-from fastapi import HTTPException
+from fastapi import Depends, HTTPException
 from pydantic import BaseModel as PydanticModel
 
 from .....db_manage.database import DatabaseManager
 from .....db_manage.models.system.role import RoleModel
+from .....auth import require_auth
 from .....page_access import normalize_features, normalize_pages, parse_features, parse_pages
 
 
@@ -71,8 +72,11 @@ def create_role(data: RoleCreate):
     return _out(role, 0)
 
 
-def update_role(rid: int, data: RoleUpdate):
+def update_role(rid: int, data: RoleUpdate, claims: dict = Depends(require_auth)):
     """改页面立即生效：鉴权每请求现读角色，前端也会定时重拉 /me。"""
+    # 改自己所在角色的权限 = 给自己加权限：只有管理员能这么做
+    if not claims.get("is_admin") and claims.get("role_id") is not None             and int(claims["role_id"]) == int(rid):
+        raise HTTPException(status_code=403, detail="不能修改自己所在角色的权限")
     role = RoleModel.find_by_id(id=rid)
     if not role:
         raise HTTPException(status_code=404, detail="角色不存在")

@@ -109,6 +109,7 @@ PAGE_FEATURES = {
         "cancel_receipt",    # 取消申请的确认
         "return_address",    # 退货填写返品先住所（返品くん）
         "message",           # 交易留言 / 表情回应
+        "cancel_trade",      # 卖家主动取消交易（雅虎，发货前）
     ),
     "notifications": (
         "sync",              # 同步通知
@@ -132,6 +133,8 @@ PAGE_FEATURES = {
     "system/purchases": (
         "sync",              # 同步购入 / 获取取引详情
         "edit",              # 改结算状态 / 归属人（含批量修改）
+        "message",           # 以买家身份给卖家发交易留言
+        "receive",           # 雅虎购入的受取評価
     ),
     "system/purchase-settlement": (
         "settle",            # 按人整批标记已结算
@@ -205,7 +208,8 @@ assert set(PAGE_FEATURES) <= PAGE_KEYS
 
 FEATURE_KEYS = frozenset(f"{p}:{a}" for p, acts in PAGE_FEATURES.items() for a in acts)
 
-# 任务队列：提交该类型任务需要拥有其中任一功能（未列出的类型只受任务队列路由组本身约束）
+# 任务队列：提交 / 重试该类型任务需要拥有其中任一功能。**未列出的类型一律拒绝**（经 /tasks 接口），
+# 新增任务类型必须在这里登记——默认放行曾让三类系统任务对任何登录用户敞开。
 TASK_FEATURES = {
     "inventory.listing": ("inventory:listing",),
     "orders.sync_new_data": ("orders:sync",),
@@ -230,6 +234,9 @@ TASK_FEATURES = {
     "todos.return_address": ("todos:return_address",),
     "todos.send_message": ("todos:message",),
     "todos.send_reaction": ("todos:message",),
+    "system.shipping_duration": ("system/config:shipping_duration",),
+    "system.barcode_history": ("system/config:barcode",),
+    "system.profile_hide": ("shop-accounts:edit",),
 }
 
 # 同一任务类型里，payload 带某个字段时额外要求的功能（「修改」顺带改关联库存）

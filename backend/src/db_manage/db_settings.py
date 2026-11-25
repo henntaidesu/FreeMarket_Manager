@@ -106,6 +106,11 @@ def _test_db_names() -> set:
     return names
 
 
+def test_db_names() -> set:
+    """测试库白名单（小写）。"""
+    return set(_test_db_names())
+
+
 def is_test_database() -> bool:
     """当前生效数据库是否为「测试库」（可安全进行数据写/改操作）。
 

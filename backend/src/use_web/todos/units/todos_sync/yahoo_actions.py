@@ -276,3 +276,38 @@ def yahoo_finish_reply_endpoint(todo_id: int) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc))
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+async def yahoo_cancel_trade_endpoint(todo_id: int, req: Dict[str, Any]) -> Dict[str, Any]:
+    """卖家主动取消雅虎交易（发货前）。App API 取消 → 重读交易页（订单置取消并回吐库存）→ 收掉待办。
+
+    取消本身不开浏览器；随后的订单刷新是页面自动化，所以整段放进账号串行队列。
+    """
+    from .....use_yahoo.app_api.trade_cancel import cancel_trade_as_seller
+    from .....use_yahoo.orders.sold_sync import refresh_yahoo_order
+
+    aid, todo = _yahoo_todo_of(todo_id)
+    item_id = str(getattr(todo, "item_id", "") or "").strip()
+    if not item_id:
+        raise HTTPException(status_code=400, detail="该待办没有关联商品 ID")
+    reason = str((req or {}).get("reason") or "").strip()
+
+    async def _body() -> Dict[str, Any]:
+        res = await cancel_trade_as_seller(aid, item_id, reason)
+        try:
+            await refresh_yahoo_order(aid, item_id)
+            res["order_refreshed"] = True
+        except Exception as exc:  # noqa: BLE001 取消已生效，刷新失败只回报，「更新状态」可补
+            res["order_refreshed"] = False
+            res["order_refresh_error"] = str(exc)[:200]
+        todo.is_delete = 1
+        todo.shipped_finalized = 1
+        todo.save()
+        return res
+
+    try:
+        return await run_mercari_serial_async(queue_key_for_mercari_account(aid), _body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))

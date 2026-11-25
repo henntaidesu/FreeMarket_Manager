@@ -64,6 +64,9 @@ export const notificationsApi = {
       timeout: 0,
       ...axiosConfig,
     }),
+  /** 卖家删除自己商品上的一条评论（按原文在页面上定位） */
+  itemCommentDelete: (data, axiosConfig = {}) =>
+    http.post('/use_web/notifications/item-comment/delete', data, { timeout: 0, ...axiosConfig }),
   itemCommentClose: (data, axiosConfig = {}) =>
     http.post('/use_web/notifications/item-comment/close', data, {
       timeout: 0,
@@ -75,4 +78,36 @@ export const notificationsApi = {
       timeout: 20000,
       ...axiosConfig,
     }),
+  // 雅虎：価格の相談 / 商品への質問 / まとめ買いの相談（App API，同步返回）
+  yahooDiscounts: (itemId, accountId) =>
+    http.get(`/use_web/notifications/yahoo/discounts/${encodeURIComponent(itemId)}`, {
+      params: { account_id: accountId },
+    }),
+  yahooDiscountAccept: (itemId, discountId, data) =>
+    http.post(
+      `/use_web/notifications/yahoo/discounts/${encodeURIComponent(itemId)}/${encodeURIComponent(discountId)}/accept`,
+      data,
+    ),
+  yahooDiscountDeny: (itemId, discountId, data) =>
+    http.post(
+      `/use_web/notifications/yahoo/discounts/${encodeURIComponent(itemId)}/${encodeURIComponent(discountId)}/deny`,
+      data,
+    ),
+  yahooQuestions: (itemId, accountId) =>
+    http.get(`/use_web/notifications/yahoo/questions/${encodeURIComponent(itemId)}`, {
+      params: { account_id: accountId },
+    }),
+  yahooQuestionReply: (itemId, questionerId, data) =>
+    http.post(
+      `/use_web/notifications/yahoo/questions/${encodeURIComponent(itemId)}/${encodeURIComponent(questionerId)}/reply`,
+      data,
+    ),
+  yahooBulkDetail: (bulkRequestId, accountId) =>
+    http.get(`/use_web/notifications/yahoo/bulk/${encodeURIComponent(bulkRequestId)}`, {
+      params: { account_id: accountId },
+    }),
+  yahooBulkAccept: (bulkRequestId, data) =>
+    http.post(`/use_web/notifications/yahoo/bulk/${encodeURIComponent(bulkRequestId)}/accept`, data),
+  yahooBulkDeny: (bulkRequestId, data) =>
+    http.post(`/use_web/notifications/yahoo/bulk/${encodeURIComponent(bulkRequestId)}/deny`, data),
 }

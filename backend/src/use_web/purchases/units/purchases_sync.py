@@ -49,7 +49,7 @@ async def sync_purchases_core(
     account_ids: List[int],
     progress_job_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """逐账号同步购入列表并汇总。雅虎账号直接跳过——雅虎侧没有对应实现。"""
+    """逐账号同步购入列表并汇总。雅虎账号走 App API（use_yahoo/purchases.py）。"""
     accounts: List[Dict[str, Any]] = []
     api_order_count = inserted = updated = 0
     fail_count = skipped_accounts = 0
@@ -57,8 +57,28 @@ async def sync_purchases_core(
 
     for aid in account_ids:
         if _account_platform(aid) == "yahoo":
-            skipped_accounts += 1
-            accounts.append({"account_id": aid, "skipped": "雅虎账号暂不支持购入商品同步"})
+            # 雅虎走 App API（不开浏览器）；没做 App 登录的账号跳过并说明原因
+            from ....use_yahoo.app_api import YahooAppTokenMissing
+            from ....use_yahoo.purchases import sync_yahoo_purchases
+            from ....use_mercari.get_purchases.purchase_detail import detail_auto_settings
+
+            try:
+                auto, per_run, max_fail, _timeout = detail_auto_settings()
+                stats = await sync_yahoo_purchases(
+                    aid, detail_limit=per_run if auto else 0, max_failures=max_fail
+                )
+            except YahooAppTokenMissing as exc:
+                skipped_accounts += 1
+                accounts.append({"account_id": aid, "skipped": f"雅虎购入同步需要 App 登录：{exc}"})
+                continue
+            except Exception as exc:  # noqa: BLE001 单个账号失败不影响其余账号
+                fail_count += 1
+                accounts.append({"account_id": aid, "error": str(exc)})
+                continue
+            api_order_count += int(stats.get("api_order_count", 0) or 0)
+            inserted += int(stats.get("inserted", 0) or 0)
+            updated += int(stats.get("updated", 0) or 0)
+            accounts.append(stats)
             continue
         try:
             stats = await run_mercari_serial_async(
@@ -125,7 +145,9 @@ async def refresh_purchase_detail_core(item_id: str) -> Dict[str, Any]:
     if not aid:
         raise HTTPException(status_code=400, detail="该购入记录没有关联账号")
     if _account_platform(aid) == "yahoo":
-        raise HTTPException(status_code=400, detail="雅虎账号暂不支持购入商品详情")
+        from ....use_yahoo.purchases import refresh_yahoo_purchase_detail
+
+        return await refresh_yahoo_purchase_detail(aid, str(getattr(row, "item_id", "") or cid))
 
     async def _body():
         # 起始页直接给取引画面，省掉「先开购入列表再跳转」的一次多余加载

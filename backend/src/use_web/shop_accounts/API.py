@@ -32,6 +32,7 @@ from .units.shop_accounts_yahoo import fetch_yahoo_basic_info_endpoint
 from .units.shop_accounts_yahoo_token import (
     delete_yahoo_app_token,
     get_yahoo_app_token_status,
+    get_yahoo_paypay_balance,
     login_yahoo_app_account_endpoint,
 )
 
@@ -62,6 +63,7 @@ router.add_api_route(
 router.add_api_route("/{aid}/sync-data", sync_account_all_data, methods=["POST"], dependencies=_f("shop-accounts:sync"))
 # 雅虎 App 令牌：ゆうパケットポスト / mini 只能走 App API 发货，凭证与账号请求头分开存放
 router.add_api_route("/{aid}/yahoo-app-token", get_yahoo_app_token_status, methods=["GET"])
+router.add_api_route("/{aid}/yahoo-balance", get_yahoo_paypay_balance, methods=["GET"])
 # 程序内登录：开独立 profile 走 App 的 YConnect 授权，与网页登录态互不相干
 router.add_api_route(
     "/{aid}/yahoo-app-login", login_yahoo_app_account_endpoint, methods=["POST"],
@@ -71,7 +73,11 @@ router.add_api_route(
     "/{aid}/yahoo-app-token", delete_yahoo_app_token, methods=["DELETE"], dependencies=_f("shop-accounts:app_token"),
 )
 # 煤炉退货的返品先住所：退货待办「填写返品先住所」时填进 返品くん 表单
-router.add_api_route("/{aid}/return-address", get_return_address, methods=["GET"])
+# 含姓名 / 电话 / 住址：只给能改它的人和要填它的退货待办处理人，不随 reads_open 全员可读
+router.add_api_route(
+    "/{aid}/return-address", get_return_address, methods=["GET"],
+    dependencies=_f("shop-accounts:edit", "todos:return_address"),
+)
 router.add_api_route(
     "/{aid}/return-address", save_return_address, methods=["PUT"], dependencies=_f("shop-accounts:edit"),
 )

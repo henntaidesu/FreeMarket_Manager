@@ -215,7 +215,7 @@ router.add_api_route("/owner-filter-default", get_owner_filter_default_self, met
 router.add_api_route("/owner-filter-default", put_owner_filter_default_self, methods=["PUT"], response_model=OwnerFilterDefaultSelf, dependencies=_CONFIG_WRITE)
 
 # 系统配置（DeepSeek AI：API Key / 模型 / API 地址）
-router.add_api_route("/deepseek-config", get_deepseek_config, methods=["GET"], response_model=DeepSeekConfigOut)
+router.add_api_route("/deepseek-config", get_deepseek_config, methods=["GET"], response_model=DeepSeekConfigOut, dependencies=_cfg("ai"))
 router.add_api_route("/deepseek-config", put_deepseek_config, methods=["PUT"], response_model=DeepSeekConfigOut, dependencies=_cfg("ai"))
 
 # 系统日志（自动上架 / 自动获取 / 操作日志）
@@ -275,7 +275,7 @@ router.add_api_route("/ssl-mitm/status", get_status, methods=["GET"])
 router.add_api_route("/ssl-mitm/start", post_start, methods=["POST"], dependencies=_cfg("service"))
 router.add_api_route("/ssl-mitm/stop", post_stop, methods=["POST"], dependencies=_cfg("service"))
 router.add_api_route("/ssl-mitm/ca-cert", download_ca_cert, methods=["GET"])
-router.add_api_route("/ssl-mitm/last-capture", get_last_capture, methods=["GET"])
+router.add_api_route("/ssl-mitm/last-capture", get_last_capture, methods=["GET"], dependencies=_cfg("service"))
 
 # ===== 二级页面（嵌套到 /system 下） =====
 # 每组的页面权限列的是「哪些页面会调用它」，不只是它自己那一页（见 src/page_access.py）。
@@ -321,6 +321,7 @@ router.include_router(
     yahoo_ycm_router,
     prefix="/yahoo-category-mappings",
     tags=["yahoo-category-mappings"],
+    dependencies=_page("system/product-type-category-mappings"),
 )
 router.include_router(
     settlement_router, prefix="/settlement", tags=["settlement"],

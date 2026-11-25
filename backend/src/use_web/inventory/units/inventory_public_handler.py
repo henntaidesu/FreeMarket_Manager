@@ -16,6 +16,9 @@ from ..._path_safety import resolve_within_imges
 Image.MAX_IMAGE_PIXELS = 64_000_000
 
 
+
+_SIZE_TIERS = (64, 96, 120, 160, 200, 240, 320, 400, 500, 640, 800, 1200)
+
 def _render_thumb(orig_abs: str, size: int) -> bytes:
     """解码 → 摆正 → 缩放，返回 JPEG 字节。
 
@@ -59,7 +62,12 @@ def get_image_thumb(request: Request, path: str, size: int = 300):
         orig_abs = resolve_within_imges(clean, get_image_root())
     except ValueError:
         raise HTTPException(status_code=400, detail="无效路径")
-    size = max(50, min(size, 1200))
+    # 缓存目录本身不能当原图：否则能对缩略图再生成缩略图，无限繁殖缓存文件
+    rel = os.path.relpath(orig_abs, os.path.realpath(get_image_root()))
+    if rel.replace("\\", "/").split("/", 1)[0].lower() in ("_thumbs", "_mercari_cache"):
+        raise HTTPException(status_code=400, detail="无效路径")
+    # 尺寸向上取到固定档位：任意整数都落一个缓存文件的话，一张图能刷出上千个文件
+    size = next((t for t in _SIZE_TIERS if t >= size), _SIZE_TIERS[-1])
 
     # 已经搬到图床的图片：直接用图床自己的缩略图端点。这里**不**把原图拉回来再缩放——
     # 那等于每张小图都要先走一遍完整原图的下载，把搬到图床省下的带宽原样还回去，

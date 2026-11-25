@@ -50,7 +50,7 @@ class SyncNowOut(BaseModel):
 def _with_password(p: MysqlParams) -> MysqlParams:
     return p.model_copy(update={
         "database": (p.database or "").strip(),
-        "password": db_auto_sync.resolve_password(p.password),
+        "password": db_auto_sync.resolve_password(p.password, p.host, p.port, p.user),
     })
 
 
@@ -79,6 +79,11 @@ def put_sync_settings(body: SyncSettingsIn) -> SyncStatusOut:
         # 开启时先确认连得上，免得开着一个每轮都失败的定时任务
         if body.enabled:
             test_mysql_connection(p)
+            from ....db_manage.target_guard import UnsafeTargetError, assert_safe_overwrite_target
+            try:
+                assert_safe_overwrite_target(data)
+            except UnsafeTargetError as e:
+                raise HTTPException(status_code=400, detail=f"同步库不可用：{e}")
         try:
             db_auto_sync.save_target(data)
         except ValueError as e:

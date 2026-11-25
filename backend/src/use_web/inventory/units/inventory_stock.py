@@ -79,12 +79,16 @@ def stock_out_inventory(pid: int, data: StockInRequest):
                 raise HTTPException(status_code=404, detail="商品不存在")
             if int(meta[0] or 0) < data.quantity:
                 raise HTTPException(status_code=400, detail=f"库存不足，当前库存：{int(meta[0] or 0)}")
+            # 条件扣减：上面那次 SELECT 在 MySQL（REPEATABLE READ）下是快照读，挡不住并发，
+            # 真正的库存校验必须落在 UPDATE 的 WHERE 里
             cur.execute(
-                "UPDATE [inventory] SET quantity = COALESCE(quantity, 0) - ? WHERE id = ?",
-                (data.quantity, pid),
+                "UPDATE [inventory] SET quantity = COALESCE(quantity, 0) - ? "
+                "WHERE id = ? AND COALESCE(quantity, 0) >= ?",
+                (data.quantity, pid, data.quantity),
             )
             if cur.rowcount <= 0:
-                raise HTTPException(status_code=500, detail="库存更新失败")
+                db.dialect.rollback(conn)
+                raise HTTPException(status_code=400, detail="库存不足（并发变更），请重试")
             cur.execute(
                 f"UPDATE [inventory] SET [listable_quantity] = {_listable_sql_expr()} WHERE id = ?",
                 (pid,),

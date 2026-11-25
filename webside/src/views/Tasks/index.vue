@@ -58,10 +58,11 @@
               {{ t('tasks.cancel') }}
             </el-button>
             <el-button
-              v-if="(row.status === 'failed' || row.status === 'canceled') && $can('tasks:retry')"
+              v-if="(row.status === 'failed' || row.status === 'canceled') && row.retried_by == null && $can('tasks:retry')"
               link
               type="primary"
               size="small"
+              :loading="retryingIds.has(row.id)"
               @click="retryTask(row)"
             >
               {{ t('tasks.retry') }}

@@ -27,6 +27,12 @@ export const purchaseApi = {
   settlementByFilter: (data) => http.post('/use_web/purchases/settlement/by-filter', data),
   /** 某笔购入的交易留言（打开详情时才拉；与卖家侧待办共用 transaction_messages 表） */
   messages: (itemId) => http.get(`/use_web/purchases/${encodeURIComponent(itemId)}/messages`),
+  /** 以买家身份给卖家发交易留言（开交易页填框点发送，同步返回） */
+  /** 雅虎购入的受取評価（App API，一步完成、不可撤回） */
+  receive: (itemId, data) =>
+    http.post(`/use_web/purchases/${encodeURIComponent(itemId)}/receive`, data, { timeout: 60000 }),
+  sendMessage: (itemId, text) =>
+    http.post(`/use_web/purchases/${encodeURIComponent(itemId)}/messages/send`, { text }, { timeout: 0 }),
   /**
    * 配送履历：后端直连黑猫 / 邮局的公开查询页，一两秒返回，所以是普通请求而不是任务队列。
    * 已送达的结果永久复用、在途的 10 分钟内复用；force=true 强制重查（弹窗里的「刷新」）。

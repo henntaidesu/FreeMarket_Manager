@@ -54,6 +54,7 @@ from .units.todos_sync import (
     sync_todos,
     todos_sync_progress,
     yahoo_carrier_options_endpoint,
+    yahoo_cancel_trade_endpoint,
     yahoo_finish_reply_endpoint,
     yahoo_notify_shipped_endpoint,
     yahoo_ship_endpoint,
@@ -200,3 +201,4 @@ router.add_api_route("/{todo_id}/yahoo/ship-qr", _yahoo_ship_qr_endpoint, method
 router.add_api_route("/{todo_id}/yahoo/notify-shipped", yahoo_notify_shipped_endpoint, methods=["POST"], dependencies=_f("todos:ship"))
 router.add_api_route("/{todo_id}/yahoo/send-message", yahoo_trade_message_endpoint, methods=["POST"], dependencies=_f("todos:message"))
 router.add_api_route("/{todo_id}/yahoo/finish-reply", yahoo_finish_reply_endpoint, methods=["POST"], dependencies=_f("todos:message"))
+router.add_api_route("/{todo_id}/yahoo/cancel-trade", yahoo_cancel_trade_endpoint, methods=["POST"], dependencies=_f("todos:cancel_trade"))

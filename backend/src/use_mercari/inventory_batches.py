@@ -452,6 +452,14 @@ def delete_batch(batch_id: int) -> int:
         raise ValueError("在途批次由快递单管理，不能在这里删除")
     inv_id = cur["inventory_id"]
     with db.transaction():
+        # 带上读到的数量删：读完到这里之间若有售出按先进先出扣了这一批，数量已变，
+        # 按旧数量从总数里扣就会多扣
+        gone = db.execute_update(
+            "DELETE FROM [inventory_batches] WHERE [id] = ? AND COALESCE([quantity], 0) = ?",
+            (int(batch_id), int(cur["quantity"] or 0)),
+        )
+        if not gone:
+            raise ValueError("批次数量已变化，请刷新后重试")
         if cur["quantity"]:
             hit = db.execute_update(
                 "UPDATE [inventory] SET [quantity] = COALESCE([quantity], 0) - ? "
@@ -461,7 +469,6 @@ def delete_batch(batch_id: int) -> int:
             if not hit:
                 raise ValueError("商品总数不足，请刷新后重试")
             _log_tx(db, "out", inv_id, cur["warehouse_id"], cur["quantity"], "删除批次")
-        db.execute_update("DELETE FROM [inventory_batches] WHERE [id] = ?", (int(batch_id),))
         _sync_head_warehouse(db, inv_id)
     return inv_id
 

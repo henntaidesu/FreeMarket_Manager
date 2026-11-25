@@ -27,7 +27,9 @@ def force_stock_out_order_outbound_line(line_id: int, claims: dict = Depends(req
         line_wh = line_warehouse_for_deduction(db, int(line.id), int(line.inventory_id))
     # 原子认领（0→1），与普通出库同口径：并发 / 重复点击只有一个命中
     claimed = db.execute_update(
-        "UPDATE [order_outbound_lines] SET [is_stocked_out] = 1, [stocked_out_at] = ?, [warehouse_id] = ? "
+        "UPDATE [order_outbound_lines] SET [is_stocked_out] = 1, [stocked_out_at] = ?, [warehouse_id] = ?, "
+        # 已预扣的行库存确实扣过，不算「未扣库存的强制出库」
+        "[force_stocked_out] = CASE WHEN COALESCE([stock_deducted], 0) = 1 THEN 0 ELSE 1 END "
         "WHERE [id] = ? AND COALESCE([is_stocked_out], 0) = 0",
         (int(time.time()), line_wh, int(line.id)),
     )

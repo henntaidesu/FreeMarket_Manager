@@ -58,6 +58,13 @@
               <div class="comment-head">
                 <span class="comment-user">{{ c.user_name || c.user_id || '-' }}</span>
                 <span class="comment-time">{{ displayTs(c.created_ms) }}</span>
+                <button
+                  v-if="c.user_name && c.message && $can('notifications:comment')"
+                  type="button"
+                  class="comment-trans-toggle comment-delete"
+                  :disabled="deletingId === c.id"
+                  @click="onDeleteComment(c)"
+                >{{ t('dialogs.itemComment.delete') }}</button>
               </div>
               <div class="comment-text">{{ commentDisplayText(c) }}</div>
               <div v-if="!isOwn(c) && c.message" class="comment-trans">
@@ -123,6 +130,7 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage } from '@/utils/notify'
+import { ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { notificationsApi } from '@/api'
 import { useSyncOverlay } from '@/composables/useSyncOverlay'
@@ -252,6 +260,32 @@ function resetState() {
   replyText.value = ''
   msgOriginalKeys.clear()
   msgTranslatingKeys.clear()
+}
+
+// 卖家删除评论：开商品页按原文定位那一条、点删除并确认（后端 item_comment_delete.py）
+const deletingId = ref(null)
+async function onDeleteComment(c) {
+  if (!c?.id || deletingId.value) return
+  try {
+    await ElMessageBox.confirm(t('dialogs.itemComment.deleteConfirm'), t('dialogs.itemComment.delete'), {
+      type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'),
+    })
+  } catch {
+    return
+  }
+  deletingId.value = c.id
+  try {
+    const res = await notificationsApi.itemCommentDelete({
+      item_id: props.itemId, comment_id: String(c.id), message: c.message, account_id: props.accountId,
+    })
+    if (res?.item && Array.isArray(res?.comments)) applyResponse(res)
+    else comments.value = comments.value.filter((x) => x.id !== c.id)
+    ElMessage.success(t('dialogs.itemComment.deleted'))
+  } catch {
+    // http 拦截器已弹出原因
+  } finally {
+    deletingId.value = null
+  }
 }
 
 function applyResponse(res) {

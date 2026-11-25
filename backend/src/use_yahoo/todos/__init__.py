@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """雅虎待办事项（やることリスト）同步与处理动作。"""
 
+from .bulk_ship import bulk_notify_yahoo_shipped_for_account, pending_packed_yahoo_account_ids
 from .precache import precache_uncached_yahoo_todo_details
 from .todo_sync import sync_yahoo_todos, sync_yahoo_todos_with_details
 from .trade_actions import (
@@ -14,6 +15,8 @@ from .trade_actions import (
 )
 
 __all__ = [
+    "bulk_notify_yahoo_shipped_for_account",
+    "pending_packed_yahoo_account_ids",
     "sync_yahoo_todos",
     "sync_yahoo_todos_with_details",
     "precache_uncached_yahoo_todo_details",

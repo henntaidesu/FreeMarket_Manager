@@ -153,6 +153,8 @@ def _upsert_order(order_data: Dict[str, Any]) -> str:
         return "inserted"
 
     # 更新可变字段
+    old_status = str(existing.status or "").strip()
+    newly_cancelled = order_data["status"] == "cancelled" and old_status != "cancelled"
     existing.platform          = order_data.get("platform") or "mercari"
     existing.status            = order_data["status"]
     existing.amount            = order_data["amount"]
@@ -168,7 +170,16 @@ def _upsert_order(order_data: Dict[str, Any]) -> str:
         val = order_data.get(opt_col)
         if val is not None and str(val).strip():
             setattr(existing, opt_col, val)
-    existing.save()
+    if not newly_cancelled:
+        existing.save()
+        return "updated"
+    # 同步把订单写成 cancelled（雅虎交易页 / 煤炉列表）：与手动取消同口径回吐库存，同一事务
+    from ....db_manage.database import DatabaseManager
+    from .get_order_info import apply_cancellation_side_effects
+
+    with DatabaseManager().transaction():
+        existing.save()
+        apply_cancellation_side_effects(order_no)
     return "updated"
 
 

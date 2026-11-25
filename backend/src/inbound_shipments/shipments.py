@@ -217,6 +217,15 @@ def unship(sid: int) -> None:
         if ln["qty_shipped"] and ln["transit_quantity"] != ln["qty_shipped"]:
             raise ShipmentError(f"「{ln['name']}」的在途库存已被售出出库扣减，不能撤回")
     with db.transaction():
+        # 先原子认领「在途 → 草稿」：双击两路都通过了上面的校验，只有一路能命中，
+        # 否则总数会被扣两次
+        claimed = db.execute_update(
+            "UPDATE [inbound_shipments] SET [status] = ?, [shipped_at] = NULL, [arrived_at] = NULL "
+            "WHERE [id] = ? AND [status] = ?",
+            (STATUS_DRAFT, int(sid), STATUS_SHIPPED),
+        )
+        if not claimed:
+            raise ShipmentError("快递单状态已变化，请刷新后重试")
         for ln in lines:
             qty = ln["qty_shipped"]
             if qty <= 0:
@@ -232,10 +241,6 @@ def unship(sid: int) -> None:
                 "DELETE FROM [inventory_batches] WHERE [shipment_id] = ? AND [inventory_id] = ? AND [stage] = ?",
                 (int(sid), ln["inventory_id"], STAGE_TRANSIT),
             )
-        db.execute_update(
-            "UPDATE [inbound_shipments] SET [status] = ?, [shipped_at] = NULL, [arrived_at] = NULL WHERE [id] = ?",
-            (STATUS_DRAFT, int(sid)),
-        )
     recompute_listable_quantity([ln["inventory_id"] for ln in lines])
 
 

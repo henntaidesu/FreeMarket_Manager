@@ -49,6 +49,16 @@ def _num(name: str) -> int:
     return v
 
 
+def maintenance_interval_sec() -> int:
+    """周期清理间隔（秒）；``MAINTENANCE_INTERVAL_HOURS``，默认 6，0 = 只在启动时跑。"""
+    raw = (os.environ.get("MAINTENANCE_INTERVAL_HOURS") or "").strip()
+    try:
+        hours = float(raw) if raw else 6.0
+    except ValueError:
+        hours = 6.0
+    return max(0, int(hours * 3600))
+
+
 def _enabled() -> bool:
     return (os.environ.get("MAINTENANCE_AUTO") or "1").strip().lower() not in (
         "0", "false", "no", "off",

@@ -18,6 +18,7 @@ from .detail import (
 )
 from .yahoo_actions import (
     yahoo_carrier_options_endpoint,
+    yahoo_cancel_trade_endpoint,
     yahoo_finish_reply_endpoint,
     yahoo_notify_shipped_endpoint,
     yahoo_ship_endpoint,
@@ -76,5 +77,6 @@ __all__ = [
     "yahoo_ship_qr_endpoint",
     "yahoo_notify_shipped_endpoint",
     "yahoo_trade_message_endpoint",
+    "yahoo_cancel_trade_endpoint",
     "yahoo_finish_reply_endpoint",
 ]

@@ -115,17 +115,26 @@ export default defineConfig(({ mode }) => {
         '/mercariV2': {
           target: backendTarget,
           secure: false,
-          changeOrigin: true
+          changeOrigin: true,
+          // 追加真实对端到 X-Forwarded-For 末尾：后端只信任来自 127.0.0.1 的转发头并取最右一段，
+          // 不追加的话客户端自带的伪造 XFF 会被当成来源 IP（登录锁定 / 限速按 IP 计，可被绕过）
+          xfwd: true
         },
         '/api': {
           target: backendTarget,
           secure: false,
-          changeOrigin: true
+          changeOrigin: true,
+          // 追加真实对端到 X-Forwarded-For 末尾：后端只信任来自 127.0.0.1 的转发头并取最右一段，
+          // 不追加的话客户端自带的伪造 XFF 会被当成来源 IP（登录锁定 / 限速按 IP 计，可被绕过）
+          xfwd: true
         },
         '/imges': {
           target: backendTarget,
           secure: false,
-          changeOrigin: true
+          changeOrigin: true,
+          // 追加真实对端到 X-Forwarded-For 末尾：后端只信任来自 127.0.0.1 的转发头并取最右一段，
+          // 不追加的话客户端自带的伪造 XFF 会被当成来源 IP（登录锁定 / 限速按 IP 计，可被绕过）
+          xfwd: true
         },
         // 对外商城：由后端挂载（src/store_static.py），必须转发过去。
         // 不转发的话 /store 会落进本 dev server 的 SPA 兜底，**返回 200 但给的是管理端页面**
@@ -135,7 +144,10 @@ export default defineConfig(({ mode }) => {
         '/store': {
           target: backendTarget,
           secure: false,
-          changeOrigin: true
+          changeOrigin: true,
+          // 追加真实对端到 X-Forwarded-For 末尾：后端只信任来自 127.0.0.1 的转发头并取最右一段，
+          // 不追加的话客户端自带的伪造 XFF 会被当成来源 IP（登录锁定 / 限速按 IP 计，可被绕过）
+          xfwd: true
         }
       }
     }

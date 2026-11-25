@@ -22,10 +22,10 @@ log = logging.getLogger(__name__)
 
 
 def _is_stock_holding_line(line: OrderOutboundLineModel) -> bool:
-    """该明细对绑定库存仍有「占用」需要回吐：已出库或已预扣的均算占用。"""
-    if int(line.is_stocked_out or 0) == 1:
+    """该明细对绑定库存仍有「占用」需要回吐：已预扣，或已出库且不是「强制出库（未扣库存）」。"""
+    if int(line.stock_deducted or 0) == 1:
         return True
-    return int(line.stock_deducted or 0) == 1
+    return int(line.is_stocked_out or 0) == 1 and int(line.force_stocked_out or 0) == 0
 
 
 def restock_order_holding_lines(order_no: str, *, reason: str) -> None:
@@ -60,8 +60,9 @@ def _restock_holding_lines_impl(ono: str, *, reason: str) -> None:
         claimed = db.execute_update(
             "UPDATE [order_outbound_lines] "
             "SET [is_stocked_out] = 0, [stocked_out_at] = NULL, [stock_deducted] = 0, [owner_user_id] = NULL, "
-            "[warehouse_id] = NULL "
-            "WHERE [id] = ? AND (COALESCE([is_stocked_out], 0) = 1 OR COALESCE([stock_deducted], 0) = 1)",
+            "[warehouse_id] = NULL, [force_stocked_out] = 0 "
+            "WHERE [id] = ? AND (COALESCE([stock_deducted], 0) = 1 "
+            "OR (COALESCE([is_stocked_out], 0) = 1 AND COALESCE([force_stocked_out], 0) = 0))",
             (int(line.id),),
         )
         if claimed <= 0:
@@ -132,59 +133,70 @@ def bind_outbound_line_inventory(line_id: int, data: OutboundLineBindInventoryBo
     if holds_stock:
         new_inv_qty = int(inv_rows[0][1] or 0)
         new_inv_warehouse_id = inv_rows[0][2]
-        if new_inv_qty < new_qty:
+        # 归档明细（盘库前已发出的货）：新库存的盘点数里本就不含它，改绑只换指向，不回吐、不扣减
+        archived = int(getattr(line, "inventory_archived", 0) or 0) == 1
+        if not archived and new_inv_qty < new_qty:
             raise HTTPException(status_code=400, detail=f"目标库存不足，当前库存：{new_inv_qty}")
+        # 换了货就换了所有人：扣减前取新库存队首批次的所有人
+        new_owner = head_owner(db, inv_id)
 
         with db.get_connection() as conn:
             db.dialect.begin(conn)
             cur = conn.cursor()
-            if old_inv_id is not None and old_inv_id != inv_id:
-                cur.execute(
-                    "UPDATE [inventory] SET [quantity] = COALESCE([quantity], 0) + ? WHERE [id] = ?",
-                    (old_qty, old_inv_id),
-                )
-                touched_inv_ids.append(old_inv_id)
-            elif old_inv_id == inv_id and new_qty != old_qty:
-                cur.execute(
-                    "UPDATE [inventory] SET [quantity] = COALESCE([quantity], 0) + ? WHERE [id] = ?",
-                    (old_qty, inv_id),
-                )
-
-            # 换了货就换了所有人：扣减前取新库存队首批次的所有人
-            new_owner = head_owner(db, inv_id)
-            # 原子条件扣减：仅当库存足量才扣，防跨连接 TOCTOU 导致的负库存/丢更新
-            cur.execute(
-                "UPDATE [inventory] SET [quantity] = COALESCE([quantity], 0) - ? "
-                "WHERE [id] = ? AND COALESCE([quantity], 0) >= ?",
-                (new_qty, inv_id, new_qty),
-            )
-            if cur.rowcount == 0:
-                db.dialect.rollback(conn)
-                raise HTTPException(status_code=400, detail="目标库存不足（并发变更），请重试")
-
-            if int(line.is_stocked_out or 0) == 1 and new_inv_warehouse_id is not None:
-                cur.execute(
-                    """
-                    INSERT INTO [transactions] (
-                        type, inventory_id, warehouse_id, quantity, remark, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        "out",
-                        inv_id,
-                        new_inv_warehouse_id,
-                        new_qty,
-                        f"订单出库改绑 {line.order_no} / line#{line.id}",
-                        int(time.time()),
-                    ),
-                )
-
+            # 先在事务内认领本行：行仍绑旧库存、仍是同一数量、仍持有库存才改。并发的取消回吐
+            # 已把它认领走时这里不命中，否则旧库存会被回吐两次、新库存的扣减变成孤儿。
             cur.execute(
                 "UPDATE [order_outbound_lines] SET [inventory_id] = ?, [quantity] = ?, [owner_user_id] = ?, "
                 "[warehouse_id] = ?, [inventory_archived] = 0 "
-                "WHERE [id] = ?",
-                (inv_id, new_qty, new_owner, new_inv_warehouse_id, int(line.id)),
+                "WHERE [id] = ? AND " + ("[inventory_id] IS NULL" if old_inv_id is None else "[inventory_id] = ?")
+                + " AND COALESCE([quantity], 1) = ? AND (COALESCE([stock_deducted], 0) = 1 "
+                "OR (COALESCE([is_stocked_out], 0) = 1 AND COALESCE([force_stocked_out], 0) = 0))",
+                (inv_id, new_qty, new_owner, new_inv_warehouse_id, int(line.id))
+                + (() if old_inv_id is None else (old_inv_id,)) + (old_qty,),
             )
+            if cur.rowcount == 0:
+                db.dialect.rollback(conn)
+                raise HTTPException(status_code=409, detail="该明细已被其它操作修改（如订单取消），请刷新后重试")
+
+            if not archived:
+                if old_inv_id is not None and old_inv_id != inv_id:
+                    cur.execute(
+                        "UPDATE [inventory] SET [quantity] = COALESCE([quantity], 0) + ? WHERE [id] = ?",
+                        (old_qty, old_inv_id),
+                    )
+                    touched_inv_ids.append(old_inv_id)
+                elif old_inv_id == inv_id and new_qty != old_qty:
+                    cur.execute(
+                        "UPDATE [inventory] SET [quantity] = COALESCE([quantity], 0) + ? WHERE [id] = ?",
+                        (old_qty, inv_id),
+                    )
+
+                # 原子条件扣减：仅当库存足量才扣，防跨连接 TOCTOU 导致的负库存/丢更新
+                cur.execute(
+                    "UPDATE [inventory] SET [quantity] = COALESCE([quantity], 0) - ? "
+                    "WHERE [id] = ? AND COALESCE([quantity], 0) >= ?",
+                    (new_qty, inv_id, new_qty),
+                )
+                if cur.rowcount == 0:
+                    db.dialect.rollback(conn)
+                    raise HTTPException(status_code=400, detail="目标库存不足（并发变更），请重试")
+
+                if int(line.is_stocked_out or 0) == 1 and new_inv_warehouse_id is not None:
+                    cur.execute(
+                        """
+                        INSERT INTO [transactions] (
+                            type, inventory_id, warehouse_id, quantity, remark, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            "out",
+                            inv_id,
+                            new_inv_warehouse_id,
+                            new_qty,
+                            f"订单出库改绑 {line.order_no} / line#{line.id}",
+                            int(time.time()),
+                        ),
+                    )
             db.dialect.commit(conn)
     else:
         line.inventory_id = inv_id

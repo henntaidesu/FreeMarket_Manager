@@ -7,6 +7,7 @@ from ....db_manage.database import DatabaseManager
 from ....db_manage.models.orders.order_outbound_line import TERMINAL_ORDER_STATUSES, OrderOutboundLineModel
 from ._common import _normalize_int_id, _normalize_match_text
 from .inventory_resolve import _extract_bundle_product_titles, _inventory_id_by_barcode, _is_bundle_order_description, _resolve_inventory_id, _resolve_inventory_ids_by_bundle_title
+from .holding import assert_holding_unchanged, holding_qty_by_inventory
 from .line_owners import keep_line_owners
 from .parsing import parse_order_description_outbound_tokens_with_quantity
 from ...image_mgmt_ids import is_photo_bundle, stored_order_image_mgmt, uncovered_bundle_titles
@@ -157,6 +158,7 @@ def _write_bundle_title_lines(
             int(r.is_stocked_out or 0),
             int(r.stocked_out_at) if r.stocked_out_at is not None else None,
             int(r.stock_deducted or 0),
+            int(r.force_stocked_out or 0),
         ))
     # 账号隔离：只在本订单卖出账号（orders.data_user = seller.id）的在售记录中匹配。
     seller_id = _order_seller_id(ono)
@@ -181,7 +183,7 @@ def _write_bundle_title_lines(
         if inv_id is not None:
             used_inv_ids.add(inv_id)
         states = old_bundle_state_by_norm.get(tnorm)
-        stocked, stocked_at, deducted = states.pop(0) if states else (0, None, 0)
+        stocked, stocked_at, deducted, forced = states.pop(0) if states else (0, None, 0, 0)
         line = OrderOutboundLineModel(
             order_no=ono,
             inventory_id=inv_id,
@@ -193,6 +195,7 @@ def _write_bundle_title_lines(
             is_stocked_out=stocked,
             stocked_out_at=stocked_at,
             stock_deducted=deducted,
+            force_stocked_out=forced,
         )
         line.save()
         sort_idx += 1
@@ -214,11 +217,14 @@ def sync_outbound_lines_for_order(
     """
     # 整个「删旧行 + 逐行重建」放进一个事务：中途失败（某行 save 报错/崩溃）时整体回滚，
     # 不会把已删除的持有出库状态的行永久丢掉（丢掉后取消回吐找不到行，扣减变成孤儿）。
+    ono = (order_no or "").strip()
     with DatabaseManager().transaction():
-        with keep_line_owners((order_no or "").strip()):
+        before = holding_qty_by_inventory(ono)
+        with keep_line_owners(ono):
             _sync_outbound_lines_for_order_impl(
                 order_no, description, skip_if_has_lines=skip_if_has_lines
             )
+        assert_holding_unchanged(before, holding_qty_by_inventory(ono))
     # 延迟导入避免 use_mercari -> use_web 潜在环引用
     from ....use_web.orders.units.order_goods_ratio import recompute_and_store_order_ratio
 
@@ -295,6 +301,7 @@ def _sync_outbound_lines_for_order_impl(
             int(r.is_stocked_out or 0),
             int(r.stocked_out_at) if r.stocked_out_at is not None else None,
             int(r.stock_deducted or 0),
+            int(r.force_stocked_out or 0),
             int(r.inventory_id) if r.inventory_id is not None else None,
         )
 
@@ -328,6 +335,7 @@ def _sync_outbound_lines_for_order_impl(
                 int(r.is_stocked_out or 0),
                 int(r.stocked_out_at) if r.stocked_out_at is not None else None,
                 int(r.stock_deducted or 0),
+                int(r.force_stocked_out or 0),
             ))
     if not tokens:
         if not _is_bundle_order_description(description):
@@ -343,6 +351,7 @@ def _sync_outbound_lines_for_order_impl(
                     is_stocked_out=int(mr.is_stocked_out or 0),
                     stocked_out_at=mr.stocked_out_at,
                     stock_deducted=int(mr.stock_deducted or 0),
+                    force_stocked_out=int(mr.force_stocked_out or 0),
                 )
                 line.save()
                 if mr.inventory_id is not None:
@@ -363,6 +372,7 @@ def _sync_outbound_lines_for_order_impl(
                     is_stocked_out=int(mr.is_stocked_out or 0),
                     stocked_out_at=mr.stocked_out_at,
                     stock_deducted=int(mr.stock_deducted or 0),
+                    force_stocked_out=int(mr.force_stocked_out or 0),
                 )
                 line.save()
                 if mr.inventory_id is not None:
@@ -385,6 +395,7 @@ def _sync_outbound_lines_for_order_impl(
                 is_stocked_out=int(mr.is_stocked_out or 0),
                 stocked_out_at=mr.stocked_out_at,
                 stock_deducted=int(mr.stock_deducted or 0),
+                force_stocked_out=int(mr.force_stocked_out or 0),
             )
             line.save()
             if mr.inventory_id is not None:
@@ -405,12 +416,12 @@ def _sync_outbound_lines_for_order_impl(
             mid_s = str(mid)
             old_state = old_token_state.get((lk, mid_s, qn))
             if old_state is None and inv_for_line in old_state_by_inv:
-                stocked, stocked_at, deducted = old_state_by_inv[inv_for_line].pop(0)
+                stocked, stocked_at, deducted, forced = old_state_by_inv[inv_for_line].pop(0)
                 kept_inv = None
                 if not old_state_by_inv[inv_for_line]:
                     del old_state_by_inv[inv_for_line]
             else:
-                stocked, stocked_at, deducted, kept_inv = old_state or (0, None, 0, None)
+                stocked, stocked_at, deducted, forced, kept_inv = old_state or (0, None, 0, 0, None)
             # 旧行绑定的库存优先（保留手动改绑/归属转化的结果）
             if kept_inv is not None:
                 inv_for_line = kept_inv
@@ -428,13 +439,14 @@ def _sync_outbound_lines_for_order_impl(
                 is_stocked_out=stocked,
                 stocked_out_at=stocked_at,
                 stock_deducted=deducted,
+                force_stocked_out=forced,
             )
         else:
             bc = str(val).strip()
             inv_id = _inventory_id_by_barcode(bc)
             lk = "barcode"
-            stocked, stocked_at, deducted, kept_inv = old_token_state.get(
-                (lk, bc, qn), (0, None, 0, None)
+            stocked, stocked_at, deducted, forced, kept_inv = old_token_state.get(
+                (lk, bc, qn), (0, None, 0, 0, None)
             )
             # 旧行绑定的库存优先（保留手动改绑/归属转化的结果）
             if kept_inv is not None:
@@ -453,6 +465,7 @@ def _sync_outbound_lines_for_order_impl(
                 is_stocked_out=stocked,
                 stocked_out_at=stocked_at,
                 stock_deducted=deducted,
+                force_stocked_out=forced,
             )
         line.save()
         sort_idx += 1
@@ -476,6 +489,7 @@ def _sync_outbound_lines_for_order_impl(
             is_stocked_out=int(mr.is_stocked_out or 0),
             stocked_out_at=mr.stocked_out_at,
             stock_deducted=int(mr.stock_deducted or 0),
+            force_stocked_out=int(mr.force_stocked_out or 0),
         )
         line.save()
         if mr.inventory_id is not None:

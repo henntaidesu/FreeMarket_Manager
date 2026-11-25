@@ -93,7 +93,7 @@ def _resolve_avatar_local(avatar_path: Optional[str]) -> Optional[str]:
         return None
     if s.startswith("http://") or s.startswith("https://"):
         return _download_avatar_with_ua(s)
-    return _resolve_image_to_local(s)
+    return _resolve_image_to_local(s, allow_abs=True)
 
 
 def _download_avatar_with_ua(url: str) -> Optional[str]:

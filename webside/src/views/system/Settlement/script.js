@@ -1,4 +1,5 @@
 import { defineComponent, computed, onMounted, ref, watch } from 'vue'
+import { ElMessageBox } from 'element-plus'
 import { ElMessage } from '@/utils/notify'
 import { useI18n } from 'vue-i18n'
 import { settlementApi } from '@/api/index.js'
@@ -271,6 +272,13 @@ export default defineComponent({
     }
 
     async function removePendingItem(row) {
+      try {
+        await ElMessageBox.confirm(t('system.settlementPendingDeleteConfirm'), t('common.warning'), {
+          type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel')
+        })
+      } catch {
+        return
+      }
       await settlementApi.deletePendingItem(row.id)
       await loadPendingItems()
       ElMessage.success(t('system.settlementDeleteSuccess'))

@@ -2492,7 +2492,7 @@ async function onHotSwitch() {
   const target = (dbForm.mysql.database || '').trim()
   try {
     await ElMessageBox.confirm(
-      `将把当前使用的数据库切换为「${target}」（同一服务器切库，无需重启后端）。切换前会确认没有正在进行的后台同步任务。是否继续？`,
+      `将把当前使用的数据库切换为「${target}」（同一服务器切库，无需重启后端）。切换前会确认没有正在进行的后台同步与任务；目标库里有本系统不认识的表时会拒绝切换（否则它们会被删除）。是否继续？`,
       '确认切换数据库',
       { type: 'warning', confirmButtonText: '切换', cancelButtonText: '取消' }
     )
@@ -2525,13 +2525,29 @@ async function onTest() {
 }
 
 async function onMigrate() {
-  const target = dbForm.backend === 'mysql' ? 'MySQL' : 'SQLite'
+  const isMysql = dbForm.backend === 'mysql'
+  const dbName = (dbForm.mysql.database || '').trim()
+  let confirmDatabase = null
   try {
-    await ElMessageBox.confirm(
-      `将把当前数据库的全部数据复制到 ${target}（覆盖目标库同名数据），当前使用的数据库不变。是否继续？`,
-      '确认迁移数据库',
-      { type: 'warning', confirmButtonText: '开始迁移', cancelButtonText: '取消' }
-    )
+    if (isMysql) {
+      // 迁移会先删除目标库的全部表：要求把库名原样再输一遍，免得手滑覆盖正式库
+      const where = `${dbForm.mysql.host}:${dbForm.mysql.port}/${dbName}`
+      const { value } = await ElMessageBox.prompt(
+        `将删除 MySQL 库「${where}」的全部表，再用当前数据库的数据覆盖，当前使用的数据库不变。请输入目标库名「${dbName}」确认：`,
+        '确认迁移数据库',
+        {
+          type: 'warning', confirmButtonText: '开始迁移', cancelButtonText: '取消',
+          inputValidator: (v) => (v || '').trim() === dbName || '库名不一致'
+        }
+      )
+      confirmDatabase = (value || '').trim()
+    } else {
+      await ElMessageBox.confirm(
+        '将把当前数据库的全部数据复制到 SQLite（覆盖目标库同名数据），当前使用的数据库不变。是否继续？',
+        '确认迁移数据库',
+        { type: 'warning', confirmButtonText: '开始迁移', cancelButtonText: '取消' }
+      )
+    }
   } catch (_) {
     return
   }
@@ -2539,7 +2555,10 @@ async function onMigrate() {
   migrateSummary.value = []
   try {
     const payload = { backend: dbForm.backend }
-    if (dbForm.backend === 'mysql') payload.mysql = { ...dbForm.mysql }
+    if (isMysql) {
+      payload.mysql = { ...dbForm.mysql }
+      payload.confirm_database = confirmDatabase
+    }
     const res = await databaseApi.migrate(payload)
     migrateSummary.value = res.tables || []
     ElMessage.success(res.message)

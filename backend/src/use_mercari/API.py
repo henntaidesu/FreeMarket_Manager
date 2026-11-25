@@ -126,7 +126,7 @@ async def sync_new_data_core(*, progress_job_id: Optional[str] = None) -> Dict[s
     }
 
 
-@router.post("/sync-new-data")
+@router.post("/sync-new-data", dependencies=[Depends(require_feature("orders:sync"))])
 async def api_sync_new_data(data: SyncOrdersRequest):
     """
     订单页「更新列表」：对所有启用账号（status=active；不要求自动获取开启）逐个串行执行——
@@ -212,7 +212,7 @@ async def batch_refresh_info_core(
     }
 
 
-@router.post("/batch-refresh-info")
+@router.post("/batch-refresh-info", dependencies=[Depends(require_feature("orders:sync"))])
 async def api_batch_refresh_info(data: SyncOrdersRequest):
     """
     订单页「更新状态」：逐条打开取引页并由 MITM 截获 transaction_evidences/get 回填（与单行刷新一致）。

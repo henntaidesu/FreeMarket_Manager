@@ -180,11 +180,32 @@ export default defineComponent({
       load()
     }
 
+    const retryingIds = ref(new Set())
+
     async function retryTask(row) {
-      await tasksApi.retry(row.id)
-      ElMessage.success(t('tasks.retrySuccess'))
-      page.value = 1
-      load()
+      if (retryingIds.value.has(row.id)) return
+      try {
+        await ElMessageBox.confirm(t('tasks.retryConfirm'), t('common.warning'), {
+          type: 'warning',
+          confirmButtonText: t('common.confirm'),
+          cancelButtonText: t('common.cancel')
+        })
+      } catch {
+        return
+      }
+      retryingIds.value = new Set(retryingIds.value).add(row.id)
+      try {
+        await tasksApi.retry(row.id)
+        ElMessage.success(t('tasks.retrySuccess'))
+        page.value = 1
+        load()
+      } catch {
+        // 错误提示由 axios 拦截器统一弹出（如 409：已经重试过）
+      } finally {
+        const next = new Set(retryingIds.value)
+        next.delete(row.id)
+        retryingIds.value = next
+      }
     }
 
     onMounted(async () => {
@@ -230,7 +251,8 @@ export default defineComponent({
       onFilterChange,
       openDetail,
       cancelTask,
-      retryTask
+      retryTask,
+      retryingIds
     }
   }
 })

@@ -199,7 +199,11 @@ async def proxy_mercari_image(request: Request, u: str):
     if not host_allowed(parsed.hostname or ""):
         raise HTTPException(status_code=403, detail="不允许的域名")
 
-    url_hash = hashlib.sha1(raw.encode("utf-8")).hexdigest()
+    # 缓存键只认「域名 + 路径 + 纯数字版本号查询串」：整个 URL 作键时同一张图换个
+    # ?a=1 / ?a=2 就多落一份缓存（单份上限 20MB），未认证请求能借此刷满磁盘
+    q = parsed.query if parsed.query.isdigit() else ""
+    cache_key = f"{parsed.scheme}://{(parsed.hostname or '').lower()}{parsed.path}" + (f"?{q}" if q else "")
+    url_hash = hashlib.sha1(cache_key.encode("utf-8")).hexdigest()
 
     # 延迟导入：image_route 在模块级要用 use_web.image_storage，写进文件头就成了循环导入。
     # 同目录的缩略图端点出于同样的原因也是在函数里导入它。

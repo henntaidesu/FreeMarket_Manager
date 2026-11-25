@@ -106,6 +106,17 @@ def _assert_admin_for_admin_change(claims: dict) -> None:
         raise HTTPException(status_code=403, detail="只有管理员可以设置或修改管理员账号")
 
 
+def _assert_role_change_allowed(claims: dict, *, target_is_self: bool, clearing: bool) -> None:
+    """「未分配角色 = 不受限」，所以清空角色等于授予全部权限：只有管理员能这么做。
+    改自己的角色同理（能给自己挑一个更宽的角色），非管理员一律不许。"""
+    if claims.get("is_admin"):
+        return
+    if clearing:
+        raise HTTPException(status_code=403, detail="只有管理员可以把账号设为不受角色限制")
+    if target_is_self:
+        raise HTTPException(status_code=403, detail="不能修改自己的角色")
+
+
 def create_user(data: UserCreateRequest, _claims: dict = Depends(require_auth)):
     username = (data.username or "").strip()
     password = data.password or ""
@@ -122,7 +133,9 @@ def create_user(data: UserCreateRequest, _claims: dict = Depends(require_auth)):
     if is_admin:
         _assert_admin_for_admin_change(_claims)
     role_id = data.role_id or None
-    if role_id is not None:
+    if role_id is None:
+        _assert_role_change_allowed(_claims, target_is_self=False, clearing=True)
+    else:
         _assert_role_exists(role_id)
     salt_hex = secrets.token_hex(16)
     password_hash = _hash_password(password, salt_hex)
@@ -145,12 +158,12 @@ def create_user(data: UserCreateRequest, _claims: dict = Depends(require_auth)):
 
 def update_user(user_id: int, data: UserUpdateRequest, claims: dict = Depends(require_auth)):
     rows = db.execute_query(
-        "SELECT id, username, is_active, is_admin FROM [users] WHERE id = ? LIMIT 1",
+        "SELECT id, username, is_active, is_admin, role_id FROM [users] WHERE id = ? LIMIT 1",
         (user_id,),
     )
     if not rows:
         raise HTTPException(status_code=404, detail="用户不存在")
-    _, username, cur_active, cur_admin = rows[0]
+    _, username, cur_active, cur_admin, cur_role = rows[0]
     is_self = int(claims.get("user_id") or 0) == int(user_id)
     if cur_admin or data.is_admin:
         _assert_admin_for_admin_change(claims)
@@ -183,9 +196,14 @@ def update_user(user_id: int, data: UserUpdateRequest, claims: dict = Depends(re
         sets.append("is_admin = ?")
         params.append(new_admin)
 
+    # 表单常把未改动的角色原样带回，值没变就不算「修改角色」
     if data.clear_role:
+        if cur_role is not None:
+            _assert_role_change_allowed(claims, target_is_self=is_self, clearing=True)
         sets.append("role_id = NULL")
     elif data.role_id is not None:
+        if cur_role is None or int(data.role_id) != int(cur_role):
+            _assert_role_change_allowed(claims, target_is_self=is_self, clearing=False)
         _assert_role_exists(data.role_id)
         sets.append("role_id = ?")
         params.append(data.role_id)
@@ -219,8 +237,17 @@ def change_password(data: ChangePasswordRequest, claims: dict = Depends(require_
     if not rows:
         raise HTTPException(status_code=404, detail="用户不存在")
     db_username, db_hash, db_salt = rows[0]
+    # 与登录共用失败计数：拿到一个会话的人不能借「改密码」无限试原密码
+    from ...login.units.login_handler import _check_locked, _clear_fail, _record_fail
+
+    pw_key = f"pwchange:{user_id}"
+    remain = _check_locked(pw_key)
+    if remain > 0:
+        raise HTTPException(status_code=429, detail=f"尝试过于频繁，请 {remain} 秒后再试")
     if not hmac.compare_digest(_hash_password(old_password, db_salt), str(db_hash)):
+        _record_fail(pw_key)
         raise HTTPException(status_code=400, detail="原密码错误")
+    _clear_fail(pw_key)
     _validate_password_strength(new_password, db_username)
 
     new_salt = secrets.token_hex(16)

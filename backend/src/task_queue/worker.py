@@ -48,6 +48,20 @@ def request_cancel_running(task_id: int) -> bool:
     return True
 
 
+#: 暂停领新任务的持有者计数（热切库期间置位：任务收尾的写库会落进切换后的库）
+_pause_holders = 0
+
+
+def pause_claiming() -> None:
+    global _pause_holders
+    _pause_holders += 1
+
+
+def resume_claiming() -> None:
+    global _pause_holders
+    _pause_holders = max(0, _pause_holders - 1)
+
+
 def current_running_id() -> Optional[int]:
     cur = _current
     return int(cur[0]) if cur else None
@@ -163,6 +177,9 @@ async def _loop() -> None:
                 except Exception:
                     log.exception("[task_queue] 预扣减 TTL 清理失败")
 
+            if _pause_holders > 0:
+                await asyncio.sleep(_IDLE_SEC)
+                continue
             task = store.claim_next()
             if task is None:
                 await asyncio.sleep(_IDLE_SEC)

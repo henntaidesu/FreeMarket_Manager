@@ -141,6 +141,12 @@ class OrderOutboundLineModel(BaseModel):
                 "not_null": True,
                 "default": 0,
             },
+            # 1=强制出库：只标记已出库、**没有扣库存**。回吐 / 改绑据此跳过，否则取消订单会凭空多出库存
+            "force_stocked_out": {
+                "type": "INTEGER",
+                "not_null": True,
+                "default": 0,
+            },
             # 这件货的所有人快照（users.id）：出库/预扣时取先进先出队首批次的所有人，合并商品前取原商品的。
             # NULL = 随库存（inventory.owner_user_id）。归属口径一律 OWNER_SQL（本文件顶部）
             "owner_user_id": {

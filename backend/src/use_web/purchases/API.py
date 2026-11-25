@@ -28,6 +28,7 @@ from .units.purchases_settlement import (
     update_purchase_settlement,
     update_purchase_settlement_by_filter,
 )
+from .units.purchases_message import receive_purchase, send_purchase_message
 from .units.purchases_tracking import get_purchase_tracking
 
 router = APIRouter()
@@ -48,6 +49,16 @@ router.add_api_route(
     dependencies=[Depends(require_feature("system/purchase-settlement:settle"))],
 )
 router.add_api_route("/{item_id}/messages", get_purchase_messages, methods=["GET"])
+# 以买家身份给卖家发留言：开交易页填框点发送（几秒），与订单面板回复同样不入队
+router.add_api_route(
+    "/{item_id}/messages/send", send_purchase_message, methods=["POST"],
+    dependencies=[Depends(require_feature("system/purchases:message"))],
+)
+# 雅虎购入的受取評価（App API；煤炉的仍在待办页「待收货」）
+router.add_api_route(
+    "/{item_id}/receive", receive_purchase, methods=["POST"],
+    dependencies=[Depends(require_feature("system/purchases:receive"))],
+)
 # 配送履历：直连黑猫 / 邮局的公开查询页，不开浏览器也不入队，所以走普通 HTTP
 # （见 units/purchases_tracking.py 与 src/delivery_tracking/）
 router.add_api_route("/{item_id}/tracking", get_purchase_tracking, methods=["GET"])

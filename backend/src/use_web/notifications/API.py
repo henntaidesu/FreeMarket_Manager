@@ -64,6 +64,7 @@ from .units.desired_price_query import get_desired_price_offer
 from .units.desired_price_sync import sync_desired_price
 from .units.item_comment_models import (
     ItemCommentCloseRequest,
+    ItemCommentDeleteRequest,
     ItemCommentPostRequest,
     ItemCommentSyncRequest,
     ItemCommentTranslateRequest,
@@ -329,6 +330,21 @@ async def _item_comment_post_endpoint(req: ItemCommentPostRequest) -> Dict[str, 
             clear_sync_progress(jid)
 
 
+async def _item_comment_delete_endpoint(req: ItemCommentDeleteRequest) -> Dict[str, Any]:
+    """卖家删除自己商品上的一条评论（复用账号主 profile 浏览器，与发评论同一会话）。"""
+    from ...use_mercari.get_notifications.item_comment.item_comment_delete import delete_item_comment
+
+    try:
+        return await delete_item_comment(
+            item_id=req.item_id, comment_id=req.comment_id, message=req.message,
+            account_id=req.account_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 async def _item_comment_close_endpoint(req: ItemCommentCloseRequest) -> Dict[str, Any]:
     """前端关闭留言弹窗时调用,强制关闭主 profile 浏览器。"""
     try:
@@ -410,5 +426,37 @@ router.add_api_route(
     "/item-comment/close", _item_comment_close_endpoint, methods=["POST"]
 )
 router.add_api_route(
+    "/item-comment/delete", _item_comment_delete_endpoint, methods=["POST"],
+    dependencies=_f("notifications:comment"),
+)
+router.add_api_route(
     "/item-comment/translate", _item_comment_translate_endpoint, methods=["POST"]
+)
+
+# ─────────── 雅虎：価格の相談 / 商品への質問 / まとめ買いの相談（App API，见 units/yahoo_actions.py） ───────────
+
+from .units import yahoo_actions as _ya  # noqa: E402
+
+router.add_api_route("/yahoo/discounts/{item_id}", _ya.yahoo_discounts_endpoint, methods=["GET"])
+router.add_api_route(
+    "/yahoo/discounts/{item_id}/{discount_id}/accept", _ya.yahoo_discount_accept_endpoint,
+    methods=["POST"], dependencies=_f("notifications:price_offer"),
+)
+router.add_api_route(
+    "/yahoo/discounts/{item_id}/{discount_id}/deny", _ya.yahoo_discount_deny_endpoint,
+    methods=["POST"], dependencies=_f("notifications:price_offer"),
+)
+router.add_api_route("/yahoo/questions/{item_id}", _ya.yahoo_questions_endpoint, methods=["GET"])
+router.add_api_route(
+    "/yahoo/questions/{item_id}/{questioner_id}/reply", _ya.yahoo_question_reply_endpoint,
+    methods=["POST"], dependencies=_f("notifications:comment"),
+)
+router.add_api_route("/yahoo/bulk/{bulk_request_id}", _ya.yahoo_bulk_detail_endpoint, methods=["GET"])
+router.add_api_route(
+    "/yahoo/bulk/{bulk_request_id}/deny", _ya.yahoo_bulk_deny_endpoint,
+    methods=["POST"], dependencies=_f("notifications:bundle"),
+)
+router.add_api_route(
+    "/yahoo/bulk/{bulk_request_id}/accept", _ya.yahoo_bulk_accept_endpoint,
+    methods=["POST"], dependencies=_f("notifications:bundle"),
 )

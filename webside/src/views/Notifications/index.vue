@@ -255,6 +255,15 @@
       :notification-id="desiredPriceDialogNotificationId"
     />
 
+    <YahooRequestDialog
+      v-model="yahooReqVisible"
+      :mode="yahooReqMode"
+      :account-id="yahooReqAccountId"
+      :item-id="yahooReqItemId"
+      :item-name="yahooReqItemName"
+      :bulk-request-id="yahooReqBulkId"
+    />
+
     <teleport to="body">
       <div
         v-show="syncOverlayVisible"

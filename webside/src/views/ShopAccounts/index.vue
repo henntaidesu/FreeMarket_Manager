@@ -180,6 +180,17 @@
                 >{{ t('mercariAccounts.appTokenClear') }}</el-button>
               </div>
             </el-form-item>
+            <el-form-item v-if="appTokenStatus?.configured" :label="t('mercariAccounts.paypayBalance')">
+              <span v-if="yahooBalance">
+                ¥{{ Number(yahooBalance.paypay_balance || 0).toLocaleString('ja-JP') }}
+                <span v-if="yahooBalance.bonus_balance" class="app-token-expires">
+                  + {{ t('mercariAccounts.paypayBonus') }} {{ Number(yahooBalance.bonus_balance).toLocaleString('ja-JP') }}
+                </span>
+              </span>
+              <el-button link type="primary" :loading="yahooBalanceLoading" @click="loadYahooBalance(form.id)">
+                {{ t('mercariAccounts.paypayBalanceRefresh') }}
+              </el-button>
+            </el-form-item>
             <!-- 取得令牌只有这一条路：雅虎没有账密接口，登录页只能由雅虎自己渲染，
                  所以开一个独立 profile 的浏览器窗口让用户登录一次，之后靠 refresh_token 续期。 -->
             <el-form-item v-if="$can('shop-accounts:app_token')" label-width="120px">

@@ -7,7 +7,7 @@ import { tasksApi, newClientToken } from '@/api/index.js'
  * 各页原来的做法是「开全屏遮罩 → 轮询 progress_job_id → await 几分钟的长请求 → 关遮罩」，
  * 期间用户被锁在当前页，关标签页就失联。现在统一改为：提交即返回，进度去 /#/tasks 看。
  *
- * 幂等：每次调用生成一个 client_token，后端凭它去重——双击按钮或 axios 重发都只会排一条任务。
+ * 幂等：同一（类型 + 参数）5 秒内复用同一个 client_token，后端凭它去重——双击按钮或 axios 重发都只会排一条任务。
  * 若同语义任务已在队列中（如已有一个「更新列表」在等），后端返回 409，
  * axios 拦截器已弹出提示，这里只需返回 null 让调用方安静收场。
  *
@@ -19,10 +19,37 @@ import { tasksApi, newClientToken } from '@/api/index.js'
  * @param {Function} opts.t    vue-i18n 的 t
  * @returns {Promise<object|null>} 入队的任务对象；失败/重复时为 null
  */
+// 同一（类型 + 参数）的提交在这段时间内复用同一个 client_token：
+// 每次调用都新生成 token 的话，按钮没 loading 时双击就是两个 token、两条任务，后端去重形同虚设。
+const TOKEN_REUSE_MS = 5000
+const recentTokens = new Map() // key -> { token, at }
+
+function stableKey(taskType, payload) {
+  try {
+    return `${taskType}|${JSON.stringify(payload ?? {})}`
+  } catch {
+    return null
+  }
+}
+
+function tokenFor(taskType, payload) {
+  const key = stableKey(taskType, payload)
+  if (!key) return newClientToken()
+  const now = Date.now()
+  for (const [k, v] of recentTokens) {
+    if (now - v.at > TOKEN_REUSE_MS) recentTokens.delete(k)
+  }
+  const hit = recentTokens.get(key)
+  if (hit) return hit.token
+  const token = newClientToken()
+  recentTokens.set(key, { token, at: now })
+  return token
+}
+
 export async function submitTask(taskType, payload = {}, opts = {}) {
   const { successMessage, silent = false, t } = opts
   try {
-    const res = await tasksApi.submit(taskType, payload, newClientToken())
+    const res = await tasksApi.submit(taskType, payload, tokenFor(taskType, payload))
     const task = res?.data?.task || null
     if (!silent) {
       ElMessage.success(successMessage || (t ? t('tasks.enqueued') : '已加入任务队列'))

@@ -51,10 +51,17 @@ _PRIVATE_MESSAGE_KIND = "PrivateMessage"
 #
 # 雅虎侧只有 いいね 有具名 kind（YahooLike），其余一律是 ``Yahoo:{type}`` 原样透传，
 # 故按 type 逐个列举。各 type 的语义（取自接口 title）：
-#   obems=取引メッセージ  dosdo=価格の相談  lsodi=商品の値下げ
+#   obems=取引メッセージ  dosdo=価格の相談  lsodi=商品の値下げ  qosqu=商品への質問
+#   goere=まとめ買いの相談
 #   loodo=いいね！した商品へのいいね  cmp/cpon/pbsrf/foobc=雅虎运营公告
-_COMMENT_COND = "IFNULL(n.[kind], '') LIKE 'Comment%'"
-_BUNDLE_COND = "IFNULL(n.[kind], '') LIKE 'Bundle%'"
+_COMMENT_COND = (
+    "(IFNULL(n.[kind], '') LIKE 'Comment%'"
+    " OR IFNULL(n.[kind], '') = 'Yahoo:qosqu')"
+)
+_BUNDLE_COND = (
+    "(IFNULL(n.[kind], '') LIKE 'Bundle%'"
+    " OR IFNULL(n.[kind], '') = 'Yahoo:goere')"
+)
 _DESIRED_PRICE_COND = (
     "(IFNULL(n.[kind], '') LIKE 'DesiredPrice%'"
     " OR IFNULL(n.[kind], '') = 'Yahoo:dosdo')"
@@ -97,6 +104,10 @@ _PLATFORM_NOTICE_COND = (
     " 'Yahoo:cmp', 'Yahoo:cpon', 'Yahoo:pbsrf', 'Yahoo:foobc'))"
 )
 
+# 违规：雅虎对出品的处罚——ccsbe=公開停止 / ccsts=検索結果に未掲載 / vosdo=違反報告された。
+# 都要人去改出品内容，单列一个 chip，别埋在「其他」里。
+_VIOLATION_COND = "IFNULL(n.[kind], '') IN ('Yahoo:ccsbe', 'Yahoo:ccsts', 'Yahoo:vosdo')"
+
 #: chip → WHERE 条件。「其他」= 以上各类都不是（如振込完了、未归类的 Yahoo:* 类型）。
 _NAMED_CATEGORY_CONDS = {
     "comment": _COMMENT_COND,
@@ -109,6 +120,7 @@ _NAMED_CATEGORY_CONDS = {
     "price_drop": _PRICE_DROP_COND,
     "wait_reply": _WAIT_REPLY_COND,
     "platform_notice": _PLATFORM_NOTICE_COND,
+    "violation": _VIOLATION_COND,
 }
 
 _CATEGORY_CONDS = {

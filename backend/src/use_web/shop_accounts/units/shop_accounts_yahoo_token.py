@@ -78,3 +78,23 @@ def delete_yahoo_app_token(aid: int, user: dict = Depends(require_auth)) -> Dict
     _require_yahoo_account(aid)
     clear_token(int(aid))
     return {"configured": False}
+
+
+async def get_yahoo_paypay_balance(aid: int, user: dict = Depends(require_auth)) -> Dict[str, Any]:
+    """雅虎账号的 PayPay 残高（雅虎フリマ的销售款直接进 PayPay マネー）。
+
+    App API ``GET paypay/v1/balance``（APK ``zy.a``），返回 ``paypayBalance`` / ``bonusBalance``。
+    只读；同组的 ``user/v1/users/self/wallet`` 是信用卡列表，刻意不碰。
+    """
+    from ....use_yahoo.app_api import YahooAppApiError
+    from ....use_yahoo.app_api._client import SPARKLE_SECURE_BASE, api_request
+
+    _require_yahoo_account(aid)
+    try:
+        data = await api_request(int(aid), "GET", f"{SPARKLE_SECURE_BASE}/paypay/v1/balance")
+    except YahooAppApiError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "paypay_balance": (data or {}).get("paypayBalance"),
+        "bonus_balance": (data or {}).get("bonusBalance"),
+    }

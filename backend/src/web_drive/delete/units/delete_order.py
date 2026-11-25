@@ -40,6 +40,20 @@ def mercari_item_path_segment(item_id: str) -> str:
     return raw if raw.startswith("m") else f"m{raw}"
 
 
+def _still_listed_locally(item_id: str, seg: str) -> bool:
+    from ....db_manage.database import DatabaseManager
+
+    ids = tuple({(item_id or "").strip(), seg} - {""})
+    if not ids:
+        return False
+    ph = ",".join("?" * len(ids))
+    rows = DatabaseManager().execute_query(
+        f"SELECT 1 FROM [on_sale_items] WHERE [item_id] IN ({ph}) AND COALESCE([is_delete], 0) = 0 LIMIT 1",
+        ids,
+    )
+    return bool(rows)
+
+
 def build_sell_edit_url(item_id: str) -> str:
     seg = mercari_item_path_segment(item_id)
     if not seg:
@@ -244,6 +258,15 @@ async def delete_mercari_item(
         result["url_after_delete"] = page.url
 
     result["browser_closed"] = True
+
+    # 点完「削除する」不等于删掉了：弹窗后煤炉报错 / 没跳转时商品仍在售。同步后它还在本地在售里
+    # （未软删）就判失败——绿色「成功」会让人以为已下架，雅虎侧同样按回读结果判定。
+    if _still_listed_locally(item_id, seg):
+        raise RuntimeError(
+            f"已点击「削除する」，但同步后商品 {seg} 仍在在售列表中，删除可能没有生效，请到煤炉核对"
+            f"（煤炉 {(sync_stats or {}).get('api_item_count', 0)} 条，"
+            f"标记删除 {(sync_stats or {}).get('marked_deleted', 0)}）"
+        )
 
     # 下架的「在售-1, 库存+1」已由上面的在售列表同步（reconcile_listing_counts）完成，此处不再处理。
     report(

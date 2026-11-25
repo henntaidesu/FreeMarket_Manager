@@ -9,7 +9,9 @@ import {
   nextTick,
 } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
+import { useRoute } from 'vue-router'
+import { purchaseUrl } from '@/utils/purchaseUrl.js'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { purchaseApi, shopAccountApi, proxyUserApi, TASK_TYPES } from '@/api/index.js'
 import { submitTask } from '@/utils/taskSubmit.js'
 import { mercariImageUrl } from '@/utils/mercariImage.js'
@@ -36,6 +38,7 @@ const OWNER_CLEAR = '__clear__'
 export default defineComponent({
   components: { DetailPane, TrackingDialog },
   setup() {
+    const route = useRoute()
     const { t } = useI18n()
 
     const list = ref([])
@@ -106,7 +109,8 @@ export default defineComponent({
       STATE_WAITING_SHIPPING: { label: t('purchases.stateWaitingShipping'), tag: 'warning' },
       STATE_WAITING_RECEIPT: { label: t('purchases.stateWaitingReceipt'), tag: 'info' },
       STATE_WAITING_BUYER_REVIEW: { label: t('purchases.stateWaitingReview'), tag: 'primary' },
-      STATE_COMPLETED: { label: t('purchases.stateCompleted'), tag: 'success' }
+      STATE_COMPLETED: { label: t('purchases.stateCompleted'), tag: 'success' },
+      STATE_CANCELED: { label: t('purchases.stateCanceled'), tag: 'info' }
     }))
 
     /**
@@ -158,7 +162,7 @@ export default defineComponent({
 
 
     function transactionUrl(row) {
-      return `https://jp.mercari.com/transaction/${encodeURIComponent(row.item_id || '')}`
+      return purchaseUrl(row)
     }
 
     // 数字筛选项清空后可能是 null / undefined / ''，三者都要当「不筛选」：
@@ -558,6 +562,52 @@ export default defineComponent({
     }
 
     // 单条重抓取引画面详情。同样走任务队列——它是一次浏览器自动化，不能挂在 HTTP 请求上。
+    // 以买家身份给卖家发留言：发完提交 refresh_one 重抓（留言只认取引详情抓回来的那份）
+    const messageSending = ref(false)
+    async function sendMessage(row, text, done) {
+      if (!row?.item_id || messageSending.value) return
+      messageSending.value = true
+      try {
+        await purchaseApi.sendMessage(row.item_id, text)
+        ElMessage.success(t('purchases.messageSent'))
+        done?.()
+        await refreshDetail(row)
+      } catch {
+        // http 拦截器已弹出原因
+      } finally {
+        messageSending.value = false
+      }
+    }
+
+    // 雅虎购入的受取評価：评分固定「良い」，留言可改。成功后整行按回读结果刷新
+    async function receiveYahoo(row) {
+      if (!row?.item_id) return
+      let comment
+      try {
+        const res = await ElMessageBox.prompt(t('purchases.receiveMessage'), t('purchases.receiveTitle'), {
+          inputValue: t('purchases.receiveDefaultComment'),
+          inputType: 'textarea',
+          inputValidator: (v) => !!String(v || '').trim(),
+          confirmButtonText: t('common.confirm'),
+          cancelButtonText: t('common.cancel'),
+          type: 'warning',
+        })
+        comment = String(res?.value || '').trim()
+      } catch {
+        return
+      }
+      try {
+        const r = await purchaseApi.receive(row.item_id, { rating: 'GOOD', comment })
+        if (r?.state) row.state = r.state
+        ElMessage.success(t('purchases.received'))
+        delete messages[row.item_id]
+        loadMessages(row.item_id)
+        load()
+      } catch {
+        // http 拦截器已弹出原因
+      }
+    }
+
     async function refreshDetail(row) {
       if (!row?.item_id) return
       await submitTask(TASK_TYPES.PURCHASES_REFRESH_ONE, { item_id: row.item_id }, { t })
@@ -583,6 +633,9 @@ export default defineComponent({
         ownerUsers.value = []
       }
       loadStates()
+      // 从待办「商品の発送」跳来时带着 ?keyword=商品ID，直接筛到那一笔
+      const kw = String(route.query?.keyword || '').trim()
+      if (kw) filters.value.keyword = kw
       await load()
       await setupCardObserver()
       loadStats()
@@ -654,6 +707,9 @@ export default defineComponent({
       setRowOwner,
       runSync,
       refreshDetail,
+      messageSending,
+      sendMessage,
+      receiveYahoo,
       trackingVisible,
       trackingLoading,
       trackingTrace,

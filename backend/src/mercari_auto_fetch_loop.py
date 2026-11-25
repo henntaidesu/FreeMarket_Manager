@@ -120,8 +120,8 @@ def _account_platform(account_id: int) -> str:
 
 
 #: 雅虎尚未实现的同步项：到期也跳过，避免拿煤炉实现去跑雅虎账号（必失败）。
-#: 订单 / 在售 / 待办 / 通知四项雅虎都已实现；购入商品只有煤炉侧实现。
-_YAHOO_UNSUPPORTED_TASKS: frozenset = frozenset({"purchases"})
+#: 五项雅虎都已实现（购入商品走 App API，见 use_yahoo/purchases.py），目前为空。
+_YAHOO_UNSUPPORTED_TASKS: frozenset = frozenset()
 
 
 def _yahoo_task_callable(key: str, aid: int):
@@ -140,7 +140,22 @@ def _yahoo_task_callable(key: str, aid: int):
     if key == "todos":
         # 与煤炉同颗粒度：同步列表后补抓交易详情，有新待发货再联动同步在售/订单
         return lambda: sync_yahoo_todos_with_details(account_id=aid)
+    if key == "purchases":
+        return lambda: _sync_yahoo_purchases_auto(aid)
     raise KeyError(key)
+
+
+async def _sync_yahoo_purchases_auto(aid: int):
+    """雅虎购入：没做 App 登录的账号记一句跳过，不当失败（否则每轮都报错）。"""
+    from .use_mercari.get_purchases.purchase_detail import detail_auto_settings
+    from .use_yahoo.app_api import YahooAppTokenMissing
+    from .use_yahoo.purchases import sync_yahoo_purchases
+
+    auto, per_run, max_fail, _timeout = detail_auto_settings()
+    try:
+        return await sync_yahoo_purchases(aid, detail_limit=per_run if auto else 0, max_failures=max_fail)
+    except YahooAppTokenMissing as exc:
+        return {"skipped": str(exc)}
 
 
 # 各同步项的实际调用（键与 AUTO_FETCH_TASK_KEYS 一致；按此顺序串行执行）

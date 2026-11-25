@@ -29,6 +29,8 @@ export const shopAccountApi = {
   // ── 雅虎 App 令牌：ゆうパケットポスト / mini 网页端发不了，只能走 App API ──
   /** 该账号是否已配置 App 令牌 / 何时过期（不回传明文） */
   getYahooAppToken: (id) => http.get(`/use_web/shop-accounts/${id}/yahoo-app-token`),
+  /** PayPay 残高（雅虎销售款进 PayPay；App API，需已做 App 登录） */
+  getYahooBalance: (id) => http.get(`/use_web/shop-accounts/${id}/yahoo-balance`),
   /** 程序内登录：弹出独立浏览器走 App 的授权流程换取令牌（要等用户登录，故不设超时）。
    *  这是取得令牌的**唯一**方式——雅虎没有账密接口，也不指望用户去抓包 */
   loginYahooApp: (id, data = {}, axiosConfig = {}) =>

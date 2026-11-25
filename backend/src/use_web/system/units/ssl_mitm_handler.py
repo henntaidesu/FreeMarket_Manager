@@ -47,4 +47,9 @@ def download_ca_cert():
 
 
 def get_last_capture():
-    return read_capture_file() or {}
+    """只回元数据与请求头**键名**：值里是 authorization / DPoP 等可直接重放的凭据。"""
+    data = dict(read_capture_file() or {})
+    patch = data.get("value_patch")
+    if isinstance(patch, dict):
+        data["value_patch"] = sorted(patch.keys())
+    return data

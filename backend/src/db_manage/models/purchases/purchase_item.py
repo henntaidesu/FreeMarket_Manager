@@ -44,6 +44,7 @@ _PURCHASE_ITEM_LIST_KEYS: Tuple[str, ...] = (
     "order_id",
     "account_id",
     "item_id",
+    "platform",
     "item_name",
     "thumbnail",
     "variant",
@@ -125,6 +126,9 @@ class PurchaseItemModel(BaseModel):
                 "not_null": True,
                 "default": None,
             },
+            # mercari（默认）/ yahoo。雅虎购入走 App API（use_yahoo/purchases.py），
+            # 雅虎行的 order_id 就是 item_id（雅虎一件商品只卖一次）。
+            "platform": {"type": "TEXT", "not_null": False, "default": "mercari"},
             "item_name": {
                 "type": "TEXT",
                 "not_null": False,

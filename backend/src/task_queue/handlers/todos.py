@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""待办页后台操作的任务处理器：一键好评 / 已打包一键处理（确认发送）/ 发货扫码 /
+"""待办页后台操作的任务处理器：一键好评 / 已打包一键发送/ 发货扫码 /
 从煤炉同步 / 退货确认签收 / 退货填写返品先住所 / 待回复的发送回复与反应表情。
 
 这些操作本就按账号逐个进串行队列执行（``suppress_idle_close=True`` 复用同一 ``__todo``
@@ -23,7 +23,7 @@ def _raise_if_all_failed(result: Dict[str, Any], what: str) -> None:
     - **全部失败** → 抛错，任务落 failed（否则失败会被折进 result JSON 里显示成「成功」）。
     - **部分失败** → 不抛错（成功的那些是真做了、不可撤销，标成失败会误导），
       但在 result 里打 ``partial_failed`` 标记：任务页据此把状态渲染成橙色而不是绿色。
-      一键好评 / 一键确认发送都是对外不可逆操作，10 条里挂了 1 条却显示绿色「成功」，
+      一键好评 / 一键发送都是对外不可逆操作，10 条里挂了 1 条却显示绿色「成功」，
       那一条就再没人回头补了。
     """
     ok = int(result.get("ok") or 0)
@@ -77,14 +77,14 @@ async def handle_bulk_review(task: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def handle_bulk_confirm_ship(task: Dict[str, Any]) -> Dict[str, Any]:
-    """对所有启用账号下「已打包」待办批量执行确认发送（发货通知）。"""
+    """对所有账号下「已打包」待办（煤炉 + 雅虎）批量发送発送通知。"""
     from ...use_web.todos.units.todos_models import BulkFinalizePostShippingRequest
     from ...use_web.todos.units.todos_sync import bulk_finalize_post_shipping_endpoint
 
     async with progress.bridge(task["id"], "sync") as jid:
         req = BulkFinalizePostShippingRequest(progress_job_id=jid)
         result = await bulk_finalize_post_shipping_endpoint(req)
-    _raise_if_all_failed(result, "一键确认发送")
+    _raise_if_all_failed(result, "一键发送")
     return result
 
 
@@ -121,12 +121,16 @@ async def handle_confirm_cancellation(task: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def handle_accept_cancellation(task: Dict[str, Any]) -> Dict[str, Any]:
-    """「确认退货」：同意买家的キャンセル申請（取引页「同意する」→ 确认弹窗）。
+    """回复买家的キャンセル申請：``decision=accept`` 同意（「同意する」→ 确认弹窗），
+    ``decision=decline`` 拒绝（「同意しない」，见 cancellation_decline.py）。
 
     业务函数读回 ``cancel_request`` 状态，没离开「待回复」就抛错，所以这里不用再判结果。
     只收「申请退货」这一种 kind：退货地址那一段的申请早已同意过，页面上没有「同意する」。
     """
-    from ...use_mercari.get_to_du_list.transaction_detail import accept_cancellation_request
+    from ...use_mercari.get_to_du_list.transaction_detail import (
+        accept_cancellation_request,
+        decline_cancellation_request,
+    )
     from ...web_drive.core.account_serial_queue import (
         queue_key_for_mercari_account,
         run_mercari_serial_async,
@@ -137,6 +141,13 @@ async def handle_accept_cancellation(task: Dict[str, Any]) -> Dict[str, Any]:
     todo_id = int(payload.get("todo_id") or 0)
     if not todo_id:
         raise ValueError("确认退货任务缺少 todo_id")
+    # 同一任务类型承载「同意 / 拒绝」两种回复：去重键按 todo_id，一条申请同时只能有一个回复在排队
+    decision = str(payload.get("decision") or "accept").strip().lower()
+    if decision not in ("accept", "decline"):
+        raise ValueError("decision 必须是 accept / decline")
+    reason_text = str(payload.get("reason_text") or "").strip()
+    if decision == "decline" and not reason_text:
+        raise ValueError("拒绝退货必须填写理由")
     todo = TodoItemModel.find_by_id(id=todo_id)
     if not todo:
         raise RuntimeError(f"待办事项 id={todo_id} 不存在")
@@ -152,7 +163,11 @@ async def handle_accept_cancellation(task: Dict[str, Any]) -> Dict[str, Any]:
     async with progress.bridge(task["id"], "sync") as jid:
         return await run_mercari_serial_async(
             queue_key_for_mercari_account(aid),
-            lambda: accept_cancellation_request(todo_id, progress_job_id=jid),
+            lambda: (
+                decline_cancellation_request(todo_id, reason_text=reason_text, progress_job_id=jid)
+                if decision == "decline"
+                else accept_cancellation_request(todo_id, progress_job_id=jid)
+            ),
         )
 
 

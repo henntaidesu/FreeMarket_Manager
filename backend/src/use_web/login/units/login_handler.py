@@ -31,6 +31,11 @@ _ATTEMPTS_LOCK = threading.Lock()
 _ATTEMPTS: dict = {}  # key -> [fail_count, lock_until_ts]
 _MAX_FAILS = 5
 _LOCK_SECONDS = 300
+# 第二层：只按用户名计（换 IP / 伪造来源也绕不开），阈值放宽，免得别人轻易把真用户锁在门外
+_USER_MAX_FAILS = 20
+_USER_LOCK_SECONDS = 900
+# 记录表上限：随机用户名刷登录不能让内存无限长
+_ATTEMPTS_MAX = 10000
 # 固定假盐：未知用户也跑一次 PBKDF2，抹平"用户存在/不存在"的时序差，防用户枚举
 _DUMMY_SALT = secrets.token_hex(16)
 
@@ -60,16 +65,31 @@ def _check_locked(key: str) -> int:
     return 0
 
 
-def _record_fail(key: str) -> None:
+def _user_key(username: str) -> str:
+    return f"user:{(username or '').lower()}"
+
+
+def _record_fail(key: str, max_fails: int = _MAX_FAILS, lock_seconds: int = _LOCK_SECONDS) -> None:
     now = time.time()
     with _ATTEMPTS_LOCK:
+        if len(_ATTEMPTS) >= _ATTEMPTS_MAX:
+            # 先扔掉已解锁 / 未锁定的记录；仍满就整表清空（宁可少锁，不可吃光内存）
+            for k in [k for k, v in _ATTEMPTS.items() if v[1] <= now]:
+                _ATTEMPTS.pop(k, None)
+            if len(_ATTEMPTS) >= _ATTEMPTS_MAX:
+                _ATTEMPTS.clear()
         rec = _ATTEMPTS.get(key) or [0, 0.0]
         if rec[1] and rec[1] <= now:  # 锁定期已过则重置计数
             rec = [0, 0.0]
         rec[0] += 1
-        if rec[0] >= _MAX_FAILS:
-            rec[1] = now + _LOCK_SECONDS
+        if rec[0] >= max_fails:
+            rec[1] = now + lock_seconds
         _ATTEMPTS[key] = rec
+
+
+def _record_login_fail(key: str, username: str) -> None:
+    _record_fail(key)
+    _record_fail(_user_key(username), _USER_MAX_FAILS, _USER_LOCK_SECONDS)
 
 
 def _clear_fail(key: str) -> None:
@@ -146,7 +166,7 @@ def login(data: LoginRequest, request: Request):
         raise HTTPException(status_code=400, detail="用户名和密码不能为空")
 
     key = _attempt_key(username, request)
-    remain = _check_locked(key)
+    remain = max(_check_locked(key), _check_locked(_user_key(username)))
     if remain > 0:
         raise HTTPException(status_code=429, detail=f"尝试过于频繁，请 {remain} 秒后再试")
 
@@ -161,19 +181,21 @@ def login(data: LoginRequest, request: Request):
     )
     if not rows:
         _hash_password(password, _DUMMY_SALT)  # 假哈希抹平时序差
-        _record_fail(key)
+        _record_login_fail(key, username)
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 
     user_id, db_username, db_hash, db_salt, display_name, is_active, token_version = rows[0]
+
+    # 常量时间比较，避免按字节短路的时序旁路。先验密码再看是否禁用：
+    # 反过来的话不知道密码也能探出「这个账号存在且被禁用」，且那次尝试不计入失败
+    if not hmac.compare_digest(_hash_password(password, db_salt), str(db_hash)):
+        _record_login_fail(key, username)
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
     if not is_active:
         raise HTTPException(status_code=403, detail="账号已被禁用")
 
-    # 常量时间比较，避免按字节短路的时序旁路
-    if not hmac.compare_digest(_hash_password(password, db_salt), str(db_hash)):
-        _record_fail(key)
-        raise HTTPException(status_code=401, detail="用户名或密码错误")
-
     _clear_fail(key)
+    _clear_fail(_user_key(username))
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     # 活跃时间同登录时间一起写：此后由 auth.require_auth 逐请求刷新
     db.execute_update(

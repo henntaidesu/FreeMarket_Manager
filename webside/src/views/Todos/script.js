@@ -1641,7 +1641,7 @@ export default defineComponent({
       }
     }
 
-    // 一键确认发送：对所有「已打包」待办批量执行发货通知（勾选→発送通知→発送しました）。
+    // 一键发送：对所有「已打包」待办批量发送発送通知（煤炉走页面自动化，雅虎走 App API）。
     // 与一键好评同范式：前端统计候选 → 二次确认 → 全屏进度轮询 → 汇总结果。
     async function runBulkConfirmShip() {
       if (bulkConfirmShipLoading.value || syncLoading.value) return
@@ -2179,31 +2179,54 @@ export default defineComponent({
       () => cancelAccepted.value && (!showReturnAddressStep.value || !!returnAddressSubmittedText.value),
     )
 
-    async function onAcceptCancellation() {
+    async function respondCancellation(decision) {
       const row = currentRow.value
       const todoId = Number(row?.id || 0)
       if (!todoId || cancelAcceptBusyId.value) return
+      const decline = decision === 'decline'
+      // 拒绝 = 煤炉的「キャンセルに関するお問い合わせ」：必须写理由（≤140 字），申请转交事务局裁定
+      let reasonText = ''
       try {
-        await ElMessageBox.confirm(
-          t('todos.acceptCancellationMessage'),
-          t('todos.acceptCancellationTitle'),
-          { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') },
-        )
+        if (decline) {
+          const res = await ElMessageBox.prompt(
+            t('todos.declineCancellationMessage'),
+            t('todos.declineCancellationTitle'),
+            {
+              type: 'warning',
+              inputType: 'textarea',
+              inputValidator: (v) => {
+                const n = String(v || '').trim().length
+                return (n > 0 && n <= 140) || t('todos.declineReasonInvalid')
+              },
+              confirmButtonText: t('common.confirm'),
+              cancelButtonText: t('common.cancel'),
+            },
+          )
+          reasonText = String(res?.value || '').trim()
+        } else {
+          await ElMessageBox.confirm(
+            t('todos.acceptCancellationMessage'),
+            t('todos.acceptCancellationTitle'),
+            { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') },
+          )
+        }
       } catch {
         return
       }
-      // 同意不可撤回：后端按 todo_id 去重，并在点之前、点之后各读一次申请状态
+      // 同意 / 拒绝都不可撤回：后端按 todo_id 去重，并在点之前、点之后各读一次申请状态
       cancelAcceptBusyId.value = todoId
       try {
         await submitTask(
           TASK_TYPES.TODOS_ACCEPT_CANCELLATION,
-          { todo_id: todoId, account_id: row?.account_id ?? null, item_id: row?.item_id || '' },
+          { todo_id: todoId, account_id: row?.account_id ?? null, item_id: row?.item_id || '', decision, reason_text: reasonText },
           { t },
         )
       } finally {
         cancelAcceptBusyId.value = 0
       }
     }
+    const onAcceptCancellation = () => respondCancellation('accept')
+    const onDeclineCancellation = () => respondCancellation('decline')
 
 
     // 「待发货」下出库明细没绑上库存的行（inventory_linked 由列表接口按 match-inventory 同口径算）：
@@ -2343,6 +2366,12 @@ export default defineComponent({
     }
 
     function onProcess(row, { fromNav = false } = {}) {
+      // 雅虎「商品の発送」是买家侧（卖家已发货、等我受取評価）：处理入口在购入商品页
+      // （App API 受取評価 / 给卖家留言），这里直接带着商品 ID 跳过去
+      if (String(row?.kind || '').trim() === 'Yahoo:rsura') {
+        router.push({ path: '/system/purchases', query: { keyword: String(row?.item_id || '') } })
+        return
+      }
       // 雅虎交易页只能按商品 ID 打开，缺了就没有可处理的对象
       if (platformOf(row) === 'yahoo' && !String(row?.item_id || '').trim()) {
         ElMessage.warning(t('todos.yahooNoItemId'))
@@ -3032,6 +3061,13 @@ export default defineComponent({
       })
     }
 
+    // 下面的确认框开了 dangerouslyUseHTMLString：拼进去的值来自平台页面，必须转义
+    function escHtml(v) {
+      return String(v ?? '').replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[c])
+    }
+
     async function onShipConfirmSubmit() {
       const id = currentRow.value?.id
       if (!id) return
@@ -3046,14 +3082,14 @@ export default defineComponent({
           const lines = []
           if (result.code_mismatch) {
             lines.push(t('todos.shipVerifyCodeLine', {
-              cached: result.cached_confirm_code || ph,
-              page: result.page_confirm_code || ph,
+              cached: escHtml(result.cached_confirm_code || ph),
+              page: escHtml(result.page_confirm_code || ph),
             }))
           }
           if (result.tracking_mismatch) {
             lines.push(t('todos.shipVerifyTrackingLine', {
-              cached: result.cached_tracking_no || ph,
-              page: result.page_tracking_no || ph,
+              cached: escHtml(result.cached_tracking_no || ph),
+              page: escHtml(result.page_tracking_no || ph),
             }))
           }
           try {
@@ -3244,6 +3280,47 @@ export default defineComponent({
      *  发送次数上限，额度用尽或已在 App 里回过时，发送流程里那次软删根本走不到——
      *  没有这个出口，这类待办会永远挂在待回复列表里。不可逆，故走二次确认。 */
     const finishReplyLoading = ref(false)
+
+    // 卖家主动取消雅虎交易：先选理由（出品者都合 / 購入者都合），再二次确认；不可撤回
+    const yahooCancelLoading = ref(false)
+    async function onCancelYahooTrade() {
+      const todoId = Number(currentRow.value?.id || 0)
+      if (!todoId || yahooCancelLoading.value) return
+      let reason = 'SELLER'
+      try {
+        await ElMessageBox.confirm(t('todos.yahoo.cancelReasonMessage'), t('todos.yahoo.cancelTrade'), {
+          distinguishCancelAndClose: true,
+          confirmButtonText: t('todos.yahoo.cancelReasonSeller'),
+          cancelButtonText: t('todos.yahoo.cancelReasonBuyer'),
+          type: 'warning',
+        })
+      } catch (action) {
+        if (action !== 'cancel') return
+        reason = 'BUYER'
+      }
+      try {
+        await ElMessageBox.confirm(
+          t('todos.yahoo.cancelTradeMessage', {
+            reason: t(reason === 'SELLER' ? 'todos.yahoo.cancelReasonSeller' : 'todos.yahoo.cancelReasonBuyer'),
+          }),
+          t('todos.yahoo.cancelTrade'),
+          { type: 'error', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') },
+        )
+      } catch {
+        return
+      }
+      yahooCancelLoading.value = true
+      try {
+        await todosApi.yahooCancelTrade(todoId, reason)
+        ElMessage.success(t('todos.yahoo.cancelTradeDone'))
+        detailDialogVisible.value = false
+        load({ inPlace: true })
+      } catch {
+        // http 拦截器已弹出原因
+      } finally {
+        yahooCancelLoading.value = false
+      }
+    }
     async function onFinishYahooReply() {
       const todoId = Number(currentRow.value?.id || 0)
       if (!todoId || finishReplyLoading.value) return
@@ -3699,6 +3776,7 @@ export default defineComponent({
       cancelAcceptBusyId,
       onConfirmCancellationReceipt,
       onAcceptCancellation,
+      onDeclineCancellation,
       isReturnAddressTodo,
       isCancellationRequestTodo,
       isReturnFlowTodo,
@@ -3747,6 +3825,8 @@ export default defineComponent({
       onSendReply,
       finishReplyLoading,
       onFinishYahooReply,
+      onCancelYahooTrade,
+      yahooCancelLoading,
       onPickReviewTemplate,
       onSubmitReview,
       onSendReaction,

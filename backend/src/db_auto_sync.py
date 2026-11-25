@@ -66,14 +66,24 @@ def get_target() -> Dict[str, Any]:
     }
 
 
-def resolve_password(password: Optional[str]) -> str:
-    """密码留空：沿用同步库上次保存的密码，再退回主 MySQL 密码。"""
+def _same_server(host, port, user, ref: Dict[str, Any]) -> bool:
+    return (str(host or "").strip().lower() == str(ref.get("host") or "").strip().lower()
+            and int(port or 3306) == int(ref.get("port") or 3306)
+            and str(user or "").strip() == str(ref.get("user") or "").strip())
+
+
+def resolve_password(password: Optional[str], host: Any = None, port: Any = None, user: Any = None) -> str:
+    """密码留空：沿用同步库上次保存的密码，再退回主 MySQL 密码——但只在 主机 / 端口 / 用户
+    与那份已保存的连接一致时才沿用，免得把已保存的密码送去一个新填的（可能是别人的）主机。"""
     if password:
         return password
-    saved = get_target().get("password")
-    if saved:
-        return saved
-    return db_settings.get_mysql_config().get("password", "")
+    saved = get_target()
+    if saved.get("password") and _same_server(host, port, user, saved):
+        return saved["password"]
+    main = db_settings.get_mysql_config()
+    if _same_server(host, port, user, main):
+        return main.get("password", "")
+    return ""
 
 
 def save_target(target: Dict[str, Any]) -> Dict[str, Any]:
@@ -82,7 +92,9 @@ def save_target(target: Dict[str, Any]) -> Dict[str, Any]:
         "host": str(target.get("host") or "").strip(),
         "port": int(target.get("port") or 3306),
         "user": str(target.get("user") or "").strip(),
-        "password": resolve_password(target.get("password")),
+        "password": resolve_password(
+            target.get("password"), target.get("host"), target.get("port"), target.get("user"),
+        ),
         "database": db_settings._validate_db_name(str(target.get("database") or "")),
     }
     db_settings.set_setting(_KEY_SYNC_TARGET, json.dumps(cfg, ensure_ascii=False))
@@ -171,7 +183,15 @@ def copy_to_target(target: Dict[str, Any]) -> Dict[str, Any]:
     from .db_manage.dialects.mysql import MysqlDialect
     from .use_mercari.sync import sync_lock
 
+    from .db_manage.target_guard import UnsafeTargetError, assert_safe_overwrite_target
+
     assert_not_active_db(target)
+    # 字符串比较挡不住 localhost / 127.0.0.1 / LAN IP 指向同一台服务器的情况；每次执行都复检，
+    # 因为保存设置之后当前库还可能被热切过来。
+    try:
+        assert_safe_overwrite_target(target)
+    except UnsafeTargetError as e:
+        raise TargetIsActiveDb(str(e)) from e
     token = sync_lock.try_begin("db_sync", "正在同步数据库")
     if token is None:
         st = sync_lock.status()

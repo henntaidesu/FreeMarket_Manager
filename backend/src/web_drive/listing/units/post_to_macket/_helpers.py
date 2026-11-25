@@ -6,7 +6,6 @@ import asyncio
 import logging
 import os
 import tempfile
-import urllib.request
 from typing import Any, Callable, Dict, NoReturn, Optional, Sequence
 from src.app_paths import backend_root_str
 
@@ -38,40 +37,51 @@ def _materialize_remote(rel_path: str, filename: str) -> Optional[str]:
     return tf.name
 
 
-def _resolve_image_to_local(url_or_path: str) -> Optional[str]:
-    """将图片 URL / 路径解析为本地绝对路径（供 Playwright set_input_files 使用）。"""
+def _resolve_image_to_local(url_or_path: str, *, allow_abs: bool = False) -> Optional[str]:
+    """将图片 URL / 路径解析为本地绝对路径（供 Playwright set_input_files 使用）。
+
+    来源会被原样带进出品任务 payload / ``inventory.images_json``，所以按不可信输入处理：
+    ``/imges/`` 必须落在图片目录内（拦 ``..`` 穿越）；http(s) 只走带域名白名单与公网地址
+    校验的 ``fetch_image``；服务器绝对路径只给内部调用方（``allow_abs=True``，如账号头像）。
+    """
     s = (url_or_path or "").strip()
     if not s:
         return None
 
     if s.startswith("/imges/"):
+        from src.use_web._path_safety import resolve_within_imges
+
+        try:
+            abs_path = resolve_within_imges(s, _backend_imges_root())
+        except ValueError:
+            log.warning("图片路径越界，拒绝: %s", s)
+            return None
+        if os.path.isfile(abs_path):
+            return abs_path
         filename = s.split("/imges/", 1)[1].strip("/")
         if not filename:
             return None
-        abs_path = os.path.join(_backend_imges_root(), filename)
-        if os.path.isfile(abs_path):
-            return abs_path
         # 本地没有 = 这张图已经搬到图床上了。Playwright 的 set_input_files 只认磁盘文件，
         # 所以必须先把字节取回来落成临时文件——否则出品会静默地一张图都不带。
         return _materialize_remote(s, filename)
 
-    if os.path.isabs(s):
+    if allow_abs and os.path.isabs(s):
         return s if os.path.isfile(s) else None
 
     if s.startswith("http://") or s.startswith("https://"):
-        ext = ".jpg"
-        for candidate in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
-            if s.lower().split("?")[0].endswith(candidate):
-                ext = candidate
-                break
+        from src.mercari_cdn_fetch import ext_from_url_or_type, fetch_image
+
         try:
-            tf = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
-            tf.close()
-            urllib.request.urlretrieve(s, tf.name)
+            data, ctype = fetch_image(s, max_bytes=20 * 1024 * 1024, timeout=20)
+            tf = tempfile.NamedTemporaryFile(delete=False, suffix="." + ext_from_url_or_type(s, ctype))
+            with tf:
+                tf.write(data)
             return tf.name
         except Exception as exc:
             log.warning("下载图片失败 %s: %s", s, exc)
             return None
+
+    return None
 
     return None
 

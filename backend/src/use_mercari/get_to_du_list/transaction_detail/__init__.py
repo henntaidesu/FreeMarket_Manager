@@ -51,6 +51,7 @@ from .buyer_receipt import (
 
 # ── 退货（申请退货：同意申请 / 确认收到退回商品 → 完成取消） ──
 from .cancellation import accept_cancellation_request, confirm_cancellation_receipt
+from .cancellation_decline import decline_cancellation_request
 from .return_address import RETURN_ADDRESS_KIND, fill_return_address
 
 # ── 待回复 ──
@@ -101,6 +102,7 @@ __all__ = [
     "BUYER_RECEIPT_TITLE",
     "submit_buyer_receipt_review",
     "accept_cancellation_request",
+    "decline_cancellation_request",
     "confirm_cancellation_receipt",
     "RETURN_ADDRESS_KIND",
     "fill_return_address",

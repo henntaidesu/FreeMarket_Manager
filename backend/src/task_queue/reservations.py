@@ -66,7 +66,7 @@ def _incr(inv_id: int, n: int = 1) -> bool:
         """
         UPDATE [inventory]
         SET [pending_listing_qty] = COALESCE([pending_listing_qty], 0) + ?
-        WHERE [id] = ? AND COALESCE([listable_quantity], 0) >= ?
+        WHERE [id] = ? AND COALESCE([listable_quantity], 0) >= ? AND COALESCE([is_delete], 0) = 0
         """,
         (int(n), int(inv_id), int(n)),
     )
@@ -133,7 +133,7 @@ def _held_tasks() -> List[Dict]:
     """
     rows = DatabaseManager().execute_query(
         """
-        SELECT [id], [reserved_qty], [payload], [created_at], [status], [reserved_ids]
+        SELECT [id], [reserved_qty], [payload], [created_at], [status], [reserved_ids], [finished_at]
         FROM [task_queue]
         WHERE [reserved_qty] > 0 AND [task_type] = ?
         ORDER BY [id] ASC
@@ -141,7 +141,7 @@ def _held_tasks() -> List[Dict]:
         (INVENTORY_LISTING,),
     ) or []
     out: List[Dict] = []
-    for tid, qty, payload, created, status, reserved_ids in rows:
+    for tid, qty, payload, created, status, reserved_ids, finished in rows:
         try:
             p = json.loads(payload) if payload else {}
         except (TypeError, ValueError):
@@ -152,6 +152,7 @@ def _held_tasks() -> List[Dict]:
             "reserved_qty": int(qty or 0),
             "inventory_ids": ids,
             "created_at": int(created or 0),
+            "finished_at": int(finished) if finished is not None else None,
             "status": str(status or ""),
             "reserved_ids": _parse_reserved_ids(reserved_ids),
         })
@@ -283,7 +284,9 @@ def sweep_stale() -> int:
         # （出品完成/失败后在售同步始终没核销的场景）。
         if task["status"] in ("pending", "running"):
             continue
-        if task["created_at"] >= deadline:
+        # TTL 从任务**结束**算起：从创建算的话，排在长任务后面的出品一跑完就被当成超时，
+        # 在在售同步核销之前释放预扣，可上架回升 → 重复出品。
+        if (task["finished_at"] or task["created_at"]) >= deadline:
             continue
         ids = task["inventory_ids"]
         # 只释放剩余占用（精确按 reserved_ids；部分已被 consume 核销时不全量释放）

@@ -10,6 +10,7 @@ import { useViewModeStore } from '@/stores/viewMode.js'
 import BundlePurchaseDialog from '@/components/BundlePurchaseDialog.vue'
 import ItemCommentDialog from '@/components/ItemCommentDialog.vue'
 import DesiredPriceDialog from '@/components/DesiredPriceDialog.vue'
+import YahooRequestDialog from './YahooRequestDialog.vue'
 
 function isSafeHttpUrl(u) {
   try {
@@ -25,6 +26,7 @@ export default defineComponent({
     BundlePurchaseDialog,
     ItemCommentDialog,
     DesiredPriceDialog,
+    YahooRequestDialog,
     Loading,
   },
   setup() {
@@ -50,6 +52,11 @@ export default defineComponent({
       YahooLike: 'notifications.kindLike',
       'Yahoo:obems': 'notifications.kindWaitReply',
       'Yahoo:dosdo': 'notifications.kindDesiredPriceOfferCreated',
+      'Yahoo:qosqu': 'notifications.kindYahooQuestion',
+      'Yahoo:goere': 'notifications.kindBundleRequestCreated',
+      'Yahoo:ccsbe': 'notifications.kindYahooStopped',
+      'Yahoo:ccsts': 'notifications.kindYahooHidden',
+      'Yahoo:vosdo': 'notifications.kindYahooReported',
       'Yahoo:lsodi': 'notifications.kindPriceDropMessageV2',
       'Yahoo:loodo': 'notifications.kindLikedItemLike',
       'Yahoo:cmp': 'notifications.kindYahooOfficial',
@@ -75,6 +82,11 @@ export default defineComponent({
       YahooLike: 'danger',
       'Yahoo:obems': 'primary',
       'Yahoo:dosdo': 'warning',
+      'Yahoo:qosqu': 'primary',
+      'Yahoo:goere': 'warning',
+      'Yahoo:ccsbe': 'danger',
+      'Yahoo:ccsts': 'danger',
+      'Yahoo:vosdo': 'danger',
       'Yahoo:lsodi': 'primary',
       'Yahoo:loodo': 'danger',
       'Yahoo:cmp': 'info',
@@ -95,6 +107,9 @@ export default defineComponent({
       Comment: 'detail',
       BundleRequestCreated: 'detail',
       DesiredPriceOfferCreated: 'detail',
+      'Yahoo:dosdo': 'detail',
+      'Yahoo:qosqu': 'detail',
+      'Yahoo:goere': 'detail',
     }
 
     function actionForKind(kind) {
@@ -123,6 +138,7 @@ export default defineComponent({
       { key: 'like', label: t('notifications.categoryLike') },
       { key: 'liked_item', label: t('notifications.categoryLikedItem') },
       { key: 'price_drop', label: t('notifications.categoryPriceDrop') },
+      { key: 'violation', label: t('notifications.categoryViolation') },
       { key: 'platform_notice', label: t('notifications.categoryPlatformNotice') },
       { key: 'other', label: t('notifications.categoryOther') },
     ])
@@ -336,6 +352,26 @@ export default defineComponent({
     const desiredPriceDialogAccountId = ref(null)
     const desiredPriceDialogNotificationId = ref(null)
 
+    // 雅虎：価格の相談 / 商品への質問 / まとめ買いの相談 共用一个弹窗（App API）
+    const yahooReqVisible = ref(false)
+    const yahooReqMode = ref('discount')
+    const yahooReqAccountId = ref(null)
+    const yahooReqItemId = ref('')
+    const yahooReqItemName = ref('')
+    const yahooReqBulkId = ref('')
+    const YAHOO_REQ_MODE = { 'Yahoo:dosdo': 'discount', 'Yahoo:qosqu': 'question', 'Yahoo:goere': 'bulk' }
+
+    /** まとめ買い通知的 args.url 是 App 深链 paypayfleamarket://bulk/seller?bulkrequest_id=N */
+    function extractYahooBulkId(row) {
+      try {
+        const url = String(JSON.parse(String(row?.args_json || '{}'))?.url || '')
+        const m = url.match(/bulkrequest_id=(\d+)/)
+        return m ? m[1] : ''
+      } catch {
+        return ''
+      }
+    }
+
     function extractBundleId(row) {
       const raw = String(row?.intent_json || '').trim()
       if (!raw) return ''
@@ -382,6 +418,22 @@ export default defineComponent({
     }
 
     function onViewDetail(row) {
+      const yMode = YAHOO_REQ_MODE[row?.kind]
+      if (yMode) {
+        const bid = yMode === 'bulk' ? extractYahooBulkId(row) : ''
+        if (yMode === 'bulk' && !bid) {
+          ElMessage.warning(t('notifications.noBundleId'))
+          return
+        }
+        yahooReqMode.value = yMode
+        yahooReqAccountId.value = row.account_id || null
+        yahooReqItemId.value = resolveItemId(row)
+        yahooReqItemName.value = row.item_name || ''
+        yahooReqBulkId.value = bid
+        yahooReqVisible.value = true
+        autoMarkRead(row)
+        return
+      }
       if (row?.kind === 'BundleRequestCreated') {
         const bid = extractBundleId(row)
         if (!bid) {
@@ -613,6 +665,12 @@ export default defineComponent({
       desiredPriceDialogItemName,
       desiredPriceDialogAccountId,
       desiredPriceDialogNotificationId,
+      yahooReqVisible,
+      yahooReqMode,
+      yahooReqAccountId,
+      yahooReqItemId,
+      yahooReqItemName,
+      yahooReqBulkId,
       extractBundleId,
       resolveItemId,
       dropRowAsRead,

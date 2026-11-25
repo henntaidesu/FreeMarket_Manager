@@ -370,32 +370,46 @@ def apply_ship_qr_to_order(item_id: str, qr_text: Optional[str]) -> Optional[str
     return apply_post_ship_codes_to_order(item_id, ship_confirm_code=code, ship_qr_text=text)
 
 
+def apply_cancellation_side_effects(order_no: str) -> None:
+    """订单刚从非 cancelled 变成 cancelled 时的连带处理：回吐已占用库存、刷新待出库、回滚包材支出。
+
+    所有把订单写成 cancelled 的路径（详情回填 / 列表同步 / 雅虎刷新）都必须调它，
+    否则已扣的库存就永久丢了——之后再改状态也不会触发（旧状态已是 cancelled）。
+    调用方应与「改状态」放在同一个事务里，见 :func:`_mark_order_cancelled`。
+    """
+    from ....use_web.orders.units.orders_outbound.lines import restock_order_holding_lines
+    from ....use_web.orders.units.orders_helpers import _inventory_ids_for_order
+    from ....use_web.system.cost_expenses.units.cost_expenses_helpers import (
+        reverse_packaging_expenses_for_order,
+    )
+    from ..description_mgmt_ids import refresh_inventory_pending_outbound_qty
+
+    restock_order_holding_lines(order_no, reason=f"订单取消回吐 {order_no}")
+    refresh_inventory_pending_outbound_qty(_inventory_ids_for_order(order_no))
+    # 与手动取消同口径：回滚包材支出（归还包材库存、恢复净收益）
+    reverse_packaging_expenses_for_order(order_no)
+
+
 def _mark_order_cancelled(item_id: str, report: Any) -> Optional[str]:
     """把订单（order_no == item_id）置为 ``cancelled``，并回吐已占用库存。
 
     与「编辑订单」手动置 cancelled 的口径一致（见 orders_crud.update_order）：
     旧状态非 cancelled 时，先回吐已预扣/已出库占用的库存，再刷新待出库数量。
+    改状态与回吐在同一个事务里：中间崩溃不会留下「已取消却没回吐」的订单。
     """
+    from ....db_manage.database import DatabaseManager
+
     rows = OrderModel.find_all(where="[order_no] = ?", params=(item_id,), limit=1)
     if not rows:
         return "order_not_found"
     o = rows[0]
     old_status = str(o.status or "").strip()
     if old_status != "cancelled":
-        o.status = "cancelled"
-        if not o.save():
-            return "save_failed"
-        from ....use_web.orders.units.orders_outbound.lines import restock_order_holding_lines
-        from ....use_web.orders.units.orders_helpers import _inventory_ids_for_order
-        from ....use_web.system.cost_expenses.units.cost_expenses_helpers import (
-            reverse_packaging_expenses_for_order,
-        )
-        from ..description_mgmt_ids import refresh_inventory_pending_outbound_qty
-
-        restock_order_holding_lines(o.order_no, reason=f"订单取消回吐 {o.order_no}")
-        refresh_inventory_pending_outbound_qty(_inventory_ids_for_order(o.order_no))
-        # 与手动取消同口径：回滚包材支出（归还包材库存、恢复净收益）
-        reverse_packaging_expenses_for_order(o.order_no)
+        with DatabaseManager().transaction():
+            o.status = "cancelled"
+            if not o.save():
+                return "save_failed"
+            apply_cancellation_side_effects(o.order_no)
     report("done", f"订单已取消（订单号 {item_id}）")
     return None
 

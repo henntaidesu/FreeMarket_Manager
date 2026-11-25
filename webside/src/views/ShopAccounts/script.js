@@ -176,9 +176,24 @@ export default defineComponent({
     // 令牌只能由「登录雅虎 App 账号」取得（雅虎没有账密接口，也不指望用户去抓包），
     // 所以这里没有输入框，status 只表示「配没配、何时过期」。
     const appTokenStatus = ref(null)
+    // PayPay 残高：按需点一下才查（每次都是一次 App API 请求）
+    const yahooBalance = ref(null)
+    const yahooBalanceLoading = ref(false)
+    async function loadYahooBalance(id) {
+      if (!id || yahooBalanceLoading.value) return
+      yahooBalanceLoading.value = true
+      try {
+        yahooBalance.value = await shopAccountApi.getYahooBalance(id)
+      } catch {
+        yahooBalance.value = null
+      } finally {
+        yahooBalanceLoading.value = false
+      }
+    }
 
     async function loadYahooAppToken(id) {
       appTokenStatus.value = null
+      yahooBalance.value = null
       if (!id) return
       try {
         appTokenStatus.value = await shopAccountApi.getYahooAppToken(id)
@@ -209,6 +224,13 @@ export default defineComponent({
     async function clearYahooAppToken() {
       const id = form.value.id
       if (!id) return
+      try {
+        await ElMessageBox.confirm(t('mercariAccounts.appTokenClearConfirm'), t('common.warning'), {
+          type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel')
+        })
+      } catch {
+        return
+      }
       try {
         appTokenStatus.value = await shopAccountApi.deleteYahooAppToken(id)
         ElMessage.success(t('mercariAccounts.appTokenCleared'))
@@ -1013,6 +1035,9 @@ export default defineComponent({
       cookieInjectKeys,
       fetchSellerIdLoading,
       appTokenStatus,
+      yahooBalance,
+      yahooBalanceLoading,
+      loadYahooBalance,
       appTokenExpiresText,
       appLoginLoading,
       loginYahooApp,

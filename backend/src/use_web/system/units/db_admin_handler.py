@@ -53,6 +53,8 @@ class TestResult(BaseModel):
 class SwitchIn(BaseModel):
     backend: str                      # 'sqlite' | 'mysql'
     mysql: Optional[MysqlParams] = None
+    # 迁移到 MySQL 会先 DROP 目标库全部表：必须把目标库名原样再填一遍
+    confirm_database: Optional[str] = None
 
 
 class SwitchOut(BaseModel):
@@ -73,11 +75,24 @@ def get_database_config() -> DbConfigOut:
     )
 
 
+def _same_server(a_host, a_port, a_user, b_host, b_port, b_user) -> bool:
+    return (str(a_host or "").strip().lower() == str(b_host or "").strip().lower()
+            and int(a_port or 3306) == int(b_port or 3306)
+            and str(a_user or "").strip() == str(b_user or "").strip())
+
+
 def _resolve_password(params: MysqlParams) -> str:
-    """密码为空时沿用已保存的密码，避免前端每次都要重填。"""
+    """密码为空时沿用已保存的密码，避免前端每次都要重填。
+
+    只在 主机 / 端口 / 用户 与已保存的连接完全一致时才沿用——否则填一个自己的主机、
+    密码留空，后端就会拿着正式库的密码去连它。
+    """
     if params.password:
         return params.password
-    return db_settings.get_mysql_config().get("password", "")
+    cfg = db_settings.get_mysql_config()
+    if _same_server(params.host, params.port, params.user, cfg.get("host"), cfg.get("port"), cfg.get("user")):
+        return cfg.get("password", "")
+    return ""
 
 
 def test_mysql_connection(params: MysqlParams) -> TestResult:
@@ -163,9 +178,20 @@ async def migrate_database(body: SwitchIn) -> SwitchOut:
     if body.backend == current:
         raise HTTPException(status_code=400, detail=f"目标与当前数据库相同（{current}），无需迁移")
 
-    # 迁移到 MySQL 前先验证连接
+    # 迁移到 MySQL 前先验证连接，并确认目标不是当前库、不是被测试数据覆盖的非测试库
     if body.backend == "mysql":
-        test_mysql_connection(body.mysql or MysqlParams())
+        p = body.mysql or MysqlParams()
+        test_mysql_connection(p)
+        if (body.confirm_database or "").strip() != (p.database or "").strip():
+            raise HTTPException(status_code=400, detail="请输入目标库名确认迁移（迁移会删除目标库的全部表）")
+        from ....db_manage.target_guard import UnsafeTargetError, assert_safe_overwrite_target
+        try:
+            assert_safe_overwrite_target({
+                "host": p.host, "port": int(p.port), "user": p.user,
+                "password": _resolve_password(p), "database": p.database,
+            })
+        except UnsafeTargetError as e:
+            raise HTTPException(status_code=400, detail=f"不能迁移到该库：{e}")
 
     mgr = get_db_manager()
     source_db = mgr.db            # 当前运行的 DatabaseManager（后端无关）
@@ -247,7 +273,17 @@ async def hot_switch_mysql_database(body: HotSwitchIn) -> HotSwitchOut:
             status_code=409,
             detail=f"{label}正在进行，请等待其完成后再切换数据库",
         )
+    # 任务队列的 worker 不持同步锁：执行中的出品 / 发货收尾时写的 task_queue 与预扣减会落进
+    # 切换后的库（改到同 id 的无关行）。切换期间暂停领新任务，有任务在跑就拒绝。
+    from ....task_queue import worker as task_worker
+    task_worker.pause_claiming()
     try:
+        running = task_worker.current_running_id()
+        if running is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"任务队列正在执行任务 #{running}，请等它结束后再切换数据库",
+            )
         from ....db_manage.dialects.mysql import MysqlDialect
         new_dialect = MysqlDialect({
             "host": cfg["host"], "port": cfg["port"], "user": cfg["user"],
@@ -260,6 +296,17 @@ async def hot_switch_mysql_database(body: HotSwitchIn) -> HotSwitchOut:
             raise HTTPException(status_code=400, detail=f"目标数据库不可用：{e}")
 
         mgr = get_db_manager()
+        # 切过去后 initialize_database() 会删掉目标库里所有本系统不认识的表。库名输错成
+        # 别的应用的库就是灾难，所以目标库里有陌生表时直接拒绝，列出来让人看。
+        defined = {m.get_table_name() for m in mgr.models} | {"product_types"}
+        foreign = [t for t in new_dialect.get_all_tables(mgr.db) if t not in defined]
+        if foreign:
+            shown = ", ".join(foreign[:20]) + (" …" if len(foreign) > 20 else "")
+            raise HTTPException(
+                status_code=400,
+                detail=f"目标库 `{target}` 里有 {len(foreign)} 张本系统不认识的表（{shown}），"
+                       "切换会删除它们，已拒绝。请确认库名",
+            )
         old_dialect = mgr.db.dialect
         # 原子替换方言：此后所有 execute_* / 模型查询都走目标库
         mgr.db.dialect = new_dialect
@@ -277,6 +324,7 @@ async def hot_switch_mysql_database(body: HotSwitchIn) -> HotSwitchOut:
             db_settings.set_active_mysql_database(current)
             raise HTTPException(status_code=500, detail="切换后初始化目标库失败，已回滚")
     finally:
+        task_worker.resume_claiming()
         sync_lock.end(token)
 
     # 图片资产映射（/imges/xxx → 本地还是图床）缓存在进程内，而它的数据源就在刚被换掉的

@@ -18,7 +18,7 @@ from ....ai.deepseek_client import (
 
 
 class DeepSeekConfigOut(BaseModel):
-    """系统配置回显（API Key 明文回显，仅登录后可见）。"""
+    """系统配置回显。API Key 只回打码值（前缀 ••••+ 末 4 位），原样提交回来表示「不改」。"""
 
     api_key: str = ""
     model: str = DEFAULT_MODEL
@@ -38,14 +38,33 @@ class DeepSeekConfigUpdate(BaseModel):
         return str(v).strip()
 
 
+_MASK_PREFIX = "••••"
+
+
+def _mask(key: str) -> str:
+    key = key or ""
+    return f"{_MASK_PREFIX}{key[-4:]}" if key else ""
+
+
+def _masked_out() -> DeepSeekConfigOut:
+    cfg = dict(get_deepseek_settings())
+    cfg["api_key"] = _mask(cfg.get("api_key") or "")
+    return DeepSeekConfigOut(**cfg)
+
+
 def get_deepseek_config() -> DeepSeekConfigOut:
-    return DeepSeekConfigOut(**get_deepseek_settings())
+    return _masked_out()
 
 
 def put_deepseek_config(body: DeepSeekConfigUpdate) -> DeepSeekConfigOut:
+    current = get_deepseek_settings().get("api_key") or ""
+    api_key = body.api_key
+    # 打码值原样回传 = 没改；None 同理
+    if api_key is None or (api_key.startswith(_MASK_PREFIX) and api_key == _mask(current)):
+        api_key = current or None
     save_deepseek_settings(
-        api_key=body.api_key,
+        api_key=api_key,
         model=body.model,
         base_url=body.base_url,
     )
-    return DeepSeekConfigOut(**get_deepseek_settings())
+    return _masked_out()

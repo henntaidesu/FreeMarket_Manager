@@ -43,7 +43,7 @@ _COLUMNS = (
     "id", "task_type", "title", "status", "payload", "result", "error",
     "progress_step", "progress_label", "account_id", "account_name",
     "client_token", "active_dedup_key", "reserved_qty", "user_id", "username",
-    "created_at", "started_at", "finished_at",
+    "created_at", "started_at", "finished_at", "retried_by",
 )
 
 _SELECT = "SELECT " + ", ".join(f"[{c}]" for c in _COLUMNS) + " FROM [task_queue]"

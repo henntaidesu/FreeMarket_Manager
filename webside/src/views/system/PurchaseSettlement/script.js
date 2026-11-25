@@ -1,6 +1,7 @@
 import { defineComponent, computed, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
+import { purchaseUrl } from '@/utils/purchaseUrl.js'
 import { purchaseApi, settlementApi, shopAccountApi } from '@/api/index.js'
 import { formatUnixSecLocal } from '@/utils/timeDisplay.js'
 import { mercariImageUrl } from '@/utils/mercariImage.js'
@@ -35,7 +36,8 @@ export default defineComponent({
       STATE_WAITING_SHIPPING: { label: t('purchases.stateWaitingShipping'), tag: 'warning' },
       STATE_WAITING_RECEIPT: { label: t('purchases.stateWaitingReceipt'), tag: 'info' },
       STATE_WAITING_BUYER_REVIEW: { label: t('purchases.stateWaitingReview'), tag: 'primary' },
-      STATE_COMPLETED: { label: t('purchases.stateCompleted'), tag: 'success' }
+      STATE_COMPLETED: { label: t('purchases.stateCompleted'), tag: 'success' },
+      STATE_CANCELED: { label: t('purchases.stateCanceled'), tag: 'info' }
     }))
     function rowState(row) {
       return row?.display_state || row?.state
@@ -48,7 +50,7 @@ export default defineComponent({
       return stateConfig.value[state]?.tag || 'info'
     }
     function transactionUrl(row) {
-      return `https://jp.mercari.com/transaction/${encodeURIComponent(row.item_id || '')}`
+      return purchaseUrl(row)
     }
 
     function formatYen(v) {

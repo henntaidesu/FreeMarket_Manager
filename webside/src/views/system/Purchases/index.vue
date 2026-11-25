@@ -436,7 +436,10 @@
         :owner-users="ownerUsers"
         @set-settlement="(st) => setRowSettlement(detailRow, st)"
         @set-owner="(uid) => setRowOwner(detailRow, uid)"
+        :sending="messageSending"
         @fetch-detail="refreshDetail(detailRow)"
+        @send-message="(text, done) => sendMessage(detailRow, text, done)"
+        @receive="receiveYahoo(detailRow)"
         @open-tracking="openTracking(detailRow)"
       />
     </el-dialog>

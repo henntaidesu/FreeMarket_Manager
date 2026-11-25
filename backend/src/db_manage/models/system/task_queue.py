@@ -83,6 +83,9 @@ class TaskQueueModel(BaseModel):
             "created_at": {"type": "INTEGER", "not_null": True, "default": 0},
             "started_at": {"type": "INTEGER", "not_null": False, "default": None},
             "finished_at": {"type": "INTEGER", "not_null": False, "default": None},
+            # 被重试成哪条新任务（0 = 重试正在提交）。每条失败任务只允许重试一次：
+            # 一条可能已部分执行的任务（已发出的留言 / 已挂牌的出品）反复重试会重复对外操作
+            "retried_by": {"type": "INTEGER", "not_null": False, "default": None},
         }
 
     @classmethod

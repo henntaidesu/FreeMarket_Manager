@@ -120,6 +120,16 @@ const SESSION_TTL_SEC = (() => {
   const v = Number(process.env.MERCARI_PROXY_SESSION_TTL_SEC);
   return Number.isFinite(v) && v > 0 ? Math.min(v, SESSION_TTL_MAX_SEC) : SESSION_TTL_MAX_SEC;
 })();
+// 内部端点必须带对密钥：密钥为空时一律拒绝（经 nginx / 门户发布时对端恒为 127.0.0.1，
+// 环回判断挡不住外部请求），比较用恒定时间。
+function internalSecretOk(req) {
+  const got = req.headers["x-internal-secret"];
+  if (!INTERNAL_SECRET || typeof got !== "string") return false;
+  const a = Buffer.from(got);
+  const b = Buffer.from(INTERNAL_SECRET);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 const SESSION_KEY = INTERNAL_SECRET || crypto.randomBytes(32).toString("hex");
 
 function signSession(expSec, siteKey) {
@@ -203,7 +213,7 @@ const handler = async (req, res) => {
     //    这正是 runner 用来识别残留进程的依据。
     if (path === "/__ping") {
       if (!isLoopbackAddr(remoteAddr(req)) ||
-          (INTERNAL_SECRET && req.headers["x-internal-secret"] !== INTERNAL_SECRET)) {
+          !internalSecretOk(req)) {
         res.writeHead(403, { "content-type": "text/plain" });
         return res.end("forbidden");
       }
@@ -229,7 +239,12 @@ const handler = async (req, res) => {
     let rel =
       BASE && (path === BASE || path.startsWith(BASE + "/")) ? path.slice(BASE.length) : path;
     if (rel === "") rel = "/";
-    const { upstreamHost, upstreamPath } = resolveTarget(rel, site);
+    const target = resolveTarget(rel, site);
+    if (!target) {
+      res.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
+      return res.end("forbidden upstream host");
+    }
+    const { upstreamHost, upstreamPath } = target;
     const upstreamUrl = `https://${upstreamHost}${upstreamPath}${reqUrl.search}`;
 
     // 7) 组装转发请求头（DPoP / Authorization / Cookie 透传，自有 Cookie 除外）
@@ -326,7 +341,7 @@ async function handleInject(req, res) {
     res.writeHead(405, { "content-type": "text/plain" });
     return res.end("method not allowed");
   }
-  if (INTERNAL_SECRET && req.headers["x-internal-secret"] !== INTERNAL_SECRET) {
+  if (!internalSecretOk(req)) {
     res.writeHead(403, { "content-type": "text/plain" });
     return res.end("forbidden");
   }
@@ -465,6 +480,7 @@ server.on("upgrade", (req, clientSock, head) => {
   const m = wsPath.match(/^\/__pws__\/([^/]+)(\/.*)?$/);
   if (!m) return clientSock.destroy();
   const host = m[1];
+  if (!isAllowedUpstreamHost(host, siteOf(req))) return clientSock.destroy();
   const path = m[2] || "/";
   const upstream = tls.connect(443, host, { servername: host }, () => {
     const lines = [`GET ${path} HTTP/1.1`, `Host: ${host}`];
@@ -485,9 +501,19 @@ server.on("upgrade", (req, clientSock, head) => {
 
 // ---------------- 路由 ----------------
 // /__p/<host>/<path...> => https://<host>/<path...>；其它走当前站点上游（rel 已剥离 BASE）
+// /__p/ 与 /__pws__/ 的目标主机只能是当前站点的域名（与 toProxyUrl 的改写口径同一个 site.re）。
+// 不校验的话它就是一个带着注入登录 Cookie 的开放代理：/__p/evil.com/ 会把 Cookie 原样送出去。
+// 端口一律不收：上游固定 443，带端口只会被用来探内网。
+function isAllowedUpstreamHost(host, site) {
+  return typeof host === "string" && /^[a-z0-9.-]+$/i.test(host) && site.re.test(host);
+}
+
 function resolveTarget(rel, site) {
   const m = rel.match(/^\/__p\/([^/]+)(\/.*)?$/);
-  if (m) return { upstreamHost: m[1], upstreamPath: m[2] || "/" };
+  if (m) {
+    if (!isAllowedUpstreamHost(m[1], site)) return null;
+    return { upstreamHost: m[1], upstreamPath: m[2] || "/" };
+  }
   return { upstreamHost: site.host, upstreamPath: rel };
 }
 

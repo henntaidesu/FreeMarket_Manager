@@ -15,6 +15,7 @@ from fastapi import Depends, HTTPException
 from pydantic import BaseModel as PydanticModel, Field
 
 from ....auth import require_auth
+from ....db_manage.database import DatabaseManager
 from ....page_access import TASK_FEATURES, TASK_PAYLOAD_FEATURES, assert_feature
 from ....task_queue import (
     TaskDuplicateError,
@@ -38,6 +39,16 @@ class SubmitTaskBody(PydanticModel):
     client_token: Optional[str] = Field(default=None, max_length=128)
 
 
+
+def _assert_task_features(claims: dict, task_type: str, payload: dict) -> None:
+    keys = TASK_FEATURES.get(task_type)
+    if keys is None:
+        raise HTTPException(status_code=403, detail=f"任务类型 {task_type} 不允许经此接口提交")
+    assert_feature(claims, *keys)
+    for (tt, field), extra in TASK_PAYLOAD_FEATURES.items():
+        if task_type == tt and payload.get(field) not in (None, ""):
+            assert_feature(claims, *extra)
+
 def submit_task_endpoint(body: SubmitTaskBody, claims: dict = Depends(require_auth)):
     """把一个重型操作提交到任务队列，立即返回（不阻塞前台）。
 
@@ -45,11 +56,7 @@ def submit_task_endpoint(body: SubmitTaskBody, claims: dict = Depends(require_au
     的任务已存在（双击/重发），前端应按「已提交」处理而不是再提示一次。
     """
     # 按钮级功能权限：任务队列是很多按钮的共同出口，所以按 task_type 判定
-    if body.task_type in TASK_FEATURES:
-        assert_feature(claims, *TASK_FEATURES[body.task_type])
-    for (task_type, field), keys in TASK_PAYLOAD_FEATURES.items():
-        if body.task_type == task_type and (body.payload or {}).get(field) not in (None, ""):
-            assert_feature(claims, *keys)
+    _assert_task_features(claims, body.task_type, body.payload or {})
     try:
         task, created = submit_task(
             task_type=body.task_type,
@@ -164,10 +171,17 @@ def retry_task(task_id: int, claims: dict = Depends(require_auth)):
     payload = task.get("payload")
     if isinstance(payload, str):
         raise HTTPException(status_code=400, detail="任务参数已损坏，无法重试")
-    # 重试 = 再提交一次：同样要有这个任务类型对应的功能
+    # 重试 = 再提交一次：同样要有这个任务类型（及 payload 字段）对应的功能
     task_type = str(task.get("task_type") or "")
-    if task_type in TASK_FEATURES:
-        assert_feature(claims, *TASK_FEATURES[task_type])
+    _assert_task_features(claims, task_type, payload or {})
+    # 原子认领「重试」：一条失败任务只能重试一次，双击 / 两人同时点只有一个命中
+    db = DatabaseManager()
+    claimed = db.execute_update(
+        "UPDATE [task_queue] SET [retried_by] = 0 WHERE [id] = ? AND [retried_by] IS NULL",
+        (int(task_id),),
+    )
+    if claimed <= 0:
+        raise HTTPException(status_code=409, detail="该任务已经重试过，请到新任务上操作")
     try:
         new_task, _created = submit_task(
             task_type=str(task.get("task_type")),
@@ -176,12 +190,16 @@ def retry_task(task_id: int, claims: dict = Depends(require_auth)):
             user_id=claims.get("user_id"),
             username=claims.get("username"),
         )
-    except TaskDuplicateError as exc:
-        # detail 必须是字符串：前端 axios 拦截器直接把它丢给 ElMessage.error
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except InsufficientListableError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except (UnknownTaskTypeError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
+    except BaseException as exc:
+        db.execute_update("UPDATE [task_queue] SET [retried_by] = NULL WHERE [id] = ?", (int(task_id),))
+        if isinstance(exc, (TaskDuplicateError, InsufficientListableError)):
+            # detail 必须是字符串：前端 axios 拦截器直接把它丢给 ElMessage.error
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        if isinstance(exc, (UnknownTaskTypeError, ValueError)):
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise
+    db.execute_update(
+        "UPDATE [task_queue] SET [retried_by] = ? WHERE [id] = ?",
+        (int(new_task["id"]), int(task_id)),
+    )
     return {"success": True, "data": {"task": new_task, "created": True}}

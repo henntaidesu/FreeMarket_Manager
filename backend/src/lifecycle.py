@@ -127,10 +127,19 @@ async def _on_startup(force_headed_debug: bool = False) -> None:
     # ⑤ 一次性清理：日志 / 终态任务行 / 软删待办的详情缓存 / 缩略图与 CDN 缓存目录。
     # 这些位置原本只增不减（见 maintenance.py 开头的实测数据）。放在线程里跑并且不 await：
     # 删文件是阻塞 IO，不该拖慢启动，也不该挡住 mark_ready。
+    # 之后每 MAINTENANCE_INTERVAL_HOURS（默认 6，0 = 只在启动时跑）再跑一次：公开的缩略图 /
+    # 煤炉图片代理能被未认证请求持续刷出缓存文件，只在启动时清理的话，进程跑几天磁盘就满了。
     async def _run_maintenance() -> None:
-        from .maintenance import run_maintenance_once
+        from .maintenance import maintenance_interval_sec, run_maintenance_once
 
         await asyncio.to_thread(run_maintenance_once)
+        interval = maintenance_interval_sec()
+        while interval > 0:
+            await asyncio.sleep(interval)
+            try:
+                await asyncio.to_thread(run_maintenance_once)
+            except Exception:  # noqa: BLE001 清理失败不能让循环死掉
+                logging.getLogger(__name__).exception("[maintenance] 周期清理失败")
 
     asyncio.create_task(_run_maintenance())
 

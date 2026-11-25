@@ -46,7 +46,7 @@ class PostToMarketBody(PydanticModel):
     shipping_days: str = "2_3_days"  # "1_2_days" | "2_3_days" | "4_7_days"
     shipping_from_area_id: str = ""  # Mercari area id，如 "13"
     # 代理
-    proxy_server: Optional[str] = None
+    proxy_server: Optional[str] = None  # 已忽略，固定走本机 MITM
     use_mitm_proxy: bool = True
     # 可选：与 GET /listing/post-progress/{job_id} 配合展示当前步骤
     progress_job_id: Optional[str] = Field(default=None, max_length=128)
@@ -139,7 +139,7 @@ async def post_to_market(
     try:
         proxy: Optional[str] = None
         if body.use_mitm_proxy:
-            proxy = (body.proxy_server or "").strip() or default_mitm_proxy_url()
+            proxy = default_mitm_proxy_url()  # 不接受调用方指定代理：会把账号登录态送到外部
 
         mgr = get_web_drive_manager()
         platform = _account_platform(account_id)

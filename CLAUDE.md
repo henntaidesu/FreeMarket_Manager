@@ -638,8 +638,13 @@ header, not cookies, so the dangerous wildcard+credentials combination never occ
 ### 購入した商品（`use_mercari/get_purchases/`）
 
 其他功能二级页 `/#/system/purchases` 的数据源：**只读记录**，同步 + 列表 + 筛选，不碰库存、
-成本、结算。煤炉专有——雅虎侧没有实现，`sync_purchases_core` 按 `shop_accounts.platform`
-跳过雅虎账号，自动获取循环里 `purchases` 也登记在 `_YAHOO_UNSUPPORTED_TASKS`。
+成本、结算。下面写的是煤炉侧；**雅虎购入走 App API**（`use_yahoo/purchases.py`，不开浏览器）：
+`user/v1/users/self/items/purchase` 列表 + `v2/items/{id}/buyer` 取引详情（卖家 / 进度 / 运单号 / 整段留言），
+写进同一张 `purchase_items`（`platform='yahoo'`，`order_id` = `item_id`）。`sync_purchases_core` /
+`refresh_purchase_detail_core` / 自动获取循环按 `shop_accounts.platform` 分派；没做 App 登录的雅虎账号跳过。
+`v2/items/{id}/buyer` 的响应**带本人收货地址与电话，不入库**（同煤炉）。雅虎行在详情弹窗里能
+「受取評価」（`POST /purchases/{item_id}/receive` → `v3/items/{id}/receive`，评分固定 GOOD）与发留言
+（`v2/items/{id}/message`）；煤炉行发留言复用订单面板的 `send_order_transaction_message`，煤炉的受取評価仍在待办页。
 
 抓取与出品一覧同构（MITM 截获 → 滚底点「もっと見る」→ 合并），下面几条是实测出来的，
 动它之前先看：
@@ -834,10 +839,16 @@ header, not cookies, so the dangerous wildcard+credentials combination never occ
 Yahoo: **listing, on-sale list+detail sync, revise/suspend/resume/delete, sold-order sync +
 single-order refresh + order-status batch refresh + fee backfill, auto-relist, todo sync,
 notification sync, Cookie 注入, and the todo 处理 flow (trade detail / 发货 / 交易留言)** — 发货 covers
-ゆうパケットポスト / mini too, via the App API (see `use_yahoo/app_api/` below). Still Mercari-only:
-受取評価, the bulk todo operations (一键好评 / 一键确认发送), QR/扫码 (Yahoo has no equivalent —
-its 配送コード is issued server-side, nothing to scan), and every *notification* action
-(回复评论/同意降价) — Yahoo notices remain display-only.
+ゆうパケットポスト / mini too, via the App API (see `use_yahoo/app_api/` below). Also via the App API:
+the three notices a seller must answer — 価格の相談 (`Yahoo:dosdo`), 商品への質問 (`Yahoo:qosqu`),
+まとめ買いの相談 (`Yahoo:goere`, its bulk id is only in the App deep link `args.url`) — handled in
+`use_yahoo/app_api/negotiation.py` + `use_web/notifications/units/yahoo_actions.py` + the notifications
+page's `YahooRequestDialog.vue`; seller-initiated cancel before shipping (`app_api/trade_cancel.py`,
+todo 处理 dialog); buyer-side purchases (see 購入した商品). **Unverified live**: まとめ買い accept/deny
+bodies (the App code building the deny body failed to decompile) and the seller cancel. Still
+Mercari-only: 一键好评, QR/扫码 (Yahoo has no equivalent — its 配送コード is issued server-side,
+nothing to scan). The account dialog shows the **PayPay 残高** (`GET paypay/v1/balance`; Yahoo sales land in PayPay — `user/v1/users/self/wallet` is the card list and is deliberately not read). Violation notices (`Yahoo:ccsbe` 公開停止 / `ccsts` 検索未掲載 / `vosdo` 違反報告) have their own 违规 chip. The buyer-side `Yahoo:rsura` todo jumps to the purchases page (`?keyword=<item_id>`). **Yahoo 集荷 is still not implemented**: `otegaruDelivery/pickup` needs `pickupDate`/`pickupTime` values the APK doesn't enumerate (server-provided). A 取引キャンセル notice (`Yahoo:obscl`) newly inserted re-reads that order's trade
+page (same as 取引完了), so a buyer cancel returns stock without a manual 更新状态.
 
 **Every account-driven entry point dispatches on `shop_accounts.platform`** — the auto-fetch
 loop, the account page's 同步数据, on-sale sync / full-update / fetch-detail (single + batch),
@@ -965,7 +976,7 @@ soft-delete, inventory counters and order upsert semantics stay identical across
   `fetch_and_store_shipping_durations` Mercari uses, dispatched on `platform=`. Unlike Mercari
   it re-tries every sync for any undeleted 発送依頼 still missing the value: Yahoo returns the
   full todo list each time and soft-deletes the rest, so the retry set is bounded by open trades.
-  This naming is also what keeps 一键好评 / 一键确认发送 and Mercari's 详情预抓 off Yahoo rows for
+  This naming is also what keeps 一键好评 and Mercari's 详情预抓 off Yahoo rows for
   free — they all filter on Mercari `kind`/`title` constants that no `Yahoo*` value matches.
   **Two sync entry points, and calling the wrong one just silently does less work**:
   `sync_yahoo_todos` is the list-only form; `sync_yahoo_todos_with_details` is the twin of Mercari's
@@ -1056,7 +1067,9 @@ soft-delete, inventory counters and order upsert semantics stay identical across
   backend is a real JSON API with **no client attestation** — `Authorization: Bearer` plus a few
   copied headers (`X-UUID` / `X-BCOOKIE` / `os` / `os-version` / `app-version` / `User-Agent`, all
   from `qy.IdentifierInterceptor`) is enough from this server. Used **only where the web cannot
-  reach**: ゆうパケットポスト / mini shipping. Everything else stays on page automation.
+  reach**: ゆうパケットポスト / mini shipping, 価格相談 / 質問 / まとめ買い, seller cancel, and the
+  buyer side. Everything else stays on page automation. Relative Retrofit paths resolve against
+  `https://sparkle.yahooapis.jp/` (`j80/d0.java`), not -secure.
   - **Endpoints** (all verified present in the APK's `zy.SparkleService` — the gateway answers a
     NestJS 404 for anything else, so guessing paths is useless):
     `GET /v2/items/{itemId}/seller` (→ `sellerId`/`buyerId`/`orderId`, `order.vendor`,
@@ -1169,6 +1182,10 @@ soft-delete, inventory counters and order upsert semantics stay identical across
   - **「重新扫码」works for Yahoo too** (`qr_retry.py`): safe because `ship_via_app` re-reads the
     trade and refuses if a code was already issued. The panel hides it once `yahooShipped` (code
     issued, only the notice missing) — that case is still 补发发货通知.
+- `use_yahoo/todos/bulk_ship.py` — 待办页「一键发送」的雅虎侧。已打包（网页端发码、`qr_image_path` 非空）的
+  `YahooShipRequest` 逐条走 App API `notify_yahoo_todo_shipped`（网页交易页没有可自动化的発送通知），
+  先读 App 侧状态：已通知 → 只本地收尾；没有配送コード → 跳过。没配 App 令牌的账号整批判失败。
+  `use_web/todos/units/todos_sync/bulk_ship.py` 把煤炉 / 雅虎两份账号列表合并后按平台分派。
 - `use_yahoo/orders/batch_refresh.py` — 订单「更新状态」的雅虎实现（逐条重读交易页）。
   `OrderModel.find_for_batch_info_refresh` now takes `platform`; without it the Mercari
   `transaction_evidences` batch would pick up `z…` orders and open Mercari transaction pages that
@@ -1320,7 +1337,7 @@ if Mercari drops the 申请 row the 退货地址 row reappears and 确认签收 
 确认签收 soft-deletes both rows of the trade. Its agree step (`todos.accept_cancellation`, feature `todos:cancel_accept`)
 clicks 同意する → the same `transaction:accept-cancellation-dialog` the receipt flow uses, and succeeds
 only when a re-captured evidence shows the status left `wait`; it refuses to click at all if it can't
-read the status first. The decision stays manual — sync never accepts anything.
+read the status first. The decision stays manual — sync never accepts anything. 同意しない (`cancellation_decline.py`) rides the same task type with `payload.decision='decline'` + `reason_text`. Read from Mercari's JS bundle (not run live yet): the button **navigates** to `/transaction/{id}/cancel/reject` (a 「キャンセルに関するお問い合わせ」 form), takes a ≤140-char reason (`detail-of-inquiry`), confirms via `dialog-action-button`, and the request becomes `escalation` — i.e. declining hands it to Mercari support. Success = re-opened transaction page reads a status other than `wait`. A **seller-initiated** cancel request does not exist on Mercari web (the waitshipping pages only link a help article; only car listings get a cancel button) — it is app-only.
 
 **退货的返品先住所 (`todos.return_address`, `transaction_detail/return_address.py`)** — after a
 cancellation is approved (`kind=CancellationRequestApprovedSeller`) the seller must enter a return
@@ -1384,6 +1401,8 @@ the message instead of `404: …`.
 - On restart, `running` tasks are marked failed but their listing reservations are **kept**
   (released only by the TTL sweep) — a hard crash cannot tell whether 出品する was already
   clicked, and browser automation is never auto-retried.
+
+**卖家删除商品评论** (`get_notifications/item_comment/item_comment_delete.py`, comment dialog): the item page's comment row has a delete icon → `confirm-delete-comment-dialog` (buttons [削除, キャンセル]) → POST `/comments/seller_delete`. The DOM carries no comment id, so the row is located by its normalized text and must match **exactly one** row; success = re-captured `items/get` no longer has the comment (or shows it as seller-deleted: `user.status=dead`, empty name). Not run live yet; behind the mobile-aligned-UI flag the icon may sit in an overflow menu, in which case it fails loudly. Mercari's own balance (`/v1/get_balance`, Merpay) and replies to 事务局 messages (`help.jp.mercari.com/cases`, a separate app) are **not** implemented.
 
 ### 一键修改发货时效 (`src/bulk_shipping_duration.py`)
 
@@ -1609,7 +1628,9 @@ Each run writes a `system_logs` row (category `database`).
   so charging for it protects nothing while making the inventory **card view** (30 images per
   batch) look like abuse. Anything that adds a public endpoint doing real work must call
   `check_public_rate_limit(request)` itself, at the point where the work begins.
-- `MAINTENANCE_AUTO`: Set to `0` to disable the **startup-only** cleanup pass (`maintenance.py`).
+- `MAINTENANCE_AUTO`: Set to `0` to disable the cleanup pass (`maintenance.py`). It runs at startup
+  and then every `MAINTENANCE_INTERVAL_HOURS` (default 6; `0` = startup only) — the public thumbnail /
+  Mercari image proxy can be made to write cache files without auth, so startup-only lets the disk fill.
   Nothing else in this codebase reclaims anything, so without it `system_logs` (~270 rows/day),
   terminal `task_queue` rows, `detail_json` on soft-deleted todos, and the `_thumbs` /
   `_mercari_cache` image directories grow without bound. Retention/caps:

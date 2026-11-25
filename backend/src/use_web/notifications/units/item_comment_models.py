@@ -24,3 +24,11 @@ class ItemCommentCloseRequest(PydanticModel):
 
 class ItemCommentTranslateRequest(PydanticModel):
     text: str
+
+
+class ItemCommentDeleteRequest(PydanticModel):
+    item_id: str
+    comment_id: str
+    #: 评论原文：页面上按它定位要删的那一条（DOM 里没有评论 id）
+    message: str
+    account_id: Optional[int] = None

@@ -15,11 +15,12 @@ from __future__ import annotations
 import logging
 import os
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, RedirectResponse, Response
 
 from .image_hosting import settings as image_hosting_settings
 from .image_hosting.client import ImageHostingClient, ImageHostingError
+from .rate_limit import check_public_rate_limit
 from .use_web._path_safety import resolve_within_imges
 from .use_web.image_storage import content_type_for, get_image_root, public_image_url
 
@@ -53,8 +54,11 @@ def deliver_remote(remote_url: str, media_type: str = "image/jpeg", force_proxy:
     return RedirectResponse(remote_url, status_code=302, headers=_NO_STORE)
 
 
+_SERVABLE_EXTS = frozenset({".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".bmp"})
+
+
 @router.get("/imges/{file_path:path}")
-def serve_image(file_path: str, inline: int = 0):
+def serve_image(file_path: str, request: Request, inline: int = 0):
     """``inline=1``：不要 302，把字节代回来。
 
     默认的 302 会让图片变成**图床域名**下的资源，浏览器照样显示，但前端一旦把它画进
@@ -62,9 +66,16 @@ def serve_image(file_path: str, inline: int = 0):
     WebKit 抛 ``SecurityError: The operation is insecure.``。图床没有也不该有 CORS 头，
     所以 ``crossOrigin=anonymous`` 只会让图连加载都失败——只能由本服务代取保持同源。
     """
+    # 只发图片：图片目录靠「文件名不可猜」保护，目录里混进的同步库 / 备份等文件
+    # （例如 FreeFileSync 的 sync.ffs_db，里面就是全部文件名清单）不能顺带公开出去。
+    if os.path.splitext(file_path)[1].lower() not in _SERVABLE_EXTS:
+        raise HTTPException(status_code=404, detail="图片不存在")
     rel_path = f"/imges/{file_path}"
     remote_url = public_image_url(rel_path)
     if remote_url:
+        if inline:
+            # inline=1 让本服务替调用方整张拉取图床字节：未认证可达，必须限速
+            check_public_rate_limit(request)
         return deliver_remote(remote_url, content_type_for(file_path), force_proxy=bool(inline))
 
     try:
