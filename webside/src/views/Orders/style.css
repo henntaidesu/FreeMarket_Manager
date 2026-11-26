@@ -1127,3 +1127,10 @@
 :global(.manual-inventory-select-popper .el-select-dropdown__item.selected .manual-option-sub) {
   color: #dbe7ff !important;
 }
+
+.ord-cancel-reasons {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}

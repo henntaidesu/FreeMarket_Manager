@@ -117,8 +117,6 @@ export const todosApi = {
     http.post(`/use_web/todos/${encodeURIComponent(todoId)}/yahoo/send-message`, body || {}, { timeout: 0, ...axiosConfig }),
   /** 雅虎待回复：直接标记处理完毕（软删）。纯本地写，不开浏览器 */
   /** 卖家主动取消雅虎交易（发货前，App API；随后重读交易页把订单置取消并回吐库存） */
-  yahooCancelTrade: (todoId, reason) =>
-    http.post(`/use_web/todos/${encodeURIComponent(todoId)}/yahoo/cancel-trade`, { reason }, { timeout: 0 }),
   yahooFinishReply: (todoId, axiosConfig = {}) =>
     http.post(`/use_web/todos/${encodeURIComponent(todoId)}/yahoo/finish-reply`, {}, { timeout: 20000, ...axiosConfig })
 }

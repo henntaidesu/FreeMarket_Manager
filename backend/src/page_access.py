@@ -90,6 +90,7 @@ PAGE_FEATURES = {
         "message",           # 回复交易留言
         "convert_owner",     # 归属转化（原仅管理员）
         "force_stock_out",   # 强制出库：只标已出库、不扣库存（原仅管理员）
+        "cancel_trade",      # 卖家主动取消交易（发货前）
     ),
     "on-sale-items": (
         "sync",              # 同步在售 / 获取详情 / 详情里「同步数据」
@@ -109,7 +110,6 @@ PAGE_FEATURES = {
         "cancel_receipt",    # 取消申请的确认
         "return_address",    # 退货填写返品先住所（返品くん）
         "message",           # 交易留言 / 表情回应
-        "cancel_trade",      # 卖家主动取消交易（雅虎，发货前）
     ),
     "notifications": (
         "sync",              # 同步通知

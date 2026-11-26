@@ -395,7 +395,77 @@ function asciiOrNull(s) {
   return /^[\x20-\x7e]*$/.test(v) ? v : null;
 }
 
+// 一次 /__boot 响应里 Set-Cookie 的字节上限，超出的分批经后续 302 写完。
+// 经门户时，它前面那层反代（nginx 默认 proxy_buffer_size 4KB）装不下一个带几十条
+// Set-Cookie 的响应头，直接回 502（经 Cloudflare 还被换成它自己的错误页）。全新浏览器
+// 不会触发；用过几次的浏览器在卡片路径下积了一堆旧 Cookie，每条都要一行清除，再加上
+// 雅虎单枚就上 KB 的登录 Cookie 与门户给每行改写的 Path，就超了。
+const BOOT_CHUNK_BYTES = 2200;
+// 每行另计的开销：门户把 Path 改写成卡片路径（/api/proxy/<卡片>/…），外加首部名与换行。
+const BOOT_LINE_OVERHEAD = 64;
+const bootContinuations = new Map(); // id -> { chunks: [[setCookie...]...], expires: ms }
+
+function pruneBootContinuations() {
+  const now = Date.now();
+  for (const [k, v] of bootContinuations) {
+    if (!v || v.expires <= now) bootContinuations.delete(k);
+  }
+}
+
+function chunkSetCookies(list) {
+  const chunks = [];
+  let cur = [];
+  let size = 0;
+  for (const s of list) {
+    const cost = s.length + BOOT_LINE_OVERHEAD;
+    if (cur.length && size + cost > BOOT_CHUNK_BYTES) {
+      chunks.push(cur);
+      cur = [];
+      size = 0;
+    }
+    cur.push(s);
+    size += cost;
+  }
+  if (cur.length) chunks.push(cur);
+  return chunks;
+}
+
+// 发出一批 Set-Cookie；还有剩下的就把剩余批次暂存在一个一次性续传 id 下，跳回 /__boot 续写。
+function sendBootChunk(res, chunks) {
+  const first = chunks.shift() || [];
+  let location = `${BASE}/`;
+  if (chunks.length) {
+    pruneBootContinuations();
+    const id = crypto.randomBytes(18).toString("base64url");
+    bootContinuations.set(id, { chunks, expires: Date.now() + 60 * 1000 });
+    location = `${BASE}/__boot?cont=${id}`;
+  }
+  res.writeHead(302, {
+    "set-cookie": first,
+    location,
+    "cache-control": "no-store",
+    // token 走 query string（用户浏览器要直接导航过来，没法用 POST 交接）。它是一次性的
+    // ——injectionStore.delete 已经把它作废了——但在被使用前的 TTL 窗口内，这个 URL
+    // 会留在浏览器历史里。no-referrer 保证它至少不会随后续请求的 Referer 头外泄出去。
+    "referrer-policy": "no-referrer",
+    "x-robots-tag": "noindex, nofollow",
+    "content-type": "text/plain; charset=utf-8",
+  });
+  res.end("cookie injected, redirecting...");
+}
+
 function handleBoot(req, res, reqUrl, proxyHost) {
+  const cont = reqUrl.searchParams.get("cont") || "";
+  if (cont) {
+    pruneBootContinuations();
+    const pending = bootContinuations.get(cont);
+    bootContinuations.delete(cont); // 一次性
+    if (!pending) {
+      res.writeHead(400, { "content-type": "text/html; charset=utf-8" });
+      return res.end("<h3>注入链接已失效或已被使用，请在系统里重新点击「Cookie 访问」。</h3>");
+    }
+    return sendBootChunk(res, pending.chunks);
+  }
   pruneInjections();
   const token = reqUrl.searchParams.get("token") || "";
   const entry = token ? injectionStore.get(token) : null;
@@ -416,14 +486,8 @@ function handleBoot(req, res, reqUrl, proxyHost) {
   );
   const fresh = new Set(injected.map((c) => c.name));
 
-  // 先清掉浏览器里残留的旧 Cookie。它们属于上一次注入的账号（甚至上一个市集），
-  // 留着只会拼出一个半新半旧的会话——换账号注入后仍显示旧账号就是这么来的，
-  // 也避免把煤炉的登录态随请求发到雅虎上游去。
+  // 票据与路由位放第一批：后面哪一跳断了，至少会话本身是立住的。
   const setCookies = [];
-  for (const name of Object.keys(parseCookies(req))) {
-    if (fresh.has(name) || name === SITE_COOKIE || name === SESSION_COOKIE) continue;
-    setCookies.push(`${name}=; Path=${cookiePath}; Max-Age=0`);
-  }
   setCookies.push(`${SITE_COOKIE}=${siteKey}; Path=${cookiePath}; SameSite=Lax${secure}`);
   // 注入会话票据。Max-Age 只是让浏览器到点自己扔掉，真正说了算的是签进票据里的 exp。
   const sessExp = Math.floor(Date.now() / 1000) + SESSION_TTL_SEC;
@@ -431,6 +495,14 @@ function handleBoot(req, res, reqUrl, proxyHost) {
     `${SESSION_COOKIE}=${signSession(sessExp, siteKey)}; Path=${cookiePath}` +
       `; Max-Age=${SESSION_TTL_SEC}; HttpOnly; SameSite=Lax${secure}`
   );
+  // 先清掉浏览器里残留的旧 Cookie。它们属于上一次注入的账号（甚至上一个市集），
+  // 留着只会拼出一个半新半旧的会话——换账号注入后仍显示旧账号就是这么来的，
+  // 也避免把煤炉的登录态随请求发到雅虎上游去。
+  for (const raw of Object.keys(parseCookies(req))) {
+    const name = asciiOrNull(raw);
+    if (!name || fresh.has(name) || name === SITE_COOKIE || name === SESSION_COOKIE) continue;
+    setCookies.push(`${name}=; Path=${cookiePath}; Max-Age=0`);
+  }
   for (const c of injected) {
     const name = asciiOrNull(c.name);
     const value = asciiOrNull(c.value);
@@ -439,18 +511,7 @@ function handleBoot(req, res, reqUrl, proxyHost) {
     if (c.httpOnly) s += "; HttpOnly";
     setCookies.push(s);
   }
-  res.writeHead(302, {
-    "set-cookie": setCookies,
-    location: `${BASE}/`,
-    "cache-control": "no-store",
-    // token 走 query string（用户浏览器要直接导航过来，没法用 POST 交接）。它是一次性的
-    // ——上面 injectionStore.delete 已经把它作废了——但在被使用前的 TTL 窗口内，这个 URL
-    // 会留在浏览器历史里。no-referrer 保证它至少不会随后续请求的 Referer 头外泄出去。
-    "referrer-policy": "no-referrer",
-    "x-robots-tag": "noindex, nofollow",
-    "content-type": "text/plain; charset=utf-8",
-  });
-  res.end("cookie injected, redirecting...");
+  sendBootChunk(res, chunkSetCookies(setCookies));
 }
 
 // http 还是 https：设了 TLS_CERT/TLS_KEY 就走 https

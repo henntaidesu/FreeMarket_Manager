@@ -1993,6 +1993,103 @@ export default defineComponent({
       }
     }
 
+    // ── 详情弹窗「取消交易」（发货前，卖家主动） ─────────────────────
+    // 雅虎选理由（出品者都合 / 購入者都合）后直接取消；煤炉卖家只能提出取消申请（买家同意才取消），
+    // 理由选项由煤炉按交易下发，先开向导读回选项，再在弹窗里选理由、填详细。都不可撤回。
+    const CANCELLABLE_STATUSES = ['wait_payment', 'wait_shipping', 'trading', 'pending']
+    const cancellingTrade = ref(false)
+    const detailCanCancelTrade = computed(() => CANCELLABLE_STATUSES.includes(String(form.value?.status || '')))
+    async function cancelTrade() {
+      const oid = form.value.id
+      if (!oid || cancellingTrade.value) return
+      const isYahoo = platformOf(detailRow.value || {}) === 'yahoo'
+      if (!isYahoo) {
+        await openMercariCancelDialog(oid)
+        return
+      }
+      let reason = ''
+      {
+        reason = 'SELLER'
+        try {
+          await ElMessageBox.confirm(t('orders.cancelReasonMessage'), t('orders.cancelTrade'), {
+            distinguishCancelAndClose: true,
+            confirmButtonText: t('orders.cancelReasonSeller'),
+            cancelButtonText: t('orders.cancelReasonBuyer'),
+            type: 'warning',
+          })
+        } catch (action) {
+          if (action !== 'cancel') return
+          reason = 'BUYER'
+        }
+      }
+      try {
+        await ElMessageBox.confirm(
+          reason
+            ? t('orders.cancelTradeMessage', {
+              reason: t(reason === 'SELLER' ? 'orders.cancelReasonSeller' : 'orders.cancelReasonBuyer'),
+            })
+            : t('orders.cancelTradeMessageNoReason'),
+          t('orders.cancelTrade'),
+          { type: 'error', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') },
+        )
+      } catch {
+        return
+      }
+      cancellingTrade.value = true
+      try {
+        const r = await orderApi.cancelTrade(oid, { reason })
+        // 已提交但没读回「已取消」：如实提示（后端没确认就不收待办）
+        if (r?.warning) ElMessage.warning(r.warning)
+        else ElMessage.success(t('orders.cancelTradeDone'))
+        dialogVisible.value = false
+        load()
+      } catch {
+        // http 拦截器已弹出原因
+      } finally {
+        cancellingTrade.value = false
+      }
+    }
+
+    const mercariCancel = ref({ visible: false, oid: 0, reasons: [], reason: '', text: '' })
+    async function openMercariCancelDialog(oid) {
+      cancellingTrade.value = true
+      try {
+        const r = await orderApi.cancelReasons(oid)
+        mercariCancel.value = { visible: true, oid, reasons: r?.reasons || [], reason: '', text: '' }
+      } catch {
+        // http 拦截器已弹出原因
+      } finally {
+        cancellingTrade.value = false
+      }
+    }
+    async function submitMercariCancel() {
+      const m = mercariCancel.value
+      const text = String(m.text || '').trim()
+      if (!m.reason || !text || cancellingTrade.value) return
+      try {
+        await ElMessageBox.confirm(
+          t('orders.cancelRequestConfirm', { reason: m.reason }),
+          t('orders.cancelTrade'),
+          { type: 'error', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') },
+        )
+      } catch {
+        return
+      }
+      cancellingTrade.value = true
+      try {
+        const r = await orderApi.cancelTrade(m.oid, { reason: m.reason, reason_text: text })
+        if (r?.warning) ElMessage.warning(r.warning)
+        else ElMessage.success(t('orders.cancelRequestDone'))
+        m.visible = false
+        dialogVisible.value = false
+        load()
+      } catch {
+        // http 拦截器已弹出原因
+      } finally {
+        cancellingTrade.value = false
+      }
+    }
+
     // ── 详情弹窗「重新获取详情」 ────────────────────────────────────
     // 与列表行「获取商品说明」是同一个任务（重读平台商品页的说明 + 原图左下角管理暗码，
     // 整单重建出库明细）；区别是这里**等任务跑完**再把弹窗的出库明细 / 说明换成新数据——
@@ -2354,6 +2451,11 @@ export default defineComponent({
       settlementExcluding,
       detailSettlementExcluded,
       excludeFromSettlement,
+      cancellingTrade,
+      detailCanCancelTrade,
+      cancelTrade,
+      mercariCancel,
+      submitMercariCancel,
     }
   },
 })

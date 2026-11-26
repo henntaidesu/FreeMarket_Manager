@@ -834,16 +834,6 @@
                         </el-button>
                       </span>
                     </el-tooltip>
-                    <el-button
-                      v-if="$can('todos:cancel_trade')"
-                      size="default"
-                      type="danger"
-                      plain
-                      :loading="yahooCancelLoading"
-                      @click="onCancelYahooTrade"
-                    >
-                      {{ t('todos.yahoo.cancelTrade') }}
-                    </el-button>
                   </div>
                 </div>
                 <!-- 尺寸 / 発送場所（或扫二维码）全部搬进多级向导，与煤炉同一形态。

@@ -3281,48 +3281,6 @@ export default defineComponent({
      *  没有这个出口，这类待办会永远挂在待回复列表里。不可逆，故走二次确认。 */
     const finishReplyLoading = ref(false)
 
-    // 卖家主动取消雅虎交易：先选理由（出品者都合 / 購入者都合），再二次确认；不可撤回
-    const yahooCancelLoading = ref(false)
-    async function onCancelYahooTrade() {
-      const todoId = Number(currentRow.value?.id || 0)
-      if (!todoId || yahooCancelLoading.value) return
-      let reason = 'SELLER'
-      try {
-        await ElMessageBox.confirm(t('todos.yahoo.cancelReasonMessage'), t('todos.yahoo.cancelTrade'), {
-          distinguishCancelAndClose: true,
-          confirmButtonText: t('todos.yahoo.cancelReasonSeller'),
-          cancelButtonText: t('todos.yahoo.cancelReasonBuyer'),
-          type: 'warning',
-        })
-      } catch (action) {
-        if (action !== 'cancel') return
-        reason = 'BUYER'
-      }
-      try {
-        await ElMessageBox.confirm(
-          t('todos.yahoo.cancelTradeMessage', {
-            reason: t(reason === 'SELLER' ? 'todos.yahoo.cancelReasonSeller' : 'todos.yahoo.cancelReasonBuyer'),
-          }),
-          t('todos.yahoo.cancelTrade'),
-          { type: 'error', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') },
-        )
-      } catch {
-        return
-      }
-      yahooCancelLoading.value = true
-      try {
-        const r = await todosApi.yahooCancelTrade(todoId, reason)
-        // 取消已提交但没读回 CANCELED：如实提示，待办也会留着（后端没确认就不收）
-        if (r?.warning) ElMessage.warning(r.warning)
-        else ElMessage.success(t('todos.yahoo.cancelTradeDone'))
-        detailDialogVisible.value = false
-        load({ inPlace: true })
-      } catch {
-        // http 拦截器已弹出原因
-      } finally {
-        yahooCancelLoading.value = false
-      }
-    }
     async function onFinishYahooReply() {
       const todoId = Number(currentRow.value?.id || 0)
       if (!todoId || finishReplyLoading.value) return
@@ -3827,8 +3785,6 @@ export default defineComponent({
       onSendReply,
       finishReplyLoading,
       onFinishYahooReply,
-      onCancelYahooTrade,
-      yahooCancelLoading,
       onPickReviewTemplate,
       onSubmitReview,
       onSendReaction,

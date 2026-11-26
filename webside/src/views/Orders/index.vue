@@ -643,6 +643,15 @@
                   :loading="stockingOutOrderNo === form.order_no"
                   @click="stockOutOrder(detailRow)"
                 >{{ t('orders.stockOutOrder') }}</el-button>
+                <el-button
+                  v-if="detailCanCancelTrade && $can('orders:cancel_trade')"
+                  class="odt-chips__action"
+                  size="small"
+                  type="danger"
+                  plain
+                  :loading="cancellingTrade"
+                  @click="cancelTrade"
+                >{{ t('orders.cancelTrade') }}</el-button>
               </div>
 
               <div class="odt-title">{{ form.remark || '-' }}</div>
@@ -1436,6 +1445,35 @@
           :disabled="!convertOwnerCanSubmit"
           @click="submitConvertOwner"
         >{{ t('orders.confirmConvertOwner') }}</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 煤炉取消申请：理由选项由煤炉按交易下发（先开向导读回），详细 1–140 字 -->
+    <el-dialog
+      v-model="mercariCancel.visible"
+      :title="t('orders.cancelTrade')"
+      width="480px"
+      destroy-on-close
+      append-to-body
+    >
+      <el-form label-position="top">
+        <el-form-item :label="t('orders.cancelReasonLabel')">
+          <el-radio-group v-model="mercariCancel.reason" class="ord-cancel-reasons">
+            <el-radio v-for="r in mercariCancel.reasons" :key="r" :value="r">{{ r }}</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item :label="t('orders.cancelReasonDetail')">
+          <el-input v-model="mercariCancel.text" type="textarea" :rows="4" maxlength="140" show-word-limit />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="mercariCancel.visible = false">{{ t('common.cancel') }}</el-button>
+        <el-button
+          type="danger"
+          :loading="cancellingTrade"
+          :disabled="!mercariCancel.reason || !String(mercariCancel.text || '').trim()"
+          @click="submitMercariCancel"
+        >{{ t('orders.cancelTrade') }}</el-button>
       </template>
     </el-dialog>
 

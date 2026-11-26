@@ -16,6 +16,7 @@ from .units.orders_crud import (
     rematch_order_products,
     update_order,
 )
+from .units.orders_cancel import cancel_order_trade, list_cancel_reasons
 from .units.orders_messages import send_order_message
 from .units.orders_note import get_order_note, save_order_note
 from .units.orders_outbound import (
@@ -93,5 +94,7 @@ router.add_api_route(
     "/{oid}/settlement-exclude", exclude_order_from_settlement, methods=["POST"],
     dependencies=_f("orders:settlement_exclude"),
 )
+router.add_api_route("/{oid}/cancel-reasons", list_cancel_reasons, methods=["POST"], dependencies=_f("orders:cancel_trade"))
+router.add_api_route("/{oid}/cancel-trade", cancel_order_trade, methods=["POST"], dependencies=_f("orders:cancel_trade"))
 router.add_api_route("/{oid}", update_order, methods=["PUT"])
 router.add_api_route("/{oid}", delete_order, methods=["DELETE"])

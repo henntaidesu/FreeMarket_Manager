@@ -845,7 +845,7 @@ the three notices a seller must answer — 価格の相談 (`Yahoo:dosdo`), 商�
 まとめ買いの相談 (`Yahoo:goere`, its bulk id is only in the App deep link `args.url`) — handled in
 `use_yahoo/app_api/negotiation.py` + `use_web/notifications/units/yahoo_actions.py` + the notifications
 page's `YahooRequestDialog.vue`; seller-initiated cancel before shipping (`app_api/trade_cancel.py`,
-todo 处理 dialog; after the POST it never raises — an unconfirmed read-back returns `confirmed: False` + `warning`, the order is still refreshed, and the todo is only closed when `CANCELED` was read back); buyer-side purchases (see 購入した商品). **Unverified live**: まとめ買い accept/deny
+orders detail dialog; after the POST it never raises — an unconfirmed read-back returns `confirmed: False` + `warning`, the order is still refreshed, and the todo is only closed when `CANCELED` was read back); buyer-side purchases (see 購入した商品). **Unverified live**: まとめ買い accept/deny
 bodies (the App code building the deny body failed to decompile) and the seller cancel. Still
 Mercari-only: 一键好评, QR/扫码 (Yahoo has no equivalent — its 配送コード is issued server-side,
 nothing to scan). The account dialog shows the **PayPay 残高** (`GET paypay/v1/balance`; Yahoo sales land in PayPay — `user/v1/users/self/wallet` is the card list and is deliberately not read). Violation notices (`Yahoo:ccsbe` 公開停止 / `ccsts` 検索未掲載 / `vosdo` 違反報告) have their own 违规 chip. The buyer-side `Yahoo:rsura` todo jumps to the purchases page (`?keyword=<item_id>`). **Yahoo 集荷 is still not implemented**: `otegaruDelivery/pickup` needs `pickupDate`/`pickupTime` values the APK doesn't enumerate (server-provided). A 取引キャンセル notice (`Yahoo:obscl`) newly inserted re-reads that order's trade
@@ -1338,7 +1338,7 @@ if Mercari drops the 申请 row the 退货地址 row reappears and 确认签收 
 确认签收 soft-deletes both rows of the trade. Its agree step (`todos.accept_cancellation`, feature `todos:cancel_accept`)
 clicks 同意する → the same `transaction:accept-cancellation-dialog` the receipt flow uses, and succeeds
 only when a re-captured evidence shows the status left `wait`; it refuses to click at all if it can't
-read the status first. The decision stays manual — sync never accepts anything. 同意しない (`cancellation_decline.py`) rides the same task type with `payload.decision='decline'` + `reason_text`. Read from Mercari's JS bundle (not run live yet): the button **navigates** to `/transaction/{id}/cancel/reject` (a 「キャンセルに関するお問い合わせ」 form), takes a ≤140-char reason (`detail-of-inquiry`), confirms via `dialog-action-button`, and the request becomes `escalation` — i.e. declining hands it to Mercari support. Success = re-opened transaction page reads a status other than `wait`. A **seller-initiated** cancel request does not exist on Mercari web (the waitshipping pages only link a help article; only car listings get a cancel button) — it is app-only.
+read the status first. The decision stays manual — sync never accepts anything. 同意しない (`cancellation_decline.py`) rides the same task type with `payload.decision='decline'` + `reason_text`. Read from Mercari's JS bundle (not run live yet): the button **navigates** to `/transaction/{id}/cancel/reject` (a 「キャンセルに関するお問い合わせ」 form), takes a ≤140-char reason (`detail-of-inquiry`), confirms via `dialog-action-button`, and the request becomes `escalation` — i.e. declining hands it to Mercari support. Success = re-opened transaction page reads a status other than `wait`. **Seller-initiated cancel** lives on the 订单 page's detail dialog (「取消交易」, feature `orders:cancel_trade`, `use_web/orders/units/orders_cancel.py`), not in the todo dialog. On Mercari it is only a **cancel request** the buyer must agree to: `use_mercari/order_cancel.py` drives the transaction page's 「この取引をキャンセルする」 → `cancel-transaction-confirm-dialog` → `cancel-transaction-wizard` (reason list read live first via `/cancel-reasons`, detail ≤140, `wizard-page-3` 返品しない, `wizard-page-4`) → `cancel-request-dialog` (from the JS bundle, `POST /transactions/create_cancel_request`; **not run live yet**). Order and todos are left alone until the buyer agrees and sync brings it back.
 
 **退货的返品先住所 (`todos.return_address`, `transaction_detail/return_address.py`)** — after a
 cancellation is approved (`kind=CancellationRequestApprovedSeller`) the seller must enter a return
@@ -1497,6 +1497,11 @@ Three self-contained features that are easy to miss because nothing else depends
   its own branded page, hiding the reason; written as UTF-8 bytes, the portal's httpx stores it in
   its client cookie jar and then crashes (500) encoding the Cookie header while preparing the
   redirect's next request. Login cookies are server-set ASCII on both marketplaces.
+  **`/__boot` also splits its `Set-Cookie` lines across a chain of 302s** (`?cont=<one-time id>`,
+  `BOOT_CHUNK_BYTES` + a per-line allowance for the portal's Path rewrite). In one response, a browser
+  that had built up dozens of cookies under the card path (each needing a clear line), plus Yahoo's
+  KB-sized login cookies, overflowed the front proxy's response-header buffer → 502 behind the portal,
+  and only in a used browser, never a fresh one. Ticket + site cookie go in the first batch.
   `Secure` is attached iff the proxy is on https — without it the browser silently discards
   `__Secure-`/`__Host-` prefixed cookies, and with it (on an http fallback) it discards all of them.
   **There is no source-address filtering** — the Cookie 注入 button builds its boot URL from

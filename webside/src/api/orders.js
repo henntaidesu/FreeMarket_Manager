@@ -34,6 +34,8 @@ export const orderApi = {
   rematch: (id) => http.post(`/use_web/orders/${id}/rematch`),
   /** 不加入结算：一次性标记，之后结算汇总永久不计这笔订单（无反向接口） */
   excludeFromSettlement: (id) => http.post(`/use_web/orders/${id}/settlement-exclude`),
+  cancelReasons: (id) => http.post(`/use_web/orders/${id}/cancel-reasons`, {}, { timeout: 0 }),
+  cancelTrade: (id, body) => http.post(`/use_web/orders/${id}/cancel-trade`, body, { timeout: 0 }),
   remove: (id) => http.delete(`/use_web/orders/${id}`),
   /** 单行 items/get 刷新：传 order_no + data_user（卖家ID），与煤炉账号 seller_id 对应 */
   refreshInfo: (data, axiosConfig = {}) =>
