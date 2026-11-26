@@ -3311,8 +3311,10 @@ export default defineComponent({
       }
       yahooCancelLoading.value = true
       try {
-        await todosApi.yahooCancelTrade(todoId, reason)
-        ElMessage.success(t('todos.yahoo.cancelTradeDone'))
+        const r = await todosApi.yahooCancelTrade(todoId, reason)
+        // 取消已提交但没读回 CANCELED：如实提示，待办也会留着（后端没确认就不收）
+        if (r?.warning) ElMessage.warning(r.warning)
+        else ElMessage.success(t('todos.yahoo.cancelTradeDone'))
         detailDialogVisible.value = false
         load({ inPlace: true })
       } catch {

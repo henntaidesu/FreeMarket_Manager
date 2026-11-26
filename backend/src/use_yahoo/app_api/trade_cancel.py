@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from ._client import SPARKLE_SECURE_BASE, YahooAppApiError, api_request
+from ._client import SPARKLE_SECURE_BASE, api_request
 from .trade import fetch_trade_seller, resolve_trade_ids
 
 CANCEL_REASONS = ("SELLER", "BUYER")
@@ -39,7 +39,15 @@ async def cancel_trade_as_seller(account_id: int, item_id: str, reason: str) -> 
         account_id, "POST", f"{SPARKLE_SECURE_BASE}/v2/items/{iid}/cancel",
         json_body={"sellerId": seller_id, "buyerId": buyer_id, "orderId": order_id, "repayReason": r},
     )
-    after = str(((await fetch_trade_seller(account_id, iid)).get("order") or {}).get("progress") or "")
-    if after.upper() != "CANCELED":
-        raise YahooAppApiError(f"已提交取消，但交易进度读回是 {after or '未知'}，请到雅虎核对")
-    return {"item_id": iid, "progress": after, "reason": r}
+    # 取消已提交且不可撤回：读回失败 / 还没变 CANCELED 都只回报（confirmed=False），不抛——
+    # 抛了调用方就会跳过订单刷新与待办收尾，库存要等人点「更新状态」才回吐
+    try:
+        after = str(((await fetch_trade_seller(account_id, iid)).get("order") or {}).get("progress") or "")
+    except Exception as exc:  # noqa: BLE001
+        return {"item_id": iid, "reason": r, "confirmed": False, "progress": None,
+                "warning": f"已提交取消，但读回交易进度失败：{str(exc)[:150]}"}
+    confirmed = after.upper() == "CANCELED"
+    out = {"item_id": iid, "progress": after, "reason": r, "confirmed": confirmed}
+    if not confirmed:
+        out["warning"] = f"已提交取消，但交易进度读回是 {after or '未知'}，请到雅虎核对"
+    return out

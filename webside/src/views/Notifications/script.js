@@ -1,5 +1,6 @@
 import { defineComponent, computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { ElMessage } from '@/utils/notify'
 import { Download, Loading } from '@element-plus/icons-vue'
@@ -31,6 +32,7 @@ export default defineComponent({
   },
   setup() {
     const { t } = useI18n()
+    const router = useRouter()
     const mercariAccountStore = useMercariAccountStore()
     const syncLockStore = useSyncLockStore()
 
@@ -53,6 +55,9 @@ export default defineComponent({
       'Yahoo:obems': 'notifications.kindWaitReply',
       'Yahoo:dosdo': 'notifications.kindDesiredPriceOfferCreated',
       'Yahoo:qosqu': 'notifications.kindYahooQuestion',
+      CommentReplyReminder: 'notifications.kindComment',
+      'Yahoo:osums': 'notifications.kindYahooSellerMessage',
+      'Yahoo:iobbu': 'notifications.kindYahooPurchased',
       'Yahoo:goere': 'notifications.kindBundleRequestCreated',
       'Yahoo:ccsbe': 'notifications.kindYahooStopped',
       'Yahoo:ccsts': 'notifications.kindYahooHidden',
@@ -110,6 +115,11 @@ export default defineComponent({
       'Yahoo:dosdo': 'detail',
       'Yahoo:qosqu': 'detail',
       'Yahoo:goere': 'detail',
+      // 「コメントの返信を忘れていませんか」与 Comment 是同一件事：自己商品上的评论
+      CommentReplyReminder: 'detail',
+      // 雅虎买家侧（卖家来信 / 购入成功）：处理入口在购入商品页
+      'Yahoo:osums': 'detail',
+      'Yahoo:iobbu': 'detail',
     }
 
     function actionForKind(kind) {
@@ -447,7 +457,12 @@ export default defineComponent({
         autoMarkRead(row)
         return
       }
-      if (row?.kind === 'Comment') {
+      if (row?.kind === 'Yahoo:osums' || row?.kind === 'Yahoo:iobbu') {
+        router.push({ path: '/system/purchases', query: { keyword: String(row?.item_id || '') } })
+        autoMarkRead(row)
+        return
+      }
+      if (row?.kind === 'Comment' || row?.kind === 'CommentReplyReminder') {
         const iid = resolveItemId(row)
         if (!iid) {
           ElMessage.warning(t('notifications.noItemIdComment'))

@@ -63,7 +63,10 @@ router.add_api_route(
 router.add_api_route("/{aid}/sync-data", sync_account_all_data, methods=["POST"], dependencies=_f("shop-accounts:sync"))
 # 雅虎 App 令牌：ゆうパケットポスト / mini 只能走 App API 发货，凭证与账号请求头分开存放
 router.add_api_route("/{aid}/yahoo-app-token", get_yahoo_app_token_status, methods=["GET"])
-router.add_api_route("/{aid}/yahoo-balance", get_yahoo_paypay_balance, methods=["GET"])
+# 余额是资金信息：店铺账号页的 GET 对所有人开放（reads_open），这条单独要「编辑账号」功能
+router.add_api_route(
+    "/{aid}/yahoo-balance", get_yahoo_paypay_balance, methods=["GET"], dependencies=_f("shop-accounts:edit"),
+)
 # 程序内登录：开独立 profile 走 App 的 YConnect 授权，与网页登录态互不相干
 router.add_api_route(
     "/{aid}/yahoo-app-login", login_yahoo_app_account_endpoint, methods=["POST"],

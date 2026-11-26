@@ -106,7 +106,8 @@ async def decline_cancellation_request(
         except Exception as exc:
             raise RuntimeError(f"拒绝页面上没找到理由输入框，未提交（当前 URL: {page.url}）") from exc
         await box.first.fill(reason)
-        submit = page.locator("form button[type=button]")
+        # 只在理由输入框所在的那个 form 里找按钮：页面上别的 form（如页头搜索）也可能有 button
+        submit = page.locator("form", has=box.first).locator("button[type=button]")
         try:
             await submit.first.wait_for(state="visible", timeout=5000)
         except Exception as exc:

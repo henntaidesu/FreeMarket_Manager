@@ -300,9 +300,12 @@ async def yahoo_cancel_trade_endpoint(todo_id: int, req: Dict[str, Any]) -> Dict
         except Exception as exc:  # noqa: BLE001 取消已生效，刷新失败只回报，「更新状态」可补
             res["order_refreshed"] = False
             res["order_refresh_error"] = str(exc)[:200]
-        todo.is_delete = 1
-        todo.shipped_finalized = 1
-        todo.save()
+        # 订单刷新照做（交易页本身就会说明是否已取消）；待办只在确认取消后收掉，
+        # 没确认的留着，免得取消其实没生效时这单从待发货里消失
+        if res.get("confirmed"):
+            todo.is_delete = 1
+            todo.shipped_finalized = 1
+            todo.save()
         return res
 
     try:

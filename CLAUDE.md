@@ -645,6 +645,7 @@ header, not cookies, so the dangerous wildcard+credentials combination never occ
 `v2/items/{id}/buyer` 的响应**带本人收货地址与电话，不入库**（同煤炉）。雅虎行在详情弹窗里能
 「受取評価」（`POST /purchases/{item_id}/receive` → `v3/items/{id}/receive`，评分固定 GOOD）与发留言
 （`v2/items/{id}/message`）；煤炉行发留言复用订单面板的 `send_order_transaction_message`，煤炉的受取評価仍在待办页。
+雅虎购入的受取評価 / 发留言提交之后的回读**失败只回报不抛**（`refresh_error`），否则前端报失败、用户重发，卖家收到两条；列表同步对已抓过详情的行**不覆盖** `state` / `purchased_at`（以详情的 `order.progress` / `purchaseTime` 为准）。雅虎取消的购入（`STATE_CANCELED`）每次同步时若仍是「未结算」(0) 就改成「无需结算」(2)——购入结算的口径不看交易状态，不改的话取消的单会被算进应收；只动 0，人工标过的不碰。账号弹窗的「购入」自动同步项对雅虎账号也显示。
 
 抓取与出品一覧同构（MITM 截获 → 滚底点「もっと見る」→ 合并），下面几条是实测出来的，
 动它之前先看：
@@ -844,7 +845,7 @@ the three notices a seller must answer — 価格の相談 (`Yahoo:dosdo`), 商�
 まとめ買いの相談 (`Yahoo:goere`, its bulk id is only in the App deep link `args.url`) — handled in
 `use_yahoo/app_api/negotiation.py` + `use_web/notifications/units/yahoo_actions.py` + the notifications
 page's `YahooRequestDialog.vue`; seller-initiated cancel before shipping (`app_api/trade_cancel.py`,
-todo 处理 dialog); buyer-side purchases (see 購入した商品). **Unverified live**: まとめ買い accept/deny
+todo 处理 dialog; after the POST it never raises — an unconfirmed read-back returns `confirmed: False` + `warning`, the order is still refreshed, and the todo is only closed when `CANCELED` was read back); buyer-side purchases (see 購入した商品). **Unverified live**: まとめ買い accept/deny
 bodies (the App code building the deny body failed to decompile) and the seller cancel. Still
 Mercari-only: 一键好评, QR/扫码 (Yahoo has no equivalent — its 配送コード is issued server-side,
 nothing to scan). The account dialog shows the **PayPay 残高** (`GET paypay/v1/balance`; Yahoo sales land in PayPay — `user/v1/users/self/wallet` is the card list and is deliberately not read). Violation notices (`Yahoo:ccsbe` 公開停止 / `ccsts` 検索未掲載 / `vosdo` 違反報告) have their own 违规 chip. The buyer-side `Yahoo:rsura` todo jumps to the purchases page (`?keyword=<item_id>`). **Yahoo 集荷 is still not implemented**: `otegaruDelivery/pickup` needs `pickupDate`/`pickupTime` values the APK doesn't enumerate (server-provided). A 取引キャンセル notice (`Yahoo:obscl`) newly inserted re-reads that order's trade
@@ -1069,7 +1070,7 @@ soft-delete, inventory counters and order upsert semantics stay identical across
   from `qy.IdentifierInterceptor`) is enough from this server. Used **only where the web cannot
   reach**: ゆうパケットポスト / mini shipping, 価格相談 / 質問 / まとめ買い, seller cancel, and the
   buyer side. Everything else stays on page automation. Relative Retrofit paths resolve against
-  `https://sparkle.yahooapis.jp/` (`j80/d0.java`), not -secure.
+  `https://sparkle.yahooapis.jp/` (`j80/d0.java`), not -secure. Network errors (timeouts, refused connections) are re-raised as `YahooAppApiError` (status 0) so every caller can show a reason; for non-GET calls the message warns the request may already have been processed.
   - **Endpoints** (all verified present in the APK's `zy.SparkleService` — the gateway answers a
     NestJS 404 for anything else, so guessing paths is useless):
     `GET /v2/items/{itemId}/seller` (→ `sellerId`/`buyerId`/`orderId`, `order.vendor`,
@@ -1402,7 +1403,7 @@ the message instead of `404: …`.
   (released only by the TTL sweep) — a hard crash cannot tell whether 出品する was already
   clicked, and browser automation is never auto-retried.
 
-**卖家删除商品评论** (`get_notifications/item_comment/item_comment_delete.py`, comment dialog): the item page's comment row has a delete icon → `confirm-delete-comment-dialog` (buttons [削除, キャンセル]) → POST `/comments/seller_delete`. The DOM carries no comment id, so the row is located by its normalized text and must match **exactly one** row; success = re-captured `items/get` no longer has the comment (or shows it as seller-deleted: `user.status=dead`, empty name). Not run live yet; behind the mobile-aligned-UI flag the icon may sit in an overflow menu, in which case it fails loudly. Mercari's own balance (`/v1/get_balance`, Merpay) and replies to 事务局 messages (`help.jp.mercari.com/cases`, a separate app) are **not** implemented.
+**卖家删除商品评论** (`get_notifications/item_comment/item_comment_delete.py`, comment dialog): the item page's comment row has a delete icon → `confirm-delete-comment-dialog` (buttons [削除, キャンセル]) → POST `/comments/seller_delete`. The DOM carries no comment id, so the row is located by its normalized text and must match **exactly one** row; success = re-captured `items/get` no longer has the comment (or shows it as seller-deleted: `user.status=dead`, empty name). Not run live yet; behind the mobile-aligned-UI flag the icon may sit in an overflow menu, in which case it fails loudly. The orders page's reply box dispatches on `orders.platform`: Yahoo orders go through `web_drive/yahoo_trade.send_yahoo_trade_message` and a send that can't be confirmed is a 400 (the Mercari sender would open `jp.mercari.com/transaction/z…`). The PayPay balance endpoint needs `shop-accounts:edit` (the group's GETs are otherwise open to everyone). Mercari's own balance (`/v1/get_balance`, Merpay) and replies to 事务局 messages (`help.jp.mercari.com/cases`, a separate app) are **not** implemented.
 
 ### 一键修改发货时效 (`src/bulk_shipping_duration.py`)
 

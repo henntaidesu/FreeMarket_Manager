@@ -243,14 +243,22 @@ def _request_sync(
     row, access = _ensure_access_token(int(account_id), force=False)
 
     for attempt in (1, 2):
-        resp = requests.request(
-            method.upper(),
-            url,
-            params=params or None,
-            json=json_body if json_body is not None else None,
-            headers=_headers(row, access),
-            timeout=_HTTP_TIMEOUT_SEC,
-        )
+        try:
+            resp = requests.request(
+                method.upper(),
+                url,
+                params=params or None,
+                json=json_body if json_body is not None else None,
+                headers=_headers(row, access),
+                timeout=_HTTP_TIMEOUT_SEC,
+            )
+        except requests.RequestException as exc:
+            # 超时 / 连不上：转成本模块的异常，调用方才能给出可读原因而不是裸 500。
+            # 注意 POST 超时时请求可能已被雅虎处理——消息里写明，让人去核对而不是直接重试。
+            raise YahooAppApiError(
+                f"连接雅虎 App API 失败（{type(exc).__name__}）：{method.upper()} {url}"
+                + ("；请求可能已被处理，请先到雅虎核对再重试" if method.upper() != "GET" else "")
+            ) from exc
         if resp.status_code == 401 and attempt == 1:
             # 服务端认为令牌无效（本地过期时间可能不准）：刷一次再试，仍 401 就如实报错
             log.info("[yahoo_app] 账号 %s 收到 401，尝试刷新令牌后重试", account_id)

@@ -22,6 +22,16 @@ from .orders_models import SendOrderMessageBody
 _JOB_ID_RE = re.compile(r"^[a-zA-Z0-9_.-]{1,128}$")
 
 
+def _order_platform(order_no: str) -> str:
+    from ....db_manage.database import DatabaseManager
+
+    rows = DatabaseManager().execute_query(
+        "SELECT COALESCE([platform], 'mercari') FROM [orders] WHERE [order_no] = ? LIMIT 1",
+        (order_no,),
+    )
+    return (str(rows[0][0] or "").strip().lower() if rows else "") or "mercari"
+
+
 async def send_order_message(data: SendOrderMessageBody):
     """在交易页填回复并点击「取引メッセージを送る」。
 
@@ -48,6 +58,23 @@ async def send_order_message(data: SendOrderMessageBody):
             status_code=400,
             detail="未找到该订单对应的煤炉账号，请先刷新对话或在账号管理中配置 seller_id",
         )
+
+    # 雅虎订单：煤炉的发送核心会去开 jp.mercari.com/transaction/z…（不存在的页面），
+    # 必须走雅虎交易页的发送（与待办处理弹窗同一个函数）
+    if _order_platform(order_no) == "yahoo":
+        from ....web_drive.yahoo_trade import send_yahoo_trade_message
+
+        try:
+            res = await run_mercari_serial_async(
+                queue_key_for_mercari_account(int(aid)),
+                lambda: send_yahoo_trade_message(int(aid), item_id=order_no, text=text),
+            )
+        except (ValueError, RuntimeError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        # 点了发送但输入框没清空、剩余次数也没减 → 不能报成功（前端会乐观追加这条消息）
+        if not res.get("sent"):
+            raise HTTPException(status_code=400, detail="已点击发送，但没能确认雅虎收到这条消息，请到交易页核对")
+        return res
 
     # 延迟导入：发送依赖 web_drive（重），避免订单模块在导入期即拉起浏览器依赖
     from ....use_mercari.get_to_du_list.transaction_detail.wait_reply.message import (

@@ -49,6 +49,18 @@ def _assert_yahoo_account(account_id: int) -> int:
     return int(account_id)
 
 
+def _yahoo_message(exc: "YahooAppApiError") -> str:
+    """雅虎拒绝时正文里带一句给人看的原因（``error.message``，如「…この相談は終了しました」），
+    有就只给这句；没有再退回完整异常文本（含 URL 与状态码，便于排查）。"""
+    import json
+
+    try:
+        msg = ((json.loads(exc.body or "{}") or {}).get("error") or {}).get("message")
+    except (TypeError, ValueError, AttributeError):
+        msg = None
+    return str(msg).strip() if msg else str(exc)
+
+
 async def _call(account_id: int, coro_factory) -> Any:
     aid = _assert_yahoo_account(account_id)
     try:
@@ -57,7 +69,7 @@ async def _call(account_id: int, coro_factory) -> Any:
         raise HTTPException(status_code=400, detail=f"{exc}（请在店铺账号里完成雅虎 App 登录）")
     except YahooAppApiError as exc:
         status = 409 if exc.status in (400, 403, 404, 409) else 502
-        raise HTTPException(status_code=status, detail=str(exc))
+        raise HTTPException(status_code=status, detail=_yahoo_message(exc))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

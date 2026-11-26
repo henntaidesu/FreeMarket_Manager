@@ -51,9 +51,8 @@ export default defineComponent({
     const FETCH_TASKS = [
       { key: 'order_list', field: 'auto_fetch_order_list_interval', labelKey: 'mercariAccounts.taskOrderList', shortKey: 'mercariAccounts.taskShortOrderList' },
       { key: 'on_sale', field: 'auto_fetch_on_sale_interval', labelKey: 'mercariAccounts.taskOnSale', shortKey: 'mercariAccounts.taskShortOnSale' },
-      // 购入商品只有煤炉侧有实现（后端 _YAHOO_UNSUPPORTED_TASKS 也登记了），
-      // 所以雅虎账号上不渲染这一行——否则用户能设一个永远不会执行的间隔。
-      { key: 'purchases', field: 'auto_fetch_purchases_interval', labelKey: 'mercariAccounts.taskPurchases', shortKey: 'mercariAccounts.taskShortPurchases', mercariOnly: true },
+      // 购入商品两个平台都有实现（雅虎走 App API，没做 App 登录的账号后端会跳过）
+      { key: 'purchases', field: 'auto_fetch_purchases_interval', labelKey: 'mercariAccounts.taskPurchases', shortKey: 'mercariAccounts.taskShortPurchases' },
       { key: 'todos', field: 'auto_fetch_todos_interval', labelKey: 'mercariAccounts.taskTodos', shortKey: 'mercariAccounts.taskShortTodos' },
       { key: 'notifications', field: 'auto_fetch_notifications_interval', labelKey: 'mercariAccounts.taskNotifications', shortKey: 'mercariAccounts.taskShortNotifications' },
     ]

@@ -180,7 +180,7 @@
                 >{{ t('mercariAccounts.appTokenClear') }}</el-button>
               </div>
             </el-form-item>
-            <el-form-item v-if="appTokenStatus?.configured" :label="t('mercariAccounts.paypayBalance')">
+            <el-form-item v-if="appTokenStatus?.configured && $can('shop-accounts:edit')" :label="t('mercariAccounts.paypayBalance')">
               <span v-if="yahooBalance">
                 ¥{{ Number(yahooBalance.paypay_balance || 0).toLocaleString('ja-JP') }}
                 <span v-if="yahooBalance.bonus_balance" class="app-token-expires">

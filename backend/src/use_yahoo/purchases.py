@@ -99,7 +99,8 @@ async def fetch_purchase_list(account_id: int) -> List[Dict[str, Any]]:
         out.extend(i for i in items if isinstance(i, dict))
         total = int((data or {}).get("totalResultsAvailable") or 0)
         nxt = int(((data or {}).get("nextOffset") or {}).get("sparkle") or 0)
-        if not items or nxt <= offset or len(out) >= total:
+        # total 缺失（0）时不能拿它判到底，否则只导入第一页；只靠空页 / offset 不前进收尾
+        if not items or nxt <= offset or (total and len(out) >= total):
             break
         offset = nxt
     return out
@@ -221,6 +222,16 @@ async def sync_yahoo_purchases(account_id: int, *, detail_limit: int = 20, max_f
     from ..use_mercari.get_purchases.purchases_sync import upsert_purchase_item_row
 
     aid = int(account_id)
+    #: 抓过详情的行，state / purchased_at 以详情（order.progress / item.purchaseTime）为准：
+    #: 列表的 tradeStatus / endtime 每轮覆盖回去会让状态、时间来回跳，已完成的行还可能
+    #: 被改出终态、重新掉进详情候选集被反复重抓。未完结的行每轮都会重抓详情，不会因此卡住。
+    detailed = {
+        str(r[0]) for r in PurchaseItemModel().db.execute_query(
+            "SELECT [item_id] FROM [purchase_items] WHERE [account_id] = ? AND [detail_synced_at] IS NOT NULL",
+            (aid,),
+        )
+    }
+
     stats: Dict[str, Any] = {"account_id": aid, "platform": "yahoo", "api_order_count": 0,
                              "inserted": 0, "updated": 0, "detail_ok": 0, "detail_failed": []}
     items = await fetch_purchase_list(aid)
@@ -228,7 +239,11 @@ async def sync_yahoo_purchases(account_id: int, *, detail_limit: int = 20, max_f
     for it in items:
         if not str(it.get("id") or "").strip():
             continue
-        r = upsert_purchase_item_row(_list_row(aid, it))
+        row = _list_row(aid, it)
+        if row["item_id"] in detailed:
+            row.pop("state", None)
+            row.pop("purchased_at", None)
+        r = upsert_purchase_item_row(row)
         stats["inserted" if r == "inserted" else "updated"] += 1
 
     candidates = [
@@ -245,6 +260,15 @@ async def sync_yahoo_purchases(account_id: int, *, detail_limit: int = 20, max_f
 
             bump_detail_failure(iid)
             stats["detail_failed"].append({"item_id": iid, "error": str(exc)[:200]})
+
+    # 取消的购入不是谁欠谁的钱：还停在「未结算」(0) 的改成「无需结算」(2)，免得被购入结算页
+    # 算进应收（结算口径不看交易状态）。只动 0，人工标过的不碰；仍可在页面上改回去。
+    stats["cancelled_marked_no_settle"] = PurchaseItemModel().db.execute_update(
+        "UPDATE [purchase_items] SET [settlement_status] = 2, [settled_at] = NULL "
+        "WHERE [account_id] = ? AND [platform] = 'yahoo' AND [state] = 'STATE_CANCELED' "
+        "AND COALESCE([settlement_status], 0) = 0",
+        (aid,),
+    )
     return stats
 
 
@@ -262,8 +286,8 @@ async def send_yahoo_buyer_message(account_id: int, item_id: str, text: str) -> 
         json_body={**_ids(trade), "text": body, "itemName": item.get("title") or "",
                    "itemImageUrl": item.get("thumbnailImageUrl")},
     )
-    # 发完回读：留言以雅虎返回的为准
-    return await refresh_yahoo_purchase_detail(account_id, item_id)
+    # 发完回读：留言以雅虎返回的为准。回读失败只回报——消息已经发出去了，报失败会诱导重发
+    return await _refresh_after_action(account_id, item_id, {"sent": True})
 
 
 async def receive_yahoo_purchase(account_id: int, item_id: str, rating: str, comment: str) -> Dict[str, Any]:
@@ -282,4 +306,14 @@ async def receive_yahoo_purchase(account_id: int, item_id: str, rating: str, com
         account_id, "POST", f"{SPARKLE_SECURE_BASE}/v3/items/{item_id}/receive",
         json_body={**_ids(trade), "comment": c, "rating": r},
     )
-    return await refresh_yahoo_purchase_detail(account_id, item_id)
+    return await _refresh_after_action(account_id, item_id, {"received": True})
+
+
+async def _refresh_after_action(account_id: int, item_id: str, base: Dict[str, Any]) -> Dict[str, Any]:
+    """不可撤回的动作之后回读一次。失败不抛：动作已生效，下次同步 / 手动「获取详情」会补上。"""
+    try:
+        base.update(await refresh_yahoo_purchase_detail(account_id, item_id))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[yahoo_purchases] 动作已提交，但回读取引失败 item_id=%s: %s", item_id, exc)
+        base["refresh_error"] = str(exc)[:200]
+    return base
