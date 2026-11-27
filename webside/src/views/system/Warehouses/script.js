@@ -7,15 +7,18 @@ import { useRouter } from 'vue-router'
 import { warehouseApi } from '@/api/index.js'
 import { warehouseShelfLabel, warehouseShelfLeafLabel } from '@/utils/warehouseLabel.js'
 import WarehouseQrDialog from './WarehouseQrDialog.vue'
+import QtyQrDialog from './QtyQrDialog.vue'
 
 export default defineComponent({
-  components: { WarehouseQrDialog },
+  components: { WarehouseQrDialog, QtyQrDialog },
   setup() {
     const { t } = useI18n()
     const router = useRouter()
 
     // 货架号二维码打印：单个货架号 / 整个货架分组
     const qrDialogVisible = ref(false)
+    /** 数量码打印（扫码入库时扫它设定本次数量） */
+    const qtyQrDialogVisible = ref(false)
     const qrRows = ref([])
     function openQrDialog(rows) {
       const list = (rows || []).filter(Boolean)
@@ -819,6 +822,7 @@ export default defineComponent({
       apiErrorMessage,
       submit,
       qrDialogVisible,
+      qtyQrDialogVisible,
       qrRows,
       openQrDialog,
       isTransitWarehouse,

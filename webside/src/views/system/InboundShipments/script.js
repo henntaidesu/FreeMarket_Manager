@@ -3,7 +3,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { inboundShipmentApi, inventoryApi, warehouseApi } from '@/api/index.js'
 import { useBarcodeScanner } from '@/composables/useBarcodeScanner.js'
-import { parseWarehouseQr } from '@/utils/warehouseQr.js'
+import { parseQtyQr, parseWarehouseQr } from '@/utils/warehouseQr.js'
 
 /**
  * 快递入库：商品从国内邮寄到日本，按快递单管理「在途 → 到岸扫码上架」。业务口径见后端 src/inbound_shipments。
@@ -354,7 +354,15 @@ export default defineComponent({
     function processScanCode(code) {
       scanQueue = scanQueue.then(() => {
         const wid = parseWarehouseQr(code)
-        return wid != null ? handleShelfCode(wid) : handleProductCode(code)
+        if (wid != null) return handleShelfCode(wid)
+        const qn = parseQtyQr(code)
+        if (qn != null) {
+          // 数量码：设定下一次入库的件数（入库时仍按待入库数封顶）
+          scanQty.value = Math.min(qn, 9999)
+          ElMessage.success(t('inbound.qtyCodeSet', { n: scanQty.value }))
+          return
+        }
+        return handleProductCode(code)
       }).catch(() => {})
       return scanQueue
     }
@@ -399,6 +407,7 @@ export default defineComponent({
         scanInput.value = ''
       }
       if (scanVisible.value) return processScanCode(code)
+      if (parseQtyQr(code) != null) return // 数量码只在扫码入库弹窗里有意义
       if (detailVisible.value) {
         if (detail.value?.status === 'draft' && parseWarehouseQr(code) == null) return addByBarcode(code)
         return

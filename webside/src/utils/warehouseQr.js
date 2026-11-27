@@ -12,6 +12,16 @@ export function parseWarehouseQr(text) {
   return m ? Number(m[1]) : null
 }
 
+/** 数量码：内容 = `QTY<n>`（后端 warehouse_qr.py::qty_qr 生成），扫码入库时把本次数量设为 n */
+const QTY_QR_RE = /^QTY(\d{1,4})$/i
+
+/** 扫到的文本是不是数量码；是则返回 n（≥1），否则 null */
+export function parseQtyQr(text) {
+  const m = QTY_QR_RE.exec(String(text || '').trim())
+  const n = m ? Number(m[1]) : 0
+  return n >= 1 ? n : null
+}
+
 // 标签图按标签纸比例排版，蓝牙打印时用 trim=false + ratio=1 原样铺满整张标签
 const PX_PER_MM = 12
 
@@ -79,6 +89,26 @@ export async function buildQrLabel(qrDataUrl, widthMm = 30, heightMm = 30) {
   const q = Math.round(Math.min(cv.width, cv.height) * CONTENT_RATIO)
   g.imageSmoothingEnabled = false
   g.drawImage(qr, r.x, r.y, r.w, r.h, Math.round((cv.width - q) / 2), Math.round((cv.height - q) / 2), q, q)
+  return cv.toDataURL('image/png')
+}
+
+/** 数量码标签（PNG dataURL）：上面二维码、下面大字数量，一张就能看出是几。打印时配 ratio=1 */
+export async function buildQtyQrLabel(qrDataUrl, n, widthMm = 30, heightMm = 30) {
+  const { cv, g } = newLabelCanvas(widthMm, heightMm)
+  const qr = await loadImage(qrDataUrl)
+  const r = qrContentRect(qr)
+  const pad = Math.round(Math.min(cv.width, cv.height) * 0.06)
+  const textH = Math.round((cv.height - pad * 2) * 0.24)
+  const q = Math.min(cv.width - pad * 2, cv.height - pad * 3 - textH)
+  g.imageSmoothingEnabled = false
+  g.drawImage(qr, r.x, r.y, r.w, r.h, Math.round((cv.width - q) / 2), pad, q, q)
+  const text = `× ${n}`
+  g.fillStyle = '#000'
+  g.textAlign = 'center'
+  g.textBaseline = 'middle'
+  const size = fitFontSize(g, text, cv.width - pad * 2, textH, 'bold')
+  g.font = `bold ${size}px sans-serif`
+  g.fillText(text, cv.width / 2, pad * 2 + q + textH / 2)
   return cv.toDataURL('image/png')
 }
 

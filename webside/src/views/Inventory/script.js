@@ -36,7 +36,7 @@ import {
 } from '@/constants/mercariJapanAreas.js'
 import { MERCARI_UNDECIDED_AREA_ID } from '@/composables/useListingPlatform.js'
 import { useBarcodeScanner } from '@/composables/useBarcodeScanner.js'
-import { buildShelfNoLabel, parseWarehouseQr } from '@/utils/warehouseQr.js'
+import { buildShelfNoLabel, parseQtyQr, parseWarehouseQr } from '@/utils/warehouseQr.js'
 import { barcodeImageUrl } from '@/utils/barcodeImage.js'
 import { useInventoryBatches } from './useInventoryBatches.js'
 import { useInventorySeries } from './useInventorySeries.js'
@@ -822,6 +822,14 @@ export default defineComponent({
     const contQuantity = ref(1)
     /** 扫码枪入库数量下拉的选项（1~100，只能选不能输入） */
     const GUN_QTY_OPTIONS = Array.from({ length: 100 }, (_, i) => i + 1)
+    /** 还没扫到商品时先扫的数量码：下一件扫到的商品按它入库（用掉即清） */
+    let contPendingQty = null
+    /** 数量码的 n 在不在入库数量下拉的范围（1~100）内；不在就提示并返回 null */
+    function inboundQtyFromCode(n) {
+      if (n >= 1 && n <= GUN_QTY_OPTIONS.length) return n
+      ElMessage.warning(t('inventory.qtyCodeOutOfRange', { n, max: GUN_QTY_OPTIONS.length }))
+      return null
+    }
     /** 扫码枪等货架码时：true = 商品在默认仓库，扫到货架码先把现有库存整体移过去（归类） */
     const contMoveExisting = ref(false)
     const contScanning = ref(false)
@@ -3424,6 +3432,8 @@ export default defineComponent({
       noCodeInboundPath.value = path ? [...path] : []
       noCodeInboundQty.value = 1
       noCodeInboundQtyAutoStart = false
+      noCodeInboundQtyFromCode = false
+      noCodeInboundShelfFromCode = false
       noCodeInboundVisible.value = true
     }
 
@@ -4897,6 +4907,9 @@ export default defineComponent({
       contCandidates.value = []
       contFamily.value = null
       contReclassify.value = null
+      // 先扫过数量码就按它，用掉即清（选款式 / 未登记建档都沿用这个数量）
+      contQuantity.value = contPendingQty || 1
+      contPendingQty = null
 
       // 产品条码不唯一（按归属人各留一件，一码多品还有 条码-N），只取最新一件会静默入错商品，
       // 所以按条码族查：一件直接用，多件让人选
@@ -4919,6 +4932,7 @@ export default defineComponent({
     }
 
     async function pickContCandidate(id) {
+      const reclassify = !!contReclassify.value
       if (contReclassify.value) {
         if (Number(id) === Number(contReclassify.value.inventoryId)) {
           // 就是刚才入库的那一款：不用改
@@ -4928,7 +4942,7 @@ export default defineComponent({
         if (!(await undoLastInbound())) return
       }
       contInventory.value = await invApi.get(id)
-      contQuantity.value = 1
+      if (reclassify) contQuantity.value = 1
       loadContShelves(contInventory.value)
       if (contScanMode.value !== 'gun') {
         contState.value = 'found'
@@ -5110,6 +5124,19 @@ export default defineComponent({
 
     /** 无码入库弹窗里扫码枪扫到的码：只认货架码，命中即选中该货架并弹出入库数量下拉，选完数量开始拍照 */
     async function handleNoCodeInboundShelfScan(code) {
+      const qn = parseQtyQr(code)
+      if (qn != null) {
+        // 数量码：设定入库数量；货架已选好就直接开始拍照，否则等扫货架码
+        const qty = inboundQtyFromCode(qn)
+        if (qty == null) return
+        noCodeInboundQty.value = qty
+        noCodeInboundQtyAutoStart = false
+        noCodeInboundQtyFromCode = true
+        // 只认本弹窗里扫到的货架：打开时带出的上次货架不算，免得先扫数量就入到旧货架
+        if (noCodeInboundShelfFromCode) confirmNoCodeInbound()
+        else ElMessage.success(t('inventory.qtyCodeSetScanShelf', { n: qty }))
+        return
+      }
       const wid = parseWarehouseQr(code)
       if (wid == null) {
         ElMessage.warning(t('inventory.noCodeInboundScanShelfOnly'))
@@ -5125,6 +5152,12 @@ export default defineComponent({
       }
       if (!noCodeInboundVisible.value) return // 等货架列表期间弹窗被关了
       noCodeInboundPath.value = [...path]
+      noCodeInboundShelfFromCode = true
+      if (noCodeInboundQtyFromCode) {
+        // 先扫过数量码：数量已定，扫到货架即开始拍照
+        confirmNoCodeInbound()
+        return
+      }
       // 清空再让人选：保留默认 1 的话再选 1 不会触发 change，就不会开始拍照
       noCodeInboundQty.value = null
       noCodeInboundQtyAutoStart = true
@@ -5135,6 +5168,10 @@ export default defineComponent({
 
     /** 扫货架码后弹出的数量下拉：选定即开始拍照（手动选货架的路径仍点「开始拍照」） */
     let noCodeInboundQtyAutoStart = false
+    /** 本弹窗里扫过数量码：数量已定，不再弹数量下拉 */
+    let noCodeInboundQtyFromCode = false
+    /** 本弹窗里扫过货架码 */
+    let noCodeInboundShelfFromCode = false
     function onNoCodeInboundQtyChange() {
       if (!noCodeInboundQtyAutoStart) return
       noCodeInboundQtyAutoStart = false
@@ -5157,11 +5194,22 @@ export default defineComponent({
       editActiveTab.value = 'batches'
     }
 
+    /** 详情表单里扫到数量码：「新增批次」那一行的数量设为 n，并切到批次页（不自动新增，仍点「新增批次」） */
+    function handleFormQtyScan(n) {
+      if (!inventoryBatches.batchesEnabled.value) return
+      const qty = inboundQtyFromCode(n)
+      if (qty == null) return
+      inventoryBatches.newBatch.value.quantity = qty
+      editActiveTab.value = 'batches'
+    }
+
     /** 扫码枪 / 手动输入的一个码。串行执行：上一个还在查询或入库时，后一个排队，不丢也不交错 */
     function processGunCode(code) {
       contScanQueue = contScanQueue.then(async () => {
         const wid = parseWarehouseQr(code)
         if (wid != null) return handleGunShelfCode(wid)
+        const qn = parseQtyQr(code)
+        if (qn != null) return handleContQtyCode(qn)
         if (contState.value === 'need-warehouse' || contState.value === 'variant-shelf' || contState.value === 'pick') {
           // 当前商品还没入库：不替换，免得扫过的这件悄悄丢掉
           ElMessage.warning(t(contState.value === 'pick'
@@ -5174,11 +5222,25 @@ export default defineComponent({
       return contScanQueue
     }
 
+    /** 扫到数量码：已定位商品 / 等货架码时直接改本次数量；还没扫商品时记下，给下一件商品用 */
+    function handleContQtyCode(n) {
+      const qty = inboundQtyFromCode(n)
+      if (qty == null) return
+      if (['found', 'need-warehouse', 'notfound', 'variant-shelf'].includes(contState.value)) {
+        contQuantity.value = qty
+        ElMessage.success(t('inventory.qtyCodeSet', { n: qty }))
+      } else {
+        contPendingQty = qty
+        ElMessage.success(t('inventory.qtyCodePending', { n: qty }))
+      }
+    }
+
     /** 扫码枪模式：不开摄像头，等扫码枪（或手动输入条码回车） */
     async function openGunScan(code = '') {
       stopContScan()
       contScanMode.value = 'gun'
       contGunLast.value = null
+      contPendingQty = null
       contScanVisible.value = true
       resumeContScan()
       if (code) await processGunCode(code)
@@ -5267,6 +5329,7 @@ export default defineComponent({
         // 其余当作本商品的产品条码录入（不进入库流程）
         focusedEl?.blur()
         if (parseWarehouseQr(code) != null) handleFormShelfScan(code)
+        else if (parseQtyQr(code) != null) handleFormQtyScan(parseQtyQr(code))
         else handleFormBarcodeInput(code)
         return
       }
@@ -5283,7 +5346,7 @@ export default defineComponent({
         if (overlayOpen) return
         // 弹窗没开时扫到货架码：没有商品可归类
         if (parseWarehouseQr(code) != null) ElMessage.warning(t('inventory.scannerScanProductFirst'))
-        else openGunScan(code)
+        else openGunScan(code) // 数量码也走这里：打开扫码弹窗并记下数量，给下一件商品用
         return
       }
       if (focusedEl) {
@@ -5300,6 +5363,10 @@ export default defineComponent({
         return
       }
       if (contConfirming.value) return
+      if (parseQtyQr(code) != null) {
+        handleContQtyCode(parseQtyQr(code))
+        return
+      }
       if (contState.value === 'found' || contState.value === 'pick') {
         if (code === contBarcode.value) {
           if (contState.value === 'found') {
@@ -5435,6 +5502,7 @@ export default defineComponent({
       openNoBarcodeEntry()
       form.value.product_barcode = nv.code
       form.value.variant_no = nv.variant
+      applyContQuantityToForm()
       if (shelfId) {
         form.value.warehouse_id = shelfId
         syncWarehouseCascaderPathByWarehouseId(shelfId)
@@ -5450,11 +5518,19 @@ export default defineComponent({
       // 扫到的是商品上印的产品条码：与「商品入库」同一条路（内部编号用 uuid），
       // 条码写进 product_barcode，查重 / 一码多品走 assignBarcode
       openNoBarcodeEntry()
+      applyContQuantityToForm()
       if (shelfId) {
         form.value.warehouse_id = shelfId
         syncWarehouseCascaderPathByWarehouseId(shelfId)
       }
       nextTick(() => assignBarcode(barcode))
+    }
+
+    /** 扫码建新商品时带上扫过的数量码（没扫过就是 1） */
+    function applyContQuantityToForm() {
+      form.value.quantity = Number(contQuantity.value) || 1
+      syncQuantityEditFromForm()
+      contPendingQty = null
     }
 
     function stopContScan() {

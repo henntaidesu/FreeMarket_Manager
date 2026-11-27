@@ -35,6 +35,9 @@
               :active-text="t('system.showHiddenShelves')"
               class="header-hidden-switch"
             />
+            <el-button v-if="$can('system/warehouses:print')" plain @click="qtyQrDialogVisible = true">
+              {{ t('system.printQtyQr') }}
+            </el-button>
             <el-button v-if="$can('system/warehouses:create')" type="primary" class="header-primary-btn" @click="openAddWarehouseNameDialog">
               <el-icon><Plus /></el-icon>
               {{ t('system.addWarehouse') }}
@@ -428,6 +431,7 @@
     </el-dialog>
 
     <WarehouseQrDialog v-model="qrDialogVisible" :rows="qrRows" />
+    <QtyQrDialog v-model="qtyQrDialogVisible" />
   </div>
 </template>
 

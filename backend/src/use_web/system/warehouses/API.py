@@ -19,7 +19,7 @@ from .units.warehouses_handler import (
     set_warehouse_hidden,
     update_warehouse,
 )
-from .units.warehouse_qr import warehouse_qr
+from .units.warehouse_qr import qty_qr, warehouse_qr
 from .units.warehouse_transit import set_warehouse_transit
 
 router = APIRouter()
@@ -36,6 +36,7 @@ router.add_api_route("/rename-shelf-name-group", rename_shelf_name_group, method
 router.add_api_route("/transit", set_warehouse_transit, methods=["PUT"], dependencies=_f("system/warehouses:edit"))
 router.add_api_route("/{wid}/migrate-inventory", migrate_inventory_to_shelf, methods=["POST"], dependencies=_f("system/warehouses:edit"))
 router.add_api_route("/{wid}/hidden", set_warehouse_hidden, methods=["PUT"], dependencies=_f("system/warehouses:edit"))
+router.add_api_route("/qty-qr/{n}", qty_qr, methods=["GET"])
 router.add_api_route("/{wid}/qr", warehouse_qr, methods=["GET"])
 router.add_api_route("/{wid}", update_warehouse, methods=["PUT"], dependencies=_f("system/warehouses:edit"))
 router.add_api_route("/{wid}", delete_warehouse, methods=["DELETE"], dependencies=_f("system/warehouses:delete"))

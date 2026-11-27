@@ -24,3 +24,18 @@ def warehouse_qr(wid: int):
 
     code = f"{WAREHOUSE_QR_PREFIX}{int(wh.id)}"
     return {"id": int(wh.id), "code": code, "data_url": encode_qr_data_url(code, scale=10)}
+
+
+QTY_QR_PREFIX = "QTY"
+QTY_QR_MAX = 100
+
+
+def qty_qr(n: int):
+    """数量码：内容 ``QTY<n>``，扫码入库时扫它把本次入库数量设为 n（前端解析同在 warehouseQr.js）。"""
+    n = int(n)
+    if not 1 <= n <= QTY_QR_MAX:
+        raise HTTPException(status_code=400, detail=f"数量须在 1~{QTY_QR_MAX} 之间")
+    from ....todos.units.todos_sync.qr_photo import encode_qr_data_url
+
+    code = f"{QTY_QR_PREFIX}{n}"
+    return {"n": n, "code": code, "data_url": encode_qr_data_url(code, scale=10)}

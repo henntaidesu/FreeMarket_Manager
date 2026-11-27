@@ -19,5 +19,7 @@ export const warehouseApi = {
   setTransit: (warehouse, isTransit) =>
     http.put('/use_web/system/warehouses/transit', { warehouse, is_transit: !!isTransit }),
   /** 货架号二维码：{ id, code: 'WH<id>', data_url }（扫码入库时扫它归类仓位） */
-  qr: (id) => http.get(`/use_web/system/warehouses/${id}/qr`)
+  qr: (id) => http.get(`/use_web/system/warehouses/${id}/qr`),
+  /** 数量码：{ n, code: 'QTY<n>', data_url }（扫码入库时扫它设定本次入库数量，n = 1~100） */
+  qtyQr: (n) => http.get(`/use_web/system/warehouses/qty-qr/${n}`)
 }
