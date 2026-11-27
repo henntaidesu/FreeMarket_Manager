@@ -343,6 +343,53 @@ async def fetch_ship_state(
     return data
 
 
+async def change_ship_location(
+    account_id: int,
+    *,
+    item_id: str,
+    location: str,
+    page_load_timeout_ms: int = DEFAULT_PAGE_LOAD_TIMEOUT_MS,
+    element_timeout_ms: int = DEFAULT_ELEMENT_TIMEOUT_MS,
+) -> Dict[str, Any]:
+    """「更改发送」：配送コード已发行的交易，把発送場所换成 ``location`` 并读回该场所的码。
+
+    发码后尺寸定死，只有発送場所还能换——同一受付番号换一种码的画法，雅虎侧不提交任何东西、
+    也不记这个选择（见 ``fetch_ship_state``），所以本地要把新场所记下来。
+    与 ``_restore_shipped_location`` 不同，这里换不过去 / 读不到码一律抛错，不静默沿用旧码。
+    """
+    target = (location or "").strip()
+    if not target:
+        raise ValueError("未指定発送場所")
+    async with yahoo_automation_browser(
+        int(account_id), start_url=yahoo_trade_url(item_id)
+    ) as (mgr, key):
+        page = await mgr.active_tab_page(key)
+        await wait_ready(page, page_load_timeout_ms)
+        if (await submit_button_state(page)).get("text"):
+            raise RuntimeError("该交易还没有发行配送コード，不能更改发送")
+        form = (
+            await read_trade_state(page, with_options=False, element_timeout_ms=element_timeout_ms)
+        )["ship_form"]
+        options = [target]
+        if not _same_choice(target, form.get("location"), options):
+            _, options = await _select_row(
+                page,
+                ROW_LOCATION,
+                target,
+                element_timeout_ms=element_timeout_ms,
+                paired_with=str(form.get("size") or ""),
+            )
+            await page.wait_for_timeout(1000)
+        data = await read_trade_state(page, with_options=True, element_timeout_ms=element_timeout_ms)
+    shown = (data.get("ship_form") or {}).get("location")
+    if not _same_choice(target, shown, options):
+        raise RuntimeError(f"発送場所切换后页面显示的是 {shown!r}，不是「{target}」")
+    if not data.get("code_image_url"):
+        raise RuntimeError(f"已切换到「{target}」，但没读到该场所的配送コード")
+    data["item_id"] = str(item_id).strip()
+    return data
+
+
 async def fetch_carrier_ship_options(
     account_id: int,
     *,

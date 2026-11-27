@@ -16,6 +16,7 @@ from .units.detail import fetch_yahoo_trade_detail
 from .units.message import MESSAGE_MAX_LEN, send_yahoo_trade_message
 from .units.carrier import CARRIER_JA, normalize_carrier
 from .units.ship import (
+    change_ship_location,
     fetch_carrier_ship_options,
     fetch_ship_options,
     fetch_ship_state,
@@ -25,6 +26,7 @@ from .units.ship import (
 __all__ = [
     "fetch_yahoo_trade_detail",
     "fetch_ship_state",
+    "change_ship_location",
     "fetch_ship_options",
     "fetch_carrier_ship_options",
     "normalize_carrier",

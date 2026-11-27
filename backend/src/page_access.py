@@ -235,6 +235,7 @@ TASK_FEATURES = {
     "todos.return_address": ("todos:return_address",),
     "todos.send_message": ("todos:message",),
     "todos.send_reaction": ("todos:message",),
+    "todos.change_shipping": ("todos:ship",),
     "system.shipping_duration": ("system/config:shipping_duration",),
     "system.barcode_history": ("system/config:barcode",),
     "system.profile_hide": ("shop-accounts:edit",),

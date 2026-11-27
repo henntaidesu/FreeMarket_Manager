@@ -553,9 +553,24 @@
                   :type="isInventoryOverListed(row) ? 'danger' : (listableQuantity(row) > 0 ? 'success' : 'info')"
                 >{{ t('inventory.listableColumn') }} {{ listableQuantity(row) }}</el-tag>
               </div>
-              <!-- 商品ID 已移到图片右上角，这行只剩货位 -->
+              <!-- 商品ID 已移到图片右上角，这行只剩货位；标红卡片右侧挂原因（与表格视图管理番号列同一份 tooltip） -->
               <div class="inv-card-meta">
                 <span class="inv-card-wh">{{ displayWarehouseLocation(row) }}</span>
+                <el-tooltip
+                  v-if="isInventoryAlertRow(row)"
+                  effect="dark"
+                  placement="top"
+                  :show-after="100"
+                  popper-class="inventory-alert-tooltip-popper"
+                >
+                  <template #content>
+                    <div class="inventory-alert-tooltip-title">{{ t('inventory.alertReasonTitle') }}</div>
+                    <ul class="inventory-alert-tooltip-list">
+                      <li v-for="(reason, i) in inventoryAlertReasons(row)" :key="i">{{ reason }}</li>
+                    </ul>
+                  </template>
+                  <el-icon class="inventory-alert-icon inv-card-alert" @click.stop><WarningFilled /></el-icon>
+                </el-tooltip>
               </div>
             </div>
           </div>

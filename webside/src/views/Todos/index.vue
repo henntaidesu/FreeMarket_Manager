@@ -751,6 +751,15 @@
                   <div class="detail-facility-text">
                     <div class="detail-facility-name">{{ yahooShipFacility.name }}</div>
                   </div>
+                  <el-button
+                    v-if="$can('todos:ship')"
+                    class="detail-facility-revise"
+                    size="default"
+                    :loading="detailLoading"
+                    @click="onClickChangeShipping"
+                  >
+                    {{ t('todos.changeShipping') }}
+                  </el-button>
                 </div>
                 <div class="detail-qr-wrap">
                   <el-image
@@ -904,11 +913,12 @@
                 </div>
                 <!-- 修改发货方式：放在发送方式行右侧 -->
                 <el-button
+                  v-if="$can('todos:ship')"
                   class="detail-facility-revise"
                   size="default"
-                  @click="onReviseShippingAfterQr"
+                  @click="onClickChangeShipping"
                 >
-                  {{ t('todos.changeShippingMethod') }}
+                  {{ t('todos.changeShipping') }}
                 </el-button>
               </div>
               <div class="detail-qr-wrap">
@@ -1402,7 +1412,7 @@
          顶部 el-steps 显示并可点击切换当前页；页面主体固定尺寸，三页大小一致。 -->
     <el-dialog
       v-model="shippingDialogVisible"
-      :title="shipFlowVirtual ? t('todos.virtualShipTitle') : t('todos.pickSizeAndLocation')"
+      :title="shipFlowChange ? t('todos.changeShipping') : shipFlowVirtual ? t('todos.virtualShipTitle') : t('todos.pickSizeAndLocation')"
       width="820px"
       :class="['todo-ship-dialog', { 'todo-ship-dialog--camera': shippingStep === 'yqr' || shippingStep === 'qrscan' }]"
       align-center
@@ -1426,7 +1436,7 @@
       </el-steps>
 
       <!-- 雅虎在包材页点完卡片就直接提交发货，提交期间锁住这一页 -->
-      <div class="ship-flow-body" v-loading="yahooShipLoading">
+      <div class="ship-flow-body" v-loading="yahooShipLoading || changeShippingSubmitting">
       <!-- 虚拟发货：整条向导与普通发货完全一样（同一个任务、同样要拍二维码），差别只有
            尺寸只剩投函型两种。挂在最外层是为了每一页都能看到——尤其是拍照那页，人在那里
            最容易忘了自己走的是「先登记、后寄出」。 -->
@@ -1621,9 +1631,9 @@
           <el-button
             type="primary"
             :disabled="!canSubmitYahooShip"
-            :loading="yahooShipLoading"
+            :loading="yahooShipLoading || changeShippingSubmitting"
             @click="onConfirmYahooShip"
-          >{{ t('todos.yahoo.submitShip') }}</el-button>
+          >{{ shipFlowChange ? t('todos.changeShipping') : t('todos.yahoo.submitShip') }}</el-button>
         </div>
       </div>
 
@@ -1692,10 +1702,10 @@
           <el-button
             type="primary"
             :disabled="!shippingFacility"
-            :loading="shippingConfirmLoading"
+            :loading="shippingConfirmLoading || changeShippingSubmitting"
             @click="onConfirmShippingSelection"
           >
-            {{ t('todos.generateShipCode') }}
+            {{ shipFlowChange ? t('todos.changeShipping') : t('todos.generateShipCode') }}
           </el-button>
         </div>
       </div>

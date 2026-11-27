@@ -1150,6 +1150,8 @@ a.pef-lcard:hover {
   color: #909399;
 }
 .inv-card-wh { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 不高过 12px 文字行，标红卡片与普通卡片等高 */
+.inv-card-alert { flex: 0 0 auto; font-size: 14px; cursor: help; }
 .inv-card-foot {
   padding: 16px 0 4px;
   text-align: center;

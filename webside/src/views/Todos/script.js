@@ -500,7 +500,10 @@ export default defineComponent({
           name,
           img: yahooLocationIcon(name),
           fee: info?.fee ?? null,
-          disabled: !!info?.disabled || yahooOptionConflicts(info, yahooForm.size),
+          disabled:
+            !!info?.disabled ||
+            yahooOptionConflicts(info, yahooForm.size) ||
+            (shipFlowChange.value && name === yahooShippedLocation.value),
         }
       })
     })
@@ -508,6 +511,10 @@ export default defineComponent({
       if (card.disabled) return
       yahooForm.location = card.name
     }
+    // 发码时选的発送場所（后端记在 shipped_location；旧缓存没有就用表单回显）
+    const yahooShippedLocation = computed(
+      () => String(detail.yahoo_shipped_location || detail.yahoo_ship_form?.location || '').trim(),
+    )
     // 已发行配送コード的发货地行，对应煤炉的「○○から発送」——雅虎交易页发码后的标题也正是「郵便局窓口から発送」
     const yahooShipFacility = computed(() => {
       const loc = String(detail.yahoo_ship_form?.location || '').trim()
@@ -535,6 +542,12 @@ export default defineComponent({
     /** 品名上限：交易页输入框的 maxlength，读不到时用雅虎的 17 */
     const yahooItemNameMax = computed(() => Number(detail.yahoo_ship_form?.item_name_max || 17))
     const canSubmitYahooShip = computed(() => {
+      if (shipFlowChange.value) {
+        return (
+          !!yahooForm.location &&
+          !yahooLocationCards.value.some((c) => c.name === yahooForm.location && c.disabled)
+        )
+      }
       if (!yahooForm.item_name.trim() || !yahooForm.size) return false
       if (isYahooPostBoxSize.value) return !!qrShot.value
       return (
@@ -644,6 +657,10 @@ export default defineComponent({
     // 本次走的是「虚拟发货」：平台侧的流程一步不改（同一条扫码发货链路），差别只在
     // ①尺寸只能选投函型两种 ②提交时带 virtual=true，后端事后把行留在「虚拟发货」筛选里。
     const shipFlowVirtual = ref(false)
+    // 本次是「已打包」的「更改发送」：不记包材、不出库（发货时已记过），提交进任务队列。
+    // 煤炉只列要选发货地的尺寸（投函型要现场拍专用箱，不是能在后台跑完的任务）；
+    // 雅虎发码后尺寸定死，只剩発送場所一页
+    const shipFlowChange = ref(false)
     // 关联订单的出库明细（发货成功后逐条出库）
     const shipOutbound = reactive({ loading: false, lines: [] })
 
@@ -1127,6 +1144,7 @@ export default defineComponent({
       // 虚拟发货只留投函型（auto_finish_no_facility，即 ゆうパケットポスト / mini）：
       // 其余方式要把包裹交到柜台才算发出，先通知后寄出这件事根本不成立。后端也会再拦一道，
       // 这里收窄是为了别让人选完一路走到提交才被拒。
+      if (shipFlowChange.value) return all.filter((o) => !o.auto_finish_no_facility)
       return shipFlowVirtual.value ? all.filter((o) => o.auto_finish_no_facility) : all
     })
     const shippingNeedsFacility = computed(() => {
@@ -1168,6 +1186,9 @@ export default defineComponent({
       if (shipFlowScanOnly.value) return [{ key: 'qrscan', label: t('todos.qrScanTitle') }]
       const steps = []
       const packagingStep = { key: 'packaging', label: t('todos.pickPackagingTitle') }
+      if (shipFlowTarget.value === 'yahoo' && shipFlowChange.value) {
+        return [{ key: 'ylocation', label: t('todos.yahoo.stepLocation') }]
+      }
       if (shipFlowTarget.value === 'yahoo') {
         // 雅虎与煤炉步骤形态一致但取值/提交方式完全不同（投函型走 App API，其余走网页模拟），
         // 所以用独立的 step key，别去复用煤炉那套只认煤炉尺寸表的分支
@@ -2077,6 +2098,7 @@ export default defineComponent({
       detail.yahoo_loaded = true
       detail.yahoo_ship_form = form
       detail.yahoo_code_image_url = d.code_image_url || ''
+      detail.yahoo_shipped_location = d.shipped_location || ''
       detail.yahoo_can_send_message = !!d.can_send_message
       detail.yahoo_message_quota = d.message_quota ?? null
       detail.yahoo_app_only_note = form?.app_only_note || ''
@@ -2649,8 +2671,9 @@ export default defineComponent({
      *  （按 shipping_method_name 区分）。用户选好尺寸/发货地点「确认并发送」后，才由
      *  confirmShippingSelection 一并打开浏览器、点「商品サイズと発送場所を選択する」
      *  入口并完成后续选择。 */
-    function openShipFlow({ target, withPackaging, scanOnly = false, virtual = false }) {
+    function openShipFlow({ target, withPackaging, scanOnly = false, virtual = false, change = false }) {
       shipFlowTarget.value = target
+      shipFlowChange.value = change
       shipFlowHasPackaging.value = withPackaging
       shipFlowScanOnly.value = scanOnly
       // 先于 shippingPickedIdx 归零：尺寸列表随它收窄，旧的下标会指到另一档尺寸上
@@ -2667,7 +2690,11 @@ export default defineComponent({
         }
         yahooForm.carrier = carrier
       }
-      const firstStep = target === 'yahoo' ? 'ysize' : 'size'
+      if (target === 'yahoo' && change) {
+        yahooForm.size = String(detail.yahoo_ship_form?.size || '')
+        yahooForm.location = ''
+      }
+      const firstStep = target === 'yahoo' ? (change ? 'ylocation' : 'ysize') : 'size'
       shippingStep.value = scanOnly ? 'qrscan' : firstStep
       shippingDialogVisible.value = true
     }
@@ -2730,6 +2757,10 @@ export default defineComponent({
 
     /** 向导最后一页的提交按钮。投函型走任务队列（自己收尾关窗），网页型同步提交、成功即关窗。 */
     async function onConfirmYahooShip() {
+      if (shipFlowChange.value) {
+        await submitChangeShipping({ location: yahooForm.location })
+        return
+      }
       if (isYahooPostBoxSize.value) {
         await submitYahooShipQr()
         return
@@ -2831,6 +2862,11 @@ export default defineComponent({
       // それ以外（需选发货地的方法）は完了後、返回交易ページ发行 发送用 QR/条形码（无需摄像头）。
       const wantScanQr = !!opt.auto_finish_no_facility
       const wantGenerateCode = needsFacility
+
+      if (shipFlowChange.value) {
+        await submitChangeShipping({ class_text: classText, facility: shippingFacility.value })
+        return
+      }
 
       // 发货动作在煤炉侧不可撤回：出发前先校验所选包材仍存在且库存足够，
       // 不足现在就拦，而不是发完货记账时才报「库存不足」
@@ -2964,6 +3000,7 @@ export default defineComponent({
       stopQrCamera()
       qrShot.value = ''
       qrSubmitting.value = false
+      shipFlowChange.value = false // 拍照一定是发货，不是「更改发送」
       shippingStep.value = 'qrscan'
       shippingDialogVisible.value = true
       await openQrCamera()
@@ -3189,6 +3226,41 @@ export default defineComponent({
         return
       }
       await onShipConfirmSubmit()
+    }
+
+    // ─── 「已打包」更改发送：发货向导里选新的尺寸/发货地（雅虎只有発送場所），提交进任务队列 ───
+    const changeShippingSubmitting = ref(false)
+    async function onClickChangeShipping() {
+      const row = currentRow.value
+      if (!row?.id) return
+      if (!isYahoo.value) {
+        openShipFlow({ target: 'mercari', withPackaging: false, change: true })
+        return
+      }
+      // 发码后的発送場所选项只有重抓过详情才有（旧缓存里没有），缺就先抓一次
+      if (!yahooLocationOptions.value.length) {
+        await refreshYahooDetail()
+        if (currentRow.value?.id !== row.id) return
+      }
+      openShipFlow({ target: 'yahoo', withPackaging: false, change: true })
+    }
+
+    async function submitChangeShipping(choice) {
+      const row = currentRow.value
+      if (!row?.id || changeShippingSubmitting.value) return
+      changeShippingSubmitting.value = true
+      try {
+        const task = await submitTask(
+          TASK_TYPES.TODOS_CHANGE_SHIPPING,
+          { todo_id: row.id, account_id: row.account_id ?? null, item_id: row.item_id || '', ...choice },
+          { t },
+        )
+        if (!task) return
+        shippingDialogVisible.value = false
+        detailDialogVisible.value = false
+      } finally {
+        changeShippingSubmitting.value = false
+      }
     }
 
     // ─── 已发行二维码后修改发货方式：点「商品サイズや発送方法を修正する」+ 二次确认「変更する」→ 清除二维码 ───
@@ -3816,6 +3888,9 @@ export default defineComponent({
       onConfirmShipFromBarcode,
       onClickShippingChangeMethod,
       onReviseShippingAfterQr,
+      onClickChangeShipping,
+      changeShippingSubmitting,
+      shipFlowChange,
       changeMethodVisible,
       changeMethodChoices,
       changeMethodPicked,

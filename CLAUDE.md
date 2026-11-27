@@ -1303,7 +1303,7 @@ update-list / update-status / single-row refresh; on-sale sync / full-update / r
 suspend / resume; purchases sync + single-row detail refresh (`purchases.sync` /
 `purchases.refresh_one`); todos sync / bulk-review /
 bulk-confirm-ship / shipping-QR /
-confirm-cancellation / return-address / send-message / send-reaction; the account
+confirm-cancellation / return-address / send-message / send-reaction / change-shipping (已打包「更改发送」：煤炉作废发货码后按新尺寸·发货地重新出码；雅虎发码后只能换発送場所，换完读回该场所的码并记 `shipped_location`); the account
 card's 同步数据 (`account.sync_data`); 一键修改发货时效 (`system.shipping_duration`, see below); and
 确认后隐藏商品 (`system.profile_hide`, see below; switched per shop account).
 **Batch revise is not a separate type** — the frontend

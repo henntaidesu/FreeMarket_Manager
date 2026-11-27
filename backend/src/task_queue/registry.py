@@ -34,6 +34,7 @@ TODOS_ACCEPT_CANCELLATION = "todos.accept_cancellation"
 TODOS_RETURN_ADDRESS = "todos.return_address"
 TODOS_SEND_MESSAGE = "todos.send_message"
 TODOS_SEND_REACTION = "todos.send_reaction"
+TODOS_CHANGE_SHIPPING = "todos.change_shipping"
 ACCOUNT_SYNC_DATA = "account.sync_data"
 SYSTEM_SHIPPING_DURATION = "system.shipping_duration"
 SYSTEM_BARCODE_HISTORY = "system.barcode_history"
@@ -226,6 +227,18 @@ _SPECS: Dict[str, TaskSpec] = {
         title=lambda p: f"发送反应表情（{p.get('reaction') or ''}）："
         + (str(p.get("item_id") or "").strip() or f"待办#{p.get('todo_id')}"),
     ),
+    TODOS_CHANGE_SHIPPING: TaskSpec(
+        task_type=TODOS_CHANGE_SHIPPING,
+        label_zh="更改发送",
+        # 同一笔待办同时只允许排一条：煤炉这一步会作废已发行的发货码，重复排队等于作废两次
+        dedup_key=lambda p: f"{TODOS_CHANGE_SHIPPING}:{p.get('todo_id')}",
+        title=lambda p: "更改发送（"
+        + (str(p.get("location") or "") or " / ".join(
+            x for x in (str(p.get("class_text") or ""), str(p.get("facility") or "")) if x
+        ))
+        + "）："
+        + (str(p.get("item_id") or "").strip() or f"待办#{p.get('todo_id')}"),
+    ),
     TODOS_BULK_CONFIRM_SHIP: TaskSpec(
         task_type=TODOS_BULK_CONFIRM_SHIP,
         label_zh="一键发送",
@@ -342,6 +355,9 @@ def resolve_handler(task_type: str) -> Callable:
     if tt == TODOS_SEND_REACTION:
         from .handlers.todos import handle_send_reaction
         return handle_send_reaction
+    if tt == TODOS_CHANGE_SHIPPING:
+        from .handlers.todos_change_shipping import handle_change_shipping
+        return handle_change_shipping
     if tt == ACCOUNT_SYNC_DATA:
         from .handlers.account import handle_sync_account_data
         return handle_sync_account_data

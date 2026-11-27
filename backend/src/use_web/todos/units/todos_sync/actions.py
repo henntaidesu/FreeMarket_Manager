@@ -336,6 +336,7 @@ async def close_detail_browser(account_id: int) -> Dict[str, Any]:
     from .....task_queue import has_active_account_task
     from .....task_queue.registry import (
         TODOS_ACCEPT_CANCELLATION,
+        TODOS_CHANGE_SHIPPING,
         TODOS_CONFIRM_CANCELLATION,
         TODOS_RETURN_ADDRESS,
         TODOS_SEND_MESSAGE,
@@ -351,6 +352,7 @@ async def close_detail_browser(account_id: int) -> Dict[str, Any]:
         (TODOS_RETURN_ADDRESS, "填写返品先住所"),
         (TODOS_SEND_MESSAGE, "发送回复"),
         (TODOS_SEND_REACTION, "发送反应表情"),
+        (TODOS_CHANGE_SHIPPING, "更改发送"),
     )
     for task_type, what in _BROWSER_HOLDING_TASKS:
         if has_active_account_task(task_type, aid):

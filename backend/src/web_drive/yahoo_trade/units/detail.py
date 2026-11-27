@@ -193,22 +193,24 @@ def _clean_options(items: List[str], *, drop: List[str]) -> List[str]:
 
 
 async def _read_options(
-    page: Any, *, element_timeout_ms: int, carrier: str = ""
+    page: Any, *, element_timeout_ms: int, carrier: str = "", location_only: bool = False
 ) -> Dict[str, Any]:
     """把两个选择弹层各开一次，读回页面当前真实提供的选项，读完就关。
 
     顺带从「サイズ」弹层读出当前配送会社（``carrier_vendor``）与能不能「配送会社の変更」。
     ``carrier`` 非空时先在「サイズ」弹层里换成该配送会社再读两边的选项（只改页面上的选择，
     不提交）；换不过去直接抛错——读回来的若是原承运商的选项，前端会把它们当成另一家的显示。
+    ``location_only``：只读「発送場所」（配送コード已发行后只有这一行还能换，见 ``change_ship_location``）。
     """
     opts: Dict[str, Any] = {
         "size": [], "location": [], "size_details": {}, "location_details": {},
         "carrier_vendor": "", "can_change_carrier": None,
     }
-    for key, row, drop in (
+    rows = (
         ("size", ROW_SIZE, ["荷物のサイズを選択", "持込場所", "配送サイズ詳細"]),
         ("location", ROW_LOCATION, ["荷物の発送場所を選択", "近くの発送場所", "発送方法"]),
-    ):
+    )
+    for key, row, drop in rows[1:] if location_only else rows:
         try:
             await open_row_sheet(page, row, element_timeout_ms=element_timeout_ms)
             if key == "size":
@@ -275,6 +277,11 @@ async def read_trade_state(
         ship_form["location_option_details"] = opts["location_details"]
         ship_form["carrier_vendor"] = opts["carrier_vendor"] or ship_form["carrier_vendor"]
         ship_form["can_change_carrier"] = opts["can_change_carrier"]
+    elif with_options and state.get("code_image"):
+        # 码已发行：尺寸定死了，発送場所还能换（同一受付番号换一种码的画法），「更改发送」要这份选项
+        opts = await _read_options(page, element_timeout_ms=element_timeout_ms, location_only=True)
+        ship_form["location_options"] = opts["location"]
+        ship_form["location_option_details"] = opts["location_details"]
 
     buyer_id = None
     try:
