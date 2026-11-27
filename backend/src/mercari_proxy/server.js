@@ -42,7 +42,11 @@ const SITES = {
   // 日本站 jp.mercari.com / 美区 www.mercari.com，由 UPSTREAM 覆盖
   mercari: {
     host: process.env.UPSTREAM || "jp.mercari.com",
-    reSrc: "(^|\\.)(mercari\\.com|mercari\\.jp|mercdn\\.net|mercari-shops\\.com)$",
+    // merpay.com：商品页会调 api.merpay.com（KYC 等），不走代理就被 CORS 拦下，整页报「読み込みに失敗」
+    reSrc: "(^|\\.)(mercari\\.com|mercari\\.jp|mercdn\\.net|mercari-shops\\.com|merpay\\.com)$",
+    // 登录抓取：上游对这些「只有登录后才 200」的接口回了 200，就算登录完成（煤炉没有
+    // 一枚能单独认出登录态的 Cookie）。雅虎看 T / Y 两枚 Cookie，由后端判，这里不设。
+    authProbe: /^api\.mercari\.jp\/(todolists\/get_count|services\/notification\/v1\/get_unread_count)(\?|$)/,
   },
   // 公开页 paypayfleamarket / 登录态 sec 域 / login.yahoo.co.jp / 静态资源 s.yimg.jp
   yahoo: {
@@ -59,6 +63,8 @@ const DEFAULT_SITE = "mercari";
 //: 记录本次注入选中的站点。必须是 Cookie 而不是进程常量——同一个代理端口要轮流服务
 //: 煤炉和雅虎，而根相对请求（/item/xxx）里没有任何信息能推断出该发给哪个上游。
 const SITE_COOKIE = "__mp_site";
+//: 登录抓取会话 id（见下方「登录抓取」）。只有经「代理登录」的 /__boot 才会下发。
+const CAPTURE_COOKIE = "__mp_cap";
 
 function siteOf(req) {
   return SITES[parseCookies(req)[SITE_COOKIE]] || SITES[DEFAULT_SITE];
@@ -180,7 +186,7 @@ function stripOwnCookies(raw) {
     .filter((p) => {
       const eq = p.indexOf("=");
       const n = (eq === -1 ? p : p.slice(0, eq)).trim();
-      return n !== SESSION_COOKIE && n !== SITE_COOKIE;
+      return n !== SESSION_COOKIE && n !== SITE_COOKIE && n !== CAPTURE_COOKIE;
     })
     .join(";")
     .trim();
@@ -194,6 +200,119 @@ function pruneInjections() {
   for (const [k, v] of injectionStore) {
     if (!v || v.expires <= now) injectionStore.delete(k);
   }
+}
+
+// ---------------- 登录抓取（代理登录） ----------------
+// 「添加账号 / 重新登录」不再在服务器上开浏览器：用户在自己的浏览器里经本代理打开市集登录页，
+// 本代理把上游下发的每一条 Set-Cookie 连同**原始** Domain / Path / 过期时间记下来
+// （发给浏览器的那份被改写成落在代理路径上，原始属性只有这里看得到），后端轮询 /__capture
+// 取走，写进服务器的 profile。雅虎 App 授权回跳到 yj-paypay-fleamarket: 的那一跳也在这里截下。
+// 页面脚本用 document.cookie 自己写的 Cookie 不经过 Set-Cookie，不在记录之内——登录态都是
+// 服务端下发的，那些只是语言 / 分析类的东西。
+const captureStore = new Map(); // id -> { site, cookies: Map, authed, redirect, started, expires }
+const APP_REDIRECT_SCHEMES = ["yj-paypay-fleamarket:"];
+
+function pruneCaptures() {
+  const now = Date.now();
+  for (const [k, v] of captureStore) {
+    if (!v || v.expires <= now) captureStore.delete(k);
+  }
+}
+
+function captureOf(req) {
+  const id = parseCookies(req)[CAPTURE_COOKIE];
+  if (!id) return null;
+  const cap = captureStore.get(id);
+  return cap && cap.expires > Date.now() ? cap : null;
+}
+
+function parseSetCookie(line, upstreamHost) {
+  const parts = String(line).split(";");
+  const first = parts.shift() || "";
+  const eq = first.indexOf("=");
+  if (eq <= 0) return null;
+  const c = {
+    name: first.slice(0, eq).trim(),
+    value: first.slice(eq + 1).trim(),
+    domain: upstreamHost,
+    path: "/",
+    secure: false,
+    httpOnly: false,
+    sameSite: "Lax",
+    expires: -1,
+  };
+  let maxAge = null;
+  for (const raw of parts) {
+    const i = raw.indexOf("=");
+    const k = (i === -1 ? raw : raw.slice(0, i)).trim().toLowerCase();
+    const v = i === -1 ? "" : raw.slice(i + 1).trim();
+    if (k === "domain" && v) c.domain = v.startsWith(".") ? v : "." + v;
+    else if (k === "path" && v.startsWith("/")) c.path = v;
+    else if (k === "secure") c.secure = true;
+    else if (k === "httponly") c.httpOnly = true;
+    else if (k === "samesite") {
+      const l = v.toLowerCase();
+      c.sameSite = l === "strict" ? "Strict" : l === "none" ? "None" : "Lax";
+    } else if (k === "max-age" && /^-?\d+$/.test(v)) maxAge = Number(v);
+    else if (k === "expires") {
+      const t = Date.parse(v);
+      if (Number.isFinite(t)) c.expires = Math.floor(t / 1000);
+    }
+  }
+  // Max-Age 优先于 Expires（RFC 6265）
+  if (maxAge !== null) c.expires = maxAge <= 0 ? 0 : Math.floor(Date.now() / 1000) + maxAge;
+  return c;
+}
+
+function recordCapture(cap, resp, upstreamHost, upstreamPath) {
+  const lines = typeof resp.headers.getSetCookie === "function" ? resp.headers.getSetCookie() : [];
+  const now = Math.floor(Date.now() / 1000);
+  for (const line of lines) {
+    const c = parseSetCookie(line, upstreamHost);
+    if (!c || c.name === SESSION_COOKIE || c.name === SITE_COOKIE || c.name === CAPTURE_COOKIE) continue;
+    const key = `${c.name}|${c.domain}|${c.path}`;
+    // 上游删 Cookie 的方式就是写一条已过期的：照样删掉，免得把退出前的旧值写进 profile
+    if (c.expires !== -1 && c.expires <= now) cap.cookies.delete(key);
+    else cap.cookies.set(key, c);
+  }
+  const probe = SITES[cap.site] && SITES[cap.site].authProbe;
+  if (probe && resp.status >= 200 && resp.status < 300 && probe.test(upstreamHost + upstreamPath)) {
+    cap.authed = true;
+  }
+}
+
+// 后端轮询抓取结果（只认环回 + 内部密钥）。drop=1 取完即删。
+function handleCapture(req, res, reqUrl) {
+  if (!isLoopbackAddr(remoteAddr(req)) || !internalSecretOk(req)) {
+    res.writeHead(403, { "content-type": "text/plain" });
+    return res.end("forbidden");
+  }
+  pruneCaptures();
+  const id = reqUrl.searchParams.get("id") || "";
+  const cap = captureStore.get(id);
+  if (reqUrl.searchParams.get("drop") === "1") captureStore.delete(id);
+  res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+  if (!cap) return res.end(JSON.stringify({ alive: false }));
+  res.end(
+    JSON.stringify({
+      alive: true,
+      site: cap.site,
+      started: cap.started,
+      authed: cap.authed,
+      redirect: cap.redirect,
+      cookies: [...cap.cookies.values()],
+    })
+  );
+}
+
+function appRedirectDone(res, cap, location) {
+  cap.redirect = location;
+  res.writeHead(200, {
+    "content-type": "text/html; charset=utf-8",
+    "cache-control": "no-store",
+    "x-robots-tag": "noindex, nofollow",
+  });
+  res.end('<meta charset="utf-8"><h3>登录完成</h3><p>可以关闭此页，回到系统页面。</p>');
 }
 
 const handler = async (req, res) => {
@@ -223,6 +342,7 @@ const handler = async (req, res) => {
 
     // 3) 内部注入端点（后端 → 本进程，不经 BASE 前缀；浏览器经 Vite 只能到 BASE 下，触达不到）
     if (path === "/__inject") return handleInject(req, res);
+    if (path === "/__capture") return handleCapture(req, res, reqUrl);
 
     // 4) Cookie 注入引导页：写 Cookie 后跳转进代理站
     if (path === `${BASE}/__boot`) return handleBoot(req, res, reqUrl, PROXY_HOST);
@@ -286,7 +406,15 @@ const handler = async (req, res) => {
       redirect: "manual",
     });
 
-    // 9) 处理响应头
+    // 9) 登录抓取：记 Set-Cookie；App 授权回跳到自定义 scheme 时截下并就地收尾
+    const cap = captureOf(req);
+    if (cap) {
+      recordCapture(cap, resp, upstreamHost, upstreamPath);
+      const loc = resp.headers.get("location") || "";
+      if (APP_REDIRECT_SCHEMES.some((p) => loc.startsWith(p))) return appRedirectDone(res, cap, loc);
+    }
+
+    // 处理响应头
     const outHeaders = {};
     for (const [k, v] of resp.headers) {
       if (k.toLowerCase() === "set-cookie") continue;
@@ -362,9 +490,16 @@ async function handleInject(req, res) {
   const cookies = Array.isArray(payload.cookies) ? payload.cookies : [];
   const ttlSec = Number(payload.ttl_sec) > 0 ? Number(payload.ttl_sec) : 120;
   const site = String(payload.site || "");
-  if (!token || !cookies.length) {
+  // 代理登录：不带 Cookie（浏览器从未登录开始），而是带一个抓取 id 与起始页
+  const capture = typeof payload.capture === "string" ? payload.capture : "";
+  const start = typeof payload.start === "string" ? payload.start : "";
+  if (!token || (!cookies.length && !capture)) {
     res.writeHead(400, { "content-type": "text/plain" });
     return res.end("missing token or cookies");
+  }
+  if (capture && !/^[A-Za-z0-9_-]{16,64}$/.test(capture)) {
+    res.writeHead(400, { "content-type": "text/plain" });
+    return res.end("bad capture id");
   }
   // 站点未知就直接拒绝，不要退回默认：那会把雅虎账号的 Cookie 注到煤炉上游去，
   // 用户只看到「注入成功但没登录」，而两边都没有任何报错。
@@ -373,9 +508,24 @@ async function handleInject(req, res) {
     return res.end(`unknown site: ${site}`);
   }
   pruneInjections();
+  const siteKey = site || DEFAULT_SITE;
+  // 起始页只能是该站点自己的 https 地址：它会被拼进 /__boot 的 Location
+  let startUrl = "";
+  if (start) {
+    try {
+      const u = new URL(start);
+      if (u.protocol === "https:" && SITES[siteKey].re.test(u.hostname)) startUrl = u.toString();
+    } catch {}
+    if (!startUrl) {
+      res.writeHead(400, { "content-type": "text/plain" });
+      return res.end("bad start url");
+    }
+  }
   injectionStore.set(token, {
     cookies,
-    site: site || DEFAULT_SITE,
+    site: siteKey,
+    capture,
+    start: startUrl,
     expires: Date.now() + ttlSec * 1000,
   });
   res.writeHead(200, { "content-type": "application/json" });
@@ -431,13 +581,13 @@ function chunkSetCookies(list) {
 }
 
 // 发出一批 Set-Cookie；还有剩下的就把剩余批次暂存在一个一次性续传 id 下，跳回 /__boot 续写。
-function sendBootChunk(res, chunks) {
+function sendBootChunk(res, chunks, finalLocation) {
   const first = chunks.shift() || [];
-  let location = `${BASE}/`;
+  let location = finalLocation || `${BASE}/`;
   if (chunks.length) {
     pruneBootContinuations();
     const id = crypto.randomBytes(18).toString("base64url");
-    bootContinuations.set(id, { chunks, expires: Date.now() + 60 * 1000 });
+    bootContinuations.set(id, { chunks, finalLocation, expires: Date.now() + 60 * 1000 });
     location = `${BASE}/__boot?cont=${id}`;
   }
   res.writeHead(302, {
@@ -464,7 +614,7 @@ function handleBoot(req, res, reqUrl, proxyHost) {
       res.writeHead(400, { "content-type": "text/html; charset=utf-8" });
       return res.end("<h3>注入链接已失效或已被使用，请在系统里重新点击「Cookie 访问」。</h3>");
     }
-    return sendBootChunk(res, pending.chunks);
+    return sendBootChunk(res, pending.chunks, pending.finalLocation);
   }
   pruneInjections();
   const token = reqUrl.searchParams.get("token") || "";
@@ -498,9 +648,27 @@ function handleBoot(req, res, reqUrl, proxyHost) {
   // 先清掉浏览器里残留的旧 Cookie。它们属于上一次注入的账号（甚至上一个市集），
   // 留着只会拼出一个半新半旧的会话——换账号注入后仍显示旧账号就是这么来的，
   // 也避免把煤炉的登录态随请求发到雅虎上游去。
+  // 代理登录：下发抓取 id，并开一份抓取记录。普通 Cookie 访问时，上一次残留的抓取 id
+  // 由下面的清理循环一并删掉（它不在豁免名单里），之后的请求就不会再被记录。
+  if (entry.capture) {
+    pruneCaptures();
+    captureStore.set(entry.capture, {
+      site: siteKey,
+      cookies: new Map(),
+      authed: false,
+      redirect: null,
+      started: Date.now(),
+      expires: Date.now() + SESSION_TTL_SEC * 1000,
+    });
+    setCookies.push(
+      `${CAPTURE_COOKIE}=${entry.capture}; Path=${cookiePath}` +
+        `; Max-Age=${SESSION_TTL_SEC}; HttpOnly; SameSite=Lax${secure}`
+    );
+  }
   for (const raw of Object.keys(parseCookies(req))) {
     const name = asciiOrNull(raw);
     if (!name || fresh.has(name) || name === SITE_COOKIE || name === SESSION_COOKIE) continue;
+    if (entry.capture && name === CAPTURE_COOKIE) continue;
     setCookies.push(`${name}=; Path=${cookiePath}; Max-Age=0`);
   }
   for (const c of injected) {
@@ -511,7 +679,8 @@ function handleBoot(req, res, reqUrl, proxyHost) {
     if (c.httpOnly) s += "; HttpOnly";
     setCookies.push(s);
   }
-  sendBootChunk(res, chunkSetCookies(setCookies));
+  const finalLocation = entry.start ? toProxyUrl(entry.start, proxyHost, SITES[siteKey]) : "";
+  sendBootChunk(res, chunkSetCookies(setCookies), finalLocation);
 }
 
 // http 还是 https：设了 TLS_CERT/TLS_KEY 就走 https
@@ -639,7 +808,7 @@ function rewriteSetCookie(resp, scheme) {
     .filter((c) => {
       const eq = c.indexOf("=");
       const n = (eq === -1 ? c : c.slice(0, eq)).trim();
-      return n !== SESSION_COOKIE && n !== SITE_COOKIE;
+      return n !== SESSION_COOKIE && n !== SITE_COOKIE && n !== CAPTURE_COOKIE;
     })
     .map((c) => {
     let out = c.replace(/;\s*Domain=[^;]+/i, "");

@@ -24,6 +24,7 @@ from .units.shop_accounts_profile_hide import (
 )
 from .units.shop_accounts_return_address import get_return_address, save_return_address
 from .units.shop_accounts_login_watch import prepare_login_status
+from .units.shop_accounts_proxy_login import proxy_login_start, proxy_login_status
 from .units.shop_accounts_mitm import (
     fetch_seller_id_via_mitm,
 )
@@ -60,6 +61,11 @@ router.add_api_route(
 router.add_api_route(
     "/prepare-login-status", prepare_login_status, methods=["POST"], dependencies=_f("shop-accounts:create"),
 )
+# 代理登录：新增账号 / 重新登录 / 雅虎 App 登录在用户自己的浏览器里完成；
+# 具体要哪个功能由 handler 按 purpose 细分（assert_feature）
+_PROXY_LOGIN = _f("shop-accounts:create", "shop-accounts:edit", "shop-accounts:app_token")
+router.add_api_route("/proxy-login/start", proxy_login_start, methods=["POST"], dependencies=_PROXY_LOGIN)
+router.add_api_route("/proxy-login/status", proxy_login_status, methods=["POST"], dependencies=_PROXY_LOGIN)
 router.add_api_route("/{aid}/sync-data", sync_account_all_data, methods=["POST"], dependencies=_f("shop-accounts:sync"))
 # 雅虎 App 令牌：ゆうパケットポスト / mini 只能走 App API 发货，凭证与账号请求头分开存放
 router.add_api_route("/{aid}/yahoo-app-token", get_yahoo_app_token_status, methods=["GET"])

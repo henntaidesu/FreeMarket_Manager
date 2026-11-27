@@ -191,14 +191,19 @@
                 {{ t('mercariAccounts.paypayBalanceRefresh') }}
               </el-button>
             </el-form-item>
-            <!-- 取得令牌只有这一条路：雅虎没有账密接口，登录页只能由雅虎自己渲染，
-                 所以开一个独立 profile 的浏览器窗口让用户登录一次，之后靠 refresh_token 续期。 -->
+            <!-- 雅虎没有账密接口，登录页只能由雅虎自己渲染：默认在用户自己的浏览器里经代理走
+                 App 授权（代理截下回跳的 code）；服务器上开浏览器的旧方式保留为备选。 -->
             <el-form-item v-if="$can('shop-accounts:app_token')" label-width="120px">
               <el-button
                 type="primary"
-                :loading="appLoginLoading"
+                :loading="appLoginLoading || proxyLoginState?.purpose === 'yahoo_app'"
                 @click="loginYahooApp"
               >{{ t('mercariAccounts.appLogin') }}</el-button>
+              <el-button
+                plain
+                :disabled="appLoginLoading || proxyLoginState?.purpose === 'yahoo_app'"
+                @click="loginYahooAppOnServer"
+              >{{ t('mercariAccounts.serverLogin') }}</el-button>
             </el-form-item>
           </el-collapse-item>
           <el-collapse-item :title="t('mercariAccounts.sectionAutoFetch')" name="auto-fetch">
@@ -364,12 +369,26 @@
               @click="fetchHistoryFromForm"
             >{{ t('mercariAccounts.fetchHistory') }}</el-button>
             <el-button
+              v-if="form.id && $can('shop-accounts:edit')"
+              plain
+              :loading="proxyLoginState?.purpose === 'web' && proxyLoginState?.accountId === form.id"
+              @click="proxyReloginAccount"
+            >{{ t('mercariAccounts.proxyRelogin') }}</el-button>
+            <el-button
               v-if="form.id && $can('shop-accounts:browser')"
               type="warning"
               plain
               :loading="cookieInjectKeys.has(browserKeyFor(form.id))"
               @click="injectCookieForAccount(form)"
             >{{ t('mercariAccounts.cookieInject') }}</el-button>
+            <template v-if="!form.id">
+              <el-button
+                plain
+                :loading="proxyLoginState?.purpose === 'web' && !proxyLoginState?.accountId"
+                @click="proxyLoginForNewAccount"
+              >{{ t('mercariAccounts.proxyLogin') }}</el-button>
+              <el-button plain @click="serverLoginForNewAccount">{{ t('mercariAccounts.serverLogin') }}</el-button>
+            </template>
             <!-- 编辑态实时保存：没有「保存」按钮，改动即写库（不提示保存状态，失败由拦截器报错） -->
             <el-button @click="dialogVisible = false">{{ form.id ? t('common.close') : t('common.cancel') }}</el-button>
             <el-button v-if="!form.id" type="primary" :loading="submitting" @click="submit">{{ t('common.save') }}</el-button>

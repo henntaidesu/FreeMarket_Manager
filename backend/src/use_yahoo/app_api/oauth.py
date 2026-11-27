@@ -130,6 +130,18 @@ async def login_yahoo_app_account(
     redirect = await capture_authorization_code(
         int(account_id), authorize_url=url, timeout_sec=int(timeout_sec), headless=headless
     )
+    return await finish_authorization(int(account_id), redirect, verify)
+
+
+async def finish_authorization(
+    account_id: int, redirect: Dict[str, str], verify: Dict[str, str]
+) -> Dict[str, Any]:
+    """回跳参数 → 校验 state → 换令牌 → 存库。服务器浏览器登录与代理登录共用这一段。"""
+    if redirect.get("error"):
+        raise YahooAppApiError(
+            f"雅虎拒绝了这次授权：{redirect.get('error')} "
+            f"{redirect.get('error_description') or ''}".strip()
+        )
 
     # state 必须回得来且一致：不一致说明这次回跳不是我们发起的那一次授权。
     # 带上实际拿到的参数名，否则「实际为空」这种情况没法判断是回跳被截错了还是解析漏了。

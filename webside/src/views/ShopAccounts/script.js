@@ -205,7 +205,18 @@ export default defineComponent({
     // 与网页自动化的登录态完全隔离，两边互不影响。
     const appLoginLoading = ref(false)
 
-    async function loginYahooApp() {
+    // 默认：在用户自己的浏览器里经代理走 App 授权，代理截下回跳的 code，后端换令牌
+    function loginYahooApp() {
+      const id = form.value.id
+      if (!id || appLoginLoading.value) return
+      startProxyLogin({ purpose: 'yahoo_app', accountId: id }, (r) => {
+        if (r?.token) appTokenStatus.value = r.token
+        ElMessage.success(t('mercariAccounts.appLoginDone'))
+      })
+    }
+
+    // 备选：在服务器上开浏览器走 App 授权（旧方式）
+    async function loginYahooAppOnServer() {
         const id = form.value.id
         if (!id || appLoginLoading.value) return
         appLoginLoading.value = true
@@ -464,9 +475,15 @@ export default defineComponent({
       openSections.value = [...DEFAULT_OPEN_SECTIONS]
       form.value.platform = platform
       dialogVisible.value = true
-      nextTick(() => {
-        openPrepareLoginBrowser(platform)
-      })
+      // 默认在用户自己的浏览器里登录（代理登录）；须在点击处理里同步发起，弹窗才不会被拦。
+      // 服务器上开浏览器的旧方式保留为弹框里的备选按钮（serverLoginForNewAccount）
+      proxyLoginForNewAccount()
+    }
+
+    /** 备选：在服务器上开浏览器登录（旧方式） */
+    function serverLoginForNewAccount() {
+      stopProxyLogin()
+      openPrepareLoginBrowser(form.value.platform)
     }
 
     // 弹框标题随平台变化：新增/编辑 + 平台名
@@ -701,6 +718,7 @@ export default defineComponent({
     watch(dialogVisible, (visible) => {
       if (visible) return
       stopLoginWatch()
+      stopProxyLogin()
       if (autoSaveTimer) {
         cancelAutoSave()
         runAutoSave()
@@ -807,6 +825,103 @@ export default defineComponent({
      * 在用户本地浏览器打开已登录的市集（经独立 HTTPS 端口的 mercari-proxy 反代）。
      * 煤炉/雅虎共用一条链路，平台由后端按账号查库决定（前端不传，也不该传）。
      */
+    /**
+     * 拼 mercari-proxy 的 /__boot 完整地址（Cookie 访问与代理登录共用）。
+     * 代理是独立端口的另一个源：用当前访问主机名 + 返回的 scheme/port 拼完整 URL，
+     * 这样本机(127.0.0.1)与局域网/远程访问都能正确指向代理。
+     * 例外：代理经 nginx 以另一个域名发布时主机名和端口都对不上，此时后端会直接
+     * 给出 boot_url（由 MERCARI_PROXY_PUBLIC_BASE 配置），优先用它。
+     * 经门户整站代理打开本系统时（/api/proxy/<卡片>/__portal__/http/127.0.0.1:9600/），
+     * 代理端口从用户这边连不上：走同一张卡片、同一台主机，只把端口换成代理的。
+     */
+    function proxyBootUrl(d) {
+      const scheme = d.scheme || 'https'
+      const host = window.location.hostname
+      const portal = window.location.pathname.match(/^(.*?\/__portal__\/)https?\/([^/]+)\//)
+      return portal
+        ? `${window.location.origin}${portal[1]}${scheme}/${portal[2].replace(/:\d+$/, '')}:${d.port}${d.boot_path}`
+        : d.boot_url || `${scheme}://${host}:${d.port}${d.boot_path}`
+    }
+
+    // ---------------- 代理登录 ----------------
+    // 登录在用户自己的浏览器里完成：后端在 mercari-proxy 里开一份空的抓取会话，
+    // 这里打开它的 /__boot（落在市集登录页），然后轮询，后端判定登录完成后把抓到的
+    // 登录态写进服务器 profile（雅虎 App 则换令牌）。同一时间只跟一个。
+    const proxyLoginState = ref(null) // { purpose, accountId, platform } | null
+    let proxyLoginTimer = null
+    let proxyLoginBusy = false
+
+    function stopProxyLogin() {
+      if (proxyLoginTimer) {
+        clearInterval(proxyLoginTimer)
+        proxyLoginTimer = null
+      }
+      proxyLoginState.value = null
+    }
+
+    /**
+     * 发起代理登录。**必须在点击处理里同步调用**（先同步开空白窗口保住用户手势）。
+     * onDone(result) 在后端报 done 时调用一次。
+     */
+    async function startProxyLogin({ purpose = 'web', platform, accountId }, onDone) {
+      stopProxyLogin()
+      const win = window.open('', '_blank')
+      proxyLoginState.value = { purpose, accountId: accountId || null, platform: platform || null }
+      try {
+        const res = await shopAccountApi.proxyLoginStart({
+          purpose,
+          platform: platform || null,
+          account_id: accountId || null,
+        })
+        const d = res.data || {}
+        if (!d.capture_id || !d.boot_path) throw new Error(t('mercariAccounts.proxyLoginFailed'))
+        const bootUrl = proxyBootUrl(d)
+        if (win) win.location.href = bootUrl
+        else window.open(bootUrl, '_blank')
+        ElMessage.info(t('mercariAccounts.proxyLoginOpened', { platform: platformName(d.platform || platform) }))
+        const captureId = d.capture_id
+        proxyLoginTimer = setInterval(async () => {
+          if (proxyLoginBusy || !proxyLoginTimer) return
+          proxyLoginBusy = true
+          try {
+            const r = await shopAccountApi.proxyLoginStatus(captureId)
+            if (!proxyLoginTimer || r?.state === 'pending') return
+            stopProxyLogin()
+            if (r?.state === 'done') await onDone?.(r)
+            else if (r?.state === 'expired') ElMessage.warning(t('mercariAccounts.proxyLoginExpired'))
+            else ElMessage.error(r?.message || t('mercariAccounts.proxyLoginFailed'))
+          } catch {
+            /* 下一轮再问；接口错误由拦截器提示 */
+          } finally {
+            proxyLoginBusy = false
+          }
+        }, LOGIN_WATCH_INTERVAL_MS)
+      } catch (e) {
+        if (win) win.close()
+        stopProxyLogin()
+        if (!e?.response) ElMessage.error(e?.message || t('mercariAccounts.proxyLoginFailed'))
+      }
+    }
+
+    /** 新增账号：本地登录完成 → 照旧「获取基础信息 → 保存」 */
+    function proxyLoginForNewAccount() {
+      const platform = form.value.platform
+      startProxyLogin({ purpose: 'web', platform }, async () => {
+        if (!dialogVisible.value || form.value.id) return
+        ElMessage.success(t('mercariAccounts.proxyLoginDone'))
+        await fetchBasicInfo()
+      })
+    }
+
+    /** 已有账号重新登录：登录态直接写进该账号的服务器 profile */
+    function proxyReloginAccount() {
+      const id = form.value.id
+      if (!id) return
+      startProxyLogin({ purpose: 'web', accountId: id }, () => {
+        ElMessage.success(t('mercariAccounts.proxyLoginDone'))
+      })
+    }
+
     async function injectCookieForAccount(row) {
       const key = browserKeyFor(row.id)
       if (cookieInjectKeys.value.has(key)) return
@@ -819,18 +934,7 @@ export default defineComponent({
         const res = await webDriveApi.injectCookies({ account_key: key })
         const d = res.data || {}
         if (d.boot_path) {
-          // 代理是独立端口的另一个源：用当前访问主机名 + 返回的 scheme/port 拼完整 URL，
-          // 这样本机(127.0.0.1)与局域网/远程访问都能正确指向代理。
-          // 例外：代理经 nginx 以另一个域名发布时主机名和端口都对不上，此时后端会直接
-          // 给出 boot_url（由 MERCARI_PROXY_PUBLIC_BASE 配置），优先用它。
-          // 经门户整站代理打开本系统时（/api/proxy/<卡片>/__portal__/http/127.0.0.1:9600/），
-          // 代理端口从用户这边连不上：走同一张卡片、同一台主机，只把端口换成代理的。
-          const scheme = d.scheme || 'https'
-          const host = window.location.hostname
-          const portal = window.location.pathname.match(/^(.*?\/__portal__\/)https?\/([^/]+)\//)
-          const bootUrl = portal
-            ? `${window.location.origin}${portal[1]}${scheme}/${portal[2].replace(/:\d+$/, '')}:${d.port}${d.boot_path}`
-            : d.boot_url || `${scheme}://${host}:${d.port}${d.boot_path}`
+          const bootUrl = proxyBootUrl(d)
           if (win) win.location.href = bootUrl
           else window.open(bootUrl, '_blank')
           ElMessage.success(t('mercariAccounts.cookieInjectDone', {
@@ -975,6 +1079,7 @@ export default defineComponent({
     })
 
     onUnmounted(stopLoginWatch)
+    onUnmounted(stopProxyLogin)
 
     return {
       ref,
@@ -1040,6 +1145,11 @@ export default defineComponent({
       appTokenExpiresText,
       appLoginLoading,
       loginYahooApp,
+      loginYahooAppOnServer,
+      proxyLoginState,
+      proxyLoginForNewAccount,
+      proxyReloginAccount,
+      serverLoginForNewAccount,
       clearYahooAppToken,
       returnAddress,
       returnAddressProblems,

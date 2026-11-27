@@ -1497,6 +1497,19 @@ Three self-contained features that are easy to miss because nothing else depends
   its own branded page, hiding the reason; written as UTF-8 bytes, the portal's httpx stores it in
   its client cookie jar and then crashes (500) encoding the Cookie header while preparing the
   redirect's next request. Login cookies are server-set ASCII on both marketplaces.
+  **代理登录（`use_web/shop_accounts/units/shop_accounts_proxy_login.py`）把这条反代反过来用**：
+  新增账号 / 重新登录 / 雅虎 App 登录默认不再在服务器上开浏览器。`/proxy-login/start` 推一个不带 Cookie
+  的 token（`runner.register_login`：`capture` id + 站点自己的 https 起始页），`/__boot` 额外下发
+  `__mp_cap`，此后经代理的每个上游响应的 Set-Cookie 按**原始** Domain/Path/过期记进 `captureStore`
+  （发给浏览器的那份被改写过，原始属性只有这里有）；App 授权 302 到 `yj-paypay-fleamarket:` 的那一跳
+  由代理截下、回一页「登录完成」。后端轮询 `/__capture`（环回 + 内部密钥）：煤炉看 `authProbe`
+  （只有登录后才 200 的接口回了 200——煤炉没有单独认得出登录态的 Cookie），雅虎看 `T`/`Y`；
+  完成后 `import_cookies` 写进 profile（新增账号写 prepare 并先清空，之后照旧 获取基础信息 → 保存 →
+  改名；重新登录写主 profile），App 则 `oauth.finish_authorization` 换令牌。**只搬 Cookie 够用**：
+  煤炉页面没 token 时拿 `auth.mercari.com` 的 `op_sess` 静默重新授权，DPoP 密钥由服务器浏览器自己生成。
+  `document.cookie` 写的不经 Set-Cookie，不在抓取之内。抓取元数据（PKCE verifier 等）只在后端进程内存，
+  与代理票据一样随后端重启作废。服务器开浏览器的旧方式保留为弹框里的「服务器登录」。
+  **未实测**：煤炉登录若出 reCAPTCHA（google.com，不在 SITES 里）经代理能否通过。
   **`/__boot` also splits its `Set-Cookie` lines across a chain of 302s** (`?cont=<one-time id>`,
   `BOOT_CHUNK_BYTES` + a per-line allowance for the portal's Path rewrite). In one response, a browser
   that had built up dozens of cookies under the card path (each needing a clear line), plus Yahoo's

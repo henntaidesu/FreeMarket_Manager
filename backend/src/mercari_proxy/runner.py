@@ -363,3 +363,52 @@ def register_injection(
         verify=False,  # 自签证书
     )
     resp.raise_for_status()
+
+
+def register_login(
+    token: str,
+    *,
+    site: str,
+    capture_id: str,
+    start_url: str,
+    ttl_sec: int = 120,
+) -> None:
+    """代理登录：推送一个**不带 Cookie** 的一次性 token。
+
+    用户打开 /__boot 后浏览器从未登录状态开始，落在 ``start_url``（该站点自己的 https 地址），
+    此后经代理的每个上游响应的 Set-Cookie 都按原始 Domain/Path 记进 ``capture_id`` 名下，
+    由 :func:`fetch_login_capture` 取回。
+    """
+    url = f"{proxy_scheme()}://127.0.0.1:{proxy_port()}/__inject"
+    resp = requests.post(
+        url,
+        json={
+            "token": token,
+            "cookies": [],
+            "ttl_sec": ttl_sec,
+            "site": site,
+            "capture": capture_id,
+            "start": start_url,
+        },
+        headers={"x-internal-secret": _ensure_secret()},
+        timeout=5,
+        verify=False,  # 自签证书
+    )
+    resp.raise_for_status()
+
+
+def fetch_login_capture(capture_id: str, *, drop: bool = False) -> Dict[str, Any]:
+    """读代理登录的抓取结果：``{alive, site, authed, redirect, cookies:[...]}``。
+
+    ``alive=False`` = 代理里没有这份记录（过期 / 代理重启过 / 已取走）。``drop=True`` 取完即删。
+    """
+    url = f"{proxy_scheme()}://127.0.0.1:{proxy_port()}/__capture"
+    resp = requests.get(
+        url,
+        params={"id": capture_id, "drop": "1" if drop else "0"},
+        headers={"x-internal-secret": _ensure_secret()},
+        timeout=5,
+        verify=False,
+    )
+    resp.raise_for_status()
+    return resp.json()

@@ -35,6 +35,12 @@ export const shopAccountApi = {
    *  这是取得令牌的**唯一**方式——雅虎没有账密接口，也不指望用户去抓包 */
   loginYahooApp: (id, data = {}, axiosConfig = {}) =>
     http.post(`/use_web/shop-accounts/${id}/yahoo-app-login`, data, { timeout: 0, ...axiosConfig }),
+  /** 代理登录：在用户自己的浏览器里经 mercari-proxy 登录，登录态由后端写回服务器 profile。
+   *  data = { purpose: 'web' | 'yahoo_app', platform?（新增账号）, account_id?（重新登录 / App） } */
+  proxyLoginStart: (data) => http.post('/use_web/shop-accounts/proxy-login/start', data),
+  /** 轮询代理登录：{ state: 'pending' | 'done' | 'expired' | 'error', ... } */
+  proxyLoginStatus: (captureId) =>
+    http.post('/use_web/shop-accounts/proxy-login/status', { capture_id: captureId }, { timeout: 120000 }),
   /** 清除 App 令牌 */
   deleteYahooAppToken: (id) => http.delete(`/use_web/shop-accounts/${id}/yahoo-app-token`),
 
