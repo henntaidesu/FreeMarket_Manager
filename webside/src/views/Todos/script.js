@@ -11,6 +11,8 @@ import { useAuthStore } from '@/stores/auth.js'
 import { useCardWindow } from '@/composables/useCardWindow.js'
 import { useSyncOverlay } from '@/composables/useSyncOverlay'
 import SyncOverlay from '@/components/SyncOverlay.vue'
+import DesiredPriceDialog from '@/components/DesiredPriceDialog.vue'
+import YahooRequestDialog from '@/views/Notifications/YahooRequestDialog.vue'
 import { mercariImageUrl, mercariImageUrlList } from '@/utils/mercariImage.js'
 import { useRouter } from 'vue-router'
 import { printLabelImage, isBluetoothSupported } from '@/utils/btPrinter/index.js'
@@ -18,6 +20,8 @@ import { printLabelImage, isBluetoothSupported } from '@/utils/btPrinter/index.j
 export default defineComponent({
   components: {
     SyncOverlay,
+    DesiredPriceDialog,
+    YahooRequestDialog,
     Loading,
     Minus,
   },
@@ -54,6 +58,9 @@ export default defineComponent({
       //   卖家同意后填退货信息（返品に必要な情報の入力と、返品された商品の確認）→ 退货地址
       CancellationRequested: 'todos.kind.cancellation',
       CancellationRequestApprovedSeller: 'todos.kind.returnAddress',
+      // 降价请求：来自通知流，后端读时并进列表（见 todos_price_offers.py）
+      DesiredPriceOfferCreated: 'todos.kind.priceOffer',
+      'Yahoo:dosdo': 'todos.kind.priceOffer',
     }
 
     // 待回复（IncomingMessage）默认回复：分两种状态
@@ -243,6 +250,8 @@ export default defineComponent({
       'Yahoo:rsura': 'success',
       CancellationRequested: 'danger',
       CancellationRequestApprovedSeller: 'danger',
+      DesiredPriceOfferCreated: 'warning',
+      'Yahoo:dosdo': 'warning',
     }
 
     const list = ref([])
@@ -1954,6 +1963,8 @@ export default defineComponent({
       return Number(row?.mercari_created || row?.mercari_updated || 0)
     }
     function shipDeadlineTs(row) {
+      // 降价请求：倒计时到 24 小时过期为止，已完成的不显示
+      if (row?.source === 'price_offer') return row.is_delete ? 0 : Number(row.expire_at || 0)
       // 仅对「待发货」行计算：shipping_duration 抓取时写入同交易的所有待办行，
       // 待回复/待评价行也带该值——那不是它们的期限，不显示倒计时也不参与排序
       // 虚拟发货完成的行也还挂着待发货的 title/kind，但発送までの日数 这条期限平台侧
@@ -2365,7 +2376,22 @@ export default defineComponent({
       }
     }
 
+    // 降价请求：打开与通知页同一个处理弹窗，处理完刷新列表（那条随即算完成）
+    const priceOfferDialog = reactive({ mercari: false, yahoo: false, row: null })
+    function openPriceOffer(row) {
+      priceOfferDialog.row = row
+      if (platformOf(row) === 'yahoo') priceOfferDialog.yahoo = true
+      else priceOfferDialog.mercari = true
+    }
+    function onPriceOfferHandled() {
+      load({ inPlace: true })
+    }
+
     function onProcess(row, { fromNav = false } = {}) {
+      if (row?.source === 'price_offer') {
+        openPriceOffer(row)
+        return
+      }
       // 雅虎「商品の発送」是买家侧（卖家已发货、等我受取評価）：处理入口在购入商品页
       // （App API 受取評価 / 给卖家留言），这里直接带着商品 ID 跳过去
       if (String(row?.kind || '').trim() === 'Yahoo:rsura') {
@@ -3528,6 +3554,8 @@ export default defineComponent({
     })
 
     return {
+      priceOfferDialog,
+      onPriceOfferHandled,
       computed,
       onBeforeUnmount,
       onMounted,

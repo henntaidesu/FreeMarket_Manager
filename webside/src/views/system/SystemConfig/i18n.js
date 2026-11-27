@@ -291,7 +291,8 @@ export default {
         cancel_accept: '回复退货申请（同意 / 拒绝）',
         cancel_receipt: '确认取消收货',
         return_address: '填写返品先住所',
-        message: '交易留言 / 表情回应'
+        message: '交易留言 / 表情回应',
+        price_offer: '降价请求 同意 / 拒绝'
       },
       notifications: {
         sync: '同步通知',
@@ -768,7 +769,8 @@ export default {
         cancel_accept: '返品申請への回答（同意 / 同意しない）',
         cancel_receipt: 'キャンセル時の受取確認',
         return_address: '返品先住所の入力',
-        message: '取引メッセージ / リアクション'
+        message: '取引メッセージ / リアクション',
+        price_offer: '値下げ依頼 承諾 / お断り'
       },
       notifications: {
         sync: 'お知らせの同期',
@@ -1245,7 +1247,8 @@ export default {
         cancel_accept: 'Respond to return request (accept / decline)',
         cancel_receipt: 'Confirm cancellation return',
         return_address: 'Fill return address',
-        message: 'Trade messages / reactions'
+        message: 'Trade messages / reactions',
+        price_offer: 'Price-down requests: accept / reject'
       },
       notifications: {
         sync: 'Sync notifications',

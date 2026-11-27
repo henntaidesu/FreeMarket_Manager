@@ -412,7 +412,7 @@ router.add_api_route(
     "/desired-price/{item_id}/decide",
     _desired_price_decide_endpoint,
     methods=["POST"],
-    dependencies=_f("notifications:price_offer"),
+    dependencies=_f("notifications:price_offer", "todos:price_offer"),
 )
 
 router.add_api_route(
@@ -440,11 +440,11 @@ from .units import yahoo_actions as _ya  # noqa: E402
 router.add_api_route("/yahoo/discounts/{item_id}", _ya.yahoo_discounts_endpoint, methods=["GET"])
 router.add_api_route(
     "/yahoo/discounts/{item_id}/{discount_id}/accept", _ya.yahoo_discount_accept_endpoint,
-    methods=["POST"], dependencies=_f("notifications:price_offer"),
+    methods=["POST"], dependencies=_f("notifications:price_offer", "todos:price_offer"),
 )
 router.add_api_route(
     "/yahoo/discounts/{item_id}/{discount_id}/deny", _ya.yahoo_discount_deny_endpoint,
-    methods=["POST"], dependencies=_f("notifications:price_offer"),
+    methods=["POST"], dependencies=_f("notifications:price_offer", "todos:price_offer"),
 )
 router.add_api_route("/yahoo/questions/{item_id}", _ya.yahoo_questions_endpoint, methods=["GET"])
 router.add_api_route(

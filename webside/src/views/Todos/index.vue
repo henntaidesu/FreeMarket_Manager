@@ -60,6 +60,17 @@
           >{{ chipCount('cancellation') }}</span></div>
           <div
             class="search-filter-chip"
+            :class="{ 'search-filter-chip--active': filters.categories.includes('desired_price') }"
+            role="button"
+            tabindex="0"
+            @click="selectFilterChip('desired_price')"
+            @keyup.enter="selectFilterChip('desired_price')"
+          >{{ t('todos.kind.priceOffer') }}<span
+            class="search-filter-chip__count"
+            :class="{ 'search-filter-chip__count--zero': !chipCount('desired_price') }"
+          >{{ chipCount('desired_price') }}</span></div>
+          <div
+            class="search-filter-chip"
             :class="{ 'search-filter-chip--active': filters.packed_only }"
             role="button"
             tabindex="0"
@@ -242,6 +253,7 @@
         <el-table-column :label="t('todos.colTitleMessage')" min-width="320" align="left" header-align="center">
           <template #default="{ row }">
             <div v-if="row.title" class="cell-title">{{ row.title }}</div>
+            <div v-if="row.source === 'price_offer' && row.price" class="cell-title">{{ t('notifications.priceDownRequest') }}: ¥{{ row.price }}</div>
             <div v-if="row.item_id" class="cell-itemid">
               <el-link :href="itemUrlOf(row)" target="_blank" type="primary" underline="never">
                 {{ row.item_id }}
@@ -1819,6 +1831,23 @@
     </teleport>
 
     <SyncOverlay :state="txOverlay.state" />
+
+    <DesiredPriceDialog
+      v-model="priceOfferDialog.mercari"
+      :item-id="priceOfferDialog.row?.item_id || ''"
+      :item-name="priceOfferDialog.row?.item_name || ''"
+      :account-id="priceOfferDialog.row?.account_id || null"
+      :notification-id="priceOfferDialog.row?.notification_id || null"
+      @decided="onPriceOfferHandled"
+    />
+    <YahooRequestDialog
+      v-model="priceOfferDialog.yahoo"
+      mode="discount"
+      :account-id="priceOfferDialog.row?.account_id || null"
+      :item-id="priceOfferDialog.row?.item_id || ''"
+      :item-name="priceOfferDialog.row?.item_name || ''"
+      @done="onPriceOfferHandled"
+    />
   </div>
 </template>
 

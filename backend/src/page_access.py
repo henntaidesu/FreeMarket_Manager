@@ -110,6 +110,7 @@ PAGE_FEATURES = {
         "cancel_receipt",    # 取消申请的确认
         "return_address",    # 退货填写返品先住所（返品くん）
         "message",           # 交易留言 / 表情回应
+        "price_offer",       # 降价请求 同意 / 拒绝
     ),
     "notifications": (
         "sync",              # 同步通知

@@ -128,7 +128,8 @@ router.include_router(
 router.include_router(todos_router, prefix="/todos", tags=["todos"], dependencies=_page("todos"))
 # 任务队列：出品/同步/改价等重型操作的统一提交入口与状态查询（各页面都会提交任务）
 router.include_router(tasks_router, prefix="/tasks", tags=["tasks"], dependencies=_AUTH)
-router.include_router(notifications_router, prefix="/notifications", tags=["notifications"], dependencies=_page("notifications"))
+# 待办页也列降价请求，并在页内打开同一个处理弹窗（见 todos/units/todos_price_offers.py）
+router.include_router(notifications_router, prefix="/notifications", tags=["notifications"], dependencies=_page("notifications", "todos"))
 router.include_router(memos_router, prefix="/memos", tags=["memos"], dependencies=_page("system/memos"))
 # 日历：全员共享的一份事项表（前端 /system/calendar）
 router.include_router(calendar_router, prefix="/calendar", tags=["calendar"], dependencies=_page("system/calendar"))

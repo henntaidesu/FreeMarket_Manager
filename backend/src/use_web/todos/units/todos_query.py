@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ....db_manage.database import DatabaseManager
 from ....db_manage.models.orders.order_outbound_line import LINE_INVENTORY_JOINS, inv_col
+from . import todos_price_offers as _price_offers
 
 
 # 「待发货」类判定：标题「発送をしてください」或 kind 属于待发货系列。
@@ -333,6 +334,10 @@ def count_todos_by_chip(
             f"SELECT COUNT(*) FROM [todo_items] t WHERE {where_sql}", tuple(params)
         )
         out[chip] = int(rows[0][0]) if rows and rows[0] else 0
+    out[_price_offers.CATEGORY] = len(_price_offers.list_price_offer_todos(
+        account_id=account_id, kind=kind, keyword=keyword,
+        include_deleted=include_deleted, platform=platform,
+    ))
     return out
 
 
@@ -400,6 +405,27 @@ def list_todos(
     page = max(1, int(page or 1))
     page_size = max(1, min(int(page_size or 20), 200))
 
+    # 降价请求不在 todo_items 里（见 todos_price_offers）：它有自己的 chip，
+    # 不属于已打包 / 已扫码 / 虚拟发货，也不进 todo_items 的分类条件
+    cats = [c.strip() for c in str(categories or "").split(",") if c.strip()]
+    want_offers = (
+        not (packed_only or scanned_only or virtual_only)
+        and (not cats or _price_offers.CATEGORY in cats)
+    )
+    todo_cats = [c for c in cats if c != _price_offers.CATEGORY]
+    offers = _price_offers.list_price_offer_todos(
+        account_id=account_id, kind=kind, keyword=keyword,
+        include_deleted=include_deleted, platform=platform,
+    ) if want_offers else []
+    if cats and not todo_cats:
+        offset = (page - 1) * page_size
+        return {
+            "total": len(offers),
+            "page": page,
+            "page_size": page_size,
+            "items": offers[offset:offset + page_size],
+        }
+
     where_sql, params = _build_todo_where(
         account_id=account_id,
         kind=kind,
@@ -408,7 +434,7 @@ def list_todos(
         packed_only=packed_only,
         scanned_only=scanned_only,
         virtual_only=virtual_only,
-        categories=categories,
+        categories=",".join(todo_cats) or None,
         platform=platform,
     )
 
@@ -458,6 +484,8 @@ def list_todos(
         it["in_transit"] = 1 if str(it.get("item_id") or "").strip() in transit else 0
     # 稳定排序：非在途的货在前（能立刻发）；同组内按发货期限，推算不出期限的保持 id 升序垫底
     items.sort(key=lambda it: (it["in_transit"], _ship_deadline_sort_key(it)))
+    # 降价请求 24 小时就过期，排在最前
+    items = offers + items
     offset = (page - 1) * page_size
     page_items = items[offset:offset + page_size]
     return {

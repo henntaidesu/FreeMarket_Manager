@@ -82,10 +82,25 @@ async def yahoo_discounts_endpoint(item_id: str, account_id: int) -> Dict[str, A
     return {"items": items}
 
 
+async def _mark_settled(account_id: int, item_id: str, state: str) -> None:
+    """该商品已没有待处理的相談时，记下已处理，待办页那条降价请求随即算完成。
+    回读失败不影响已提交的结果——最迟 24 小时后它也会自动算完成。"""
+    from ...todos.units.todos_price_offers import mark_price_offer_decided
+
+    try:
+        items = await nego.list_discounts(int(account_id), item_id)
+    except Exception:  # noqa: BLE001
+        return
+    if any(str((d or {}).get("status") or "").upper() == "PENDING" for d in items or []):
+        return
+    mark_price_offer_decided(int(account_id), item_id, state)
+
+
 async def yahoo_discount_accept_endpoint(
     item_id: str, discount_id: int, req: YahooAccountRequest
 ) -> Dict[str, Any]:
     res = await _call(req.account_id, lambda aid: nego.accept_discount(aid, item_id, discount_id))
+    await _mark_settled(req.account_id, item_id, "ACCEPTED")
     return {"ok": True, "discount": res}
 
 
@@ -96,6 +111,7 @@ async def yahoo_discount_deny_endpoint(
         req.account_id,
         lambda aid: nego.deny_discount(aid, item_id, discount_id, do_push=req.do_push),
     )
+    await _mark_settled(req.account_id, item_id, "REJECTED")
     return {"ok": True, "discount": res}
 
 
