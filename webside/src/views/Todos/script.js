@@ -2386,6 +2386,17 @@ export default defineComponent({
     function onPriceOfferHandled() {
       load({ inPlace: true })
     }
+    /** 一件商品一行：「3 条请求 · ¥1,800~¥2,000」（雅虎通知不带报价，只有条数） */
+    function priceOfferSummary(row) {
+      const parts = [t('todos.priceOfferCount', { count: Number(row?.request_count || 0) })]
+      const yen = (n) => `¥${Number(n).toLocaleString('ja-JP')}`
+      if (row?.price_min) {
+        parts.push(row.price_max && row.price_max !== row.price_min
+          ? `${yen(row.price_min)}~${yen(row.price_max)}`
+          : yen(row.price_min))
+      }
+      return parts.join(' · ')
+    }
 
     function onProcess(row, { fromNav = false } = {}) {
       if (row?.source === 'price_offer') {
@@ -3556,6 +3567,7 @@ export default defineComponent({
     return {
       priceOfferDialog,
       onPriceOfferHandled,
+      priceOfferSummary,
       computed,
       onBeforeUnmount,
       onMounted,

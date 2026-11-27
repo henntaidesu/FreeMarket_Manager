@@ -3,12 +3,12 @@
 降价请求(値下げ依頼 / DesiredPriceOfferCreated 通知对应)本地缓存表。
 
 字段与 backend/test_json/待办/商品详情/降价请求.json + 降价请求2.json 对齐:
-- (account_id, item_id) 组合唯一: 一件商品同时只跟踪「当前生效的一条降价请求」,
-  即聚合接口返回的 aggregatedDesiredPrices[0]
+- (account_id, item_id) 组合唯一: 一行 = 一件商品; 多个买家的请求整份存在 raw_json,
+  offered_price / buyer_* 只是 aggregatedDesiredPrices[0] 的摘要
 - 买家信息: buyer_id / buyer_username / buyer_photo / buyer_score / buyer_reviews_count
 - 价格: offered_price(降价请求价格) / item_price(商品当前价格,来自 items/get)
 - 商品信息: item_name / item_photo / item_status(items/get)
-- state: NOTIFIED / ACCEPTED / REJECTED / EXPIRED(参考 BundlePurchaseRequest 设计)
+- state: NOTIFIED / ACCEPTED / REJECTED / EXPIRED,由逐条状态汇总(见 desired_price_state.py)
 - create_time / expire_time: 解析 RFC3339 字符串为毫秒
 - raw_json: 完整 aggregatedDesiredPriceItems 响应(便于排查/后续扩展)
 - raw_item_json: 完整 items/get 响应中的 data 子对象
@@ -125,6 +125,18 @@ class DesiredPriceOfferModel(BaseModel):
                 "default": None,
             },
             "expire_time": {
+                "type": "INTEGER",
+                "not_null": False,
+                "default": None,
+            },
+            # 逐条处理结果 {offer_key: ACCEPTED|REJECTED}，见 desired_price/desired_price_state.py
+            "decided_offers_json": {
+                "type": "TEXT",
+                "not_null": False,
+                "default": None,
+            },
+            # 尚未处理且未过期的请求条数（同步 / 处理后现算落库）
+            "pending_count": {
                 "type": "INTEGER",
                 "not_null": False,
                 "default": None,

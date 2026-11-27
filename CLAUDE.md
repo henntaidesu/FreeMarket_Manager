@@ -341,6 +341,12 @@ Key tables in `backend/src/db_manage/models/`:
   **bundle_purchase_requests**, **categories**, **game_types**
 - **transaction_messages**: 交易留言，`order_no` = 商品ID。**卖家侧待办与买家侧购入共用一张表**，
   整单替换写入；`is_buyer` 恒指「这条是买家写的」，不随视角翻转。见 購入した商品 below。
+- **desired_price_offers**: 降价请求，一行 = 一件商品（多个买家的请求整份在 `raw_json`）。状态**逐条**记：
+  `decided_offers_json` = 本地处理过的那几条（key = 买家ID@请求时刻），`pending_count` / `state` 每次同步与处理后
+  现算（`desired_price/desired_price_state.py`），所以同一商品之后的新请求会回到待处理。煤炉的同意 / 拒绝按条点
+  （容器里比对昵称 + 价格，多条时 DOM 未实测）。待办页的「降价请求」chip 不落 `todo_items`（会被煤炉待办同步的缺席软删删掉），
+  而是读时从 `notifications` 按商品归并（`use_web/todos/units/todos_price_offers.py`）：24 小时内无新请求、或
+  处理到 `pending_count=0` 即算完成。雅虎的价格相談不缓存逐条状态，App API 回读无 PENDING 时补 `pending_count=0`。
 - **order_outbound_lines**: Line items for outbound shipments
 - **transactions**: In/out stock movements with warehouse tracking
 - **cost_records**: 包材目录（页面 `/#/system/cost-records` 只维护 图 / 名称 / 单价 / 关联发货尺寸 `ship_sizes`）。
@@ -1061,7 +1067,11 @@ soft-delete, inventory counters and order upsert semantics stay identical across
     falls back to the first option (ヤマト営業所) and draws *that* location's code — a セブン-イレブン
     shipment reopens showing the 営業所 QR. The pick is kept locally as `detail_json.shipped_location`
     and `fetch_ship_state(shipped_location=)` re-selects it before reading, so the cached location and
-    `qr_image_path` stay on the code that was actually printed.
+    `qr_image_path` stay on the code that was actually printed. One trade has several todo rows
+    (発送依頼 + 取引メッセージ…) each with its own `detail_json`, so the value is looked up **across all
+    rows of the trade** (`_trade_shipped_location`, deleted rows included) and only trusted when it
+    carries `shipped_location_at` (written at ship time). Never write the page's read-back location
+    into `shipped_location` — unrestored, it is the first option, and once stored it can't be corrected.
     After clicking 配送コードを表示する the page sits on a 「読み込み中...」 layer while the code is
     issued — `ship.py` polls for the code (`CODE_WAIT_TIMEOUT_MS`) rather than reading after a fixed wait.
 - `use_yahoo/app_api/` — **雅虎 App API 发货**（`sparkle-secure.yahooapis.jp`）。The phone app's

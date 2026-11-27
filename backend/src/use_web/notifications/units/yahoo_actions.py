@@ -77,23 +77,32 @@ async def _call(account_id: int, coro_factory) -> Any:
 # ─────────── 価格の相談 ───────────
 
 
+def _settle_if_none_pending(account_id: int, item_id: str, items: Any, state: str) -> None:
+    """该商品一个买家都没有待处理的相談了 → 记下已处理，待办页那条降价请求随即算完成。
+    一件商品常有多个买家各自相談，处理掉其中一条不算完。"""
+    from ...todos.units.todos_price_offers import mark_price_offer_decided
+
+    if not isinstance(items, list) or not items:
+        return
+    if any(str((d or {}).get("status") or "").upper() == "PENDING" for d in items):
+        return
+    mark_price_offer_decided(int(account_id), item_id, state)
+
+
 async def yahoo_discounts_endpoint(item_id: str, account_id: int) -> Dict[str, Any]:
     items = await _call(account_id, lambda aid: nego.list_discounts(aid, item_id))
+    # 打开弹窗时已经没有待处理的（在手机上处理过 / 已结束）也算完成
+    _settle_if_none_pending(account_id, item_id, items, "EXPIRED")
     return {"items": items}
 
 
 async def _mark_settled(account_id: int, item_id: str, state: str) -> None:
-    """该商品已没有待处理的相談时，记下已处理，待办页那条降价请求随即算完成。
-    回读失败不影响已提交的结果——最迟 24 小时后它也会自动算完成。"""
-    from ...todos.units.todos_price_offers import mark_price_offer_decided
-
+    """处理一条后回读一次；回读失败不影响已提交的结果——最迟 24 小时后它也会自动算完成。"""
     try:
         items = await nego.list_discounts(int(account_id), item_id)
     except Exception:  # noqa: BLE001
         return
-    if any(str((d or {}).get("status") or "").upper() == "PENDING" for d in items or []):
-        return
-    mark_price_offer_decided(int(account_id), item_id, state)
+    _settle_if_none_pending(account_id, item_id, items, state)
 
 
 async def yahoo_discount_accept_endpoint(

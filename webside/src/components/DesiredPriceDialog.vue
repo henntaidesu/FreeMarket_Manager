@@ -49,75 +49,70 @@
           </div>
         </div>
 
-        <div class="section-title">{{ t('dialogs.desiredPrice.buyerOffer') }}</div>
-        <el-descriptions :column="2" border size="small" class="offer-meta">
-          <el-descriptions-item :label="t('onSaleItems.desiredPrice')">
-            <span class="amount">¥{{ formatYen(detail.offered_price) }}</span>
-            <span
-              v-if="discountText"
-              class="discount-text"
-            >({{ discountText }})</span>
-          </el-descriptions-item>
-          <el-descriptions-item :label="t('common.status')">
-            {{ stateLabel(detail.state) }}
-          </el-descriptions-item>
-          <el-descriptions-item :label="t('dialogs.desiredPrice.replyDeadline')">
-            {{ displayTs(detail.expire_time) }}
-          </el-descriptions-item>
-          <el-descriptions-item :label="t('dialogs.desiredPrice.requestTime')">
-            {{ displayTs(detail.create_time) }}
-          </el-descriptions-item>
-        </el-descriptions>
-
-        <div class="section-title">{{ t('dialogs.desiredPrice.buyerInfo') }}</div>
-        <div class="buyer-row">
-          <el-avatar
-            v-if="detail.buyer_photo"
-            :src="detail.buyer_photo"
-            :size="48"
-          />
-          <el-avatar v-else :size="48">
-            {{ (detail.buyer_username || '?').slice(0, 1) }}
-          </el-avatar>
-          <div class="buyer-meta">
-            <div class="buyer-name">{{ detail.buyer_username || '-' }}</div>
-            <div class="buyer-stats">
-              <span v-if="detail.buyer_score">
-                <el-icon class="rating-icon"><Star /></el-icon>
-                {{ detail.buyer_score }} {{ t('dialogs.desiredPrice.starUnit') }}
-              </span>
-              <span v-if="detail.buyer_reviews_count !== null">
-                · {{ t('dialogs.desiredPrice.reviews') }} {{ detail.buyer_reviews_count }}
-              </span>
-              <span v-if="detail.buyer_id" class="buyer-id">
-                · ID: {{ detail.buyer_id }}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div
-          v-if="otherOffers.length > 0"
-          class="section-title"
-        >{{ t('dialogs.desiredPrice.otherOffers') }} ({{ otherOffers.length }})</div>
-        <el-table
-          v-if="otherOffers.length > 0"
-          :data="otherOffers"
-          border
-          size="small"
-          class="other-offers"
-        >
-          <el-table-column :label="t('dialogs.desiredPrice.buyer')" min-width="180">
+        <!-- 同一件商品的全部买家请求集中在这一张表里，逐条同意 / 拒绝 -->
+        <div class="section-title">{{ t('dialogs.desiredPrice.offerList', { count: offers.length }) }}</div>
+        <el-table :data="offers" border size="small" class="other-offers" row-key="key">
+          <el-table-column :label="t('dialogs.desiredPrice.buyer')" min-width="190">
             <template #default="{ row }">
-              <span>{{ row.buyer_username || '-' }}</span>
-              <span v-if="row.buyer_id" class="muted"> ({{ row.buyer_id }})</span>
+              <div class="buyer-row">
+                <el-avatar v-if="row.buyer_photo" :src="row.buyer_photo" :size="32" />
+                <el-avatar v-else :size="32">{{ (row.buyer_username || '?').slice(0, 1) }}</el-avatar>
+                <div class="buyer-meta">
+                  <div class="buyer-name">{{ row.buyer_username || '-' }}</div>
+                  <div class="buyer-stats">
+                    <span v-if="row.buyer_score">
+                      <el-icon class="rating-icon"><Star /></el-icon>
+                      {{ row.buyer_score }} {{ t('dialogs.desiredPrice.starUnit') }}
+                    </span>
+                    <span v-if="row.buyer_reviews_count != null">
+                      · {{ t('dialogs.desiredPrice.reviews') }} {{ row.buyer_reviews_count }}
+                    </span>
+                  </div>
+                </div>
+              </div>
             </template>
           </el-table-column>
-          <el-table-column :label="t('onSaleItems.desiredPrice')" width="140" align="right">
-            <template #default="{ row }">¥{{ formatYen(row.price) }}</template>
+          <el-table-column :label="t('onSaleItems.desiredPrice')" width="120" align="right">
+            <template #default="{ row }">
+              <div class="amount">¥{{ formatYen(row.price) }}</div>
+              <div v-if="discountText(row.price)" class="discount-text">{{ discountText(row.price) }}</div>
+            </template>
           </el-table-column>
-          <el-table-column :label="t('dialogs.desiredPrice.replyDeadline')" width="170">
-            <template #default="{ row }">{{ displayTsRfc(row.expire_time) }}</template>
+          <el-table-column :label="t('dialogs.desiredPrice.replyDeadline')" width="140">
+            <template #default="{ row }">{{ displayTs(row.expire_time_ms) }}</template>
+          </el-table-column>
+          <el-table-column :label="t('common.status')" width="86" align="center">
+            <template #default="{ row }">
+              <el-tag size="small" :type="row.status === 'PENDING' ? 'warning' : 'info'">
+                {{ stateLabel(row.status) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column
+            v-if="$can('notifications:price_offer') || $can('todos:price_offer')"
+            :label="t('common.operate')"
+            width="150"
+            align="center"
+          >
+            <template #default="{ row }">
+              <template v-if="row.status === 'PENDING'">
+                <el-button
+                  size="small"
+                  type="danger"
+                  plain
+                  :loading="acting === `${row.key}:reject`"
+                  :disabled="busy"
+                  @click="decide(row, 'reject')"
+                >{{ t('dialogs.desiredPrice.rejectShort') }}</el-button>
+                <el-button
+                  size="small"
+                  type="success"
+                  :loading="acting === `${row.key}:accept`"
+                  :disabled="busy"
+                  @click="decide(row, 'accept')"
+                >{{ t('dialogs.desiredPrice.acceptShort') }}</el-button>
+              </template>
+            </template>
           </el-table-column>
         </el-table>
       </template>
@@ -132,28 +127,10 @@
         <el-button
           v-if="detail"
           :loading="syncing"
-          :disabled="accepting || rejecting"
+          :disabled="!!acting"
           @click="runSync"
         >
           {{ t('common.refresh') }}
-        </el-button>
-        <el-button
-          v-if="detail && ($can('notifications:price_offer') || $can('todos:price_offer'))"
-          type="danger"
-          :loading="rejecting"
-          :disabled="accepting || isDecided"
-          @click="onReject"
-        >
-          {{ t('dialogs.desiredPrice.rejectOffer') }}
-        </el-button>
-        <el-button
-          v-if="detail && ($can('notifications:price_offer') || $can('todos:price_offer'))"
-          type="success"
-          :loading="accepting"
-          :disabled="rejecting || isDecided"
-          @click="onAccept"
-        >
-          {{ t('dialogs.desiredPrice.acceptOffer') }}
         </el-button>
       </div>
     </template>
@@ -190,13 +167,11 @@ const visible = computed({
 
 const loading = ref(false)
 const syncing = ref(false)
-const accepting = ref(false)
-const rejecting = ref(false)
+// 正在处理的那一条：`${offer.key}:${action}`，空串 = 没有
+const acting = ref('')
 const detail = ref(null)
 
-const busy = computed(
-  () => loading.value || syncing.value || accepting.value || rejecting.value,
-)
+const busy = computed(() => loading.value || syncing.value || !!acting.value)
 
 const DECIDED_STATES = new Set(['ACCEPTED', 'REJECTED', 'EXPIRED'])
 const isDecided = computed(() => {
@@ -216,19 +191,21 @@ const dialogTitle = computed(() => {
   return `${base} · ${itemId.value || ''}`
 })
 
-const discountText = computed(() => {
-  const offered = Number(detail.value?.offered_price || 0)
+function discountText(offeredPrice) {
+  const offered = Number(offeredPrice || 0)
   const price = Number(detail.value?.item_price || 0)
   if (!offered || !price || offered >= price) return ''
   const off = Math.round((1 - offered / price) * 100)
   if (!off) return ''
   return t('dialogs.desiredPrice.discountText', { off })
-})
+}
 
-const otherOffers = computed(() => {
-  const arr = Array.isArray(detail.value?.offers) ? detail.value.offers : []
-  // 第 0 条已经在「买家报价 / 买家信息」展示, 其余的(如有)放此列表
-  return arr.slice(1)
+// 待处理的排前面，同状态内先到期的在前
+const offers = computed(() => {
+  const arr = Array.isArray(detail.value?.offers) ? [...detail.value.offers] : []
+  return arr.sort((a, b) =>
+    (a.status === 'PENDING' ? 0 : 1) - (b.status === 'PENDING' ? 0 : 1)
+    || Number(a.expire_time_ms || 0) - Number(b.expire_time_ms || 0))
 })
 
 const decidedBannerType = computed(() => {
@@ -247,6 +224,7 @@ const decidedBannerText = computed(() => {
 
 function stateLabel(state) {
   const map = {
+    PENDING: t('dialogs.desiredPrice.stateNotified'),
     NOTIFIED: t('dialogs.desiredPrice.stateNotified'),
     ACCEPTED: t('dialogs.desiredPrice.stateAccepted'),
     REJECTED: t('dialogs.desiredPrice.stateRejected'),
@@ -275,14 +253,6 @@ function displayTs(ms) {
   const n = Number(ms || 0)
   if (!n) return '-'
   const d = new Date(n)
-  if (Number.isNaN(d.getTime())) return '-'
-  const pad = (x) => String(x).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-function displayTsRfc(s) {
-  if (!s) return '-'
-  const d = new Date(s)
   if (Number.isNaN(d.getTime())) return '-'
   const pad = (x) => String(x).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
@@ -340,19 +310,22 @@ async function runSync() {
   }
 }
 
-async function onAccept() {
-  if (accepting.value || rejecting.value) return
-  accepting.value = true
-  // accept 会启动浏览器执行点击, 标记一下
+/** 处理某一个买家的请求；还有别的待处理请求时留在弹窗里，全部处理完才关 */
+async function decide(offer, action) {
+  if (busy.value || !offer?.key) return
+  const accept = action === 'accept'
+  acting.value = `${offer.key}:${action}`
+  // decide 会启动浏览器执行点击, 标记一下
   browserOpened.value = true
   try {
     const res = await desiredOverlay.run({
-      title: t('dialogs.desiredPrice.acceptingTitle'),
-      consoleTag: '[降价请求同意]',
+      title: t(accept ? 'dialogs.desiredPrice.acceptingTitle' : 'dialogs.desiredPrice.rejectingTitle'),
+      consoleTag: accept ? '[降价请求同意]' : '[降价请求拒绝]',
       pollFn: (jobId) => notificationsApi.getSyncProgress(jobId),
       actionFn: (jobId) =>
         notificationsApi.desiredPriceDecide(props.itemId, {
-          action: 'accept',
+          action,
+          offer_key: offer.key,
           account_id: props.accountId || null,
           progress_job_id: jobId,
         }),
@@ -362,63 +335,32 @@ async function onAccept() {
         t('dialogs.desiredPrice.skippedMessage', { reason: res.skipped_reason || t('dialogs.desiredPrice.alreadyProcessed') }),
       )
     } else {
-      ElMessage.success(t('dialogs.desiredPrice.acceptedMessage'))
+      ElMessage.success(t(accept ? 'dialogs.desiredPrice.acceptedMessage' : 'dialogs.desiredPrice.rejectedMessage'))
     }
     // decide 完成后后端已关闭浏览器, 这里不必再 close
     browserOpened.value = false
     emit('decided', {
       item_id: props.itemId,
       account_id: props.accountId || null,
-      action: 'accept',
+      action,
+      offer_key: offer.key,
       skipped: !!res?.skipped,
       state: res?.state,
+      pending_count: res?.pending_count,
     })
-    emit('update:modelValue', false)
-    resetState()
-  } catch (e) {
-    ElMessage.error(e?.response?.data?.detail || e?.message || t('dialogs.desiredPrice.acceptFailed'))
-  } finally {
-    accepting.value = false
-  }
-}
-
-async function onReject() {
-  if (accepting.value || rejecting.value) return
-  rejecting.value = true
-  browserOpened.value = true
-  try {
-    const res = await desiredOverlay.run({
-      title: t('dialogs.desiredPrice.rejectingTitle'),
-      consoleTag: '[降价请求拒绝]',
-      pollFn: (jobId) => notificationsApi.getSyncProgress(jobId),
-      actionFn: (jobId) =>
-        notificationsApi.desiredPriceDecide(props.itemId, {
-          action: 'reject',
-          account_id: props.accountId || null,
-          progress_job_id: jobId,
-        }),
-    })
-    if (res?.skipped) {
-      ElMessage.warning(
-        t('dialogs.desiredPrice.skippedMessage', { reason: res.skipped_reason || t('dialogs.desiredPrice.alreadyProcessed') }),
-      )
+    if (Number(res?.pending_count || 0) > 0) {
+      await loadDetail()
     } else {
-      ElMessage.success(t('dialogs.desiredPrice.rejectedMessage'))
+      emit('update:modelValue', false)
+      resetState()
     }
-    browserOpened.value = false
-    emit('decided', {
-      item_id: props.itemId,
-      account_id: props.accountId || null,
-      action: 'reject',
-      skipped: !!res?.skipped,
-      state: res?.state,
-    })
-    emit('update:modelValue', false)
-    resetState()
   } catch (e) {
-    ElMessage.error(e?.response?.data?.detail || e?.message || t('dialogs.desiredPrice.rejectFailed'))
+    ElMessage.error(
+      e?.response?.data?.detail || e?.message
+      || t(accept ? 'dialogs.desiredPrice.acceptFailed' : 'dialogs.desiredPrice.rejectFailed'),
+    )
   } finally {
-    rejecting.value = false
+    acting.value = ''
   }
 }
 
@@ -508,7 +450,6 @@ watch(
   color: var(--el-color-danger);
 }
 .discount-text {
-  margin-left: 8px;
   color: var(--el-color-warning);
   font-size: 12px;
 }
@@ -524,16 +465,10 @@ watch(
   font-weight: 600;
   color: var(--el-text-color-primary);
 }
-.offer-meta {
-  margin-top: 4px;
-}
 .buyer-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 12px;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
+  gap: 8px;
 }
 .buyer-meta {
   display: flex;
@@ -552,20 +487,12 @@ watch(
   flex-wrap: wrap;
   align-items: center;
 }
-.buyer-id {
-  color: var(--el-text-color-placeholder);
-}
 .rating-icon {
   color: var(--el-color-warning);
   vertical-align: -2px;
 }
 .other-offers :deep(.el-table__cell) {
   vertical-align: middle;
-}
-.muted {
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-  margin-left: 4px;
 }
 .dialog-footer {
   display: flex;

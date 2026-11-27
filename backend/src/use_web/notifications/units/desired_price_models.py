@@ -21,6 +21,8 @@ class DesiredPriceDecideRequest(PydanticModel):
 
     action: str
     account_id: Optional[int] = None
+    #: 处理哪一条（多个买家同时请求时必传），= 详情 offers[].key
+    offer_key: Optional[str] = None
     progress_job_id: Optional[str] = None
 
 

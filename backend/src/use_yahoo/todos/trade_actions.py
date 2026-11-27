@@ -183,11 +183,49 @@ async def _merge_app_ship_state(account_id: int, item_id: str, data: Dict[str, A
     data["app"] = app
 
 
+def _trade_shipped_location(todo_id: int) -> Tuple[str, Optional[int]]:
+    """同一笔交易任一待办行上、发货时写下的発送場所 ``(场所, 发货时刻)``；没有则 ``("", None)``。
+
+    一笔雅虎交易常有好几条待办（発送依頼 + 取引メッセージ…），各行的 ``detail_json`` 各存各的，
+    而发货只写进点了发货的那一行。从别的行打开处理面板刷新时，只看本行就拿不到，交易页又回到
+    第一项（日本郵便是「郵便局の窓口」）。所以按 账号 + 商品ID 找带 ``shipped_location_at`` 的那份
+    ——只有发货那一刻写的才带这个标记，刷新时从页面回读出来的不算数。已软删的行也算
+    （発送通知后发货那一行就软删了）。"""
+    db = DatabaseManager()
+    rows = db.execute_query(
+        "SELECT [account_id], [item_id] FROM [todo_items] WHERE [id]=?", (int(todo_id),)
+    ) or []
+    if not rows or not rows[0] or not rows[0][1]:
+        return "", None
+    siblings = db.execute_query(
+        "SELECT [detail_json] FROM [todo_items] WHERE [platform]='yahoo' "
+        "AND [account_id]=? AND [item_id]=? AND [detail_json] IS NOT NULL",
+        (rows[0][0], rows[0][1]),
+    ) or []
+    best: Tuple[str, Optional[int]] = ("", None)
+    for (raw,) in siblings:
+        try:
+            data = json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        loc = str(data.get("shipped_location") or "").strip()
+        at = data.get("shipped_location_at")
+        if loc and isinstance(at, (int, float)) and (best[1] is None or at > best[1]):
+            best = (loc, int(at))
+    return best
+
+
 def _shipped_location(todo_id: int) -> str:
     """发码时选的発送場所（详情缓存里的 ``shipped_location``）。
 
     雅虎交易页不记这个选择，重开就回到第一项（见 ``fetch_ship_state``），所以只能本地记。
+    先找同一交易发货时写下的那份（见 ``_trade_shipped_location``）；
     没记过的旧缓存：码已发行时缓存的 ``ship_form.location`` 就是当时的选择，拿来兜底。"""
+    loc, _ = _trade_shipped_location(int(todo_id))
+    if loc:
+        return loc
     cached = get_cached_yahoo_todo_detail(int(todo_id))
     if not cached.get("cached"):
         return ""
@@ -201,10 +239,15 @@ async def fetch_yahoo_todo_detail(todo_id: int) -> Dict[str, Any]:
     """打开雅虎交易页读详情（含发货表单可选项），并写入缓存。"""
     aid, item_id = _resolve_yahoo_todo(todo_id)
     shipped_location = _shipped_location(int(todo_id))
+    shipped_at = _trade_shipped_location(int(todo_id))[1]
     data = await fetch_ship_state(aid, item_id=item_id, shipped_location=shipped_location)
     form = data.get("ship_form") or {}
-    if not form.get("pending"):
-        data["shipped_location"] = shipped_location or form.get("location") or ""
+    # 不能把页面回读的场所当成 shipped_location 写回：没切回去时它就是第一项（郵便局の窓口），
+    # 写回去之后这个错值就再也纠正不了
+    if not form.get("pending") and shipped_location:
+        data["shipped_location"] = shipped_location
+        if shipped_at is not None:
+            data["shipped_location_at"] = shipped_at
     await _merge_app_ship_state(aid, item_id, data)
     data["todo_id"] = int(todo_id)
     data["cached"] = False
@@ -349,6 +392,8 @@ async def ship_yahoo_todo(
         state["todo_id"] = int(todo_id)
         # 雅虎不记发码时选的発送場所，之后重抓详情要靠这一条把页面切回去
         state["shipped_location"] = (result.get("filled") or {}).get("location") or ""
+        # 标记「这是发货时写的」，同一交易的其他待办行据此认它（见 _trade_shipped_location）
+        state["shipped_location_at"] = int(time.time() * 1000)
         _cache_detail(int(todo_id), state)
     _persist_code_image(int(todo_id), item_id, result.get("code_image_url"))
     return result

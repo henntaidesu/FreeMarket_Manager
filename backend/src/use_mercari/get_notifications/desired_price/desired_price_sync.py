@@ -30,6 +30,7 @@ from .desired_price_capture import (
     extract_item_summary,
     extract_primary_offer,
 )
+from .desired_price_state import load_decided, summarize
 
 log = logging.getLogger(__name__)
 
@@ -49,7 +50,6 @@ _UPSERT_COLS = (
     "item_photo",
     "item_price",
     "item_status",
-    "state",
     "create_time",
     "expire_time",
     "raw_json",
@@ -71,8 +71,6 @@ def _normalize_row(
     )
     item_info = item_info or {}
 
-    state = "NOTIFIED" if primary.get("offered_price") is not None else None
-
     return {
         "account_id": int(account_id),
         "item_id": str(item_id).strip(),
@@ -88,7 +86,6 @@ def _normalize_row(
         "item_photo": item_info.get("item_photo"),
         "item_price": item_info.get("item_price"),
         "item_status": item_info.get("item_status"),
-        "state": state,
         "create_time": primary.get("create_time"),
         "expire_time": primary.get("expire_time"),
         "raw_json": json.dumps(desired_price_body, ensure_ascii=False),
@@ -108,33 +105,30 @@ def _upsert_row(
     if notification_id is not None:
         cols.append("notification_id")
         row["notification_id"] = int(notification_id)
+    pre = db.execute_query(
+        "SELECT [decided_offers_json], [state] FROM [desired_price_offers] "
+        "WHERE [account_id] = ? AND [item_id] = ? LIMIT 1",
+        (row["account_id"], row["item_id"]),
+    )
+    # 状态按请求逐条现算（见 desired_price_state）：已处理过的那几条保留结论,
+    # 之后新来的请求不在其中,回到待处理——不再是「整件商品一旦终态就永远终态」
+    decided = load_decided(pre[0][0]) if pre else {}
+    prev_state = str(pre[0][1] or "").strip().upper() if pre else None
+    body = json.loads(row.get("raw_json") or "{}")
+    row.update(summarize(build_offer_list(body), decided, fallback_state=prev_state))
+    cols += ["state", "pending_count"]
     cols_sql = ", ".join(f"[{c}]" for c in cols)
     placeholders = ", ".join(["?"] * len(cols))
-    # account_id / item_id 是冲突列,不可在 DO UPDATE 里覆盖
-    # state 若已是 ACCEPTED/REJECTED 不能被新一次 sync 重置回 NOTIFIED
-    state_assign = (
-        "[state] = CASE WHEN [desired_price_offers].[state] "
-        "IN ('ACCEPTED','REJECTED','EXPIRED') "
-        "THEN [desired_price_offers].[state] ELSE excluded.[state] END"
+    # account_id / item_id 是冲突列,不可在 DO UPDATE 里覆盖; decided_offers_json 只由处理动作写
+    update_assigns = ", ".join(
+        f"[{c}] = excluded.[{c}]" for c in cols if c not in ("account_id", "item_id")
     )
-    other_assigns = ", ".join(
-        f"[{c}] = excluded.[{c}]"
-        for c in cols
-        if c not in ("account_id", "item_id", "state")
-    )
-    update_assigns = state_assign + (", " + other_assigns if other_assigns else "")
     sql = (
         f"INSERT INTO [desired_price_offers] ({cols_sql}) "
         f"VALUES ({placeholders}) "
         f"ON CONFLICT([account_id], [item_id]) DO UPDATE SET {update_assigns}"
     )
-    params = tuple(row.get(c) for c in cols)
-    pre = db.execute_query(
-        "SELECT 1 FROM [desired_price_offers] "
-        "WHERE [account_id] = ? AND [item_id] = ? LIMIT 1",
-        (row["account_id"], row["item_id"]),
-    )
-    db.execute_update(sql, params)
+    db.execute_update(sql, tuple(row.get(c) for c in cols))
     return "updated" if pre else "inserted"
 
 

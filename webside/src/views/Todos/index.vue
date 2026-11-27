@@ -253,7 +253,7 @@
         <el-table-column :label="t('todos.colTitleMessage')" min-width="320" align="left" header-align="center">
           <template #default="{ row }">
             <div v-if="row.title" class="cell-title">{{ row.title }}</div>
-            <div v-if="row.source === 'price_offer' && row.price" class="cell-title">{{ t('notifications.priceDownRequest') }}: ¥{{ row.price }}</div>
+            <div v-if="row.source === 'price_offer'" class="cell-title">{{ priceOfferSummary(row) }}</div>
             <div v-if="row.item_id" class="cell-itemid">
               <el-link :href="itemUrlOf(row)" target="_blank" type="primary" underline="never">
                 {{ row.item_id }}
@@ -402,6 +402,9 @@
                 >{{ shipRemainingText(row) }}</el-tag>
                 <el-tag v-if="row.ship_qr_scanned_at" size="small" type="info" effect="plain">
                   {{ t('todos.scanned') }}
+                </el-tag>
+                <el-tag v-if="row.source === 'price_offer'" size="small" type="warning" effect="plain">
+                  {{ priceOfferSummary(row) }}
                 </el-tag>
                 <el-tag v-if="row.is_delete" size="small" type="success" effect="plain">
                   {{ t('todos.done') }}

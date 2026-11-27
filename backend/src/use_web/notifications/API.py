@@ -265,6 +265,7 @@ async def _desired_price_decide_endpoint(
             item_id=item_id,
             account_id=req.account_id,
             action=act,
+            offer_key=(req.offer_key or "").strip() or None,
             progress_job_id=jid,
         )
     except DesiredPriceAlreadyDecidedError as exc:

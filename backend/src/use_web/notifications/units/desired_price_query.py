@@ -5,6 +5,11 @@ import json
 from typing import Any, Dict, List, Optional
 
 from ....db_manage.database import DatabaseManager
+from ....use_mercari.get_notifications.desired_price.desired_price_capture import build_offer_list
+from ....use_mercari.get_notifications.desired_price.desired_price_state import (
+    annotate_offers,
+    load_decided,
+)
 
 _DETAIL_COLS = (
     "id",
@@ -29,6 +34,8 @@ _DETAIL_COLS = (
     "raw_json",
     "raw_item_json",
     "synced_at",
+    "decided_offers_json",
+    "pending_count",
 )
 
 
@@ -47,27 +54,11 @@ def _row_to_dict(row: tuple) -> Dict[str, Any]:
     d = dict(zip(_DETAIL_COLS, row))
     raw = _safe_json_loads(d.get("raw_json"))
     d["raw"] = raw
-    # 整理 offers 列表给前端展示
-    offers: List[Dict[str, Any]] = []
-    if isinstance(raw, dict):
-        for item in raw.get("aggregatedDesiredPrices") or []:
-            if not isinstance(item, dict):
-                continue
-            buyer = item.get("buyer") if isinstance(item.get("buyer"), dict) else {}
-            offers.append(
-                {
-                    "name": item.get("name"),
-                    "type": item.get("type"),
-                    "price": item.get("price"),
-                    "create_time": item.get("createTime"),
-                    "expire_time": item.get("expireTime"),
-                    "buyer_id": buyer.get("userId"),
-                    "buyer_username": buyer.get("username"),
-                    "buyer_photo": buyer.get("profileImageUri"),
-                    "buyer_score": buyer.get("score"),
-                    "buyer_reviews_count": buyer.get("reviewsCount"),
-                }
-            )
+    # 每个买家一条，各带 key / status（PENDING / ACCEPTED / REJECTED / EXPIRED），弹窗逐条处理
+    offers = annotate_offers(
+        build_offer_list(raw) if isinstance(raw, dict) else [],
+        load_decided(d.pop("decided_offers_json", None)),
+    )
     d["offers"] = offers
     return d
 
