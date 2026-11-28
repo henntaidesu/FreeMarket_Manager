@@ -13,6 +13,17 @@ from .....web_drive.core.paths import mercari_todo_key
 from ..todos_models import CameraFrameRequest, ChangeShippingMethodRequest, ConfirmShippingSelectionRequest, SendMessageReactionRequest, SendTransactionMessageRequest, SubmitBuyerReceiptRequest, SubmitTransactionReviewRequest, TransactionActionRequest
 from .detail import _validate_job_id
 
+#: 发货向导里能换的配送方式（「其他」是自行发货，没有后续发货流程，不走向导）
+_WIZARD_METHOD_CATEGORIES = ("post", "yamato")
+
+
+def normalize_method_category(value: Optional[str]) -> str:
+    """向导带来的配送方式类别：空 = 不换；不认识的直接 400，别带着它去点煤炉页面。"""
+    cat = str(value or "").strip()
+    if cat and cat not in _WIZARD_METHOD_CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"不支持的配送方式类别：{cat}")
+    return cat
+
 log = logging.getLogger(__name__)
 
 
@@ -104,16 +115,24 @@ async def confirm_shipping_selection_endpoint(
     if not aid:
         raise HTTPException(status_code=400, detail="待办事项缺少 account_id")
     jid = _validate_job_id(req.progress_job_id)
+    category = normalize_method_category(req.method_category)
+
+    async def _run() -> Dict[str, Any]:
+        # 向导里选了别的配送方式：先在煤炉上换掉，再按新方式选尺寸 / 发货地
+        if category:
+            await confirm_change_shipping_method(
+                int(todo_id), method_category=category, progress_job_id=jid
+            )
+        return await confirm_shipping_selection(
+            int(todo_id), req.class_text, req.facility,
+            scan_qr=bool(req.scan_qr),
+            generate_code=bool(req.generate_code),
+            progress_job_id=jid,
+        )
+
     try:
         return await run_mercari_serial_async(
-            queue_key_for_mercari_account(aid),
-            lambda: confirm_shipping_selection(
-                int(todo_id), req.class_text, req.facility,
-                scan_qr=bool(req.scan_qr),
-                generate_code=bool(req.generate_code),
-                progress_job_id=jid,
-            ),
-            suppress_idle_close=True,
+            queue_key_for_mercari_account(aid), _run, suppress_idle_close=True
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -341,6 +360,7 @@ async def close_detail_browser(account_id: int) -> Dict[str, Any]:
         TODOS_RETURN_ADDRESS,
         TODOS_SEND_MESSAGE,
         TODOS_SEND_REACTION,
+        TODOS_SHIP_CODE,
         TODOS_SHIPPING_QR,
     )
 
@@ -353,6 +373,7 @@ async def close_detail_browser(account_id: int) -> Dict[str, Any]:
         (TODOS_SEND_MESSAGE, "发送回复"),
         (TODOS_SEND_REACTION, "发送反应表情"),
         (TODOS_CHANGE_SHIPPING, "更改发送"),
+        (TODOS_SHIP_CODE, "发货出码"),
     )
     for task_type, what in _BROWSER_HOLDING_TASKS:
         if has_active_account_task(task_type, aid):

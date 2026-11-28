@@ -661,6 +661,10 @@ export default defineComponent({
     // 煤炉只列要选发货地的尺寸（投函型要现场拍专用箱，不是能在后台跑完的任务）；
     // 雅虎发码后尺寸定死，只剩発送場所一页
     const shipFlowChange = ref(false)
+    // 「修改」里点了别的配送方式（post / yamato）：直接进发货向导按那家的尺寸表走，
+    // 换配送方式这一步随最后的提交（或扫码任务）先在煤炉上执行。空 = 沿用交易当前的
+    const shipFlowMethodCategory = ref('')
+    const METHOD_CATEGORY_NAMES = { post: 'ゆうゆうメルカリ便', yamato: 'らくらくメルカリ便' }
     // 关联订单的出库明细（发货成功后逐条出库）
     const shipOutbound = reactive({ loading: false, lines: [] })
 
@@ -1136,7 +1140,8 @@ export default defineComponent({
     const shippingPickedIdx = ref(null)
     const shippingFacility = ref(null) // 'post_office' | 'lawson' | null
     const shippingOptions = computed(() => {
-      const method = (detail.shipping_method_name || '').trim()
+      const method =
+        METHOD_CATEGORY_NAMES[shipFlowMethodCategory.value] || (detail.shipping_method_name || '').trim()
       const all = SHIPPING_OPTIONS[method]
         ? SHIPPING_OPTIONS[method]
         // 未识别配送方式时把两套都列出来，让用户自行判断
@@ -1935,21 +1940,6 @@ export default defineComponent({
       return isWaitShippingKind && !!row.qr_image_path
     }
 
-    // 某行变成「已打包」后：默认列表（未勾选「已打包」筛选）不展示已打包数据，
-    // 将其从当前列表移除并同步递减总数；勾选「已打包」筛选时保留（该视图本就只看已打包）。
-    // 表格看 list、卡片看 cardRows，两个窗口各自摘一次（只会命中当前视图那个）。
-    function dropPackedRowFromList(id) {
-      if (filters.value.packed_only) return
-      let dropped = false
-      for (const rows of [list, cardRows, navRows]) {
-        const idx = rows.value.findIndex((r) => r && r.id === id)
-        if (idx === -1) continue
-        rows.value.splice(idx, 1)
-        dropped = true
-      }
-      if (dropped) total.value = Math.max(0, total.value - 1)
-    }
-
     function displayTs(ms) {
       const n = Number(ms || 0)
       if (!n) return '-'
@@ -2671,9 +2661,12 @@ export default defineComponent({
      *  （按 shipping_method_name 区分）。用户选好尺寸/发货地点「确认并发送」后，才由
      *  confirmShippingSelection 一并打开浏览器、点「商品サイズと発送場所を選択する」
      *  入口并完成后续选择。 */
-    function openShipFlow({ target, withPackaging, scanOnly = false, virtual = false, change = false }) {
+    function openShipFlow({
+      target, withPackaging, scanOnly = false, virtual = false, change = false, methodCategory = '',
+    }) {
       shipFlowTarget.value = target
       shipFlowChange.value = change
+      shipFlowMethodCategory.value = methodCategory
       shipFlowHasPackaging.value = withPackaging
       shipFlowScanOnly.value = scanOnly
       // 先于 shippingPickedIdx 归零：尺寸列表随它收窄，旧的下标会指到另一档尺寸上
@@ -2861,7 +2854,6 @@ export default defineComponent({
       // ゆうパケットポスト系（auto_finish_no_facility）は完了後そのまま二维码扫描ページへ（用摄像头）。
       // それ以外（需选发货地的方法）は完了後、返回交易ページ发行 发送用 QR/条形码（无需摄像头）。
       const wantScanQr = !!opt.auto_finish_no_facility
-      const wantGenerateCode = needsFacility
 
       if (shipFlowChange.value) {
         await submitChangeShipping({ class_text: classText, facility: shippingFacility.value })
@@ -2876,67 +2868,48 @@ export default defineComponent({
       // 都交给后台任务。这里**不发任何请求**，点完立刻进拍照——原来那个几十秒的全屏转圈
       // 就是卡在 confirmShippingSelection 上，现在没有了。
       if (wantScanQr) {
-        qrPendingSelection.value = { class_text: classText, facility: null }
+        qrPendingSelection.value = {
+          class_text: classText,
+          facility: null,
+          method_category: shipFlowMethodCategory.value || null,
+        }
         // 就在同一个向导里翻到拍照页，不关闭再开一个弹窗
         startQrScanMirror(currentRow.value.id)
         return
       }
 
+      // 需选发货地的方法（到店出示二维码）：选尺寸 → 发货地 → 完了 → 发行发货码 整条交给后台任务，
+      // 前台不再全屏转圈等浏览器跑完。进度 / 失败原因到 /#/tasks 看。
+      const row = currentRow.value
       shippingConfirmLoading.value = true
       try {
-        const result = await txOverlay.run({
-          title: t('todos.confirmingShipping'),
-          consoleTag: '[发货确认]',
-          pollFn: (jobId) => todosApi.getSyncProgress(jobId),
-          actionFn: (jobId) =>
-            todosApi.confirmShippingSelection(currentRow.value.id, {
-              class_text: classText,
-              facility: needsFacility ? shippingFacility.value : null,
-              scan_qr: wantScanQr,
-              generate_code: wantGenerateCode,
-              progress_job_id: jobId,
-            }),
-        })
-        // 出码分支：后端在没抓到二维码时也会返回 success（qr_image_url 为空）——
-        // 此时实际未出码、未打包，不能提示成功，更不能记包材/出库
-        if (wantGenerateCode && !result?.qr_image_url) {
-          ElMessage.error(t('todos.shipCodeMissing'))
-          return
-        }
-        ElMessage.success(t('todos.shippingDone', { classText }))
-        shippingDialogVisible.value = false
-        // 「确认并发送」成功 → 把所选包材同步到关联订单，并把关联物品自动出库到 /#/orders。
-        // 同一待办只记一次（修改发货方式后重新出码不重复记账，与 submitQrShot 同一 Set）
-        if (!shipCommittedIds.has(currentRow.value.id)) {
-          shipCommittedIds.add(currentRow.value.id)
+        const task = await submitTask(
+          TASK_TYPES.TODOS_SHIP_CODE,
+          {
+            todo_id: row.id,
+            account_id: row.account_id ?? null,
+            item_id: row.item_id || '',
+            class_text: classText,
+            facility: shippingFacility.value,
+            method_category: shipFlowMethodCategory.value || null,
+          },
+          { t },
+        )
+        if (!task) return
+        // 包材消耗与出库照记（与扫码入队同一口径）；Set 防止重复提交时重复记账
+        if (!shipCommittedIds.has(row.id)) {
+          shipCommittedIds.add(row.id)
           try {
             await commitShipPackagingAndOutbound()
           } catch {
-            // 记账整体失败：撤销防重标记（下次重试还能记），并显式提醒手动处理
-            shipCommittedIds.delete(currentRow.value.id)
+            shipCommittedIds.delete(row.id)
             ElMessage.warning(t('todos.packagingSyncFailed'))
           }
         }
-        if (wantScanQr && result?.qr_scanner_open) {
-          // 后端已自动打开 /qr_code_scanner → 开镜像弹窗轮询视频帧
-          startQrScanMirror(currentRow.value.id)
-        } else if (wantGenerateCode) {
-          // 发行后已保存发货二维码：直接显示，并刷新本地缓存（不再开浏览器）
-          if (result?.qr_image_url) {
-            detail.qr_image_url = result.qr_image_url
-            // 二维码返回后该行即「已打包」（qr_image_path 即本地二维码路径）。默认列表不展示
-            // 已打包数据，故实时把当前行从列表移除（勾选「已打包」筛选时保留并标记）。
-            if (currentRow.value) {
-              currentRow.value.qr_image_path = result.qr_image_url
-              dropPackedRowFromList(currentRow.value.id)
-            }
-          }
-          loadDetailCache()
-        } else {
-          loadDetailCache()
-        }
-      } catch (e) {
-        if (!e?.response) ElMessage.error(e?.message || t('todos.submitFailed'))
+        shippingDialogVisible.value = false
+        // 必须放在记账之后：onDetailDialogClose 会清空 currentRow / invMatch
+        detailDialogVisible.value = false
+        load({ inPlace: true })
       } finally {
         shippingConfirmLoading.value = false
       }
@@ -3044,6 +3017,7 @@ export default defineComponent({
           photo: qrShot.value,
           class_text: sel.class_text || null,
           facility: sel.facility || null,
+          method_category: sel.method_category || null,
           virtual: shipFlowVirtual.value,
           client_token: newClientToken(),
         })
@@ -3311,6 +3285,39 @@ export default defineComponent({
       // 仅打开本地图片选择框，不开浏览器
       changeMethodPicked.value = ''
       changeMethodVisible.value = true
+    }
+
+    // 交易当前配送方式的类别（post / yamato），认不出为空
+    const currentMethodCategory = computed(() => {
+      const m = String(detail.shipping_method_name || '')
+      if (m.includes('ゆうゆう')) return 'post'
+      if (m.includes('らくらく')) return 'yamato'
+      return ''
+    })
+
+    /** 点中配送方式卡片：邮局 / yamato 直接进发货向导（包材 → 尺寸 → 发货地 / 拍照），
+     *  换方式随最后的提交一起执行，不再先单独变更、回来再点一次「发货」。
+     *  「其他」是自行发货，没有后续向导，确认后照旧单独变更。 */
+    async function onPickChangeMethod(c) {
+      if (!c?.category || changeMethodLoading.value) return
+      if (c.category === 'other') {
+        changeMethodPicked.value = c.category
+        try {
+          await ElMessageBox.confirm(
+            t('todos.changeMethodOtherConfirm'),
+            t('todos.changeMethodTitle'),
+            { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') },
+          )
+        } catch {
+          return
+        }
+        await onConfirmChangeShippingMethod()
+        return
+      }
+      changeMethodVisible.value = false
+      const category = c.category === currentMethodCategory.value ? '' : c.category
+      resetQrScanState()
+      openShipFlow({ target: 'mercari', withPackaging: isWaitShipping.value, methodCategory: category })
     }
 
     async function onConfirmChangeShippingMethod() {
@@ -3889,6 +3896,7 @@ export default defineComponent({
       onClickShippingChangeMethod,
       onReviseShippingAfterQr,
       onClickChangeShipping,
+      onPickChangeMethod,
       changeShippingSubmitting,
       shipFlowChange,
       changeMethodVisible,

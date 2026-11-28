@@ -34,6 +34,8 @@ class ConfirmShippingSelectionRequest(PydanticModel):
     scan_qr: bool = False
     # 需选发货地的方法（ゆうパケットポスト系以外）：完了後、返回交易ページ发行 发送用 QR/条形码（无需摄像头）
     generate_code: bool = False
+    #: 发货前先换配送方式（post=ゆうゆう / yamato=らくらく）；空 = 沿用交易当前的
+    method_category: Optional[str] = Field(default=None, max_length=20)
     progress_job_id: Optional[str] = None
 
 
@@ -74,6 +76,8 @@ class ShippingQrPhotoRequest(PydanticModel):
     class_text: Optional[str] = Field(default=None, max_length=120)
     #: 发货地点；ゆうパケットポスト系为 None（页面自动选好）
     facility: Optional[str] = Field(default=None, max_length=40)
+    #: 发货前先换配送方式（post / yamato），由任务在选尺寸之前完成；空 = 不换
+    method_category: Optional[str] = Field(default=None, max_length=20)
     #: 喂图等待煤炉读出的超时秒数；留空用默认 90s
     timeout_sec: Optional[float] = None
     #: 虚拟发货：平台侧照常跑完（这条链路一步不改），但本地不收尾——行转「虚拟发货」

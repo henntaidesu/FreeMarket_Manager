@@ -992,10 +992,20 @@
 .manual-ob-filter-cell {
   min-width: 0;
 }
+/* App.vue 全局把 .el-input/.el-select 钉在 180px !important，
+   不加 !important 的话控件停在 180px，网格右侧留出大片空白 */
 .manual-ob-filter-cell :deep(.el-input),
 .manual-ob-filter-cell :deep(.el-select),
-.manual-ob-filter-cell :deep(.el-cascader) {
-  width: 100%;
+.manual-ob-filter-cell :deep(.el-cascader),
+.manual-ob-line-row :deep(.el-select),
+.manual-ob-line-row :deep(.el-input),
+.manual-ob-order-no :deep(.el-input) {
+  width: 100% !important;
+}
+@media (max-width: 768px) {
+  .manual-ob-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 .manual-ob-filter-cell--checkbox {
   display: flex;

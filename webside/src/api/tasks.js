@@ -33,6 +33,7 @@ export const TASK_TYPES = {
   TODOS_SEND_MESSAGE: 'todos.send_message',
   TODOS_SEND_REACTION: 'todos.send_reaction',
   TODOS_CHANGE_SHIPPING: 'todos.change_shipping',
+  TODOS_SHIP_CODE: 'todos.ship_code',
   ACCOUNT_SYNC_DATA: 'account.sync_data',
   SYSTEM_SHIPPING_DURATION: 'system.shipping_duration',
   SYSTEM_PROFILE_HIDE: 'system.profile_hide'

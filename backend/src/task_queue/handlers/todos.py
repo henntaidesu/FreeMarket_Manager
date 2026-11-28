@@ -418,6 +418,7 @@ async def _run_mercari_shipping_qr(
         SCAN_TIMEOUT_SEC,
     )
     from ...use_mercari.get_to_du_list.transaction_detail import (
+        confirm_change_shipping_method,
         confirm_shipping_selection,
         deliver_qr_result_until_scanned,
         feed_photo_until_scanned,
@@ -438,6 +439,7 @@ async def _run_mercari_shipping_qr(
     class_text = str(payload.get("class_text") or "").strip()
     facility = payload.get("facility") or None
     qr_text = str(payload.get("qr_text") or "").strip()
+    method_category = str(payload.get("method_category") or "").strip()
     if not class_text:
         # 没有尺寸就没法开浏览器进扫描页，直接喂图只会绕一圈报「浏览器未打开」。
         # 明确失败，提示走完整重扫流程（前端会弹尺寸选择框）。
@@ -451,6 +453,11 @@ async def _run_mercari_shipping_qr(
     async def _run() -> Dict[str, Any]:
         async with progress.bridge(task["id"], "sync") as jid:
             selection = None
+            if method_category:
+                # 向导里换了配送方式：先在煤炉上换掉，下面才能按新方式的尺寸表选
+                await confirm_change_shipping_method(
+                    todo_id, method_category=method_category, progress_job_id=jid
+                )
             if class_text:
                 # 开浏览器 → 选尺寸 → 完了する → 自动点「2次元コードを読み取る」进扫描页。
                 # 这一步原来在前台阻塞几十秒（全屏转圈），现在挪到这里。

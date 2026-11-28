@@ -1791,7 +1791,7 @@
             :key="c.category"
             class="method-choice"
             :class="{ 'is-active': changeMethodPicked === c.category }"
-            @click="changeMethodPicked = c.category"
+            @click="onPickChangeMethod(c)"
           >
             <img class="method-choice-img" :src="facilityImageUrl(c.img)" :alt="c.label" />
             <span class="method-choice-label">{{ c.label }}</span>
@@ -1800,14 +1800,6 @@
       </div>
       <template #footer>
         <el-button @click="changeMethodVisible = false">{{ t('common.cancel') }}</el-button>
-        <el-button
-          type="primary"
-          :loading="changeMethodLoading"
-          :disabled="!changeMethodPicked"
-          @click="onConfirmChangeShippingMethod"
-        >
-          {{ t('todos.changeMethodSubmit') }}
-        </el-button>
       </template>
     </el-dialog>
 

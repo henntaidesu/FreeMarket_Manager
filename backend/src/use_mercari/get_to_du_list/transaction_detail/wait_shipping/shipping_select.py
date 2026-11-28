@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import Any, Dict, Optional
+from .....db_manage.database import DatabaseManager
 from .....db_manage.models.todos.todo_item import TodoItemModel
 from .....web_drive.core.mitm_session import mitm_automation_browser
 from .....web_drive.core.paths import mercari_todo_key
@@ -41,6 +43,69 @@ _GENERATE_SHIP_CODE_TEXTS = (
     "発送用QRコードを発行",
     "発送用バーコードを発行",
 )
+
+# 改版后的らくらく交易页（选完尺寸/发货地回来）多了一个必填的「商品名」（input[name=itemName]，
+# 前端 zod 校验 min(1)、无上限）。留空时点「発送用…を発行」只会被表单校验挡下，什么也不发生
+# （m11980906575 实测）。按该商品煤炉カテゴリー的最后一级（如「グラフィックボード・グラボ・ビデオカード」）
+# 预填，取自 on_sale_items.category_name（售出后行被软删，照样读）；没有分类时回落到商品标题
+# （剥括号标签、按词截到 _ITEM_NAME_MAX_LEN）。
+_ITEM_NAME_INPUT = 'input[name="itemName"]'
+_ITEM_NAME_MAX_LEN = 30
+_ITEM_NAME_TAG_RE = re.compile(r"[【＜<\[［《〈][^】＞>\]］》〉]*[】＞>\]］》〉]")
+
+# 发码失败时读表单上的报错文案，带进任务错误里（不然只看得到「没拿到码」）
+_FORM_ERRORS_JS = """
+() => {
+  const root = document.querySelector('[data-testid="pre-shipping-slip-registration"]') || document.body;
+  const out = [];
+  for (const el of root.querySelectorAll('.merFormInputMessages, [role=alert], [aria-invalid=true]')) {
+    const t = (el.innerText || el.getAttribute('aria-label') || el.getAttribute('name') || '').trim();
+    if (t && !out.includes(t)) out.push(t);
+  }
+  return out.slice(0, 10);
+}
+"""
+
+
+def _suggest_item_name(title: str) -> str:
+    words = re.sub(r"\s+", " ", _ITEM_NAME_TAG_RE.sub(" ", title or "")).strip().split(" ")
+    while len(words) > 1 and len(" ".join(words)) > _ITEM_NAME_MAX_LEN:
+        words.pop()
+    return " ".join(words)[:_ITEM_NAME_MAX_LEN].strip()
+
+
+def _leaf_category_name(item_id: str) -> str:
+    """该商品在煤炉上的カテゴリー最后一级名称；查不到返回空串。"""
+    try:
+        rows = DatabaseManager().execute_query(
+            "SELECT [category_name] FROM [on_sale_items] WHERE [item_id]=? "
+            "AND COALESCE([category_name], '') <> '' ORDER BY [id] DESC LIMIT 1",
+            (item_id,),
+        )
+    except Exception as exc:
+        log.warning("[shipping] 读取商品分类失败 item_id=%s: %s", item_id, exc)
+        return ""
+    return str(rows[0][0] or "").strip() if rows else ""
+
+
+async def _fill_item_name(page: Any, item_id: str, title: str) -> None:
+    """交易页有空的「商品名」输入框就填上（分类最后一级，回落商品标题）；已有值（煤炉回填 / 上次填过）不动。"""
+    inp = page.locator(_ITEM_NAME_INPUT)
+    try:
+        if await inp.count() == 0 or not await inp.first.is_visible():
+            return
+        if (await inp.first.input_value()).strip():
+            return
+    except Exception as exc:
+        log.debug("[shipping] 读取商品名输入框失败: %s", exc)
+        return
+    name = _leaf_category_name(item_id) or _suggest_item_name(title)
+    if not name:
+        raise RuntimeError("交易页要求填写「商品名」，但查不到该商品的分类与标题")
+    await inp.first.fill(name)
+    await inp.first.blur()
+    log.info("[shipping] 已填写商品名「%s」", name)
+
 
 _VISIBLE_BUTTONS_JS = """
 () => {
@@ -171,6 +236,7 @@ async def _click_generate_ship_code(
     *,
     item_id: str,
     todo_id: int,
+    item_name: str = "",
     report,
 ) -> Optional[str]:
     """完了後、交易ページに戻り「発送用2次元コード/QRコード/バーコードを発行」を押す。
@@ -184,6 +250,8 @@ async def _click_generate_ship_code(
     except Exception:
         log.warning("[shipping] 完了後に交易ページへ戻る遷移を観測できず (URL: %s)", page.url)
     await asyncio.sleep(0.6)
+
+    await _fill_item_name(page, item_id, item_name)
 
     report("generate_ship_code", "正在生成发送用二维码…")
     clicked = False
@@ -211,6 +279,17 @@ async def _click_generate_ship_code(
     if path:
         # 同时抓取「発送場所」信息（标题/说明/图标），合并进缓存供前端展示
         _persist_shipping_facility(int(todo_id), await _extract_shipping_facility(page))
+    elif clicked:
+        # 点了发行却没出码：多半是表单校验没过，把页面上的报错带出来
+        try:
+            errors = await page.evaluate(_FORM_ERRORS_JS)
+        except Exception:
+            errors = []
+        raise RuntimeError(
+            "已点击「発送用…を発行」但页面未出码"
+            + (f"；页面提示：{' / '.join(errors)}" if errors else "")
+            + f"；当前按钮：{await _visible_button_texts(page)}"
+        )
     return path
 
 async def confirm_shipping_selection(
@@ -364,7 +443,8 @@ async def confirm_shipping_selection(
             )
         elif generate_code:
             qr_image_url = await _click_generate_ship_code(
-                page, item_id=item_id, todo_id=int(todo_id), report=report,
+                page, item_id=item_id, todo_id=int(todo_id),
+                item_name=str(getattr(todo, "item_name", "") or ""), report=report,
             )
             ship_code_generated = qr_image_url is not None
 

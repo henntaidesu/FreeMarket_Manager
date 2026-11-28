@@ -1065,7 +1065,7 @@
         style="margin-bottom: 12px"
       />
       <el-form label-width="90px">
-        <el-form-item :label="t('orders.orderNumber')">
+        <el-form-item :label="t('orders.orderNumber')" class="manual-ob-order-no">
           <el-input :model-value="manualOutboundForm.order_no" disabled />
         </el-form-item>
         <el-form-item :label="t('orders.itemFilter')" class="manual-outbound-inv-filter-item">
@@ -1242,7 +1242,7 @@
         style="margin-bottom: 12px"
       />
       <el-form label-width="90px">
-        <el-form-item :label="t('orders.orderNumber')">
+        <el-form-item :label="t('orders.orderNumber')" class="manual-ob-order-no">
           <el-input :model-value="bindOutboundContext.order_no" disabled />
         </el-form-item>
         <el-form-item :label="t('orders.itemFilter')" class="manual-outbound-inv-filter-item">

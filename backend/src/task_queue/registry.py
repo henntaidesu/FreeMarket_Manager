@@ -35,6 +35,7 @@ TODOS_RETURN_ADDRESS = "todos.return_address"
 TODOS_SEND_MESSAGE = "todos.send_message"
 TODOS_SEND_REACTION = "todos.send_reaction"
 TODOS_CHANGE_SHIPPING = "todos.change_shipping"
+TODOS_SHIP_CODE = "todos.ship_code"
 ACCOUNT_SYNC_DATA = "account.sync_data"
 SYSTEM_SHIPPING_DURATION = "system.shipping_duration"
 SYSTEM_BARCODE_HISTORY = "system.barcode_history"
@@ -239,6 +240,16 @@ _SPECS: Dict[str, TaskSpec] = {
         + "）："
         + (str(p.get("item_id") or "").strip() or f"待办#{p.get('todo_id')}"),
     ),
+    TODOS_SHIP_CODE: TaskSpec(
+        task_type=TODOS_SHIP_CODE,
+        label_zh="发货出码",
+        # 同一笔待办同时只允许排一条：发行配送コード不可撤回，重复排队等于重复发行
+        dedup_key=lambda p: f"{TODOS_SHIP_CODE}:{p.get('todo_id')}",
+        title=lambda p: "发货出码（"
+        + " / ".join(x for x in (str(p.get("class_text") or ""), str(p.get("facility") or "")) if x)
+        + "）："
+        + (str(p.get("item_id") or "").strip() or f"待办#{p.get('todo_id')}"),
+    ),
     TODOS_BULK_CONFIRM_SHIP: TaskSpec(
         task_type=TODOS_BULK_CONFIRM_SHIP,
         label_zh="一键发送",
@@ -358,6 +369,9 @@ def resolve_handler(task_type: str) -> Callable:
     if tt == TODOS_CHANGE_SHIPPING:
         from .handlers.todos_change_shipping import handle_change_shipping
         return handle_change_shipping
+    if tt == TODOS_SHIP_CODE:
+        from .handlers.todos_ship_code import handle_ship_code
+        return handle_ship_code
     if tt == ACCOUNT_SYNC_DATA:
         from .handlers.account import handle_sync_account_data
         return handle_sync_account_data

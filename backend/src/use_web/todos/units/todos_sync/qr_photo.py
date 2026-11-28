@@ -407,6 +407,9 @@ async def submit_shipping_qr_photo(
     if req.virtual:
         virtual_ship.ensure_size_allowed(req.class_text)
 
+    from .actions import normalize_method_category
+
+    method_category = normalize_method_category(req.method_category)
     stored = validate_and_store(req.photo)
 
     payload = {
@@ -420,6 +423,8 @@ async def submit_shipping_qr_photo(
     if req.class_text:
         payload["class_text"] = str(req.class_text)
         payload["facility"] = req.facility or None
+    if method_category:
+        payload["method_category"] = method_category
     if req.timeout_sec:
         payload["timeout_sec"] = float(req.timeout_sec)
 
